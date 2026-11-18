@@ -1,5 +1,5 @@
 /**
- * What migration 667 must say, read as text (no database runs under vitest;
+ * What migration 669 must say, read as text (no database runs under vitest;
  * src/test/migration-sql.ts explains the idiom). These follow the usage gate
  * forward: a later migration that redefines check_ai_usage_limit without the
  * demo branch fails here.
@@ -9,9 +9,9 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { MIGRATIONS_DIR, latestDefinition, migrationsInOrder } from '@/test/migration-sql'
 
-const sql = readFileSync(path.join(MIGRATIONS_DIR, '667_demo_workspace.sql'), 'utf8')
+const sql = readFileSync(path.join(MIGRATIONS_DIR, '669_demo_workspace.sql'), 'utf8')
 
-/** One of 667's own (lower-case) function definitions, whole. */
+/** One of 669's own (lower-case) function definitions, whole. */
 function own(fn: string): string {
   const start = sql.indexOf(`create or replace function public.${fn}(`)
   if (start === -1) return ''
@@ -28,7 +28,7 @@ function latestGate(): string {
   return ''
 }
 
-describe('migration 667: the flag', () => {
+describe('migration 669: the flag', () => {
   it('is a table only the service role touches, not a column an owner can set', () => {
     expect(sql).toMatch(/create table if not exists public\.demo_workspace/)
     expect(sql).toMatch(/alter table public\.demo_workspace enable row level security/)
@@ -74,7 +74,7 @@ describe('check_ai_usage_limit: the demo branch', () => {
   })
 })
 
-describe('migration 667: the ledger', () => {
+describe('migration 669: the ledger', () => {
   it('adds a visitor’s cost after each usage row, and never fails that insert', () => {
     expect(sql).toMatch(/create trigger demo_workspace_meter_usage\s+after insert on public\.ai_usage_logs/)
     const fn = own('demo_workspace_meter_usage')
@@ -85,7 +85,7 @@ describe('migration 667: the ledger', () => {
   })
 })
 
-describe('migration 667: nothing real is linked to a demo workspace', () => {
+describe('migration 669: nothing real is linked to a demo workspace', () => {
   it('refuses on every table that links an account or a shared record to a workspace', () => {
     // The shared-email table's name is put together here: the share fence's
     // tripwire (email-share/__tests__/agent-fence.test.ts) reads this folder.

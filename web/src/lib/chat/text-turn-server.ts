@@ -87,7 +87,7 @@ export const SMS_REPLY_MAX_TEXTS = 10
 
 /** Why a text was not sent. */
 export type TextSendSkip =
-  /** The workspace is a demo workspace (migration 667): no texts are sent for it. */
+  /** The workspace is a demo workspace (migration 669): no texts are sent for it. */
   | 'demo_workspace'
   | 'quiet'
   | 'already_sent'

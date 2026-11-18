@@ -12,7 +12,7 @@ export interface UsageLimitInfo {
   reason?: string
   /** Is the user on a paid plan? Determines whether we show "upgrade" vs "wait for reset". */
   isPaidPlan?: boolean
-  /** The refusal's own plain words, when it sent some (a demo workspace's, migration 667). */
+  /** The refusal's own plain words, when it sent some (a demo workspace's, migration 669). */
   message?: string
   /** ISO timestamp of when the user's counters reset. Used on paid plans. */
   usageResetDate?: string | null

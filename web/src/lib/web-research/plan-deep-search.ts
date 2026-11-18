@@ -303,7 +303,7 @@ export async function planWebSearch(
  * unattributed job) is Exa, as before.
  */
 export async function deepSearchForUser(userId: string | null | undefined, workspaceId: string | null): Promise<DeepSearchFn> {
-  // Off in a demo workspace (migration 667), whoever pays: refused before the plan is even read.
+  // Off in a demo workspace (migration 669), whoever pays: refused before the plan is even read.
   await refuseInDemoWorkspace(getServiceClient, workspaceId, 'web_search')
   if (!userId) return deepSearch
   if (!(await chatgptPlanFor(userId, { attempts: 2, failClosed: true }))) return deepSearch

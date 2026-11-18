@@ -1,5 +1,5 @@
 -- ============================================================
--- 667: demo workspaces
+-- 669: demo workspaces
 -- ============================================================
 -- A workspace an admin flags as a demo: made-up data that invited outsiders
 -- may look around in, without a seat of their own, at a bounded cost, with
@@ -57,7 +57,7 @@ create table if not exists public.demo_workspace (
 );
 
 comment on table public.demo_workspace is
-  'Workspaces flagged as demos (667): made-up data, members and guests need no seat, AI spend shared under ai_cap_usd per month, nothing real may be connected. Service role only.';
+  'Workspaces flagged as demos (669): made-up data, members and guests need no seat, AI spend shared under ai_cap_usd per month, nothing real may be connected. Service role only.';
 
 alter table public.demo_workspace enable row level security;
 revoke all on table public.demo_workspace from public, anon, authenticated;
@@ -191,7 +191,7 @@ BEGIN
         END IF;
     END IF;
 
-    -- Demo workspace seat (migration 667): no override, not staff, no live
+    -- Demo workspace seat (migration 669): no override, not staff, no live
     -- subscription, no ChatGPT plan, but a member or guest of a workspace an
     -- admin flagged as a demo (public.demo_workspace). Allowed while that
     -- workspace's shared spend this month is under its cap; every such

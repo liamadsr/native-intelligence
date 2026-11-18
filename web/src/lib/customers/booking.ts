@@ -281,7 +281,7 @@ export async function textBookingCustomer(
   try {
     const to = booking.customerPhone
     if (!to || !isNanpNumber(to) || (await unlinkedNumberOptedOut(supabase, to))) return false
-    // A demo workspace sends no texts (and can hold no business number: migration 667).
+    // A demo workspace sends no texts (and can hold no business number: migration 669).
     if (await isDemoWorkspace(supabase, booking.workspaceId)) return false
     const number = await activeBusinessNumber(supabase, booking.workspaceId)
     if (!number) return false

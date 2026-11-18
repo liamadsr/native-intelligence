@@ -66,7 +66,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     const call = await getCall(auth.supabase, id)
     if (!call) return notFound()
     if (call.status !== 'live' || call.channel_archived) return callEnded()
-    // A demo workspace's calls are held, not recorded or transcribed (migration 667).
+    // A demo workspace's calls are held, not recorded or transcribed (migration 669).
     if (on && (await isDemoWorkspace(auth.supabase, call.workspace_id))) {
       return apiError(DEMO_OFF.call_notes, { status: 403, code: 'DEMO_WORKSPACE' })
     }

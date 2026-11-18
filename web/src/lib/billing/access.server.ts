@@ -41,7 +41,7 @@ export async function getBillingAccess(
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-/** The demo workspace the caller visits as a member or guest (migration 667's
+/** The demo workspace the caller visits as a member or guest (migration 669's
  *  my_demo_seat_workspace(), callable with the user's own client). Any failure
  *  reads as none: the trial wall then shows, never a free pass. */
 async function demoSeatWorkspace(supabase: SupabaseClient): Promise<string | null> {

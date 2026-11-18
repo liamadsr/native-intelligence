@@ -12,7 +12,7 @@
  *   - scripts/demo-workspace.ts, for DEV or a local install (README
  *     screenshots), which also makes the demo person;
  *   - ./reset.ts, the nightly reset of a workspace an admin flagged as a demo
- *     (migration 667), on any database including production's.
+ *     (migration 669), on any database including production's.
  * Neither decides here whether a workspace may be written: each checks first.
  *
  * Seeding adds only what is missing. Calendar events move to the current week

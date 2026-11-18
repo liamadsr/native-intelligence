@@ -6,7 +6,7 @@ import { setActiveWorkspace } from '@/lib/workspace-join/add-member'
 /**
  * GET /account/enter-demo: put a demo workspace's visitor back in it.
  *
- * A visitor has no seat of their own (migration 667, lib/billing/access.ts):
+ * A visitor has no seat of their own (migration 669, lib/billing/access.ts):
  * the dashboard and onboarding gates send them here whenever the active
  * workspace is any other one (a lost cookie falls back to the oldest
  * membership, which is the workspace their signup made). Sets the

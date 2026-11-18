@@ -1,5 +1,5 @@
 /**
- * The trial wall for a demo workspace's visitor (migration 667): in without a
+ * The trial wall for a demo workspace's visitor (migration 669): in without a
  * seat, but only as state 'demo' with the one workspace named, and never
  * ahead of a seat or a ChatGPT plan of their own.
  */

@@ -108,7 +108,7 @@ const missingFunction = (error: { code?: string } | null) => error?.code === 'PG
  */
 export async function queueJob<K extends AnyJobKind>(ctx: StudioContext, kind: K, input: AnyJobIO[K]['input'] & Record<string, unknown>, videoId: string | null = null): Promise<JobRow> {
   const video = videoId && isUuid(videoId) ? videoId : null
-  // A demo workspace (migration 667) runs only the jobs that stay on our own
+  // A demo workspace (migration 669) runs only the jobs that stay on our own
   // worker; everything that may call a paid provider is off.
   if (!DEMO_LOCAL_JOB_KINDS.has(kind) && (await isDemoWorkspace(ctx.supabase, ctx.workspaceId))) {
     throw new StudioError(DEMO_OFF.studio_generation, 403, 'DEMO_WORKSPACE')

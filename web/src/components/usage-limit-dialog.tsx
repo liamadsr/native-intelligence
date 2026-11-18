@@ -38,7 +38,7 @@ export function UsageLimitDialog() {
   const open = info !== null
   const isPaid = info?.isPaidPlan === true
   // A refusal that says what happened in its own words (a demo workspace's
-  // budget, migration 667): nothing to buy, nothing to upgrade.
+  // budget, migration 669): nothing to buy, nothing to upgrade.
   const ownWords = !!info?.message
 
   async function buyCredits(amountUsd: number) {

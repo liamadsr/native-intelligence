@@ -6,7 +6,7 @@
  * and on demand from the admin route (/api/admin/demo-workspace/reset), on any
  * database, production's included.
  *
- * THE GUARD: only a workspace with a row in `demo_workspace` (migration 667)
+ * THE GUARD: only a workspace with a row in `demo_workspace` (migration 669)
  * is ever touched. The row is read here, from the table, on every run, never
  * from a cache or from what the caller says: every other workspace is refused
  * before a single delete. Each delete below is also fenced on that one

@@ -5,7 +5,7 @@ import { listDemoWorkspaces, resetDemoWorkspace, type DemoResetReport } from '@/
 
 /**
  * GET /api/cron/demo-workspace-reset: nightly, every workspace flagged as a
- * demo (migration 667) is put back: what visitors added goes, the made-up
+ * demo (migration 669) is put back: what visitors added goes, the made-up
  * Fernhill Studio content is written again, members stay
  * (src/lib/demo/reset.ts, which refuses any workspace that is not flagged).
  *

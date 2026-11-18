@@ -41,7 +41,7 @@ export default async function AccountLayout({
   const workspaceId = await getCurrentWorkspaceIdSafe()
 
   // A demo workspace's visitor has no seat: they are in only inside that
-  // workspace (migration 667). Anywhere else (their own signup workspace, with
+  // workspace (migration 669). Anywhere else (their own signup workspace, with
   // its onboarding wizard and paid research step) sends them back to it. The
   // route handler sets the cookie, which a layout cannot.
   if (access.state === 'demo' && workspaceId && workspaceId !== access.demoWorkspaceId) {

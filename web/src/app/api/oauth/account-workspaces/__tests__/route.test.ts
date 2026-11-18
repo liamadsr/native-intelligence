@@ -1,6 +1,6 @@
 /**
  * PUT /api/oauth/account-workspaces: a connected mail or calendar account is
- * never shared into a demo workspace (migration 667). The route refuses before
+ * never shared into a demo workspace (migration 669). The route refuses before
  * it writes anything, and reads the database's own refusal the same way.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'

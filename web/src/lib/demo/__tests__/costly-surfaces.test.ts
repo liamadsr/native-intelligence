@@ -1,6 +1,6 @@
 /**
  * The surfaces that bill a third party per use are off in a demo workspace
- * (migration 667). One test per gate that can be reached without a database:
+ * (migration 669). One test per gate that can be reached without a database:
  * each proves the paid call is never made, and that an ordinary workspace is
  * unchanged.
  */

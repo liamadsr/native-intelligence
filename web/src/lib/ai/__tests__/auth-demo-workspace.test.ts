@@ -1,5 +1,5 @@
 /**
- * checkUsageLimits for a demo workspace's visitor (migration 667).
+ * checkUsageLimits for a demo workspace's visitor (migration 669).
  *
  * The SQL gate answers per person: 'demo_workspace' while the workspace's
  * shared spend is under its cap, 'demo_cost_limit_exceeded' once it is not.

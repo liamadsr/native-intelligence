@@ -119,7 +119,7 @@ export function createWorkspaceMeter(svc: SupabaseClient, who: { workspaceId: st
 
   return {
     async run({ feature, estimateUsd, exec }) {
-      // A demo workspace (migration 667) buys no search data at all. An
+      // A demo workspace (migration 669) buys no search data at all. An
       // unreadable flag refuses too: nothing is spent on "could not tell".
       if (await isDemoWorkspace(svc, who.workspaceId).catch(() => true)) {
         throw new SeoError('SPEND_LIMIT_REACHED', DEMO_OFF.seo)

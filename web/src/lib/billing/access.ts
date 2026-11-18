@@ -16,7 +16,7 @@ import { isAdminEmail } from '@/lib/admin-emails'
  *     `exhausted` plan still lets them in (AI just stops and says so); a
  *     subscription, when present, wins.
  *   • a place in a DEMO workspace: a member or guest of a workspace an admin
- *     flagged in `demo_workspace` (migration 667, src/lib/demo/demo-mode.ts).
+ *     flagged in `demo_workspace` (migration 669, src/lib/demo/demo-mode.ts).
  *     No seat is granted: it lasts while they are a member there, the app
  *     keeps them inside that workspace (the dashboard layout sends them back
  *     to it), and their AI use shares that workspace's small monthly cap.
@@ -97,7 +97,7 @@ export function classifyBillingAccess(
     invitedByAdmin: boolean
     email?: string | null
     chatgptPlan?: ChatGptPlanStatus
-    /** my_demo_seat_workspace() for this person (migration 667), when they have one. */
+    /** my_demo_seat_workspace() for this person (migration 669), when they have one. */
     demoWorkspaceId?: string | null
   },
   now: Date = new Date(),
@@ -109,7 +109,7 @@ export function classifyBillingAccess(
     return { ...access, state: 'chatgpt', allowed: true }
   }
   // Last, a demo workspace's visitor (the same order as check_ai_usage_limit,
-  // migration 667): in, but only inside that workspace.
+  // migration 669): in, but only inside that workspace.
   if (!access.allowed && opts.demoWorkspaceId) {
     return { ...access, state: 'demo', allowed: true, demoWorkspaceId: opts.demoWorkspaceId }
   }

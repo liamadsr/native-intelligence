@@ -75,7 +75,7 @@ export async function PUT(request: NextRequest) {
     }
   }
 
-  // A real account is never shared into a demo workspace (migration 667; the
+  // A real account is never shared into a demo workspace (migration 669; the
   // database refuses it too, whichever path asks).
   for (const id of workspace_ids) {
     let demo: boolean

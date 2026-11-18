@@ -402,7 +402,7 @@ export async function preflight(
 ): Promise<PreflightResult> {
   await deps.guardUsage(args.userId)
 
-  // A demo workspace (migration 667) runs no prospecting: parked like a spent
+  // A demo workspace (migration 669) runs no prospecting: parked like a spent
   // month, with its own reason. An unreadable flag parks too.
   if (await isDemoWorkspace(deps.supabase, args.workspaceId).catch(() => true)) {
     return { parked: { status: 'budget_exhausted', error: DEMO_WORKSPACE_ERROR } }

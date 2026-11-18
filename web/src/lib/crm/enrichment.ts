@@ -835,7 +835,7 @@ export async function enrichContact(
 ): Promise<EnrichmentOutcome> {
   const supabase = getServiceClient()
 
-  // Off in a demo workspace (migration 667): nothing is looked up, nothing is written.
+  // Off in a demo workspace (migration 669): nothing is looked up, nothing is written.
   if (await isDemoWorkspace(supabase, args.workspaceId)) return { status: 'skipped', applied: [], reason: 'demo_workspace' }
 
   const { data: row, error: loadErr } = await supabase

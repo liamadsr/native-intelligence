@@ -1829,7 +1829,7 @@ Three things that catch people out:
 ### The demo workspace
 
 One workspace of made-up data ("Fernhill Studio") that outsiders are invited
-into. Migration 667 and `web/src/lib/demo/` hold it; nothing here is on until
+into. Migration 669 and `web/src/lib/demo/` hold it; nothing here is on until
 a workspace is flagged.
 
 - **Flag it** (the owner, in the database container, as for a migration). The

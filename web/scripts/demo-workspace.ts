@@ -39,7 +39,7 @@
  *
  * The content itself lives in src/lib/demo/seed.ts. A demo workspace that
  * outsiders are invited into (production's included) is a different thing:
- * an admin flags it in `demo_workspace` (migration 667) and the app's own
+ * an admin flags it in `demo_workspace` (migration 669) and the app's own
  * nightly job puts it back (src/lib/demo/reset.ts). This script is not how
  * that workspace is seeded, and it still refuses production.
  *

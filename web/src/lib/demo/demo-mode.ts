@@ -1,5 +1,5 @@
 /**
- * Demo workspaces (migration 667): a workspace an admin flagged in
+ * Demo workspaces (migration 669): a workspace an admin flagged in
  * `demo_workspace`, where invited outsiders look around made-up data.
  *
  * What the flag changes, and where each part lives:
@@ -24,7 +24,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 /** Where the gates send a visitor whose active workspace is not their demo workspace. */
 export const DEMO_ENTER_PATH = '/account/enter-demo'
 
-/** check_ai_usage_limit's reasons for a demo workspace's visitor (migration 667). */
+/** check_ai_usage_limit's reasons for a demo workspace's visitor (migration 669). */
 export const DEMO_USAGE_REASON = 'demo_workspace'
 export const DEMO_CAP_REACHED_REASON = 'demo_cost_limit_exceeded'
 /** Added by checkUsageLimits: the visitor asked for AI outside the demo workspace. */
@@ -121,7 +121,7 @@ export async function isDemoWorkspace(client: DemoClient, workspaceId: string | 
   const supabase = typeof client === 'function' ? client() : client
   const { data, error } = await supabase.rpc('is_demo_workspace', { p_workspace_id: workspaceId })
   if (error) {
-    // Before migration 667 there are no demo workspaces at all.
+    // Before migration 669 there are no demo workspaces at all.
     if (error.code === 'PGRST202' || error.code === '42883') {
       cache.set(workspaceId, { demo: false, at: Date.now() })
       return false

@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
     }
   }
   // A demo workspace's visitors never bring more people in (each one shares
-  // the workspace's budget, migration 667): only its owner and admins invite,
+  // the workspace's budget, migration 669): only its owner and admins invite,
   // whatever the "members can invite" switch says.
   if (!managing) {
     try {

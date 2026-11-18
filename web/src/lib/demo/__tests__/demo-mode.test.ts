@@ -52,7 +52,7 @@ describe('isDemoWorkspace', () => {
     expect(await isDemoWorkspace(supabase, 'w')).toBe(true)
   })
 
-  it('before migration 667 (no such function) nothing is a demo', async () => {
+  it('before migration 669 (no such function) nothing is a demo', async () => {
     const { supabase } = client(() => ({ data: null, error: { message: 'not found', code: 'PGRST202' } }))
     expect(await isDemoWorkspace(supabase, 'w')).toBe(false)
   })

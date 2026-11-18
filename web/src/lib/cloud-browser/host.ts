@@ -185,7 +185,7 @@ async function startRelay(backend: CloudBrowserBackend, sandbox: BackendSandbox,
  * already runs is used as it is.
  */
 export async function ensureCloudBrowser(ref: CloudBrowserRef, opts: { signal?: AbortSignal; background?: boolean } = {}): Promise<EnsuredCloudBrowser> {
-  // Off in a demo workspace (migration 667): no sandbox is started or woken.
+  // Off in a demo workspace (migration 669): no sandbox is started or woken.
   await refuseInDemoWorkspace(getServiceClient, ref.workspaceId, 'cloud_browser')
   const started = performance.now()
   const deadline = Date.now() + CLOUD_BROWSER.ensureTimeoutMs

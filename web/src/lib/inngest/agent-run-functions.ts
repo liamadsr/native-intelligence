@@ -109,7 +109,7 @@ export const agentRunExecute = inngest.createFunction(
       // whichever way it was started (Start, an answered pre-check, a flow).
       // Refused before the pre-check, which is a model call too.
       const freeTier = !failure && (await chatgptPlanFor(built.run.triggeredBy))
-      // A demo workspace (migration 667) never starts a coding sandbox.
+      // A demo workspace (migration 669) never starts a coding sandbox.
       const demo = !failure && !freeTier && (await isDemoWorkspace(supabase, workspace_id))
       return {
         actionId: built.run.actionId,

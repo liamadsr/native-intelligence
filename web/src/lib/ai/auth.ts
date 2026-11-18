@@ -153,7 +153,7 @@ export async function checkUsageLimits(
     | UsageLimitRow
     | undefined
 
-  // A demo workspace's visitor (migration 667) is covered inside that
+  // A demo workspace's visitor (migration 669) is covered inside that
   // workspace only. The SQL gate is per person and cannot see where the
   // request is, so that half is checked here: a request that NAMES another
   // workspace (cookie or x-workspace-id) is refused. One that names none (an
