@@ -15,16 +15,20 @@ const h = vi.hoisted(() => ({
   rpcs: [] as string[],
   tableReads: 0,
   role: 'member' as string | null,
+  /** The read that never answers: 'table', or an rpc's name. */
+  stall: '' as string,
 }))
 vi.mock('@/lib/supabase/service', () => ({
   getServiceClient: () => ({
     from: () => {
       h.tableReads++
-      const q = { select: () => q, limit: async () => ({ data: h.demoError ? null : h.demoRows, error: h.demoError }) }
+      const never = new Promise<never>(() => undefined)
+      const q = { select: () => q, limit: () => (h.stall === 'table' ? never : Promise.resolve({ data: h.demoError ? null : h.demoRows, error: h.demoError })) }
       return q
     },
     rpc: async (name: string) => {
       h.rpcs.push(name)
+      if (h.stall === name) return new Promise<never>(() => undefined)
       if (name === 'demo_seat_workspace') return { data: h.seat, error: null }
       if (name === 'check_ai_usage_limit') return { data: [{ allowed: true, reason: h.reason }], error: null }
       return { data: null, error: { message: `unexpected rpc ${name}` } }
@@ -34,7 +38,7 @@ vi.mock('@/lib/supabase/service', () => ({
 vi.mock('@/lib/seo/dataforseo', () => ({ isDataforseoConfigured: () => true }))
 vi.mock('@/lib/seo/membership', () => ({ memberRole: async () => 'member', isFullMemberRole: (r: string | null) => r === 'member' || r === 'owner' || r === 'admin' }))
 
-import { clearDemoWorkspaceCache, demoVisitorWorkspace, setDemoVisitorLookupForTests, setDemoWorkspaceLookupForTests } from '../demo-mode'
+import { clearDemoWorkspaceCache, demoVisitorWorkspace, READ_TIMEOUT_MS, setDemoVisitorLookupForTests, setDemoWorkspaceLookupForTests } from '../demo-mode'
 import { getUserWorkspaces, resolveCreateWorkspace, resolveEntityWorkspace } from '@/lib/ai/tools/_shared'
 import { completeOAuthConnect } from '@/lib/oauth/complete-connect'
 
@@ -98,6 +102,23 @@ describe('demoVisitorWorkspace (the real read)', () => {
     clearDemoWorkspaceCache()
     h.demoError = { message: 'timeout' }
     expect(await demoVisitorWorkspace('u1')).toBeNull()
+  })
+
+  it.each(['table', 'demo_seat_workspace', 'check_ai_usage_limit'])('a %s read that never answers is given up on: nobody is a visitor meanwhile, and nobody waits on it', async (stalled) => {
+    vi.useFakeTimers()
+    try {
+      h.stall = stalled
+      const asked = [demoVisitorWorkspace('u1'), demoVisitorWorkspace('u1'), demoVisitorWorkspace('u2')]
+      await vi.advanceTimersByTimeAsync(READ_TIMEOUT_MS)
+      expect(await Promise.all(asked)).toEqual([null, null, null])
+      // It heals: ten seconds on, the read is made again and answers.
+      h.stall = ''
+      await vi.advanceTimersByTimeAsync(10_001)
+      expect(await demoVisitorWorkspace('u1')).toBe(DEMO)
+    } finally {
+      h.stall = ''
+      vi.useRealTimers()
+    }
   })
 })
 
