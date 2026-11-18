@@ -91,6 +91,9 @@ export async function POST(req: Request) {
         .maybeSingle()
       workspaceId = membership?.workspace_id ?? null
     }
+    // The check above read the workspace the request names; the ask runs in
+    // the one resolved here. A demo workspace's visitor is covered there only.
+    if (workspaceId) await checkUsageLimits(user.id, undefined, { chatgptPlan: true, workspaceId })
     if (!workspaceId) {
       return Response.json({ error: 'No workspace found' }, { status: 400 })
     }

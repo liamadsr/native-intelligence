@@ -304,7 +304,7 @@ export async function planWebSearch(
  */
 export async function deepSearchForUser(userId: string | null | undefined, workspaceId: string | null): Promise<DeepSearchFn> {
   // Off in a demo workspace (migration 669), whoever pays: refused before the plan is even read.
-  await refuseInDemoWorkspace(getServiceClient, workspaceId, 'web_search')
+  await refuseInDemoWorkspace(workspaceId, 'web_search')
   if (!userId) return deepSearch
   if (!(await chatgptPlanFor(userId, { attempts: 2, failClosed: true }))) return deepSearch
   return (args) => planDeepSearch(args, { userId, workspaceId })

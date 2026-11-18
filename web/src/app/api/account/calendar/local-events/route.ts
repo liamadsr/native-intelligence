@@ -1,4 +1,5 @@
 import { requireWorkspace } from '@/lib/api-auth'
+import { isDemoWorkspace } from '@/lib/demo/demo-mode'
 import { badRequest, serverError } from '@/lib/api-errors'
 import { NextResponse, type NextRequest } from 'next/server'
 
@@ -35,6 +36,12 @@ export async function POST(request: NextRequest) {
   if (!Array.isArray(events)) {
     return badRequest('events array is required')
   }
+
+  // A demo workspace takes no calendar from a person's Mac (migration 669):
+  // the upsert below re-homes a person's events to the active workspace
+  // (one row per person and event), and the demo's nightly reset would then
+  // delete them.
+  if (await isDemoWorkspace(workspaceId)) return NextResponse.json({ synced: 0 })
 
   // Delete-and-replace: remove existing events in the synced time range
   // so cancelled/moved events don't linger in the cache.

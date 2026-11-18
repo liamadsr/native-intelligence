@@ -41,6 +41,7 @@
  * it opens only on the reviewer's full approve (review.ts).
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { demoVisitorOutside } from '@/lib/demo/demo-mode'
 import { inngest } from '@/lib/inngest/client'
 import { RUN_AGENT_DISPATCH_ENABLED } from '@/lib/flows/run-agent'
 import { ensureWorkForAgentRun } from '@/lib/work/agent-run-mirror'
@@ -227,6 +228,8 @@ async function attempt(
   const row = Array.isArray(limit) ? (limit[0] as { allowed?: boolean; reason?: string } | undefined) : undefined
   if (!row) return no('usage_check_failed', 'no limit row')
   if (row.allowed !== true) return no('usage_limit', row.reason ?? 'plan limit')
+  // A demo workspace's visitor (migration 669) is covered in that workspace only.
+  if (await demoVisitorOutside(row, workspaceId)) return no('usage_limit', 'demo_workspace_only')
 
   // The pre-check, on the proposal itself: small, clear, a bug. It fails closed here.
   const task = typeof candidate.payload.task === 'string' ? candidate.payload.task : ''

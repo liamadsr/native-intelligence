@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { requireAdmin, getAdminServiceClient } from '@/lib/admin'
+import { requireAdmin } from '@/lib/admin'
+import { getServiceClient } from '@/lib/supabase/service'
 import { DemoResetRefused, resetDemoWorkspace } from '@/lib/demo/reset'
 
 /**
@@ -26,7 +27,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'workspace_id is required' }, { status: 400 })
   }
 
-  const service = await getAdminServiceClient()
+  // This deployment's own database, as the nightly job and the reset's own
+  // helpers use: never the one the admin panel's environment switch points at.
+  const service = getServiceClient()
   try {
     const report = await resetDemoWorkspace(service, workspaceId)
     return NextResponse.json({ ok: report.seeded, report })

@@ -71,6 +71,18 @@ describe('checkUsageLimits: a demo workspace visitor', () => {
     await expect(checkUsageLimits('u1')).resolves.toMatchObject({ allowed: true })
   })
 
+  it('where the work really runs wins over what the request names', async () => {
+    gateAnswers({ allowed: true, reason: 'demo_workspace' })
+    // The request names the demo (a cookie), the job's session is in their own workspace: refused.
+    hoisted.currentWorkspace.mockResolvedValue(DEMO)
+    const { body } = await refusal(checkUsageLimits('u1', undefined, { workspaceId: OWN }))
+    expect(body.reason).toBe('demo_workspace_only')
+    // And the other way round: the request names another, the work runs in the demo.
+    hoisted.currentWorkspace.mockResolvedValue(OWN)
+    await expect(checkUsageLimits('u1', undefined, { workspaceId: DEMO })).resolves.toMatchObject({ allowed: true })
+    expect(hoisted.currentWorkspace).not.toHaveBeenCalled()
+  })
+
   it('says so in plain words once the workspace’s monthly cap is reached', async () => {
     gateAnswers({ allowed: false, reason: 'demo_cost_limit_exceeded', plan_name: 'Demo workspace' })
     const { status, body } = await refusal(checkUsageLimits('u1'))

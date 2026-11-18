@@ -25,7 +25,14 @@ export interface JoinSettingsView {
   }
 }
 
-export function joinSettingsView(settings: JoinSettings, role: string | null, user: User): JoinSettingsView {
+/**
+ * `demo`: the workspace is a demo workspace (migration 669). It is joined by
+ * an emailed invite from its owner or an admin only, so nobody is shown a
+ * join link there (the join itself refuses one, add-member.ts) and a member
+ * is offered no one to invite, whatever the stored switches say.
+ */
+export function joinSettingsView(stored: JoinSettings, role: string | null, user: User, demo = false): JoinSettingsView {
+  const settings: JoinSettings = demo ? { ...stored, membersCanInvite: false, link: null } : stored
   const claim = claimableDomain(user)
   const mayCopy = canCopyJoinLink(role, settings.membersCanInvite)
   const linkOn = settings.link?.enabled === true

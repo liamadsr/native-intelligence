@@ -18,6 +18,7 @@
  * the service client after checking the caller's role on their own session.
  */
 import { NextResponse, type NextRequest } from 'next/server'
+import { isDemoWorkspace } from '@/lib/demo/demo-mode'
 import { requireWorkspaceMember } from '@/lib/api-auth'
 import { badRequest, forbidden, serverError } from '@/lib/api-errors'
 import { getServiceClient } from '@/lib/admin'
@@ -38,7 +39,7 @@ export async function GET() {
   const { user, workspaceId, member } = auth
   try {
     const settings = await readJoinSettings(getServiceClient(), workspaceId)
-    return NextResponse.json(joinSettingsView(settings, member.role ?? null, user))
+    return NextResponse.json(joinSettingsView(settings, member.role ?? null, user, await isDemoWorkspace(workspaceId)))
   } catch (err) {
     console.error('[workspace-join] settings read failed:', err instanceof Error ? err.message : err)
     return serverError()
@@ -103,7 +104,7 @@ export async function PATCH(request: NextRequest) {
       await setJoinLinkEnabled(service, workspaceId, body.link_enabled, user.id)
     }
     const settings = await readJoinSettings(service, workspaceId)
-    return NextResponse.json(joinSettingsView(settings, member.role ?? null, user))
+    return NextResponse.json(joinSettingsView(settings, member.role ?? null, user, await isDemoWorkspace(workspaceId)))
   } catch (err) {
     console.error('[workspace-join] settings write failed:', err instanceof Error ? err.message : err)
     return serverError()

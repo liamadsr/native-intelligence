@@ -97,7 +97,7 @@ export async function POST(request: Request) {
       return Response.json({ ok: true, outcome: 'declined' })
     }
     // A call about a demo workspace is not answered: the voice layer bills by the minute.
-    if (await isDemoWorkspace(supabase, caller.workspaceId).catch(() => true)) {
+    if (await isDemoWorkspace(caller.workspaceId)) {
       const rejected = await rejectLiveCall(call.sessionId, DECLINE, { apiKey })
       console.info(`[calls-live] session=${call.sessionId} outcome=demo_workspace reject=${rejected.ok ? 'ok' : rejected.code ?? rejected.status}`)
       return Response.json({ ok: true, outcome: 'declined' })

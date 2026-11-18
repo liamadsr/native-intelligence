@@ -35,6 +35,7 @@
  * account it was connected to and how to remove the access.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { DEMO_OFF, isDemoWorkspace } from '@/lib/demo/demo-mode'
 import { appendHomeMessage } from '@/lib/chat/home-message-writer'
 import { SMS_CHANNEL } from '@/lib/chat/channel-turn'
 import { emailDomain, isWorkEmail } from '@/lib/auth/work-email'
@@ -132,6 +133,8 @@ export async function mintConnectLink(
   const asked = (args.capabilities ?? TEXT_CONNECT_DEFAULT[args.provider]).filter((c) => allowed.includes(c))
   const payload: OAuthConnectPayload = { provider: args.provider, capabilities: allowed.filter((c): c is OAuthCapability => asked.includes(c as OAuthCapability)) as OAuthCapability[] }
   if (payload.capabilities.length === 0) return { ok: false, error: 'nothing to connect' }
+  // No connect link is made (or texted) for a demo workspace (migration 669).
+  if (await isDemoWorkspace(args.workspaceId)) return { ok: false, error: DEMO_OFF.connector }
   return createOneTimeLink(supabase, {
     purpose: 'oauth_connect',
     userId: args.userId,

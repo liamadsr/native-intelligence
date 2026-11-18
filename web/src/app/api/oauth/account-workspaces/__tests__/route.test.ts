@@ -63,11 +63,11 @@ describe('PUT /api/oauth/account-workspaces', () => {
     expect(h.reconcile).not.toHaveBeenCalled()
   })
 
-  it('an unreadable flag is an error, never a share', async () => {
+  it('an unreadable flag does not stop an ordinary share (the database’s trigger still refuses a demo)', async () => {
     setDemoWorkspaceLookupForTests(() => { throw new Error('down') })
     const res = await put(['ws-real'])
-    expect(res.status).toBe(500)
-    expect(h.upsert).not.toHaveBeenCalled()
+    expect(res.status).toBe(200)
+    expect(h.upsert).toHaveBeenCalledOnce()
   })
 
   it('the database’s own refusal (the trigger) reads as the same answer', async () => {

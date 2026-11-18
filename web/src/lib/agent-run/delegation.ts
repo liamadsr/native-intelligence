@@ -34,6 +34,7 @@
  * OUTPUT is reviewed like any other work (needs_review, expects).
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { demoVisitorOutside } from '@/lib/demo/demo-mode'
 import type { HandleMessageStreamEvent } from 'eve/client'
 import { inngest } from '@/lib/inngest/client'
 import { ensureWorkForAgentRun, resolveMemberId } from '@/lib/work/agent-run-mirror'
@@ -434,7 +435,7 @@ export async function planDelegations(
       await refuse(req, routed.reason === 'teammate_cannot_draft' ? 'TEAMMATE_CANNOT_DRAFT' : 'NO_TEAMMATE_FOR_ROLE')
       continue
     }
-    if (usageChecked === null) usageChecked = await usageAllows(supabase, parent.triggered_by)
+    if (usageChecked === null) usageChecked = await usageAllows(supabase, parent.triggered_by, workspaceId)
     if (!usageChecked) {
       await refuse(req, 'USAGE_LIMIT', routed.teammate.id)
       continue
@@ -472,12 +473,14 @@ export async function planDelegations(
  * Opted in to the ChatGPT free tier: a child is a work run, and a work run
  * for a person on their own ChatGPT plan runs on it (run-work-spec-rebuild.ts).
  */
-async function usageAllows(supabase: SupabaseClient, userId: string | null): Promise<boolean> {
+async function usageAllows(supabase: SupabaseClient, userId: string | null, workspaceId: string): Promise<boolean> {
   if (!userId) return false
   try {
     const { data, error } = await supabase.rpc('check_ai_usage_limit', { p_user_id: userId, p_chatgpt_plan: true })
     if (error) return false
-    const row = Array.isArray(data) ? (data[0] as { allowed?: boolean } | undefined) : undefined
+    const row = Array.isArray(data) ? (data[0] as { allowed?: boolean; reason?: string | null } | undefined) : undefined
+    // A demo workspace's visitor (migration 669) is covered in that workspace only.
+    if (await demoVisitorOutside(row, workspaceId)) return false
     return row?.allowed === true
   } catch {
     return false

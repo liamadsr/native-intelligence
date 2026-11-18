@@ -36,22 +36,29 @@ describe('SEO data', () => {
     expect(exec).not.toHaveBeenCalled()
   })
 
-  it('an unreadable flag buys nothing either', async () => {
+  it('an unreadable flag changes nothing for a workspace that is not flagged: the lookup goes on to its ledger', async () => {
     setDemoWorkspaceLookupForTests(() => { throw new Error('down') })
     const exec = vi.fn()
-    await expect(createWorkspaceMeter(untouched, { workspaceId: 'ws-real', userId: 'u1' }).run({ feature: 'keywords' as never, estimateUsd: 0.01, exec })).rejects.toBeInstanceOf(SeoError)
-    expect(exec).not.toHaveBeenCalled()
+    // Past the gate the untouched client is used (the month's spend is read): that is the proof it was let through.
+    const err = await createWorkspaceMeter(untouched, { workspaceId: 'ws-real', userId: 'u1' }).run({ feature: 'keywords' as never, estimateUsd: 0.01, exec }).catch((e: unknown) => e)
+    expect((err as SeoError).code).toBe('INTERNAL_ERROR')
   })
 })
 
 describe('Studio', () => {
   const ctx = { supabase: untouched, workspaceId: DEMO, userId: 'u1' } as never
+  const elsewhere = { supabase: untouched, workspaceId: 'ws-real', userId: 'u1' } as never
 
   it('queues no job that may call a paid provider', async () => {
     for (const kind of ['narration', 'shot', 'music', 'revoice', 'sound-effect', 'ads-static', 'ads-reel', 'transcribe', 'voice-search']) {
       const err = await queueJob(ctx, kind as never, {} as never).catch((e: unknown) => e)
       expect(err, kind).toMatchObject({ message: DEMO_OFF.studio_generation, status: 403, code: 'DEMO_WORKSPACE' })
     }
+  })
+
+  it('an unreadable flag refuses nothing in a workspace that is not flagged', async () => {
+    setDemoWorkspaceLookupForTests(() => { throw new Error('down') })
+    await expect(queueJob(elsewhere, 'narration' as never, {} as never)).rejects.toThrow('the client was used')
   })
 
   it('still lets a file in and a render out (they go on to the queue)', async () => {
@@ -69,7 +76,9 @@ describe('web research for a workspace', () => {
     expect((err as Error).message).toBe(DEMO_OFF.web_search)
   })
 
-  it('is as before elsewhere', async () => {
+  it('is as before elsewhere, and when the flag cannot be read', async () => {
+    await expect(deepSearchForUser('u1', 'ws-real')).resolves.toBeTypeOf('function')
+    setDemoWorkspaceLookupForTests(() => { throw new Error('down') })
     await expect(deepSearchForUser('u1', 'ws-real')).resolves.toBeTypeOf('function')
   })
 })

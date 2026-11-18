@@ -79,7 +79,7 @@ export interface RunEngineDeps {
   /** Injected so the monthly window and every timestamp are deterministic. */
   now: () => Date
   /** `guardBackgroundUsage`. Throws NonRetriable when the user is over cap. */
-  guardUsage: (userId: string | null | undefined) => Promise<void>
+  guardUsage: (userId: string | null | undefined, workspaceId?: string | null) => Promise<void>
   /**
    * "Is this domain a live site?" for discovery's parked-domain gate — see
    * ./parked. Optional because only discovery probes; the engine falls back
@@ -400,11 +400,11 @@ export async function preflight(
   args: RunEngineArgs,
   icp: Icp,
 ): Promise<PreflightResult> {
-  await deps.guardUsage(args.userId)
+  await deps.guardUsage(args.userId, args.workspaceId)
 
   // A demo workspace (migration 669) runs no prospecting: parked like a spent
   // month, with its own reason. An unreadable flag parks too.
-  if (await isDemoWorkspace(deps.supabase, args.workspaceId).catch(() => true)) {
+  if (await isDemoWorkspace(args.workspaceId)) {
     return { parked: { status: 'budget_exhausted', error: DEMO_WORKSPACE_ERROR } }
   }
 

@@ -70,7 +70,7 @@ export async function textCustomer(
 ): Promise<DeliveryResult> {
   const to = normalizeE164(args.phone)
   if (!to) return { sent: false, reason: 'bad_phone' }
-  if (await isDemoWorkspace(supabase, args.workspaceId).catch(() => true)) return { sent: false, reason: 'demo_workspace' }
+  if (await isDemoWorkspace(args.workspaceId)) return { sent: false, reason: 'demo_workspace' }
   const from = await (deps.businessNumber ?? ((w) => businessNumberFor(supabase, w)))(args.workspaceId)
   if (!from) return { sent: false, reason: 'no_business_number' }
   try {

@@ -47,7 +47,7 @@ export const agentMemorySummarize = inngest.createFunction(
     const input = loaded.input
 
     // Opted in to the ChatGPT free tier: a free user's summary runs on their own plan.
-    const { chatgptPlan } = await guardBackgroundUsageOnPlan(input.userId)
+    const { chatgptPlan } = await guardBackgroundUsageOnPlan(input.userId, workspace_id)
 
     const summary: MemorySummary = await step.run('summarize', async () => {
       const result = await runUtilityTask({

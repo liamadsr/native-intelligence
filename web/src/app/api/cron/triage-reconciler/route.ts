@@ -280,7 +280,7 @@ async function workspaceLoopAllowed(
     if (owner?.user_id) userIds.add(owner.user_id as string)
   }
   for (const userId of userIds) {
-    if (await isUsageAllowed(supabase, userId)) return true
+    if (await isUsageAllowed(supabase, userId, workspaceId)) return true
   }
   return false
 }

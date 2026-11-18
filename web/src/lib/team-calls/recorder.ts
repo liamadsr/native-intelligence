@@ -31,6 +31,7 @@
  */
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { isDemoWorkspace } from '@/lib/demo/demo-mode'
 import { dmOtherMember } from '@/lib/team-chat/types'
 import { captureFeedSecretUsable } from '@/lib/capture-feed/auth'
 import { teamCallsConfig } from './livekit'
@@ -231,12 +232,63 @@ export async function recorderWork(
   if (offered.length === 0) return []
   const { data: calls, error: callsError } = await svc
     .from('team_call')
-    .select('id, peak_participants')
+    .select('id, peak_participants, workspace_id')
     .in(
       'id',
       offered.map((o) => o.callId),
     )
   if (callsError) throw new Error(`team calls: recorder work's calls read failed: ${callsError.message}`)
-  const peak = new Map(((calls ?? []) as Array<{ id: string; peak_participants: number | null }>).map((c) => [c.id, c.peak_participants ?? 0]))
-  return offered.filter((o) => (peak.get(o.callId) ?? 0) >= RECORDER_MIN_PEOPLE).slice(0, max)
+  const rows = (calls ?? []) as Array<{ id: string; peak_participants: number | null; workspace_id: string | null }>
+  const peak = new Map(rows.map((c) => [c.id, c.peak_participants ?? 0]))
+  const spent = await demoWorkspacesPastTheirDay(svc, rows)
+  const workspaceOf = new Map(rows.map((c) => [c.id, c.workspace_id]))
+  return offered
+    .filter((o) => (peak.get(o.callId) ?? 0) >= RECORDER_MIN_PEOPLE)
+    .filter((o) => !spent.has(workspaceOf.get(o.callId) ?? ''))
+    .slice(0, max)
+}
+
+/**
+ * How much call time a demo workspace's calls may be heard in one day (UTC),
+ * all its calls together. Transcription is the one cost of a demo workspace
+ * its AI cap does not see (the recorder's speech-to-text is not AI usage), so
+ * this is its bound: past it, a NEW call there is not offered to the recorder
+ * (it takes no notes and ends silent); a call already being heard is heard to
+ * its own end, at most the 3 hours any call's notes run.
+ */
+export const DEMO_NOTES_SECONDS_PER_DAY = 2 * 60 * 60
+
+/**
+ * The demo workspaces among these calls' that have used their day. Counted
+ * from team_call's own clock: the seconds each of today's calls has had notes
+ * on, the running stretch included. A failed read holds nothing back: the
+ * limit is a cost bound, not a rule a call may break.
+ */
+export async function demoWorkspacesPastTheirDay(
+  svc: SupabaseClient,
+  calls: ReadonlyArray<{ workspace_id: string | null }>,
+  now: Date = new Date(),
+): Promise<Set<string>> {
+  const past = new Set<string>()
+  const workspaces = [...new Set(calls.map((c) => c.workspace_id).filter((w): w is string => !!w))]
+  for (const workspaceId of workspaces) {
+    if (!(await isDemoWorkspace(workspaceId))) continue
+    const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString()
+    const { data, error } = await svc
+      .from('team_call')
+      .select('notes_seconds, notes_on_since')
+      .eq('workspace_id', workspaceId)
+      .gte('started_at', dayStart)
+    if (error) {
+      console.error(`[team-call-recorder] demo notes limit not read for a workspace: ${error.message}`)
+      continue
+    }
+    let seconds = 0
+    for (const c of (data ?? []) as Array<{ notes_seconds: number | null; notes_on_since: string | null }>) {
+      seconds += c.notes_seconds ?? 0
+      if (c.notes_on_since) seconds += Math.max(0, Math.floor((now.getTime() - Date.parse(c.notes_on_since)) / 1000))
+    }
+    if (seconds >= DEMO_NOTES_SECONDS_PER_DAY) past.add(workspaceId)
+  }
+  return past
 }

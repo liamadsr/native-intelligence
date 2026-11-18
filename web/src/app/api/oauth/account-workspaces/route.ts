@@ -78,14 +78,7 @@ export async function PUT(request: NextRequest) {
   // A real account is never shared into a demo workspace (migration 669; the
   // database refuses it too, whichever path asks).
   for (const id of workspace_ids) {
-    let demo: boolean
-    try {
-      demo = await isDemoWorkspace(supabase, id)
-    } catch (err) {
-      console.error('[account-workspaces] demo check failed:', err instanceof Error ? err.message : err)
-      return NextResponse.json({ error: 'Failed to update workspaces' }, { status: 500 })
-    }
-    if (demo) return NextResponse.json({ error: DEMO_OFF.connector, code: 'DEMO_WORKSPACE' }, { status: 403 })
+    if (await isDemoWorkspace(id)) return NextResponse.json({ error: DEMO_OFF.connector, code: 'DEMO_WORKSPACE' }, { status: 403 })
   }
 
   // Add the new set first, then remove what is no longer in it, so a failed

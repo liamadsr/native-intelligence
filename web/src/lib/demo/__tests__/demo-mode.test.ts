@@ -1,85 +1,121 @@
 /** The flag read every demo gate shares (src/lib/demo/demo-mode.ts). */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { SupabaseClient } from '@supabase/supabase-js'
+
+const h = vi.hoisted(() => ({
+  rpc: vi.fn(),
+  made: 0,
+}))
+vi.mock('@/lib/supabase/service', () => ({
+  getServiceClient: () => {
+    h.made++
+    return { rpc: h.rpc }
+  },
+}))
+
 import {
   DEMO_OFF,
   DemoWorkspaceRefusal,
   clearDemoWorkspaceCache,
+  demoVisitorOutside,
   isDemoWorkspace,
   isDemoWorkspaceDbRefusal,
   isDemoWorkspaceRefusal,
+  readDemoWorkspace,
   refuseInDemoWorkspace,
   setDemoWorkspaceLookupForTests,
 } from '../demo-mode'
 
-function client(answer: (id: string) => { data: unknown; error: { message: string; code?: string } | null }) {
-  const rpc = vi.fn(async (_name: string, args: { p_workspace_id: string }) => answer(args.p_workspace_id))
-  return { supabase: { rpc } as unknown as SupabaseClient, rpc }
-}
+const answers = (answer: (id: string) => { data: unknown; error: { message: string; code?: string } | null }) =>
+  h.rpc.mockImplementation(async (_name: string, args: { p_workspace_id: string }) => answer(args.p_workspace_id))
 
 beforeEach(() => {
   // The real read, not the suite's "nothing is a demo" answer.
   setDemoWorkspaceLookupForTests(null)
   clearDemoWorkspaceCache()
+  h.rpc.mockReset()
+  h.made = 0
+  vi.spyOn(console, 'error').mockImplementation(() => undefined)
 })
 
 describe('isDemoWorkspace', () => {
-  it('asks is_demo_workspace() and remembers the answer for a while', async () => {
-    const { supabase, rpc } = client((id) => ({ data: id === 'demo', error: null }))
-    expect(await isDemoWorkspace(supabase, 'demo')).toBe(true)
-    expect(await isDemoWorkspace(supabase, 'demo')).toBe(true)
-    expect(await isDemoWorkspace(supabase, 'real')).toBe(false)
-    expect(rpc).toHaveBeenCalledTimes(2)
-    expect(rpc).toHaveBeenCalledWith('is_demo_workspace', { p_workspace_id: 'demo' })
+  it('asks is_demo_workspace() as the service role and remembers the answer for a while', async () => {
+    answers((id) => ({ data: id === 'demo', error: null }))
+    expect(await isDemoWorkspace('demo')).toBe(true)
+    expect(await isDemoWorkspace('demo')).toBe(true)
+    expect(await isDemoWorkspace('real')).toBe(false)
+    expect(h.rpc).toHaveBeenCalledTimes(2)
+    expect(h.rpc).toHaveBeenCalledWith('is_demo_workspace', { p_workspace_id: 'demo' })
   })
 
   it('no workspace is not a demo, and reads nothing', async () => {
-    const { supabase, rpc } = client(() => ({ data: true, error: null }))
-    expect(await isDemoWorkspace(supabase, null)).toBe(false)
-    expect(rpc).not.toHaveBeenCalled()
+    answers(() => ({ data: true, error: null }))
+    expect(await isDemoWorkspace(null)).toBe(false)
+    expect(h.made).toBe(0)
   })
 
   it('only `true` is a demo', async () => {
-    const { supabase } = client(() => ({ data: 'yes', error: null }))
-    expect(await isDemoWorkspace(supabase, 'w')).toBe(false)
+    answers(() => ({ data: 'yes', error: null }))
+    expect(await isDemoWorkspace('w')).toBe(false)
   })
 
-  it('throws when the flag cannot be read, and does not remember the failure', async () => {
+  it('an unreadable flag is "not a demo": never thrown, logged, and not remembered', async () => {
     let fail = true
-    const { supabase } = client(() => (fail ? { data: null, error: { message: 'timeout' } } : { data: true, error: null }))
-    await expect(isDemoWorkspace(supabase, 'w')).rejects.toThrow('timeout')
+    answers(() => (fail ? { data: null, error: { message: 'timeout' } } : { data: true, error: null }))
+    expect(await isDemoWorkspace('w')).toBe(false)
+    expect(await readDemoWorkspace('w')).toBeNull()
+    expect(console.error).toHaveBeenCalled()
     fail = false
-    expect(await isDemoWorkspace(supabase, 'w')).toBe(true)
+    expect(await isDemoWorkspace('w')).toBe(true)
+  })
+
+  it('a client that throws is unreadable too', async () => {
+    h.rpc.mockRejectedValue(new Error('socket hang up'))
+    expect(await readDemoWorkspace('w')).toBeNull()
+    expect(await isDemoWorkspace('w')).toBe(false)
   })
 
   it('before migration 669 (no such function) nothing is a demo', async () => {
-    const { supabase } = client(() => ({ data: null, error: { message: 'not found', code: 'PGRST202' } }))
-    expect(await isDemoWorkspace(supabase, 'w')).toBe(false)
-  })
-
-  it('builds a lazy client only when it really reads', async () => {
-    const { supabase } = client(() => ({ data: false, error: null }))
-    const make = vi.fn(() => supabase)
-    expect(await isDemoWorkspace(make, null)).toBe(false)
-    expect(make).not.toHaveBeenCalled()
-    expect(await isDemoWorkspace(make, 'w')).toBe(false)
-    expect(make).toHaveBeenCalledOnce()
+    answers(() => ({ data: null, error: { message: 'not found', code: 'PGRST202' } }))
+    expect(await readDemoWorkspace('w')).toBe(false)
   })
 })
 
 describe('refuseInDemoWorkspace', () => {
   it('throws the surface’s own words in a demo workspace, and nothing elsewhere', async () => {
-    const { supabase } = client((id) => ({ data: id === 'demo', error: null }))
-    await expect(refuseInDemoWorkspace(supabase, 'real', 'cloud_browser')).resolves.toBeUndefined()
-    const err = await refuseInDemoWorkspace(supabase, 'demo', 'cloud_browser').catch((e: unknown) => e)
+    answers((id) => ({ data: id === 'demo', error: null }))
+    await expect(refuseInDemoWorkspace('real', 'cloud_browser')).resolves.toBeUndefined()
+    const err = await refuseInDemoWorkspace('demo', 'cloud_browser').catch((e: unknown) => e)
     expect(err).toBeInstanceOf(DemoWorkspaceRefusal)
     expect(isDemoWorkspaceRefusal(err)).toBe(true)
     expect((err as Error).message).toBe(DEMO_OFF.cloud_browser)
   })
 
-  it('an unreadable flag stops the costly call too', async () => {
-    const { supabase } = client(() => ({ data: null, error: { message: 'down' } }))
-    await expect(refuseInDemoWorkspace(supabase, 'w', 'sms')).rejects.toThrow('down')
+  it('a read error never refuses: a workspace that is not flagged gets what it always got', async () => {
+    answers(() => ({ data: null, error: { message: 'down' } }))
+    await expect(refuseInDemoWorkspace('w', 'web_search')).resolves.toBeUndefined()
+  })
+})
+
+describe('demoVisitorOutside', () => {
+  const visitor = { reason: 'demo_workspace' }
+
+  it('a visitor’s work in the demo workspace is inside; in a workspace known not to be one, outside', async () => {
+    answers((id) => ({ data: id === 'demo', error: null }))
+    expect(await demoVisitorOutside(visitor, 'demo')).toBe(false)
+    expect(await demoVisitorOutside(visitor, 'own')).toBe(true)
+  })
+
+  it('only positive evidence: no workspace named, or a flag that cannot be read, is not outside', async () => {
+    answers(() => ({ data: null, error: { message: 'down' } }))
+    expect(await demoVisitorOutside(visitor, null)).toBe(false)
+    expect(await demoVisitorOutside(visitor, 'own')).toBe(false)
+  })
+
+  it('anyone let in another way is never asked about', async () => {
+    answers(() => ({ data: false, error: null }))
+    expect(await demoVisitorOutside({ reason: 'within_limits' }, 'own')).toBe(false)
+    expect(await demoVisitorOutside(null, 'own')).toBe(false)
+    expect(h.rpc).not.toHaveBeenCalled()
   })
 })
 

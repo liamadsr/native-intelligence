@@ -82,13 +82,8 @@ export async function POST(request: NextRequest) {
   // A demo workspace's visitors never bring more people in (each one shares
   // the workspace's budget, migration 669): only its owner and admins invite,
   // whatever the "members can invite" switch says.
-  if (!managing) {
-    try {
-      if (await isDemoWorkspace(supabase, workspaceId)) return forbidden('Only the people who run this demo workspace can invite others')
-    } catch (err) {
-      console.error('[invites] demo check failed:', err instanceof Error ? err.message : err)
-      return serverError()
-    }
+  if (!managing && (await isDemoWorkspace(workspaceId))) {
+    return forbidden('Only the people who run this demo workspace can invite others')
   }
   const decision = decideInvite(caller.role, membersCanInvite, role)
   if (!decision.ok) {

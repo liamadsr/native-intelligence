@@ -19,10 +19,9 @@
  * Only an admin flags a workspace, with a row in `demo_workspace` (the table
  * is the service role's alone). This module never writes it.
  *
- * No `server-only` import and no `@/` alias: scripts/demo-workspace.ts runs
- * this under tsx.
+ * Server-side only in effect: the flag is read with the service client
+ * (loaded when first needed, so the constants here stay importable anywhere).
  */
-import type { SupabaseClient } from '@supabase/supabase-js'
 
 /** Where the gates send a visitor whose active workspace is not their demo workspace. */
 export const DEMO_ENTER_PATH = '/account/enter-demo'
@@ -40,15 +39,10 @@ export const DEMO_ONLY_MESSAGE =
 
 /** The costly surfaces a demo workspace switches off, with the words a person reads. */
 export const DEMO_OFF = {
-  sms: 'Text messages are switched off in the demo workspace.',
-  phone_call: 'Phone calls are switched off in the demo workspace.',
   studio_generation: 'Generating video, images and sound is switched off in the demo workspace.',
-  enrichment: 'Enrichment is switched off in the demo workspace.',
-  company_research: 'Company research is switched off in the demo workspace.',
   cloud_browser: 'The cloud browser is switched off in the demo workspace.',
   coding_sandbox: 'Coding runs are switched off in the demo workspace.',
   seo: 'SEO lookups that cost money are switched off in the demo workspace.',
-  prospecting: 'Prospecting is switched off in the demo workspace.',
   outbound_email: 'Sending email is switched off in the demo workspace.',
   call_recording: 'Recording is switched off in the demo workspace. Notes are taken as usual.',
   web_search: 'Web research is switched off in the demo workspace.',
@@ -75,9 +69,6 @@ export function isDemoWorkspaceDbRefusal(error: { message?: unknown; hint?: unkn
   if (!error) return false
   return error.hint === 'DEMO_WORKSPACE' || (typeof error.message === 'string' && error.message.startsWith('demo_workspace:'))
 }
-
-/** A client, or how to get one: built only when the flag is really read (a cached answer needs none). */
-export type DemoClient = SupabaseClient | (() => SupabaseClient)
 
 const TTL_MS = 60_000
 const cache = new Map<string, { demo: boolean; at: number }>()
@@ -106,34 +97,59 @@ export function setDemoWorkspaceLookupForTests(lookup: DemoLookup | null): void 
 }
 
 /**
- * True for a flagged workspace. Reads `demo_workspace` through
- * is_demo_workspace(), so it works on a member's own client and on the
- * service client. Cached per process for a minute: the flag changes by hand,
- * rarely, and this sits in front of every costly call.
+ * The flag, as read: true, false, or null when it could not be read.
  *
- * FAIL CLOSED is the caller's choice: a failed read THROWS here, and
- * `refuseInDemoWorkspace` lets that through, so a costly call never runs on
- * "could not tell". A caller that only decorates the UI should catch.
+ * Always read by the service role (is_demo_workspace() is its alone,
+ * migration 669), whoever is asking: the answer is then the same for every
+ * caller, so one cached answer per workspace is true for everyone. Cached per
+ * process for a minute; an unreadable answer is never cached.
  */
-export async function isDemoWorkspace(client: DemoClient, workspaceId: string | null | undefined): Promise<boolean> {
+export async function readDemoWorkspace(workspaceId: string | null | undefined): Promise<boolean | null> {
   if (!workspaceId) return false
   const forTests = testLookup()
-  if (forTests) return forTests(workspaceId)
+  if (forTests) {
+    try {
+      return await forTests(workspaceId)
+    } catch {
+      return null
+    }
+  }
   const hit = cache.get(workspaceId)
   if (hit && Date.now() - hit.at < TTL_MS) return hit.demo
-  const supabase = typeof client === 'function' ? client() : client
-  const { data, error } = await supabase.rpc('is_demo_workspace', { p_workspace_id: workspaceId })
-  if (error) {
-    // Before migration 669 there are no demo workspaces at all.
-    if (error.code === 'PGRST202' || error.code === '42883') {
-      cache.set(workspaceId, { demo: false, at: Date.now() })
-      return false
+  try {
+    const { getServiceClient } = await import('@/lib/supabase/service')
+    const { data, error } = await getServiceClient().rpc('is_demo_workspace', { p_workspace_id: workspaceId })
+    if (error) {
+      // Before migration 669 there are no demo workspaces at all.
+      if (error.code === 'PGRST202' || error.code === '42883') {
+        cache.set(workspaceId, { demo: false, at: Date.now() })
+        return false
+      }
+      console.error('[demo-workspace] flag read failed:', error.message)
+      return null
     }
-    throw new Error(`is_demo_workspace: ${error.message}`)
+    const demo = data === true
+    cache.set(workspaceId, { demo, at: Date.now() })
+    return demo
+  } catch (err) {
+    console.error('[demo-workspace] flag read failed:', err instanceof Error ? err.message : err)
+    return null
   }
-  const demo = data === true
-  cache.set(workspaceId, { demo, at: Date.now() })
-  return demo
+}
+
+/**
+ * True for a flagged workspace. Never throws.
+ *
+ * AN UNREADABLE FLAG IS "NOT A DEMO" (logged above), for every surface. A
+ * read error must never change what a workspace that is not flagged gets: no
+ * declined phone call, no refused search, no unsent text for a paying
+ * business because one read failed. For a workspace that IS a demo this
+ * opens its switched-off surfaces for as long as the read fails; what still
+ * holds then is in the database, not here: the shared AI cap
+ * (check_ai_usage_limit) and the triggers that refuse linking anything real.
+ */
+export async function isDemoWorkspace(workspaceId: string | null | undefined): Promise<boolean> {
+  return (await readDemoWorkspace(workspaceId)) === true
 }
 
 /**
@@ -141,10 +157,24 @@ export async function isDemoWorkspace(client: DemoClient, workspaceId: string | 
  * `workspaceId` is a demo workspace. Put it where the workspace is known and
  * every spend passes.
  */
-export async function refuseInDemoWorkspace(
-  supabase: DemoClient,
+export async function refuseInDemoWorkspace(workspaceId: string | null | undefined, surface: DemoOffSurface): Promise<void> {
+  if (await isDemoWorkspace(workspaceId)) throw new DemoWorkspaceRefusal(surface)
+}
+
+/**
+ * A usage row that let a demo workspace's visitor in (reason
+ * 'demo_workspace'), for work that runs in `workspaceId`: true when that
+ * workspace is known NOT to be a demo. Their place covers the demo workspace
+ * only; anywhere else they hold no seat. The SQL gate is per person and
+ * cannot see this, so every caller that knows where the work runs asks here.
+ *
+ * Only positive evidence refuses: no workspace named, or a flag that could
+ * not be read, is not "outside" (the shared cap still bounds it).
+ */
+export async function demoVisitorOutside(
+  row: { reason?: string | null } | null | undefined,
   workspaceId: string | null | undefined,
-  surface: DemoOffSurface,
-): Promise<void> {
-  if (await isDemoWorkspace(supabase, workspaceId)) throw new DemoWorkspaceRefusal(surface)
+): Promise<boolean> {
+  if (row?.reason !== DEMO_USAGE_REASON || !workspaceId) return false
+  return (await readDemoWorkspace(workspaceId)) === false
 }

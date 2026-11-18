@@ -11,35 +11,49 @@
 --                                role (and psql) reads or writes it. NOT a
 --                                column on workspace: an owner may update
 --                                their own workspace row (013).
---   is_demo_workspace(ws)        true for a flagged workspace. Members and the
---                                service role.
+--   is_demo_workspace(ws)        true for a flagged workspace. Service role
+--                                only.
 --   my_demo_seat_workspace()     the demo workspace the caller sits in as a
 --                                member or guest, else null: what the app's
 --                                trial wall reads (src/lib/billing/access).
---   check_ai_usage_limit         468's body plus ONE branch: a person with no
---                                override, staff exemption, live subscription
---                                or ChatGPT plan, who is a member or guest of
---                                a demo workspace, is allowed while the shared
---                                spend is under the cap ('demo_workspace'),
---                                refused once it is not
---                                ('demo_cost_limit_exceeded').
+--   check_ai_usage_limit         468's body plus ONE branch, the last thing
+--                                before 'subscription_required': a person
+--                                with no override, staff exemption, live
+--                                subscription, ChatGPT plan, paid plan,
+--                                credits or granted free period of their own,
+--                                who is a member or guest of a demo
+--                                workspace, is allowed while the shared spend
+--                                is under the cap ('demo_workspace'), refused
+--                                once it is not ('demo_cost_limit_exceeded').
+--                                Anything of their own wins: a person with
+--                                credits or a trial is never turned into a
+--                                demo visitor by an invite.
 --   demo_workspace_meter_usage   after insert on ai_usage_logs: such a
 --                                person's cost is added to the demo
 --                                workspace's ledger. A ledger, not a sum over
 --                                the members' logs, so removing a visitor does
 --                                not give the month's spend back.
 --   refuse_in_demo_workspace     before insert/update on the tables that link
---                                something real to a workspace: a connected
---                                mail or calendar account, an MCP server, a
---                                Slack workspace, a shared email, a Stripe
---                                account, a business phone number.
+--                                something real to a workspace
+--                                (demo_workspace_linked_tables): a connected
+--                                account, its link and what it syncs, an MCP
+--                                server, a Slack workspace, a shared email, a
+--                                Stripe account, a business phone number. The
+--                                flag itself is refused while any of them has
+--                                a row for the workspace.
 --
 -- Owners and admins of a demo workspace get nothing from it: they run it, and
 -- hold their own seat. Flagging and unflagging is a row here, by an admin:
 --   insert into public.demo_workspace (workspace_id) values ('<workspace id>');
 --   delete from public.demo_workspace where workspace_id = '<workspace id>';
 --
--- Additive, re-runnable, one transaction. Apply before the code that reads it.
+-- Additive, re-runnable. ITS OWN begin/commit: a BEGIN ... ROLLBACK wrapped
+-- round this file for a rehearsal COMMITS it (strip the two lines first).
+--
+-- Order: code that reads this is safe before the migration (no such function
+-- reads as "no demo workspaces"). Never FLAG a workspace before the code is
+-- rolled out: the gate would let its visitors in everywhere, and only the new
+-- code keeps them inside the demo workspace.
 
 begin;
 
@@ -73,8 +87,10 @@ as $$
   select exists (select 1 from public.demo_workspace d where d.workspace_id = p_workspace_id)
 $$;
 
-revoke execute on function public.is_demo_workspace(uuid) from public, anon;
-grant execute on function public.is_demo_workspace(uuid) to authenticated, service_role;
+-- The service role's alone: the app reads the flag for everyone with its
+-- service client, so no signed-in person can ask about a workspace by id.
+revoke execute on function public.is_demo_workspace(uuid) from public, anon, authenticated;
+grant execute on function public.is_demo_workspace(uuid) to service_role;
 
 -- The demo workspace a person sits in as a visitor (member or guest), else
 -- null. The oldest flag wins when there are several.
@@ -191,32 +207,6 @@ BEGIN
         END IF;
     END IF;
 
-    -- Demo workspace seat (migration 669): no override, not staff, no live
-    -- subscription, no ChatGPT plan, but a member or guest of a workspace an
-    -- admin flagged as a demo (public.demo_workspace). Allowed while that
-    -- workspace's shared spend this month is under its cap; every such
-    -- person's usage is added to the one ledger (demo_workspace_meter_usage).
-    -- No seat is granted: leave the demo workspace and this branch is gone.
-    IF v_plan_def IS NULL THEN
-        SELECT d.workspace_id, d.ai_cap_usd,
-               CASE WHEN d.spend_month = date_trunc('month', now())::date THEN d.ai_spend_usd ELSE 0 END
-        INTO v_demo_ws, v_demo_cap, v_demo_spend
-        FROM public.demo_workspace d
-        JOIN public.member m ON m.workspace_id = d.workspace_id
-        WHERE m.user_id = p_user_id AND m.role IN ('member', 'guest')
-        ORDER BY d.created_at
-        LIMIT 1;
-        IF v_demo_ws IS NOT NULL THEN
-            SELECT COALESCE(c.balance_usd, 0) INTO v_credit_balance
-            FROM ai_user_credits c WHERE c.user_id = p_user_id;
-            RETURN QUERY SELECT v_demo_spend < v_demo_cap,
-                CASE WHEN v_demo_spend < v_demo_cap THEN 'demo_workspace' ELSE 'demo_cost_limit_exceeded' END::TEXT,
-                'Demo workspace'::TEXT, v_demo_spend, v_demo_cap, 0::INT, NULL::INT, false,
-                (date_trunc('month', now()) + interval '1 month')::timestamptz, COALESCE(v_credit_balance, 0);
-            RETURN;
-        END IF;
-    END IF;
-
     IF v_plan_def IS NULL AND v_user_plan.user_id IS NOT NULL THEN
         SELECT * INTO v_plan_def FROM ai_plan_definitions WHERE id = v_user_plan.plan_id;
     END IF;
@@ -278,6 +268,31 @@ BEGIN
             END;
         END IF;
         IF v_free_until IS NULL OR v_free_until <= now() THEN
+            -- Demo workspace seat (migration 669), the LAST thing before the
+            -- wall: this person has no override, is not staff, has no live
+            -- subscription, no ChatGPT plan, no paid plan of their own, no
+            -- credits and no granted free period (each of those is theirs and
+            -- wins above), but is a member or guest of a workspace an admin
+            -- flagged as a demo (public.demo_workspace). Allowed while that
+            -- workspace's shared spend this month is under its cap; their
+            -- usage is added to the one ledger (demo_workspace_meter_usage).
+            -- No seat is granted: leave the demo workspace and this is gone.
+            SELECT d.workspace_id, d.ai_cap_usd,
+                   CASE WHEN d.spend_month = date_trunc('month', now())::date THEN d.ai_spend_usd ELSE 0 END
+            INTO v_demo_ws, v_demo_cap, v_demo_spend
+            FROM public.demo_workspace d
+            JOIN public.member m ON m.workspace_id = d.workspace_id
+            WHERE m.user_id = p_user_id AND m.role IN ('member', 'guest')
+            ORDER BY d.created_at
+            LIMIT 1;
+            IF v_demo_ws IS NOT NULL THEN
+                RETURN QUERY SELECT v_demo_spend < v_demo_cap,
+                    CASE WHEN v_demo_spend < v_demo_cap THEN 'demo_workspace' ELSE 'demo_cost_limit_exceeded' END::TEXT,
+                    'Demo workspace'::TEXT, v_demo_spend, v_demo_cap, 0::INT, NULL::INT, false,
+                    (date_trunc('month', now()) + interval '1 month')::timestamptz, v_credit_balance;
+                RETURN;
+            END IF;
+
             RETURN QUERY SELECT false, 'subscription_required'::TEXT, v_plan_def.display_name,
                 COALESCE(v_user_plan.current_period_cost_usd, 0::NUMERIC), v_plan_def.monthly_cost_limit_usd,
                 COALESCE(v_user_plan.current_period_tokens, 0), v_plan_def.monthly_token_limit,
@@ -343,20 +358,22 @@ REVOKE ALL ON FUNCTION public.check_ai_usage_limit(uuid, boolean) FROM PUBLIC, a
 GRANT EXECUTE ON FUNCTION public.check_ai_usage_limit(uuid, boolean) TO service_role;
 
 -- ── The ledger: a visitor's cost goes on the demo workspace ────────────────
--- The same people the gate's demo branch lets in: a member or guest of a demo
--- workspace with no admin override and no live subscription. (Staff and
--- ChatGPT-plan people are not excluded by name: staff run a demo as owner or
--- admin, and a plan step is logged at zero cost.) Never fails the insert it
--- rides on: an error here is a warning, and the usage row still lands.
+-- Whose cost counts is the gate's own answer, asked again here: only a person
+-- the gate lets in (or refuses) AS a demo visitor. So the two can never
+-- disagree: a seat holder's, a ChatGPT-plan person's, or anyone's with
+-- credits, a paid plan or a granted free period is their own and is not
+-- counted, member of the demo or not. Never fails the insert it rides on: an
+-- error here is a warning, and the usage row still lands.
 
 create or replace function public.demo_workspace_meter_usage()
 returns trigger
 language plpgsql
 security definer
-set search_path = ''
+set search_path = public
 as $$
 declare
   v_ws uuid;
+  v_reason text;
   v_month date := (date_trunc('month', now()))::date;
 begin
   if coalesce(new.estimated_cost_usd, 0) <= 0 then
@@ -367,14 +384,8 @@ begin
     if v_ws is null then
       return new;
     end if;
-    if exists (
-      select 1 from public.ai_user_plans p
-      where p.user_id = new.user_id and p.is_active = true and p.admin_override = true
-    ) or exists (
-      select 1 from public.subscriptions s
-      where s.user_id = new.user_id and s.status in ('active', 'trialing')
-        and (s.current_period_end is null or s.current_period_end > now() - interval '3 days')
-    ) then
+    select g.reason into v_reason from public.check_ai_usage_limit(new.user_id, true) g;
+    if v_reason is null or v_reason not in ('demo_workspace', 'demo_cost_limit_exceeded') then
       return new;
     end if;
     update public.demo_workspace d
@@ -397,6 +408,32 @@ create trigger demo_workspace_meter_usage
 
 -- ── Nothing real is linked to a demo workspace ─────────────────────────────
 
+-- Every table whose row links something real to a workspace: an account
+-- (and what it syncs), an MCP server, a Slack workspace, a shared email, a
+-- Stripe account, a business phone number. ONE list, for the refusal below
+-- and for the flag's own check.
+create or replace function public.demo_workspace_linked_tables()
+returns text[]
+language sql
+immutable
+set search_path = ''
+as $$
+  select array[
+    'connected_account',
+    'connected_account_workspace',
+    'email_sync_state',
+    'crm_sync_state',
+    'task_sync_state',
+    'connected_mcp_server',
+    'slack_installation',
+    'email_share',
+    'stripe_connect_account',
+    'business_phone_number'
+  ]
+$$;
+
+revoke execute on function public.demo_workspace_linked_tables() from public, anon, authenticated;
+
 create or replace function public.refuse_in_demo_workspace()
 returns trigger
 language plpgsql
@@ -404,7 +441,8 @@ security definer
 set search_path = ''
 as $$
 begin
-  if new.workspace_id is not null and public.is_demo_workspace(new.workspace_id) then
+  if new.workspace_id is not null
+     and exists (select 1 from public.demo_workspace d where d.workspace_id = new.workspace_id) then
     raise exception 'demo_workspace: % cannot be connected to or shared into a demo workspace', tg_table_name
       using errcode = 'P0001', hint = 'DEMO_WORKSPACE';
   end if;
@@ -418,15 +456,11 @@ do $$
 declare
   t text;
 begin
-  foreach t in array array[
-    'connected_account_workspace',
-    'connected_mcp_server',
-    'slack_installation',
-    'email_share',
-    'stripe_connect_account',
-    'business_phone_number'
-  ] loop
-    if to_regclass('public.' || t) is not null then
+  foreach t in array public.demo_workspace_linked_tables() loop
+    if exists (
+      select 1 from information_schema.columns c
+      where c.table_schema = 'public' and c.table_name = t and c.column_name = 'workspace_id'
+    ) then
       execute format('drop trigger if exists refuse_in_demo_workspace on public.%I', t);
       execute format(
         'create trigger refuse_in_demo_workspace before insert or update of workspace_id on public.%I '
@@ -435,20 +469,31 @@ begin
   end loop;
 end $$;
 
--- Flagging a workspace that already has something real linked is refused:
--- unlink first, so the flag never makes a leak look safe.
+-- Flagging a workspace that already has something real linked is refused, on
+-- every one of those tables: unlink first, so the flag never makes a leak
+-- look safe.
 create or replace function public.demo_workspace_must_be_clean()
 returns trigger
 language plpgsql
 security definer
 set search_path = ''
 as $$
+declare
+  t text;
+  v_found boolean;
 begin
-  if exists (select 1 from public.connected_account_workspace x where x.workspace_id = new.workspace_id)
-     or exists (select 1 from public.connected_mcp_server x where x.workspace_id = new.workspace_id)
-     or exists (select 1 from public.slack_installation x where x.workspace_id = new.workspace_id) then
-    raise exception 'demo_workspace: this workspace has a connected account, MCP server or Slack workspace; unlink them before flagging it as a demo';
-  end if;
+  foreach t in array public.demo_workspace_linked_tables() loop
+    if exists (
+      select 1 from information_schema.columns c
+      where c.table_schema = 'public' and c.table_name = t and c.column_name = 'workspace_id'
+    ) then
+      execute format('select exists (select 1 from public.%I x where x.workspace_id = $1)', t)
+        into v_found using new.workspace_id;
+      if v_found then
+        raise exception 'demo_workspace: this workspace has rows in % (something real is connected or shared); remove them before flagging it as a demo', t;
+      end if;
+    end if;
+  end loop;
   return new;
 end;
 $$;
@@ -465,6 +510,6 @@ commit;
 -- Verify (read-only):
 --   select to_regclass('public.demo_workspace') is not null;                                  -> true
 --   select position('demo_cost_limit_exceeded' in pg_get_functiondef('public.check_ai_usage_limit(uuid, boolean)'::regprocedure)) > 0;  -> true
---   select tgrelid::regclass from pg_trigger where tgname = 'refuse_in_demo_workspace' order by 1;   -> the six tables
+--   select tgrelid::regclass from pg_trigger where tgname = 'refuse_in_demo_workspace' order by 1;   -> the ten tables
 --   select proacl from pg_proc where oid = 'public.check_ai_usage_limit(uuid, boolean)'::regprocedure;
 --     -> {postgres=X/postgres,service_role=X/postgres}

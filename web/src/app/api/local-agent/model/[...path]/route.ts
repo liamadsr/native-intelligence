@@ -252,7 +252,8 @@ export async function POST(request: Request, ctx: Ctx) {
   if (!isAllowedModel(modelSlug)) return forbidden('This model is not available to local agents')
 
   try {
-    await checkUsageLimits(uid)
+    // The session's own workspace: the model token names none.
+    await checkUsageLimits(uid, undefined, { workspaceId: row.workspace_id })
   } catch (err) {
     if (err instanceof Response) return err
     throw err

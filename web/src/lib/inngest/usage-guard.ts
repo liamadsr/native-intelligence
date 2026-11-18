@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { DEMO_ONLY_REASON, demoVisitorOutside } from '@/lib/demo/demo-mode'
 import { NonRetriableError } from 'inngest'
 import { getServiceClient } from '@/lib/supabase/service'
 import { isChatGptPlanUsage } from '@/lib/chatgpt/plan-models'
@@ -16,7 +17,19 @@ import { isChatGptPlanUsage } from '@/lib/chatgpt/plan-models'
  * lower-stakes than a live request, and Inngest already retries transient
  * failures. The request-path gate is the authoritative fail-closed guard.
  */
-export async function guardBackgroundUsage(userId: string | null | undefined): Promise<void> {
+/**
+ * A demo workspace's visitor (migration 669) holds no seat anywhere else: a
+ * job the caller says runs in another workspace is refused, as the request
+ * path refuses it (checkUsageLimits). A caller that names no workspace is not
+ * refused here: the demo's shared cap still bounds the job.
+ */
+async function refuseDemoVisitorElsewhere(userId: string, row: { reason?: string | null } | null | undefined, workspaceId: string | null | undefined): Promise<void> {
+  if (await demoVisitorOutside(row, workspaceId)) {
+    throw new NonRetriableError(`Usage limit reached for user ${userId} (${DEMO_ONLY_REASON}); skipping background AI job.`)
+  }
+}
+
+export async function guardBackgroundUsage(userId: string | null | undefined, workspaceId?: string | null): Promise<void> {
   if (!userId) return // unattributed system jobs (e.g. weaver) — see caller notes
   const supabase = getServiceClient()
   const { data, error } = await supabase.rpc('check_ai_usage_limit', { p_user_id: userId })
@@ -30,6 +43,7 @@ export async function guardBackgroundUsage(userId: string | null | undefined): P
       `Usage limit reached for user ${userId} (${row.reason ?? 'blocked'}); skipping background AI job.`,
     )
   }
+  await refuseDemoVisitorElsewhere(userId, row, workspaceId)
 }
 
 /**
@@ -41,7 +55,7 @@ export async function guardBackgroundUsage(userId: string | null | undefined): P
  * everyone else is gated exactly as by guardBackgroundUsage, with the same
  * fail-open posture (an RPC error or no person reads as no plan).
  */
-export async function guardBackgroundUsageOnPlan(userId: string | null | undefined): Promise<{ chatgptPlan: boolean }> {
+export async function guardBackgroundUsageOnPlan(userId: string | null | undefined, workspaceId?: string | null): Promise<{ chatgptPlan: boolean }> {
   if (!userId) return { chatgptPlan: false }
   const supabase = getServiceClient()
   const { data, error } = await supabase.rpc('check_ai_usage_limit', { p_user_id: userId, p_chatgpt_plan: true })
@@ -55,6 +69,7 @@ export async function guardBackgroundUsageOnPlan(userId: string | null | undefin
       `Usage limit reached for user ${userId} (${row.reason ?? 'blocked'}); skipping background AI job.`,
     )
   }
+  await refuseDemoVisitorElsewhere(userId, row, workspaceId)
   return { chatgptPlan: isChatGptPlanUsage(row) }
 }
 
@@ -71,6 +86,7 @@ export async function guardBackgroundUsageOnPlan(userId: string | null | undefin
 export async function isUsageAllowed(
   supabase: SupabaseClient,
   userId: string,
+  workspaceId?: string | null,
 ): Promise<boolean> {
   const { data, error } = await supabase.rpc('check_ai_usage_limit', { p_user_id: userId, p_chatgpt_plan: true })
   if (error) {
@@ -78,5 +94,6 @@ export async function isUsageAllowed(
     return true
   }
   const row = Array.isArray(data) ? data[0] : data
+  if (await demoVisitorOutside(row as { reason?: string | null } | null, workspaceId)) return false
   return !(row && (row as { allowed?: boolean }).allowed === false)
 }

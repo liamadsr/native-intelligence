@@ -361,7 +361,7 @@ export const referenceIngest = inngest.createFunction(
     // Gate before the (expensive, Sonnet-multimodal) PDF read (P1-4). In a
     // step: a replay before a later step must not re-check and abort a run
     // that has already paid for its reads.
-    await step.run('guard', () => guardBackgroundUsage(data.userId))
+    await step.run('guard', () => guardBackgroundUsage(data.userId, data.workspaceId))
 
     const supabase = getServiceClient()
 

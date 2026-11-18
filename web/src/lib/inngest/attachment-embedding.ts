@@ -52,7 +52,7 @@ export const attachmentIndex = inngest.createFunction(
     // a free user's attachment is indexed too, so the agent and search can see
     // it. The embeddings are Native Intelligence's (cents per attachment at most), as every
     // capture's and document's are (docs/plans/chatgpt-free-tier.md).
-    await guardBackgroundUsageOnPlan(userId)
+    await guardBackgroundUsageOnPlan(userId, workspaceId)
 
     const supabase = getServiceClient()
 

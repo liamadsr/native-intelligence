@@ -94,7 +94,7 @@ describe('agentMemorySummarize', () => {
     const out = await hoisted.handler({ event, step: createStepMock() })
     expect(out).toEqual({ inserted: 1, superseded: 0, retired: 0 })
 
-    expect(hoisted.guard).toHaveBeenCalledWith('user-1')
+    expect(hoisted.guard.mock.calls[0][0]).toBe('user-1')
     expect(hoisted.runUtilityTask).toHaveBeenCalledTimes(1)
     const call = hoisted.runUtilityTask.mock.calls[0][0]
     expect(call).toMatchObject({ kind: 'agent_memory_summary', workspaceId: WS, userId: 'user-1', chatgptPlan: false })

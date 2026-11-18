@@ -1832,10 +1832,16 @@ One workspace of made-up data ("Fernhill Studio") that outsiders are invited
 into. Migration 669 and `web/src/lib/demo/` hold it; nothing here is on until
 a workspace is flagged.
 
+- **Order.** The code is safe before the migration (no demo workspaces
+  exist). Apply 669, roll the code out, and only THEN flag a workspace: the
+  database's gate lets a flagged workspace's visitors in everywhere, and only
+  the new code keeps them inside it. 669 carries its own `begin`/`commit`: a
+  `BEGIN ... ROLLBACK` wrapped round it for a rehearsal commits it.
 - **Flag it** (the owner, in the database container, as for a migration). The
   workspace must be owned by an account with nothing real connected: the
-  insert is refused while a mail or calendar account, an MCP server or a Slack
-  workspace is linked to it.
+  insert is refused, naming the table, while the workspace has a connected
+  account or its link, mail or CRM sync state, an MCP server, a Slack
+  workspace, a shared email, a Stripe account or a business number.
 
   ```sql
   insert into public.demo_workspace (workspace_id) values ('<workspace id>');
@@ -1849,16 +1855,33 @@ a workspace is flagged.
   Members › Invite, as **member** or **guest** (an admin there needs a seat of
   their own). A personal address (Gmail and the like) may sign up because the
   invite names it. They need no card, land in the demo workspace, and cannot
-  use any other workspace until they hold a seat.
+  use any other workspace until they hold a seat. An emailed invite is the
+  only way in: the join link and joining by email domain are refused there,
+  and visitors cannot invite.
+- **Who is a visitor**: a member or guest with nothing of their own. A person
+  with a subscription, a ChatGPT plan, credits, a paid plan or a granted free
+  period keeps using that, in the demo and elsewhere, and their use is not
+  counted against the demo.
 - **What is off there**: texts, answered phone calls, Studio generation,
   enrichment, workspace web research, the cloud browser, coding runs, SEO
-  data, prospecting, call recording and kept call audio, and linking anything
-  real (accounts, MCP servers, Slack, shared email, Stripe, a business
-  number). Visitors share one AI budget a month (`ai_cap_usd`);
-  `ai_spend_usd` on the row is this month's total.
+  data, prospecting, call recording and kept call audio, sending email (from
+  a person's own mailbox, and the link request the app mails), the desktop
+  app's calendar sync, and connecting or linking anything real (accounts, MCP
+  servers, Slack, shared email, Stripe, a business number): refused where it
+  starts, and again by the database.
+- **If the flag cannot be read** (a database error), the app treats the
+  workspace as not a demo and logs `[demo-workspace] flag read failed`. No
+  other workspace is ever refused anything because of this feature. For the
+  demo itself the switched-off surfaces are open while the read fails; the
+  AI cap and the database's refusals hold regardless.
+- **The AI budget**: visitors share `ai_cap_usd` a month; `ai_spend_usd` on
+  the row is this month's total. It is one pool: one visitor can use all of
+  it, and the nightly reset does not give it back (raise `ai_cap_usd`, or set
+  `ai_spend_usd` to 0, by hand). The cap is read before a call and added to
+  after, so calls in flight when it is crossed still finish: the overshoot is
+  at most what those calls cost.
 - **Call notes are on there** (the owner's decision, 2026-11-18), as in any
-  workspace: the transcript, the live summary, the notes at the end. What
-  they cost and what bounds it:
+  workspace: the transcript, the live summary, the notes at the end.
   - The live summary's turns and the end-of-call pass run on the plan of the
     notes' owner (the meeting's host, else whoever started the call). A
     visitor's count against the workspace's shared budget; a call the demo's
@@ -1867,19 +1890,25 @@ a workspace is flagged.
     on, and at the end the notes are finished as they stand (titled where
     that still works, indexed), without the end-of-call pass. The call
     itself is untouched.
-  - Transcription (the call recorder's Deepgram streams) is not AI usage and
-    is NOT under the budget. It is bounded only by the rules every workspace
-    has: nothing is heard until two people are in a call, and a call's notes
-    stop after 3 hours. Nothing limits how many calls a demo workspace holds
-    in a day.
+  - Transcription (the call recorder's speech-to-text) is not AI usage and is
+    not under the budget. Its bound is time: a demo workspace's calls are
+    heard for 2 hours a day (UTC) in all (`DEMO_NOTES_SECONDS_PER_DAY`,
+    `web/src/lib/team-calls/recorder.ts`). Past that a NEW call there is not
+    heard (it takes no notes and ends silent); one already being heard goes
+    on to its own end, at most the 3 hours any call's notes run.
 - **It cleans itself**: `/api/cron/demo-workspace-reset` runs at 09:40 UTC and
   puts every flagged workspace back (visitors' content goes, the made-up
   content is written again, members stay). Before a visit, an admin can run
   the same reset now: `POST /api/admin/demo-workspace/reset` with
-  `{"workspace_id": "<workspace id>"}` while signed in as an admin. The job's
-  log line names any table it could not clear.
+  `{"workspace_id": "<workspace id>"}` while signed in as an admin (always
+  this deployment's own database, whatever the admin panel's environment
+  switch says). The job's log line names any table it could not clear.
 - **Remove a person**: Settings › Members, as for any workspace. Their account
   stays; without a seat it is behind the trial page again.
+- **Not closed**: a visitor's own MCP servers (connected in their own
+  workspace) follow them, as they follow anyone; the AI Gateway's web search
+  tool and a few background jobs that name no workspace are bounded by the
+  budget, not refused.
 
 ### Slack
 

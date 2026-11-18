@@ -226,7 +226,7 @@ export async function textPerson(
   let phone: Awaited<ReturnType<typeof linkedPhoneForUser>>
   try {
     // A demo workspace sends no texts. Unreadable flag: not sent (lookup_failed).
-    if (await isDemoWorkspace(supabase, args.workspaceId)) return { sent: false, reason: 'demo_workspace' }
+    if (await isDemoWorkspace(args.workspaceId)) return { sent: false, reason: 'demo_workspace' }
     phone = await linkedPhoneForUser(supabase, args.userId)
     if (!phone) return { sent: false, reason: 'no_phone' }
     if (phone.optedOut) return { sent: false, reason: 'opted_out' }
@@ -320,7 +320,7 @@ export async function textGuest(
     if (error) return { sent: false, reason: 'lookup_failed' }
     if (!data || data.state !== 'active') return { sent: false, reason: 'no_phone' }
     // A guest of a demo workspace is never texted (the catch below covers an unreadable flag).
-    if (await isDemoWorkspace(supabase, data.workspace_id)) return { sent: false, reason: 'demo_workspace' }
+    if (await isDemoWorkspace(data.workspace_id)) return { sent: false, reason: 'demo_workspace' }
     phone = data.phone_e164
     // A business's customer is answered from the number they texted, never the Native Intelligence one.
     if (data.preset === 'customer') {

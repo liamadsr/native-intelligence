@@ -38,6 +38,7 @@
  * apps in CI_FIX_CHECK_APPS count; a public repo is never touched.
  */
 import { randomUUID } from 'node:crypto'
+import { demoVisitorOutside } from '@/lib/demo/demo-mode'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { inngest } from '@/lib/inngest/client'
 import { ensureWorkForAgentRun } from '@/lib/work/agent-run-mirror'
@@ -308,9 +309,11 @@ export async function handleCiFailure(
   // The plan meter, before anything is claimed: an unattended run never
   // spends on a plan it could not read (fail closed, like the attempt gate).
   const { data: limit, error: limitErr } = await supabase.rpc('check_ai_usage_limit', { p_user_id: run.triggered_by })
-  const limitRow = Array.isArray(limit) ? (limit[0] as { allowed?: boolean } | undefined) : undefined
+  const limitRow = Array.isArray(limit) ? (limit[0] as { allowed?: boolean; reason?: string | null } | undefined) : undefined
   if (limitErr || !limitRow) return ignored('usage_check_failed')
   if (limitRow.allowed !== true) return ignored('usage_limit')
+  // A demo workspace's visitor (migration 669) is covered in that workspace only.
+  if (await demoVisitorOutside(limitRow, run.workspace_id)) return ignored('usage_limit')
 
   const { data: action } = await supabase
     .from('actions')

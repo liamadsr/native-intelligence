@@ -99,7 +99,7 @@ async function guardUsage(
   record: { table: 'contact' | 'company'; recordId: string },
 ) {
   try {
-    await guardBackgroundUsageOnPlan(data.userId)
+    await guardBackgroundUsageOnPlan(data.userId, data.workspaceId)
   } catch (err) {
     // The row was marked pending for this run, which won't happen: back to its
     // last outcome, so the button (disabled while pending) and the chat can ask

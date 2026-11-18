@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { DEMO_OFF, isDemoWorkspace } from '@/lib/demo/demo-mode'
 import { isValidProvider, isValidCapability } from '@/lib/oauth/config'
 import { OAUTH_NONCE_COOKIE, OAUTH_STATE_TTL_MS, bindingCookieOptions } from '@/lib/oauth/state'
 import { buildOAuthStart } from '@/lib/oauth/authorize-url'
@@ -62,6 +63,11 @@ export async function GET(
       if (!member) return notMember()
     }
     const workspaceId = requestedWorkspaceId || await getCurrentWorkspaceId()
+    // Nothing real is connected from inside a demo workspace (migration 669):
+    // refused here, before the person is sent to the provider at all.
+    if (await isDemoWorkspace(workspaceId)) {
+      return NextResponse.json({ error: DEMO_OFF.connector, code: 'DEMO_WORKSPACE' }, { status: 403 })
+    }
 
     const { authUrl, state, nonce, claimSecret } = buildOAuthStart({
       provider,

@@ -36,13 +36,17 @@ describe('grantAudio', () => {
     expect(rpc).toHaveBeenCalledOnce()
   })
 
-  it('a session that cannot be read, or a flag that cannot: no audio kept', async () => {
-    const unread = service({ data: null, error: { message: 'timeout' } })
-    expect((await grantAudio(unread.svc, SESSION, producer, take)).outcome).toBe('not_wanted')
-    expect(unread.rpc).not.toHaveBeenCalled()
+  it('a flag that cannot be read is "not a demo": the grant is made as before', async () => {
     setDemoWorkspaceLookupForTests(() => { throw new Error('down') })
-    const unflagged = service({ data: { workspace_id: 'ws-real' }, error: null })
-    expect((await grantAudio(unflagged.svc, SESSION, producer, take)).outcome).toBe('not_wanted')
+    const { svc, rpc } = service({ data: { workspace_id: 'ws-real' }, error: null })
+    expect((await grantAudio(svc, SESSION, producer, take)).outcome).toBe('granted')
+    expect(rpc).toHaveBeenCalledOnce()
+  })
+
+  it('a session that cannot be read: the grant’s own check answers, as before', async () => {
+    const { svc, rpc } = service({ data: null, error: { message: 'timeout' } })
+    await grantAudio(svc, SESSION, producer, take)
+    expect(rpc).toHaveBeenCalledOnce()
   })
 
   it('no such session: the grant’s own check answers', async () => {

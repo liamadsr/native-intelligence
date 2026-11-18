@@ -5,14 +5,7 @@ import { getServiceClient } from '@/lib/supabase/service'
 import { isDeviceToken, resolveDeviceToken } from '@/lib/device-tokens'
 import { inngest } from '@/lib/inngest/client'
 import { CHATGPT_PLAN_PROVIDER } from '@/lib/chatgpt/plan-models'
-import {
-  DEMO_CAP_REACHED_MESSAGE,
-  DEMO_CAP_REACHED_REASON,
-  DEMO_ONLY_MESSAGE,
-  DEMO_ONLY_REASON,
-  DEMO_USAGE_REASON,
-  isDemoWorkspace,
-} from '@/lib/demo/demo-mode'
+import { DEMO_CAP_REACHED_MESSAGE, DEMO_CAP_REACHED_REASON, DEMO_ONLY_MESSAGE, DEMO_ONLY_REASON, DEMO_USAGE_REASON, demoVisitorOutside, isDemoWorkspace } from '@/lib/demo/demo-mode'
 import { getCurrentWorkspaceId } from '@/lib/workspace'
 
 // Emergency escape hatch: when the usage-limit RPC itself fails, we block the
@@ -119,7 +112,16 @@ export interface UsageLimitRow {
 export async function checkUsageLimits(
   userId: string,
   signal?: AbortSignal,
-  opts: { chatgptPlan?: boolean } = {},
+  opts: {
+    chatgptPlan?: boolean
+    /**
+     * The workspace the work RUNS in, when the caller knows it and it may not
+     * be the one the request names (a job's session, an ask that resolves its
+     * own workspace). Used for the demo workspace's "inside it only" rule
+     * instead of the request's cookie or header.
+     */
+    workspaceId?: string | null
+  } = {},
 ): Promise<UsageLimitRow | undefined> {
   const serviceClient = getServiceClient()
 
@@ -154,15 +156,19 @@ export async function checkUsageLimits(
     | undefined
 
   // A demo workspace's visitor (migration 669) is covered inside that
-  // workspace only. The SQL gate is per person and cannot see where the
-  // request is, so that half is checked here: a request that NAMES another
-  // workspace (cookie or x-workspace-id) is refused. One that names none (an
-  // app-to-agent call, a job) passes: the shared cap still bounds it.
-  if (limit?.allowed && limit.reason === DEMO_USAGE_REASON && (await outsideDemoWorkspace(serviceClient))) {
-    throw new Response(
-      JSON.stringify({ error: 'Usage limit exceeded', reason: DEMO_ONLY_REASON, message: DEMO_ONLY_MESSAGE }),
-      { status: 429, headers: { 'Content-Type': 'application/json' } },
-    )
+  // workspace only. The SQL gate is per person and cannot see where the work
+  // runs, so that half is checked here, against the workspace the caller
+  // names (`opts.workspaceId`), else the one the request names (cookie,
+  // x-workspace-id, a device token's pin). With neither (a job that passed
+  // none) it passes: the shared cap still bounds it.
+  if (limit?.allowed && limit.reason === DEMO_USAGE_REASON) {
+    const runsIn = opts.workspaceId !== undefined ? opts.workspaceId : await requestWorkspace()
+    if (await demoVisitorOutside(limit, runsIn)) {
+      throw new Response(
+        JSON.stringify({ error: 'Usage limit exceeded', reason: DEMO_ONLY_REASON, message: DEMO_ONLY_MESSAGE }),
+        { status: 429, headers: { 'Content-Type': 'application/json' } },
+      )
+    }
   }
 
   if (limit && !limit.allowed) {
@@ -183,23 +189,12 @@ export async function checkUsageLimits(
   return limit
 }
 
-/**
- * True when this request names a workspace that is not a demo workspace.
- * False when it names a demo workspace, names none, or runs outside a request
- * (no headers): only positive evidence of "elsewhere" refuses.
- */
-async function outsideDemoWorkspace(serviceClient: ReturnType<typeof getServiceClient>): Promise<boolean> {
-  let workspaceId: string | null
+/** The workspace this request names, or null (none named, or outside a request). */
+async function requestWorkspace(): Promise<string | null> {
   try {
-    workspaceId = await getCurrentWorkspaceId()
+    return await getCurrentWorkspaceId()
   } catch {
-    return false
-  }
-  if (!workspaceId) return false
-  try {
-    return !(await isDemoWorkspace(serviceClient, workspaceId))
-  } catch {
-    return false
+    return null
   }
 }
 
