@@ -4,20 +4,25 @@
  *
  * What the flag changes, and where each part lives:
  *   - no seat needed for its members and guests, inside it only
- *     (src/lib/billing/access.ts, the dashboard layout, check_ai_usage_limit);
+ *     (src/lib/billing/access.ts, the dashboard layout, check_ai_usage_limit;
+ *     `demoVisitorOutside` below is the "inside it only" half, asked by every
+ *     usage check that knows where its work runs);
  *   - those visitors' AI spend is metered on the flag row, with NO cap by
- *     default (the owner's decision, 2026-11-18: they are to try the product);
- *     an admin may set one there as the off switch (the SQL gate and its
- *     ledger; `checkUsageLimits` adds the "inside it only" check per request);
- *   - the surfaces that bill a third party per use are off (the callers of
- *     `refuseInDemoWorkspace` below). Call notes are NOT one of them (the
- *     owner's decision, 2026-11-18): a call there takes notes as anywhere,
- *     its summary turns and end-of-call pass on the notes' owner's plan,
- *     which for a visitor is the workspace's metered spend (and its cap,
- *     where an admin set one). Recording is off;
- *   - nothing real may be linked to it (the `refuse_in_demo_workspace`
- *     triggers, with the friendlier refusals in the routes);
+ *     default; an admin may set one there, and a daily limit on transcribed
+ *     call time, as off switches (the SQL gate and its ledger; the recorder's
+ *     work);
+ *   - nothing real may be connected or linked to it: a mail, calendar or
+ *     contacts account, an MCP server, a Slack workspace, a Stripe account, a
+ *     business number, a shared email (refused where a connect starts, and by
+ *     the `refuse_in_demo_workspace` triggers), and the desktop app's
+ *     calendar sync is not taken there;
  *   - it is put back to its made-up content every night (./reset.ts).
+ *
+ * Everything else works there as in any workspace (the owner's decisions,
+ * 2026-11-18): texts, phone calls, the cloud browser, coding runs, web
+ * research, enrichment, SEO data, prospecting, Studio, email, call notes and
+ * recording, and members inviting people where the workspace allows it. No
+ * check for any of them lives here: less code in front of production paths.
  *
  * Only an admin flags a workspace, with a row in `demo_workspace` (the table
  * is the service role's alone). This module never writes it.
@@ -41,32 +46,10 @@ export const DEMO_CAP_REACHED_MESSAGE =
 export const DEMO_ONLY_MESSAGE =
   'Your access covers the demo workspace only. Switch back to it, or start a trial to use your own workspace.'
 
-/** The costly surfaces a demo workspace switches off, with the words a person reads. */
+/** What a person reads where a demo workspace refuses something. */
 export const DEMO_OFF = {
-  studio_generation: 'Generating video, images and sound is switched off in the demo workspace.',
-  cloud_browser: 'The cloud browser is switched off in the demo workspace.',
-  coding_sandbox: 'Coding runs are switched off in the demo workspace.',
-  seo: 'SEO lookups that cost money are switched off in the demo workspace.',
-  outbound_email: 'Sending email is switched off in the demo workspace.',
-  call_recording: 'Recording is switched off in the demo workspace. Notes are taken as usual.',
-  web_search: 'Web research is switched off in the demo workspace.',
   connector: 'Real accounts cannot be connected to or shared into the demo workspace.',
 } as const
-
-export type DemoOffSurface = keyof typeof DEMO_OFF
-
-/** Thrown by refuseInDemoWorkspace. `code` is stable; `message` is for a person. */
-export class DemoWorkspaceRefusal extends Error {
-  readonly code = 'DEMO_WORKSPACE'
-  constructor(readonly surface: DemoOffSurface) {
-    super(DEMO_OFF[surface])
-    this.name = 'DemoWorkspaceRefusal'
-  }
-}
-
-export function isDemoWorkspaceRefusal(err: unknown): err is DemoWorkspaceRefusal {
-  return err instanceof Error && (err as { code?: unknown }).code === 'DEMO_WORKSPACE'
-}
 
 /** The triggers' refusal (`refuse_in_demo_workspace`), as PostgREST reports it. */
 export function isDemoWorkspaceDbRefusal(error: { message?: unknown; hint?: unknown } | null | undefined): boolean {
@@ -144,25 +127,15 @@ export async function readDemoWorkspace(workspaceId: string | null | undefined):
 /**
  * True for a flagged workspace. Never throws.
  *
- * AN UNREADABLE FLAG IS "NOT A DEMO" (logged above), for every surface. A
- * read error must never change what a workspace that is not flagged gets: no
- * declined phone call, no refused search, no unsent text for a paying
- * business because one read failed. For a workspace that IS a demo this
- * opens its switched-off surfaces for as long as the read fails; what still
- * holds then is in the database, not here: the AI cap where an admin set one
- * (check_ai_usage_limit) and the triggers that refuse linking anything real.
+ * AN UNREADABLE FLAG IS "NOT A DEMO" (logged above), everywhere. A read
+ * error must never change what a workspace that is not flagged gets. For a
+ * workspace that IS a demo, the app-side refusals of a connect are then
+ * skipped for as long as the read fails; what still holds is in the
+ * database, not here: the triggers that refuse linking anything real, and
+ * the AI cap where an admin set one (check_ai_usage_limit).
  */
 export async function isDemoWorkspace(workspaceId: string | null | undefined): Promise<boolean> {
   return (await readDemoWorkspace(workspaceId)) === true
-}
-
-/**
- * The one gate in front of a costly surface: throws DemoWorkspaceRefusal when
- * `workspaceId` is a demo workspace. Put it where the workspace is known and
- * every spend passes.
- */
-export async function refuseInDemoWorkspace(workspaceId: string | null | undefined, surface: DemoOffSurface): Promise<void> {
-  if (await isDemoWorkspace(workspaceId)) throw new DemoWorkspaceRefusal(surface)
 }
 
 /**

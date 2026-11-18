@@ -1861,25 +1861,35 @@ a workspace is flagged.
   Members › Invite, as **member** or **guest** (an admin there needs a seat of
   their own). A personal address (Gmail and the like) may sign up because the
   invite names it. They need no card, land in the demo workspace, and cannot
-  use any other workspace until they hold a seat. An emailed invite is the
-  only way in: the join link and joining by email domain are refused there,
-  and visitors cannot invite.
+  use any other workspace until they hold a seat.
+- **Visitors inviting others** works as in any workspace, and is off until
+  the owner switches on "members can invite people" in Settings › Members
+  (the join link is the owner's switch there too). A member then invites as
+  member or guest only, never admin; a guest never invites; nobody changes
+  their own role. Everyone who comes in that way is a visitor like any other.
 - **Who is a visitor**: a member or guest with nothing of their own. A person
   with a subscription, a ChatGPT plan, credits, a paid plan or a granted free
   period keeps using that, in the demo and elsewhere, and their use is not
   counted against the demo.
-- **What is off there**: texts, answered phone calls, Studio generation,
-  enrichment, workspace web research, the cloud browser, coding runs, SEO
-  data, prospecting, call recording and kept call audio, sending email (from
-  a person's own mailbox, and the link request the app mails), the desktop
-  app's calendar sync, and connecting or linking anything real (accounts, MCP
-  servers, Slack, shared email, Stripe, a business number): refused where it
-  starts, and again by the database.
+- **What is refused there, and only this**: connecting or linking anything
+  real. A mail, calendar or contacts account, GitHub, HubSpot and the other
+  OAuth connectors, an MCP server, a Slack workspace, a Stripe account, a
+  business phone number, an email shared into the workspace: refused where
+  the connect starts, and again by the database. The desktop app's calendar
+  sync is not taken there either.
+- **Everything else works there as in any workspace** (the owner's decisions,
+  2026-11-18): texts, phone calls, the cloud browser, coding runs, web
+  research, enrichment, SEO data, prospecting, Studio, email, call notes and
+  recording. Each still needs what it needs anywhere (a server key, a
+  connected account, a verified phone), and since nothing can be connected in
+  the demo, some cannot be used by a visitor at all: the pull request's
+  description lists them one by one.
 - **If the flag cannot be read** (a database error), the app treats the
   workspace as not a demo and logs `[demo-workspace] flag read failed`. No
   other workspace is ever refused anything because of this feature. For the
-  demo itself the switched-off surfaces are open while the read fails; the
-  database's refusals (and a cap, where one is set) hold regardless.
+  demo itself the app's own refusals of a connect are skipped while the read
+  fails; the database's refusals (and a cap, where one is set) hold
+  regardless.
 - **AI use is not capped** (the owner's decision, 2026-11-18: visitors are to
   try the product, not be stopped by a budget). Every visitor's AI use is
   metered on the flag row (`ai_spend_usd`, this month's total), so what the
@@ -1888,8 +1898,10 @@ a workspace is flagged.
   With a cap set, visitors' AI stops for the month once the total reaches it,
   with a plain message; it is one pool, the nightly reset does not give it
   back, and calls in flight when it is crossed still finish.
-- **Call notes are on there** (the owner's decision, 2026-11-18), as in any
-  workspace: the transcript, the live summary, the notes at the end.
+- **Call notes and recording** are as in any workspace, under the server's
+  own switches (`TEAM_CALL_RECORDER`, `TEAM_CALL_AUDIO`, `LIVEKIT_EGRESS`) and
+  the guests' consent rules: the transcript, the live summary, the notes at
+  the end, and a recording or kept audio where the server keeps them.
   - The live summary's turns and the end-of-call pass run on the plan of the
     notes' owner (the meeting's host, else whoever started the call). A
     visitor's are metered on the flag row like their other AI use; a call

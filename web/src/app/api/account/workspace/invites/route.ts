@@ -6,7 +6,6 @@ import { badRequest, conflict, forbidden, serverError } from '@/lib/api-errors'
 import { trackServerEvent } from '@/lib/posthog'
 import { canManageJoining, decideInvite } from '@/lib/workspace-join/roles'
 import { readMembersCanInvite } from '@/lib/workspace-join/settings'
-import { isDemoWorkspace } from '@/lib/demo/demo-mode'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function GET() {
@@ -78,12 +77,6 @@ export async function POST(request: NextRequest) {
       console.error('[invites] members-can-invite read failed:', err instanceof Error ? err.message : err)
       return serverError()
     }
-  }
-  // A demo workspace's visitors never bring more people in (each one shares
-  // the workspace's budget, migration 669): only its owner and admins invite,
-  // whatever the "members can invite" switch says.
-  if (!managing && (await isDemoWorkspace(workspaceId))) {
-    return forbidden('Only the people who run this demo workspace can invite others')
   }
   const decision = decideInvite(caller.role, membersCanInvite, role)
   if (!decision.ok) {

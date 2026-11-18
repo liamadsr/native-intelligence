@@ -17,7 +17,6 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { textPerson } from '@/lib/chat/text-turn-server'
-import { isDemoWorkspace } from '@/lib/demo/demo-mode'
 import { sendSms } from '@/lib/twilio/client'
 import { twilioConfig } from '@/lib/twilio/config'
 import { normalizeE164 } from '@/lib/twilio/phone'
@@ -70,7 +69,6 @@ export async function textCustomer(
 ): Promise<DeliveryResult> {
   const to = normalizeE164(args.phone)
   if (!to) return { sent: false, reason: 'bad_phone' }
-  if (await isDemoWorkspace(args.workspaceId)) return { sent: false, reason: 'demo_workspace' }
   const from = await (deps.businessNumber ?? ((w) => businessNumberFor(supabase, w)))(args.workspaceId)
   if (!from) return { sent: false, reason: 'no_business_number' }
   try {

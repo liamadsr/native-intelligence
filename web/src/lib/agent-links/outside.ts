@@ -26,7 +26,6 @@
  * Server only.
  */
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
-import { isDemoWorkspace } from '@/lib/demo/demo-mode'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { BASE_URL, sendEmail } from '@/lib/email'
 import { escapeHtml } from '@/lib/email/plain-text-to-html'
@@ -177,10 +176,6 @@ export async function requestLinkByEmail(service: SupabaseClient, input: AskInpu
   if (!email) return { ok: false, reason: 'bad_email' }
   const key = connectTokenKey()
   if (!key) return { ok: false, reason: 'no_key' }
-  // A demo workspace's visitor sends no email to an address they type
-  // (migration 669): this one would go out from the app's own mail domain.
-  // Answered as the day's limit: nothing was sent, and nothing can be.
-  if (await isDemoWorkspace(input.workspaceId)) return { ok: false, reason: 'daily_cap' }
   if ((await emailRequestsToday(service, input.requesterUserId, now)) >= EMAIL_REQUESTS_PER_DAY) return { ok: false, reason: 'daily_cap' }
 
   const token = generateConnectToken()

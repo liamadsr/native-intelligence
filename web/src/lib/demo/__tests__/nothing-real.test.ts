@@ -1,8 +1,8 @@
 /**
- * Nothing real goes into, or out of, a demo workspace (migration 669), at the
- * places a person starts it: connecting an account, joining by a link,
- * sending mail, a background job in another workspace, and how much of a
- * day's calls are heard. The database's own refusals are in
+ * Nothing real goes into a demo workspace (migration 669), at the places a
+ * person starts it: connecting an account; and what bounds a visitor: whom
+ * they may invite, a background job in another workspace, and the optional
+ * limit on how much of a day's calls is heard. The database's own refusals are in
  * demo-workspace-migration.test.ts.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -17,10 +17,7 @@ vi.mock('next/headers', () => ({ cookies: async () => ({ set: vi.fn() }), header
 import { setDemoWorkspaceLookupForTests, DEMO_OFF } from '../demo-mode'
 import { completeOAuthConnect } from '@/lib/oauth/complete-connect'
 import { mintConnectLink } from '@/lib/links/oauth-link'
-import { joinWorkspace } from '@/lib/workspace-join/add-member'
-import { joinSettingsView } from '@/lib/workspace-join/view'
-import { sendEmail } from '@/lib/crm/email-client'
-import { requestLinkByEmail } from '@/lib/agent-links/outside'
+import { canCopyJoinLink, decideInvite, invitableRoles } from '@/lib/workspace-join/roles'
 import { guardBackgroundUsage, guardBackgroundUsageOnPlan, isUsageAllowed } from '@/lib/inngest/usage-guard'
 import { demoWorkspacesPastTheirDay } from '@/lib/team-calls/recorder'
 
@@ -48,41 +45,26 @@ describe('connecting an account', () => {
   })
 })
 
-describe('joining', () => {
-  const user = { id: 'u1', email: 'visitor@fund.example' }
-
-  it('a demo workspace is not joined by its link or by an email domain', async () => {
-    for (const via of ['link', 'domain'] as const) {
-      const result = await joinWorkspace({ service: untouched, user, workspaceId: DEMO, role: 'member', via, activate: 'always' })
-      expect(result).toEqual({ ok: false, error: 'This workspace is joined by invitation only' })
-    }
+describe('a visitor who may invite (where the workspace lets members invite)', () => {
+  // Nothing here is demo-specific: a visitor is a member or a guest, and these
+  // are the rules every workspace has (src/lib/workspace-join/roles.ts). The
+  // database holds the rest (306: only an owner or admin changes a role, never
+  // their own; only the owner makes an owner).
+  it('a member invites as member or guest only: never an admin, and owner is not a role an invite can carry', () => {
+    expect(decideInvite('member', true, 'member')).toEqual({ ok: true, role: 'member' })
+    expect(decideInvite('member', true, 'guest')).toEqual({ ok: true, role: 'guest' })
+    expect(decideInvite('member', true, 'admin')).toMatchObject({ ok: false, status: 403 })
+    expect(decideInvite('member', true, 'owner')).toMatchObject({ ok: false, status: 400 })
+    expect(invitableRoles('member', true)).toEqual(['member', 'guest'])
   })
 
-  it('an emailed invite still joins it (it goes on to the member row)', async () => {
-    await expect(joinWorkspace({ service: untouched, user, workspaceId: DEMO, role: 'member', via: 'invite', activate: 'always' })).rejects.toThrow('the client was used')
-  })
-
-  it('nobody is shown a join link there, and a member is offered no one to invite', () => {
-    const stored = { membersCanInvite: true, domains: [], link: { token: 'tok', enabled: true } }
-    const viewer = { id: 'u1', email: 'visitor@fund.example' } as never
-    expect(joinSettingsView(stored, 'member', viewer).link.url).toContain('tok')
-    const member = joinSettingsView(stored, 'member', viewer, true)
-    expect(member.link).toEqual({ enabled: false, url: null })
-    expect(member.membersCanInvite).toBe(false)
-    expect(member.invitableRoles).toEqual([])
-    expect(joinSettingsView(stored, 'owner', viewer, true).link.url).toBeNull()
-  })
-})
-
-describe('mail', () => {
-  it('none is sent for a demo workspace from a person’s own mailbox, and the mailbox is never looked up', async () => {
-    await expect(sendEmail('u1', DEMO, { to: ['maya@larkspurcoffee.example'], subject: 'Quote', body: 'Hello' } as never)).rejects.toThrow(DEMO_OFF.outbound_email)
-  })
-
-  it('no link request is emailed to an address a visitor types', async () => {
-    const result = await requestLinkByEmail(untouched, { requesterUserId: 'u1', workspaceId: DEMO, email: 'someone@elsewhere.example' } as never)
-    // Refused before anything is read or sent (with no signing key set, earlier still).
-    expect(result.ok).toBe(false)
+  it('not at all while the workspace’s "members can invite" switch is off, and a guest never', () => {
+    expect(decideInvite('member', false, 'member')).toMatchObject({ ok: false, status: 403 })
+    expect(invitableRoles('member', false)).toEqual([])
+    for (const role of ['member', 'guest', 'admin', 'owner']) expect(decideInvite('guest', true, role).ok).toBe(false)
+    expect(canCopyJoinLink('guest', true)).toBe(false)
+    expect(canCopyJoinLink('member', false)).toBe(false)
+    expect(canCopyJoinLink('member', true)).toBe(true)
   })
 })
 

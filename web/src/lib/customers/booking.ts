@@ -49,7 +49,6 @@ import { recordOutbound, unlinkedNumberOptedOut } from '@/lib/sms/store'
 import { createToolApproval, type NewApproval, type NewApprovalResult } from '@/lib/safety/approvals'
 import { cleanText } from './intake'
 import { activeBusinessNumber } from './numbers'
-import { isDemoWorkspace } from '@/lib/demo/demo-mode'
 import { bookingSetup, isSlotFree, openSlotAt, slotLabel } from './slots'
 import {
   businessName,
@@ -281,8 +280,6 @@ export async function textBookingCustomer(
   try {
     const to = booking.customerPhone
     if (!to || !isNanpNumber(to) || (await unlinkedNumberOptedOut(supabase, to))) return false
-    // A demo workspace sends no texts (and can hold no business number: migration 669).
-    if (await isDemoWorkspace(booking.workspaceId)) return false
     const number = await activeBusinessNumber(supabase, booking.workspaceId)
     if (!number) return false
     let sent = false

@@ -49,7 +49,6 @@
  * texted to anyone here.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { isDemoWorkspace } from '@/lib/demo/demo-mode'
 import { channelApprovalsRaisedSince } from '@/lib/attention/channel-approvals'
 import { claimReachNotice, releaseTextedApproval } from '@/lib/reach/notice'
 import { approvalPromptText } from '@/lib/sms/approvals'
@@ -87,8 +86,6 @@ export const SMS_REPLY_MAX_TEXTS = 10
 
 /** Why a text was not sent. */
 export type TextSendSkip =
-  /** The workspace is a demo workspace (migration 669): no texts are sent for it. */
-  | 'demo_workspace'
   | 'quiet'
   | 'already_sent'
   | 'no_phone'
@@ -225,8 +222,6 @@ export async function textPerson(
   if (bodies.length === 0) return { sent: false, reason: 'empty' }
   let phone: Awaited<ReturnType<typeof linkedPhoneForUser>>
   try {
-    // A demo workspace sends no texts. Unreadable flag: not sent (lookup_failed).
-    if (await isDemoWorkspace(args.workspaceId)) return { sent: false, reason: 'demo_workspace' }
     phone = await linkedPhoneForUser(supabase, args.userId)
     if (!phone) return { sent: false, reason: 'no_phone' }
     if (phone.optedOut) return { sent: false, reason: 'opted_out' }
@@ -313,14 +308,12 @@ export async function textGuest(
   try {
     const { data, error } = await supabase
       .from('agent_guest')
-      .select('phone_e164, state, opted_out_at, preset, business_number_id, workspace_id')
+      .select('phone_e164, state, opted_out_at, preset, business_number_id')
       .eq('id', args.guestId)
       .eq('owner_user_id', args.ownerUserId)
-      .maybeSingle<{ phone_e164: string; state: string; opted_out_at: string | null; preset: string; business_number_id: string | null; workspace_id: string | null }>()
+      .maybeSingle<{ phone_e164: string; state: string; opted_out_at: string | null; preset: string; business_number_id: string | null }>()
     if (error) return { sent: false, reason: 'lookup_failed' }
     if (!data || data.state !== 'active') return { sent: false, reason: 'no_phone' }
-    // A guest of a demo workspace is never texted (the catch below covers an unreadable flag).
-    if (await isDemoWorkspace(data.workspace_id)) return { sent: false, reason: 'demo_workspace' }
     phone = data.phone_e164
     // A business's customer is answered from the number they texted, never the Native Intelligence one.
     if (data.preset === 'customer') {

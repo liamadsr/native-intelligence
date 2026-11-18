@@ -12,14 +12,6 @@ import { ASSET_KEY, deleteBlob, getBlob, READ_LINK_SECONDS, storageOf, type Stor
 import { isUuid, must, type StudioContext } from './context'
 import { deliverEndedExport } from './delivery'
 import { asStudioError, conflictError, notFoundError, StudioError } from './errors'
-import { DEMO_OFF, isDemoWorkspace } from '@/lib/demo/demo-mode'
-
-/**
- * The job kinds a demo workspace may still queue: bringing a file in, and
- * rendering what is already there. An allow-list, so a new kind is off in a
- * demo until someone says it costs nothing.
- */
-export const DEMO_LOCAL_JOB_KINDS: ReadonlySet<string> = new Set(['import', 'live-import', 'sound-import', 'export', 'stills', 'thumbnail', 'slides'])
 import { blobObject, blobParts, type ClaimedJob, type ExportResult, type ImportInput, type LocalJobIO, type LocalJobKind, type SlidesInput, type SlidesResult, type StudioJobIO, type StudioJobKind, type StudioJobStatus, type TranscribeInput, type TranscribeResult } from './job-contract'
 import { COLLECTIONS, putRecord } from './records'
 import type { StudioStorage } from './storage'
@@ -108,11 +100,6 @@ const missingFunction = (error: { code?: string } | null) => error?.code === 'PG
  */
 export async function queueJob<K extends AnyJobKind>(ctx: StudioContext, kind: K, input: AnyJobIO[K]['input'] & Record<string, unknown>, videoId: string | null = null): Promise<JobRow> {
   const video = videoId && isUuid(videoId) ? videoId : null
-  // A demo workspace (migration 669) runs only the jobs that stay on our own
-  // worker; everything that may call a paid provider is off.
-  if (!DEMO_LOCAL_JOB_KINDS.has(kind) && (await isDemoWorkspace(ctx.workspaceId))) {
-    throw new StudioError(DEMO_OFF.studio_generation, 403, 'DEMO_WORKSPACE')
-  }
   // A local export no computer took is not counted against the caps: it has ended.
   await endUntakenLocalExports(ctx.supabase, ctx.workspaceId)
   const { data, error } = await ctx.supabase.rpc('studio_queue_job', {

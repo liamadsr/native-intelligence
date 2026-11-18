@@ -82,7 +82,7 @@ vi.mock('@/lib/team-calls/livekit', async (orig) => ({
 }))
 
 import { POST as notes } from '../[id]/notes/route'
-import { DEMO_OFF, setDemoWorkspaceLookupForTests } from '@/lib/demo/demo-mode'
+import { setDemoWorkspaceLookupForTests } from '@/lib/demo/demo-mode'
 import { GET as recordingLink, POST as recording } from '../[id]/recording/route'
 import { POST as startCall } from '../route'
 import { POST as token } from '../[id]/token/route'
@@ -222,23 +222,17 @@ describe('POST /api/account/team-calls/[id]/notes', () => {
 })
 
 describe('in a demo workspace (migration 669)', () => {
-  it('notes go on as in any workspace', async () => {
+  // Nothing in these routes knows about demo workspaces: notes and recording
+  // work there as anywhere, under the server's own switches.
+  it('notes go on and a recording starts, as in any workspace', async () => {
     setDemoWorkspaceLookupForTests(() => true)
     h.rpc.team_call_set_notes = { data: [{ notes: true, notes_round: 1, changed: true }], error: null }
     h.rpc['svc:team_call_egress_claim'] = { data: [{ egress_row: REC, file_path: 'p' }], error: null }
-    const res = await notes(post('/n', { on: true }), params)
-    expect(res.status).toBe(200)
-    expect(h.rpcs[0]).toEqual(['team_call_set_notes', { target_call: CALL, turn_on: true }])
-  })
-
-  it('a recording is never started; one running may still be stopped', async () => {
-    setDemoWorkspaceLookupForTests(() => true)
+    expect((await notes(post('/n', { on: true }), params)).status).toBe(200)
+    h.rpc['svc:team_call_recording_begin'] = { data: [{ outcome: 'claimed', egress_row: REC, file_path: 'f.mp4' }], error: null }
+    h.rpc['svc:team_call_egress_event'] = { data: [{ outcome: 'applied' }], error: null }
     const res = await recording(post('/r', { action: 'start' }), params)
-    expect(res.status).toBe(403)
-    expect(await res.json()).toEqual({ error: DEMO_OFF.call_recording, code: 'DEMO_WORKSPACE' })
-    expect(h.svcRpcs).toEqual([])
-    expect(h.port.started).toEqual([])
-    expect((await recording(post('/r', { action: 'stop' }), params)).status).not.toBe(403)
+    expect(await res.json()).toEqual({ recording: 'starting' })
   })
 })
 

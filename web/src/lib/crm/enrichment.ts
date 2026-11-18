@@ -56,7 +56,6 @@
  */
 
 import { getServiceClient } from '@/lib/admin'
-import { isDemoWorkspace } from '@/lib/demo/demo-mode'
 import {
   COMPANY_CARD_SCHEMAS,
   DEEP_SEARCH_TIMEOUT_MS,
@@ -835,9 +834,6 @@ export async function enrichContact(
 ): Promise<EnrichmentOutcome> {
   const supabase = getServiceClient()
 
-  // Off in a demo workspace (migration 669): nothing is looked up, nothing is written.
-  if (await isDemoWorkspace(args.workspaceId)) return { status: 'skipped', applied: [], reason: 'demo_workspace' }
-
   const { data: row, error: loadErr } = await supabase
     .from('contact')
     .select(
@@ -1209,8 +1205,6 @@ export async function enrichCompany(
   args: EnrichCompanyArgs,
 ): Promise<EnrichmentOutcome> {
   const supabase = getServiceClient()
-
-  if (await isDemoWorkspace(args.workspaceId)) return { status: 'skipped', applied: [], reason: 'demo_workspace' }
 
   const { data: row, error: loadErr } = await supabase
     .from('company')

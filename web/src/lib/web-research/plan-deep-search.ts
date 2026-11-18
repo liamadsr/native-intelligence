@@ -1,7 +1,5 @@
 import 'server-only'
 import { randomUUID } from 'node:crypto'
-import { refuseInDemoWorkspace } from '@/lib/demo/demo-mode'
-import { getServiceClient } from '@/lib/supabase/service'
 import { z } from 'zod'
 import { logUsage } from '@/lib/ai/auth'
 import { CHATGPT_PLAN_PROVIDER, PLAN_HELPER_MODEL, planModelSlug } from '@/lib/chatgpt/plan-models'
@@ -303,8 +301,6 @@ export async function planWebSearch(
  * unattributed job) is Exa, as before.
  */
 export async function deepSearchForUser(userId: string | null | undefined, workspaceId: string | null): Promise<DeepSearchFn> {
-  // Off in a demo workspace (migration 669), whoever pays: refused before the plan is even read.
-  await refuseInDemoWorkspace(workspaceId, 'web_search')
   if (!userId) return deepSearch
   if (!(await chatgptPlanFor(userId, { attempts: 2, failClosed: true }))) return deepSearch
   return (args) => planDeepSearch(args, { userId, workspaceId })

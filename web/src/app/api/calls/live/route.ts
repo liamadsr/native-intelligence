@@ -1,5 +1,4 @@
 import { after } from 'next/server'
-import { isDemoWorkspace } from '@/lib/demo/demo-mode'
 import * as Sentry from '@sentry/nextjs'
 import { getServiceClient } from '@/lib/supabase/service'
 import { verifyLiveWebhook, parseLiveIncomingCall } from '@/lib/calls/live-webhook'
@@ -94,12 +93,6 @@ export async function POST(request: Request) {
     if (!caller) {
       const rejected = await rejectLiveCall(call.sessionId, DECLINE, { apiKey })
       console.info(`[calls-live] session=${call.sessionId} outcome=${phone ? 'unknown_caller' : 'no_caller_id'} reject=${rejected.ok ? 'ok' : rejected.code ?? rejected.status}`)
-      return Response.json({ ok: true, outcome: 'declined' })
-    }
-    // A call about a demo workspace is not answered: the voice layer bills by the minute.
-    if (await isDemoWorkspace(caller.workspaceId)) {
-      const rejected = await rejectLiveCall(call.sessionId, DECLINE, { apiKey })
-      console.info(`[calls-live] session=${call.sessionId} outcome=demo_workspace reject=${rejected.ok ? 'ok' : rejected.code ?? rejected.status}`)
       return Response.json({ ok: true, outcome: 'declined' })
     }
     if (!callerIdAttested(call.sipHeaders) && !devSkipsAttestation()) {

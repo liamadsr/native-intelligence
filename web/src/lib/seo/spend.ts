@@ -34,7 +34,6 @@
  */
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { DEMO_OFF, isDemoWorkspace } from '@/lib/demo/demo-mode'
 import { DataforseoChargedTaskError, DataforseoChargeUnknownError, type DataforseoMeter, type SeoSpendFeature } from './dataforseo'
 import { SeoError } from './errors'
 
@@ -119,11 +118,6 @@ export function createWorkspaceMeter(svc: SupabaseClient, who: { workspaceId: st
 
   return {
     async run({ feature, estimateUsd, exec }) {
-      // A demo workspace (migration 669) buys no search data at all. An
-      // unreadable flag refuses too: nothing is spent on "could not tell".
-      if (await isDemoWorkspace(who.workspaceId)) {
-        throw new SeoError('SPEND_LIMIT_REACHED', DEMO_OFF.seo)
-      }
       let spent: number
       try {
         spent = await readMonthlySeoSpend(svc, who.workspaceId, now())

@@ -1,5 +1,4 @@
 import { getValidToken, getValidTokenForAccount } from '@/lib/oauth/token-manager'
-import { DEMO_OFF, isDemoWorkspace } from '@/lib/demo/demo-mode'
 import { draftRowsFor, markHoldsSending, releaseDraftRows, restoreHolds, touchHold } from '@/lib/email/hold'
 import { getServiceClient } from '@/lib/admin'
 import { readableWorkspaceEmailAccounts } from '@/lib/email/account-scope'
@@ -510,13 +509,6 @@ export async function sendEmail(
   workspaceId: string,
   params: SendEmailParams,
 ): Promise<SendEmailResult> {
-  // No mail leaves a demo workspace (migration 669): this is every send made
-  // for a workspace from a person's own connected mailbox (the composer,
-  // sequences, quotes, time offers, payment links, review requests), and the
-  // mailbox is found by person, not by workspace, so a visitor's real one
-  // would otherwise answer here.
-  if (await isDemoWorkspace(workspaceId)) throw new Error(DEMO_OFF.outbound_email)
-
   const supabaseAdmin = getServiceClient()
 
   // Resolve the sending identity. account_id pins to one mailbox; the legacy

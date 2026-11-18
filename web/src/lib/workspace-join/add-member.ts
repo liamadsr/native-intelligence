@@ -18,7 +18,6 @@
  * link, a verified address on a claimed domain).
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { isDemoWorkspace } from '@/lib/demo/demo-mode'
 import { cookies } from 'next/headers'
 import { ensureMemberContact } from '@/lib/crm/contacts'
 import { trackServerEvent } from '@/lib/posthog'
@@ -61,14 +60,6 @@ const UNIQUE_VIOLATION = '23505'
 
 export async function joinWorkspace(input: JoinWorkspaceInput): Promise<JoinWorkspaceResult> {
   const { service, user, workspaceId, role, via, activate } = input
-
-  // A demo workspace (migration 669) is joined by an emailed invite only,
-  // which only its owner and admins send: each person in it shares its
-  // budget, so a link that can be passed on, or a whole email domain, is not
-  // a way in.
-  if (via !== 'invite' && (await isDemoWorkspace(workspaceId))) {
-    return { ok: false, error: 'This workspace is joined by invitation only' }
-  }
 
   const { data: existing, error: lookupError } = await service
     .from('member')

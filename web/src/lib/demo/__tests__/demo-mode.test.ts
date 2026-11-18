@@ -13,15 +13,11 @@ vi.mock('@/lib/supabase/service', () => ({
 }))
 
 import {
-  DEMO_OFF,
-  DemoWorkspaceRefusal,
   clearDemoWorkspaceCache,
   demoVisitorOutside,
   isDemoWorkspace,
   isDemoWorkspaceDbRefusal,
-  isDemoWorkspaceRefusal,
   readDemoWorkspace,
-  refuseInDemoWorkspace,
   setDemoWorkspaceLookupForTests,
 } from '../demo-mode'
 
@@ -77,22 +73,6 @@ describe('isDemoWorkspace', () => {
   it('before migration 669 (no such function) nothing is a demo', async () => {
     answers(() => ({ data: null, error: { message: 'not found', code: 'PGRST202' } }))
     expect(await readDemoWorkspace('w')).toBe(false)
-  })
-})
-
-describe('refuseInDemoWorkspace', () => {
-  it('throws the surface’s own words in a demo workspace, and nothing elsewhere', async () => {
-    answers((id) => ({ data: id === 'demo', error: null }))
-    await expect(refuseInDemoWorkspace('real', 'cloud_browser')).resolves.toBeUndefined()
-    const err = await refuseInDemoWorkspace('demo', 'cloud_browser').catch((e: unknown) => e)
-    expect(err).toBeInstanceOf(DemoWorkspaceRefusal)
-    expect(isDemoWorkspaceRefusal(err)).toBe(true)
-    expect((err as Error).message).toBe(DEMO_OFF.cloud_browser)
-  })
-
-  it('a read error never refuses: a workspace that is not flagged gets what it always got', async () => {
-    answers(() => ({ data: null, error: { message: 'down' } }))
-    await expect(refuseInDemoWorkspace('w', 'web_search')).resolves.toBeUndefined()
   })
 })
 
