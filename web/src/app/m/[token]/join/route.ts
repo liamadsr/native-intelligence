@@ -4,7 +4,7 @@
  * POST from the meeting's own page only.
  *
  * Limited per address and per link (looking the link up, then asking); the
- * name is 1 to 60 letters, digits, spaces and . ' - ( ). A guest asking again
+ * name is 1 to 60 letters, digits, spaces and . , ' - & + ( ). A guest asking again
  * with their cookie (a reload) gets their own place back, never a second one.
  * The guest waits (574's meeting_guest_request, at most 10 waiting at once);
  * their cookie (signed, http-only, this meeting's path only) is what their
@@ -13,6 +13,15 @@
  * reason. At most five wait from one address. A removed guest's own row and
  * cookie never get in again; anyone's new knock waits for a member's admit.
  * The body is capped (4 KB) before it is read.
+ *
+ * The entry page's notice is their go: when the page said the notes are on
+ * (the live call has them, or every call starts with them) or that the call
+ * is being recorded, asking to join from it is their go to that for the call
+ * they are let into, recorded on their new row now (src/lib/meeting-links/
+ * consent.ts agreeOnEntry: the server decides what the page said; the
+ * page's `notice`, what it showed, can only narrow that). They then come in
+ * with their microphone and camera live. Notes or a recording that come on
+ * later ask in the call, as before.
  */
 import { after, NextResponse, type NextRequest } from 'next/server'
 import { apiError, badRequest, serverError } from '@/lib/api-errors'
@@ -24,6 +33,9 @@ import { guestCookieOptions, MEETING_GUEST_COOKIE, signGuestCookie } from '@/lib
 import { guestOf, linkEarly, linkInactive, lookUpMeeting, privateHeaders, smallBody, tooManyTries } from '@/lib/meeting-links/public'
 import { cleanGuestName } from '@/lib/meeting-links/shape'
 import { notifyHostWaiting, pollGuest, requestToJoin } from '@/lib/meeting-links/store'
+import { agreeOnEntry } from '@/lib/meeting-links/consent'
+import { teamCallFeatures } from '@/lib/team-calls/egress'
+import { newCallTakesNotes } from '@/lib/team-calls/notes'
 
 export const dynamic = 'force-dynamic'
 
@@ -35,9 +47,9 @@ export async function POST(request: NextRequest, { params }: Params) {
   if (!teamCallsConfig()) return privateHeaders(linkInactive())
   const raw = await smallBody(request)
   if (raw instanceof Response) return raw
-  let input: { name?: unknown } = {}
+  let input: { name?: unknown; notice?: unknown } = {}
   try {
-    input = raw ? (JSON.parse(raw) as { name?: unknown }) : {}
+    input = raw ? (JSON.parse(raw) as { name?: unknown; notice?: unknown }) : {}
   } catch {
     return privateHeaders(badRequest('Invalid JSON body'))
   }
@@ -76,12 +88,14 @@ export async function POST(request: NextRequest, { params }: Params) {
         return privateHeaders(linkInactive())
     }
     const guestId = asked.guestId!
+    // What the entry page said is on, and they asked from it: their go, recorded before anyone can let them in.
+    const agreed = await agreeOnEntry(svc, { guestId, callId: asked.callId, notesAtStart: newCallTakesNotes(teamCallFeatures(), false), said: input.notice })
     const cookie = signGuestCookie(token, guestId, new Date(meeting.closes_at))
     const res = NextResponse.json({ state: 'waiting' })
     res.cookies.set(MEETING_GUEST_COOKIE, cookie.value, guestCookieOptions(token, cookie.expires))
     // Nobody in the call to let them in: the host hears of it (one notice at a time).
     if (asked.membersInCall === 0) after(() => notifyHostWaiting(svc, { meeting, guestId, guestName: name }).then(() => undefined))
-    console.info(`[meetings] meeting=${meeting.id} guest=${guestId} outcome=waiting in_call=${asked.membersInCall}`)
+    console.info(`[meetings] meeting=${meeting.id} guest=${guestId} outcome=waiting in_call=${asked.membersInCall} entry_go=${[agreed.notes && 'notes', agreed.recording && 'recording'].filter(Boolean).join('+') || 'none'}`)
     return privateHeaders(res)
   } catch (err) {
     console.error('[meetings] join failed:', err instanceof Error ? err.message : 'unknown')

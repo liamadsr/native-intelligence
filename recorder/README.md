@@ -30,6 +30,22 @@ producer that joins someone's Meet, Teams or Zoom call speaks the same feed.
   is heard, encoded with ffmpeg once it leaves, and handed to the app through the feed
   (a one-time upload the app grants; it holds no storage key). A restart goes on in the
   same file; the notes never wait for the sound.
+- With its heartbeat it also says, when it changes, whether each call's words are being
+  written (`src/health.ts`): a Deepgram socket closed for 10 s (named `refused` or
+  `no_credit` when Deepgram's API says so), or someone speaking 25 s of audio with no
+  words back. The members in the call read one plain line saying why (migration 668),
+  until it recovers; one `[recorder] … notes <was> -> <now>` log line per change.
+
+## The preflight
+
+`node src/main.ts --check`, inside the running container
+(`docker compose exec -T recorder node src/main.ts --check` in `deploy/livekit`), checks
+without a call and at no cost: the running process answers its health port and has
+reached the app lately; the app takes the feed's secret, has the recorder on, and its
+live agent is on and answers (`/api/internal/team-call-recorder/check`); LiveKit answers;
+Deepgram takes the key (its management API, with the balance where the key may read it)
+and a streaming socket opens with it (closed before any audio). One `ok`/`FAIL` line
+each; exit 0 only when every one passed.
 
 Deployment, settings and the roll-out steps are in `deploy/README.md` (step 23, "The call
 recorder"); the service is `recorder` in `deploy/livekit/compose.yaml`.

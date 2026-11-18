@@ -13,6 +13,11 @@
  *     finish what it heard (Finalize), and KeepAlive holds the socket open
  *     until there is audio again.
  *   - `close` asks for the last words (CloseStream) and waits for them.
+ *   - Its health (`health`): since when it has had no open socket (a refused
+ *     key, no credit, an unreachable service all look like this from here: a
+ *     socket that closes, again and again), and how many opens in a row
+ *     failed. The call (./call.ts) turns that into what the people in the
+ *     call are told (./health.ts).
  *
  * The key goes as the socket's subprotocol, never in a URL or a log.
  */
@@ -95,6 +100,10 @@ export class DeepgramStream {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private keepAlive: ReturnType<typeof setInterval> | null = null
   private closeWaiter: (() => void) | null = null
+  /** Since when no socket has been open (null while one is): from the start until the first opens. */
+  private downSince: number | null
+  /** Sockets in a row that closed without ever opening. */
+  private failedOpens = 0
   private readonly url: string
   private readonly key: string
   private readonly onHeard: (heard: Heard) => void
@@ -116,6 +125,7 @@ export class DeepgramStream {
     this.onState = opts.onState ?? (() => undefined)
     this.factory = opts.socket ?? ((url, protocols) => new WebSocket(url, protocols) as unknown as SocketLike)
     this.now = opts.now ?? Date.now
+    this.downSince = this.now()
     this.open()
     this.keepAlive = setInterval(() => this.tickKeepAlive(), KEEPALIVE_MS)
   }
@@ -162,6 +172,11 @@ export class DeepgramStream {
     })
   }
 
+  /** How long no socket has been open (0 while one is), and how many opens in a row failed. */
+  health(): { downForMs: number; failedOpens: number } {
+    return { downForMs: this.downSince === null ? 0 : Math.max(0, this.now() - this.downSince), failedOpens: this.failedOpens }
+  }
+
   /** The audio waiting for a socket (or to be heard), in ms: a test's look. */
   get bufferedMs(): number {
     return this.buffer.reduce((n, c) => n + c.durationMs, 0)
@@ -185,9 +200,13 @@ export class DeepgramStream {
     const socket = this.factory(this.url, ['token', this.key])
     socket.binaryType = 'arraybuffer'
     this.socket = socket
+    let opened = false
     socket.onopen = () => {
       if (this.socket !== socket) return
+      opened = true
       this.attempts = 0
+      this.failedOpens = 0
+      this.downSince = null
       // A new socket counts its audio from nothing: what it had not heard is sent again, at the times it was said.
       this.clock = new AudioClock()
       for (const c of this.buffer) if (c.wallMs + c.durationMs > this.lastHeardWallMs) this.sendChunk(c)
@@ -213,6 +232,8 @@ export class DeepgramStream {
         this.finish()
         return
       }
+      if (!opened) this.failedOpens++
+      this.downSince ??= this.now()
       this.onState('down')
       const wait = backoffMs(this.attempts++, { baseMs: 500, maxMs: 10_000 })
       this.reconnectTimer = setTimeout(() => this.open(), wait)

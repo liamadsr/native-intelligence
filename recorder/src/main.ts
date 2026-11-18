@@ -29,6 +29,13 @@
  *     next process.
  *   - Health: GET http://127.0.0.1:<RECORDER_HEALTH_PORT>/ answers 200 while
  *     its loop runs (the compose health check), with counts and nothing else.
+ *   - Whether each call's notes are being written (./health.ts) goes with the
+ *     heartbeat when it changes (and again every HEALTH_RESEND_MS), so the
+ *     members in the call read why when they are not; one log line per change.
+ *     A microphone whose Deepgram socket stays closed has Deepgram asked why
+ *     (./deepgram-check.ts, at most once a VERDICT_EVERY_MS).
+ *   - `--check`: the preflight (./check.ts) instead of the recorder: one line
+ *     per dependency, exit 0 when every one passed.
  */
 import { createServer } from 'node:http'
 import { dispose } from '@livekit/rtc-node'
@@ -38,11 +45,16 @@ import { CallRecorder, type CallEnd } from './call.ts'
 import { deepgramUrl, loadConfig, type RecorderConfig } from './config.ts'
 import { sleep } from './backoff.ts'
 import { Keys } from './speech.ts'
+import { formatChecks, runChecks } from './check.ts'
+import { checkDeepgramKey } from './deepgram-check.ts'
+import { healthToSend, needsVerdict, type DeepgramVerdict, type FeedHealth } from './health.ts'
 
 /** How often it tells the feed what it runs. */
 export const HEARTBEAT_MS = 5_000
 /** After leaving a call it was alone in, or whose feed refused its words, how long before it may join that call again. */
 export const COOLDOWN_MS = 60_000
+/** Deepgram is asked why a socket stays closed at most this often. */
+export const VERDICT_EVERY_MS = 60_000
 
 const loaded = loadConfig()
 if ('missing' in loaded) {
@@ -52,6 +64,18 @@ if ('missing' in loaded) {
 const config: RecorderConfig = loaded
 
 const client = new AppClient({ appUrl: config.appUrl, secret: config.feedSecret, producer: { kind: PRODUCER_KIND, id: config.producerId } })
+
+if (process.argv.includes('--check')) {
+  const lines = await runChecks({
+    client,
+    healthPort: config.healthPort,
+    livekitUrl: config.livekitUrl,
+    deepgramUrl: deepgramUrl(config.deepgramUrl),
+    deepgramKey: config.deepgramKey,
+  })
+  console.log(formatChecks(lines))
+  process.exit(lines.every((l) => l.ok) ? 0 : 1)
+}
 const keys = new Keys(Date.now().toString(36))
 const audio = config.audio ? new AudioKeeper(config.audio, client) : null
 const audioOn = audio ? await audio.start() : false
@@ -62,6 +86,46 @@ const cooldown = new Map<string, number>()
 const shutdown = new AbortController()
 let lastLoopAt = Date.now()
 let lastAppOkAt = 0
+/** Each session's health as last sent to the app, and as last logged. */
+const healthSent = new Map<string, { state: FeedHealth; at: number }>()
+const healthLogged = new Map<string, FeedHealth>()
+/** Deepgram's last word on the key (asked only while a socket stays closed). */
+let verdict: { value: DeepgramVerdict; at: number } | null = null
+let asking = false
+
+/** Ask Deepgram why its sockets stay closed, in the background, at most once a VERDICT_EVERY_MS. */
+function askVerdict(): void {
+  if (asking || (verdict && Date.now() - verdict.at < VERDICT_EVERY_MS)) return
+  asking = true
+  void checkDeepgramKey({ streamUrl: deepgramUrl(config.deepgramUrl), key: config.deepgramKey })
+    .then((k) => {
+      if (verdict?.value !== k.verdict) console.warn(`[recorder] deepgram says: ${k.verdict} (status ${k.status})`)
+      verdict = { value: k.verdict, at: Date.now() }
+    })
+    .catch(() => undefined)
+    .finally(() => {
+      asking = false
+    })
+}
+
+/** Each running session's health now, logged once per change. */
+function healthNow(recs: Iterable<CallRecorder>): Map<string, FeedHealth> {
+  const out = new Map<string, FeedHealth>()
+  let wantVerdict = false
+  for (const rec of recs) {
+    if (needsVerdict(rec.listenerHealth())) wantVerdict = true
+    const state = rec.health(verdict && Date.now() - verdict.at < 2 * VERDICT_EVERY_MS ? verdict.value : null)
+    out.set(rec.session.id, state)
+    const was = healthLogged.get(rec.session.id) ?? 'ok'
+    if (was !== state) console.warn(`[recorder] call=${rec.job.callId} session=${rec.session.id} notes ${was} -> ${state}`)
+    healthLogged.set(rec.session.id, state)
+  }
+  if (wantVerdict) askVerdict()
+  // Sessions no longer run here are forgotten.
+  for (const id of [...healthLogged.keys()]) if (!out.has(id)) healthLogged.delete(id)
+  for (const id of [...healthSent.keys()]) if (!out.has(id)) healthSent.delete(id)
+  return out
+}
 
 function forget(callId: string, rec: CallRecorder, why: CallEnd): void {
   if (calls.get(callId) === rec) calls.delete(callId)
@@ -125,9 +189,11 @@ async function heartbeatLoop(): Promise<void> {
     await sleep(HEARTBEAT_MS, shutdown.signal)
     if (shutdown.signal.aborted || calls.size === 0) continue
     const bySession = new Map([...calls.values()].map((r) => [r.session.id, r]))
+    const beatHealth = healthToSend(healthNow(bySession.values()), healthSent, Date.now())
     try {
-      const answers = await client.heartbeat([...bySession.keys()])
+      const answers = await client.heartbeat([...bySession.keys()], beatHealth)
       lastAppOkAt = Date.now()
+      for (const h of beatHealth) healthSent.set(h.id, { state: h.state, at: Date.now() })
       for (const a of answers) {
         const rec = bySession.get(a.id)
         if (!rec) continue

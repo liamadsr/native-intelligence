@@ -49,6 +49,7 @@ import { POST as segments } from '../sessions/[id]/segments/route'
 import { POST as roster } from '../sessions/[id]/roster/route'
 import { POST as end } from '../sessions/[id]/end/route'
 import { POST as work } from '../../team-call-recorder/work/route'
+import { POST as check } from '../../team-call-recorder/check/route'
 
 let tables: Record<string, Array<Record<string, unknown>>>
 
@@ -257,6 +258,40 @@ describe('roster, heartbeat, end', () => {
     expect(h.rpcs[0]).toEqual(['capture_feed_heartbeat', { p_producer_id: 'recorder', p_sessions: [SESSION, OTHER] }])
   })
 
+  it('health with a heartbeat: stamped for the kept sessions only, a stamp that fails never fails the beat (668)', async () => {
+    const OTHER = '88888888-8888-4888-8888-888888888888'
+    h.answers.capture_feed_heartbeat = {
+      data: [
+        { session_id: SESSION, keep: true, reason: null, guests: [] },
+        { session_id: OTHER, keep: false, reason: 'call_ended', guests: null },
+      ],
+      error: null,
+    }
+    h.answers.capture_feed_health_stamp = { data: [{ o_session: SESSION, o_capture: CAPTURE, o_changed: true }], error: null }
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined)
+    const res = await heartbeat(post({ producer, sessions: [SESSION, OTHER], health: [{ id: SESSION, state: 'refused' }, { id: OTHER, state: 'down' }] }))
+    expect(res.status).toBe(200)
+    expect(h.rpcs[1]).toEqual(['capture_feed_health_stamp', { p_producer_id: 'recorder', p_sessions: [SESSION], p_states: ['refused'] }])
+    expect(info.mock.calls.map((c) => String(c[0]))).toContain(`[capture-feed] producer=recorder session=${SESSION} capture=${CAPTURE} health=refused`)
+    // 668 not applied: the beat still answers.
+    h.rpcs = []
+    h.answers.capture_feed_health_stamp = { data: null, error: { code: 'PGRST202', message: 'no such function' } }
+    expect((await heartbeat(post({ producer, sessions: [SESSION], health: [{ id: SESSION, state: 'ok' }] }))).status).toBe(200)
+    // No health: no stamp asked.
+    h.rpcs = []
+    await heartbeat(post({ producer, sessions: [SESSION] }))
+    expect(h.rpcs.map(([n]) => n)).toEqual(['capture_feed_heartbeat'])
+    // A state the contract does not know is refused.
+    expect((await heartbeat(post({ producer, sessions: [SESSION], health: [{ id: SESSION, state: 'on_fire' }] }))).status).toBe(400)
+  })
+
+  it('end clears any failure the producer reported: nothing more is coming from it', async () => {
+    h.answers.capture_feed_end = { data: true, error: null }
+    h.answers.capture_feed_health_stamp = { data: [], error: null }
+    await end(post({ producer, reason: 'told' }), params())
+    expect(h.rpcs[1]).toEqual(['capture_feed_health_stamp', { p_producer_id: 'recorder', p_sessions: [SESSION], p_states: ['ok'] }])
+  })
+
   it('the recorder switch turned off here: every session is told to stop (feed_off), nothing asked of the database', async () => {
     vi.stubEnv('TEAM_CALL_RECORDER', '')
     expect(await (await heartbeat(post({ producer, sessions: [SESSION] }))).json()).toEqual({ sessions: [{ id: SESSION, keep: false, reason: 'feed_off', guests: [] }] })
@@ -273,6 +308,29 @@ describe('roster, heartbeat, end', () => {
     h.answers.capture_feed_end = { data: true, error: null }
     expect(await (await end(post({ producer, reason: 'told' }), params())).json()).toEqual({ ended: true })
     expect(h.rpcs[0]).toEqual(['capture_feed_end', { p_session: SESSION, p_producer_id: 'recorder', p_reason: 'told' }])
+  })
+})
+
+describe('the notes’ preflight (the recorder’s --check)', () => {
+  it('needs the feed secret; says what is on and whether the live agent answers, never a value', async () => {
+    expect((await check(post({ producer }, 'Bearer wrong'))).status).toBe(401)
+    vi.stubEnv('TEAM_CALL_LIVE_AGENT', 'on')
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://app.test')
+    const asked: string[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+      asked.push(String(url))
+      return Response.json({ status: 'ready' })
+    })
+    const body = await (await check(post({ producer }))).json()
+    expect(body).toMatchObject({ recorder: true, liveAgent: true, liveAgentHealth: 'ready', livekit: true })
+    expect(asked).toEqual(['https://app.test/eve/live-agent/v1/health'])
+    expect(JSON.stringify(body)).not.toContain(FEED)
+    vi.mocked(globalThis.fetch).mockImplementation(async () => {
+      throw new Error('down')
+    })
+    expect((await (await check(post({ producer }))).json()).liveAgentHealth).toBe('unreachable')
+    vi.stubEnv('TEAM_CALL_LIVE_AGENT', '')
+    expect((await (await check(post({ producer }))).json())).toMatchObject({ liveAgent: false, liveAgentHealth: 'off' })
   })
 })
 

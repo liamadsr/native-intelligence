@@ -11,8 +11,16 @@
 #   UDP 7882   every call's media, all of it multiplexed on this one port
 #   TCP 7881   ICE over TCP: the same media, for networks that block UDP
 #
-# ../README.md step 23 has why these two and no others (no TURN), which networks
-# they do not reach, and the firewall lines that go with them.
+# and, once it is set up (off until then: compose.turn.yaml, named in COMPOSE_FILE in
+# .env, with LIVEKIT_TURN_DOMAIN and LIVEKIT_TURN_IP),
+#
+#   TCP 443 on the server's second address   TURN over TLS, for networks that let
+#              out nothing but 443 or only through a web proxy. A small TLS
+#              terminator (turn-tls, in compose.turn.yaml) holds that port and hands
+#              the stream to LiveKit's own TURN server here.
+#
+# ../README.md step 23 has why these and no others, which networks each reaches, and
+# the firewall lines that go with them.
 #
 # LiveKit keeps nothing on disk: rooms live in memory and in Redis, and both are gone
 # after a restart (a call in progress is cut, and the people in it rejoin). There is
@@ -75,9 +83,34 @@ services:
         webhook:
           api_key: ${LIVEKIT_API_KEY}
           urls: [${LIVEKIT_WEBHOOK_URL-}]
-        # LiveKit's own TURN server stays off: ../README.md step 23 says why.
+        # LiveKit's own TURN server, over TLS on port 443 of the server's second
+        # address (../README.md step 23, "TURN over TLS on 443"). Off while
+        # LIVEKIT_TURN_DOMAIN in .env is empty: every value below that depends on it
+        # is then empty, which LiveKit reads as unset (off, no TLS port), and it runs
+        # as it did before TURN existed here (the address list at the end is read
+        # only by a TURN server that runs). Set, it is on:
+        # - domain: the name clients are given (LiveKit hands out
+        #   turns:<domain>:443?transport=tcp, with credentials made from the API key
+        #   for each participant, in every join; the apps need no change).
+        # - tls_port 5349, inside the container only, plain TCP (external_tls): the
+        #   TLS is ended by turn-tls (compose.turn.yaml) on <second address>:443,
+        #   with the certificate Caddy keeps for the name. LiveKit would read a
+        #   certificate once, at start, so a renewal would mean a restart and every
+        #   call cut; turn-tls reads it at each connection instead.
+        # - proxy_protocol: turn-tls puts the client's own address in front of each
+        #   stream, so that TURN answers the client with it (browsers give up on an
+        #   allocation that reports a private address back). Believed only from
+        #   private addresses: 5349 is published nowhere, so only a container on
+        #   this stack's two networks can reach it. Read only while TURN is on.
+        # No TURN over UDP: LiveKit offers it at the node's own address and port,
+        # which adds nothing to UDP 7882 here (../README.md step 23).
         turn:
-          enabled: false
+          enabled: ${LIVEKIT_TURN_DOMAIN:+true}
+          domain: '${LIVEKIT_TURN_DOMAIN:-}'
+          tls_port: ${LIVEKIT_TURN_DOMAIN:+5349}
+          external_tls: ${LIVEKIT_TURN_DOMAIN:+true}
+          proxy_protocol: ${LIVEKIT_TURN_DOMAIN:+true}
+          proxy_protocol_trusted_cidrs: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16]
         # A room exists only once the app has made it through the server API
         # (CreateRoom), before it hands out tokens: a join token alone cannot
         # make one. Joining a room that does not exist is refused.

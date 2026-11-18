@@ -14,6 +14,12 @@ on:
       # deploy/app/tests reads these two: which containers get which settings, and
       # what the build is handed.
       - 'deploy/app/compose.yaml'
+      # deploy/edge/tests and deploy/livekit/tests read these: what the edge serves and binds, and LiveKit's TURN.
+      - 'deploy/edge/Caddyfile'
+      - 'deploy/edge/compose.yaml'
+      - 'deploy/edge/.env.example'
+      - 'deploy/livekit/*.yaml'
+      - 'deploy/livekit/.env.example'
       - 'deploy/app/Dockerfile'
       - '.github/workflows/deploy-scripts.yml'
       # What check_settings.py's proofs copy from the app:
@@ -43,5 +49,8 @@ jobs:
       - run: /usr/bin/python3 -m unittest discover -s deploy/app/tests -v
       - run: /usr/bin/python3 -m unittest discover -s deploy/supabase/tests -v
       - run: /usr/bin/python3 -m unittest discover -s deploy/sandbox/tests -v
-      - run: for f in deploy/app/auto-deploy.sh deploy/app/check-settings.sh deploy/supabase/set-secret.sh deploy/livekit/make-keys.sh deploy/livekit/test-token.sh deploy/livekit/test-egress.sh deploy/sandbox/setup.sh deploy/sandbox/check.sh deploy/sandbox/tunnel.sh deploy/server/setup.sh; do bash -n "$f"; done
+      - run: /usr/bin/python3 -m unittest discover -s deploy/edge/tests -v
+      - run: /usr/bin/python3 -m unittest discover -s deploy/livekit/tests -v
+      - run: /usr/bin/python3 -m unittest discover -s deploy/server/tests -v
+      - run: for f in deploy/app/auto-deploy.sh deploy/app/check-settings.sh deploy/supabase/set-secret.sh deploy/livekit/make-keys.sh deploy/livekit/test-token.sh deploy/livekit/test-egress.sh deploy/livekit/test-notes.sh deploy/sandbox/setup.sh deploy/sandbox/check.sh deploy/sandbox/tunnel.sh deploy/server/setup.sh; do bash -n "$f"; done
       - run: sh -n deploy/sandbox/guard.sh && sh -n deploy/sandbox/resolver.sh

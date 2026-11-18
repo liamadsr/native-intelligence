@@ -14,6 +14,10 @@
  *     agent that writes it is the owner's, and its wording can carry the
  *     workspace's names (its members, labels, workflow states), so nothing
  *     in it can be promised to come from this call alone.
+ *   - When the call's words are not being written (668: the recorder says so
+ *     with its heartbeat, the sweeper when the recorder went quiet), members
+ *     read one plain line saying why, on the same row, until it recovers. A
+ *     guest never does (they never read this row).
  */
 
 export type LiveNotesPhase = 'working' | 'ready' | 'failed' | 'stopped'
@@ -28,10 +32,17 @@ export interface LiveNotesState {
   reason: string | null
 }
 
+/** Why the call's words are not being written now (668's feed_state); null while they are. */
+export type FeedHealthState = 'down' | 'refused' | 'no_credit' | 'no_words' | 'lost'
+
 export interface LiveNotes {
   summary: string
   state: LiveNotesState | null
+  /** Why the call's words are not being written now, or null (absent: the same). */
+  feed?: FeedHealthState | null
 }
+
+const FEED_STATES: readonly FeedHealthState[] = ['down', 'refused', 'no_credit', 'no_words', 'lost']
 
 const PHASES: readonly LiveNotesPhase[] = ['working', 'ready', 'failed', 'stopped']
 
@@ -42,6 +53,30 @@ export interface LiveNotesRow {
   state_at?: string | null
   until?: string | null
   reason?: string | null
+  feed_state?: string | null
+}
+
+/** Why the call's words are not being written, from a live notes row (null while they are). */
+export function feedHealthOf(row: LiveNotesRow | null | undefined): FeedHealthState | null {
+  return FEED_STATES.find((f) => f === row?.feed_state) ?? null
+}
+
+/** The line the members read while the call's words are not being written, or null. */
+export function feedHealthLine(feed: FeedHealthState | null | undefined): string | null {
+  switch (feed) {
+    case 'down':
+      return 'Notes aren’t being written right now: the transcription service isn’t answering. Trying again…'
+    case 'refused':
+      return 'Notes aren’t being written right now: the transcription service refused our key.'
+    case 'no_credit':
+      return 'Notes aren’t being written right now: the transcription account is out of credit.'
+    case 'no_words':
+      return 'Notes aren’t being written right now: people are speaking, but no words are coming back.'
+    case 'lost':
+      return 'Notes aren’t being written right now: the note taker lost its connection.'
+    default:
+      return null
+  }
 }
 
 /** The agent's state from a live notes row, or null before its first turn ('idle'). */
@@ -54,7 +89,7 @@ export function liveNotesStateOf(row: LiveNotesRow | null | undefined): LiveNote
 
 /** A live notes row's notes. */
 export function liveNotesOf(row: LiveNotesRow): LiveNotes {
-  return { summary: row.summary ?? '', state: liveNotesStateOf(row) }
+  return { summary: row.summary ?? '', state: liveNotesStateOf(row), feed: feedHealthOf(row) }
 }
 
 /** Is the agent writing now: working, and its running turn's lease not run out (a dead process never writes for ever)? */
@@ -133,14 +168,29 @@ export function liveNotesStatusLine(state: LiveNotesState | null, now: number = 
     case 'failed':
       return 'Couldn’t update just now. The next update catches up.'
     case 'stopped':
-      if (state.reason === 'call_ended') return null
-      return 'Live notes paused for this call. The full notes are written when it ends.'
+      // Why, in plain words: the line the members read in place of a summary that stopped changing.
+      switch (state.reason) {
+        case 'call_ended':
+          return null
+        case 'usage':
+          return 'The live summary stopped: the host’s plan has run out of AI usage.'
+        case 'failing':
+          return 'The live summary stopped after repeated errors. The words are still written down.'
+        case 'refused':
+        case 'owner_out':
+          return 'The live summary stopped: the host can no longer write these notes.'
+        case 'bound':
+          return 'The live summary reached its limit for this call. The full notes are written when it ends.'
+        default:
+          return 'Live notes paused for this call. The full notes are written when it ends.'
+      }
   }
 }
 
 /** Is there anything to show? A panel with nothing renders nothing. */
 export function hasLiveNotes(notes: LiveNotes | null, now: number = Date.now()): boolean {
   if (!notes) return false
+  if (notes.feed) return true
   if (summaryBlocks(notes.summary).length > 0) return true
   return liveNotesWriting(notes.state, now) || notes.state?.phase === 'failed' || (notes.state?.phase === 'stopped' && notes.state.reason !== 'call_ended')
 }
@@ -159,4 +209,22 @@ export function guestLinesOf(raw: unknown): GuestNoteLine[] {
     const r = l as { at?: unknown; speaker?: unknown; text?: unknown }
     return typeof r.at === 'string' && typeof r.speaker === 'string' && typeof r.text === 'string' ? [{ at: r.at, speaker: r.speaker, text: r.text }] : []
   })
+}
+
+/** How long after a call's notes were locked "Finishing the notes…" may show (a pass that never finished stops claiming to). */
+export const CALL_NOTES_FINISHING_FOR_MS = 30 * 60_000
+
+/**
+ * Is a call's capture between its lock and its finished notes (src/lib/inngest/team-call-notes.ts:
+ * ended, its end-of-meeting pass not done yet)? The capture's own page says "Finishing the notes…"
+ * then, with the live summary still there to read; a capture that is no call's never.
+ */
+export function callNotesFinishing(
+  capture: { notes_channel_id?: string | null; ended_at?: string | null; batch_processed_at?: string | null } | null | undefined,
+  now: number = Date.now(),
+): boolean {
+  // The pass stamps batch_processed_at when it is done (the batch's finalize, or, nothing said, the index's).
+  if (!capture || typeof capture.notes_channel_id !== 'string' || !capture.notes_channel_id || capture.batch_processed_at) return false
+  const ended = capture.ended_at ? Date.parse(capture.ended_at) : Number.NaN
+  return Number.isFinite(ended) && now - ended >= 0 && now - ended < CALL_NOTES_FINISHING_FOR_MS
 }

@@ -1157,6 +1157,20 @@ pub fn dismiss_meeting_detection(state: State<'_, AppState>) -> Result<(), Strin
     Ok(())
 }
 
+/// The web's word on whether the signed-in person is in one of our own calls
+/// (the server records those itself): while it holds, meeting detection
+/// neither prompts nor auto-records (`MeetingDetector::set_own_call`). The
+/// web re-says `true` every minute while the call lasts; each word holds for
+/// `OWN_CALL_LEASE`. Takes a bool only.
+#[tauri::command]
+pub fn set_own_call_active(state: State<'_, AppState>, app_handle: AppHandle, active: bool) {
+    let withdrew = state.meeting_detector.lock().unwrap().set_own_call(active);
+    if withdrew {
+        // The HUD may be counting down to an auto-start: closing it cancels that.
+        crate::commands::hud::hide_hud(&app_handle);
+    }
+}
+
 #[tauri::command]
 pub fn get_meeting_detection_state(
     state: State<'_, AppState>,

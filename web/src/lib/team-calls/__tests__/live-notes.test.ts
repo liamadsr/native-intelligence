@@ -7,7 +7,18 @@
  * down to the three fields they may carry.
  */
 import { describe, expect, it } from 'vitest'
-import { guestLinesOf, hasLiveNotes, liveNotesOf, liveNotesStateOf, liveNotesStatusLine, liveNotesWriting, summaryBlocks } from '../live-notes'
+import {
+  CALL_NOTES_FINISHING_FOR_MS,
+  callNotesFinishing,
+  feedHealthLine,
+  guestLinesOf,
+  hasLiveNotes,
+  liveNotesOf,
+  liveNotesStateOf,
+  liveNotesStatusLine,
+  liveNotesWriting,
+  summaryBlocks,
+} from '../live-notes'
 
 const NOW = Date.parse('2026-11-13T15:00:00Z')
 
@@ -18,7 +29,9 @@ describe('the agent’s state', () => {
     expect(liveNotesStateOf({ state: 'idle' })).toBeNull()
     expect(liveNotesStateOf({ state: 'dancing' })).toBeNull()
     expect(liveNotesStateOf(null)).toBeNull()
-    expect(liveNotesOf({ summary: null, state: 'idle' })).toEqual({ summary: '', state: null })
+    expect(liveNotesOf({ summary: null, state: 'idle' })).toEqual({ summary: '', state: null, feed: null })
+    expect(liveNotesOf({ summary: '', state: 'idle', feed_state: 'no_words' }).feed).toBe('no_words')
+    expect(liveNotesOf({ summary: '', state: 'idle', feed_state: 'bogus' }).feed).toBeNull()
   })
 
   it('writing only while the running turn’s lease lasts: a dead process never shows writing for ever', () => {
@@ -59,8 +72,31 @@ describe('the status line', () => {
     expect(liveNotesStatusLine({ phase: 'ready', at: '2026-11-13T14:59:40Z', reason: null }, NOW)).toBe('Updated just now')
     expect(liveNotesStatusLine({ phase: 'ready', at: '2026-11-13T14:58:00Z', reason: null }, NOW)).toBe('Updated 2 minutes ago')
     expect(liveNotesStatusLine({ phase: 'failed', at: null, reason: null }, NOW)).toMatch(/next update catches up/)
-    expect(liveNotesStatusLine({ phase: 'stopped', at: null, reason: 'bound' }, NOW)).toMatch(/paused/)
+    expect(liveNotesStatusLine({ phase: 'stopped', at: null, reason: 'bound' }, NOW)).toMatch(/reached its limit/)
+    expect(liveNotesStatusLine({ phase: 'stopped', at: null, reason: 'usage' }, NOW)).toMatch(/plan has run out/)
+    expect(liveNotesStatusLine({ phase: 'stopped', at: null, reason: 'failing' }, NOW)).toMatch(/stopped after repeated errors/)
+    expect(liveNotesStatusLine({ phase: 'stopped', at: null, reason: 'owner_out' }, NOW)).toMatch(/can no longer write/)
+    expect(liveNotesStatusLine({ phase: 'stopped', at: null, reason: 'something_new' }, NOW)).toMatch(/paused/)
     expect(liveNotesStatusLine({ phase: 'stopped', at: null, reason: 'call_ended' }, NOW)).toBeNull()
+  })
+
+  it('the call’s words not being written: one plain line saying why, shown even with nothing else', () => {
+    expect(feedHealthLine(null)).toBeNull()
+    expect(feedHealthLine('refused')).toBe('Notes aren’t being written right now: the transcription service refused our key.')
+    expect(feedHealthLine('no_credit')).toMatch(/out of credit/)
+    expect(feedHealthLine('down')).toMatch(/isn’t answering/)
+    expect(feedHealthLine('no_words')).toMatch(/no words are coming back/)
+    expect(feedHealthLine('lost')).toMatch(/lost its connection/)
+    expect(hasLiveNotes({ summary: '', state: null, feed: 'down' })).toBe(true)
+  })
+
+  it('a call’s capture says “Finishing the notes…” between its lock and its finished pass, and only then', () => {
+    const call = { notes_channel_id: 'ch-1', ended_at: '2026-11-13T14:55:00Z', batch_processed_at: null }
+    expect(callNotesFinishing(call, NOW)).toBe(true)
+    expect(callNotesFinishing({ ...call, batch_processed_at: '2026-11-13T14:58:00Z' }, NOW)).toBe(false)
+    expect(callNotesFinishing({ ...call, ended_at: null }, NOW)).toBe(false)
+    expect(callNotesFinishing({ ...call, notes_channel_id: null }, NOW)).toBe(false)
+    expect(callNotesFinishing(call, Date.parse(call.ended_at) + CALL_NOTES_FINISHING_FOR_MS)).toBe(false)
   })
 
   it('nothing to show: nothing drawn', () => {

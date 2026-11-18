@@ -121,17 +121,15 @@ apt_get update -qq
 apt_get install -y -qq unattended-upgrades ca-certificates curl git rsync ufw >/dev/null
 echo "installed"
 
-say "Automatic security updates, with a reboot at $reboot_time UTC when one is needed"
+say "Automatic security updates (the reboot they may need: below, after the files)"
+[[ "$reboot_time" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]] || die "--reboot-time is HH:MM (UTC), not '$reboot_time'."
 write_if_changed /etc/apt/apt.conf.d/20auto-upgrades <<'EOF' || true
 APT::Periodic::Update-Package-Lists "1";
 APT::Periodic::Unattended-Upgrade "1";
 EOF
-# Not on the hour or the half hour: that is when scheduled jobs fire, and a
-# reboot at that second makes the ones that start a few seconds later skip a turn.
-write_if_changed /etc/apt/apt.conf.d/52ni-unattended-upgrades <<EOF || true
-Unattended-Upgrade::Automatic-Reboot "true";
-Unattended-Upgrade::Automatic-Reboot-Time "$reboot_time";
-EOF
+# Their own reboot is turned off further down, only once the timer that takes it
+# over (ni-reboot-when-quiet) is installed and on: a run that stops in between
+# leaves the server rebooting as it did, never not at all.
 echo "set"
 
 if [ "$role" = sandbox ]; then
@@ -151,6 +149,8 @@ for ssh_port in ${ssh_ports:-22}; do
 done
 if [ "$role" = app ]; then
 	ufw allow 80/tcp comment 'HTTP (redirects, certificates)' >/dev/null
+	# Every address of the server: on a second address, if it has one, this is
+	# also TURN over TLS for calls (deploy/livekit/compose.turn.yaml).
 	ufw allow 443/tcp comment 'HTTPS' >/dev/null
 	# The media of calls (deploy/livekit): WebRTC over one UDP port, and ICE over TCP
 	# for networks that block UDP. Not HTTP, so not through Caddy. Docker opens the two
@@ -224,6 +224,59 @@ if [ -n "$ref" ] && [ "$(as_user git -C "$root" rev-parse HEAD)" != "$ref" ]; th
 	as_user git -C "$root" checkout --quiet --detach "$ref"
 fi
 echo "$root is at $(as_user git -C "$root" rev-parse --short HEAD)"
+
+say "The reboot for security updates: at $reboot_time UTC when one is pending, once no call is live"
+# deploy/server/reboot_when_quiet.py says what it does. A copy, not the checkout's
+# file: root runs it, and a git pull alone should not change what root runs.
+# Not on the hour or the half hour: that is when scheduled jobs fire, and a
+# reboot at that second makes the ones that start a few seconds later skip a turn.
+install -m 755 -o root -g root "$root/deploy/server/reboot_when_quiet.py" /usr/local/sbin/ni-reboot-when-quiet
+units_changed=0
+if write_if_changed /etc/systemd/system/ni-reboot-when-quiet.service <<EOF
+# Managed by deploy/server/setup.sh in the native-intelligence repository.
+[Unit]
+Description=Reboot for pending security updates once no call is live (deploy/server/reboot_when_quiet.py)
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 -I /usr/local/sbin/ni-reboot-when-quiet --env $root/deploy/livekit/.env
+# It waits up to 6 hours for the calls to end, then reboots anyway.
+TimeoutStartSec=7h
+EOF
+then units_changed=1; fi
+if write_if_changed /etc/systemd/system/ni-reboot-when-quiet.timer <<EOF
+# Managed by deploy/server/setup.sh in the native-intelligence repository.
+[Unit]
+Description=Reboot for pending security updates at $reboot_time UTC, once no call is live
+
+[Timer]
+OnCalendar=*-*-* $reboot_time:00 UTC
+AccuracySec=1s
+# A time missed while the server was off is not made up: it has just started.
+Persistent=false
+
+[Install]
+WantedBy=timers.target
+EOF
+then units_changed=1; fi
+[ "$units_changed" = 0 ] || systemctl daemon-reload
+systemctl enable --now ni-reboot-when-quiet.timer >/dev/null 2>&1
+{ systemctl is-enabled --quiet ni-reboot-when-quiet.timer && systemctl is-active --quiet ni-reboot-when-quiet.timer; } ||
+	die "ni-reboot-when-quiet.timer is not on: unattended upgrades keep their own reboot."
+# Only now do unattended upgrades stop rebooting by themselves: the timer does it,
+# at $reboot_time UTC, once no call is live.
+write_if_changed /etc/apt/apt.conf.d/52ni-unattended-upgrades <<'EOF' || true
+// Managed by deploy/server/setup.sh. The reboot is ni-reboot-when-quiet.timer's.
+Unattended-Upgrade::Automatic-Reboot "false";
+EOF
+# Unattended upgrades rebooted by themselves before this: one may have scheduled
+# today's reboot already (shutdown -r <time>). Cancel it: the timer decides now.
+if [ -e /run/systemd/shutdown/scheduled ]; then
+	shutdown -c "ni-reboot-when-quiet decides the reboot now" || true
+	echo "cancelled a reboot unattended upgrades had scheduled; the timer will make it"
+fi
+systemctl list-timers ni-reboot-when-quiet.timer --no-pager | sed -n '1,2p'
 
 if [ "$role" = app ]; then
 	say "Docker networks"

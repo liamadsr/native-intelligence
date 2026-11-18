@@ -78,9 +78,29 @@ request, then macOS prompts once for the app). It needs
 `release.sh`, which refuses a bundle without it: macOS kills a process that
 touches the camera without one) and `com.apple.security.device.camera` in both
 entitlements files (the hardened runtime refuses the camera without it). The
-call's microphone is the same `kTCCServiceMicrophone` grant as above. Sharing a
-screen in a call uses `getDisplayMedia`, which shows macOS's own content picker;
-that path has not been tried by hand in the app yet.
+call's microphone is the same `kTCCServiceMicrophone` grant as above.
+
+Sharing a screen in a call uses `getDisplayMedia`. What the code and the
+engines' sources say (2026-11-17; not yet tried by hand in a built app on
+either system):
+
+- **macOS (WKWebView).** WebKit exposes `getDisplayMedia` to apps on the Mac
+  (`ScreenCaptureEnabled`, default true on `PLATFORM(MAC)` in WebKit's
+  `WebPreferencesDefaultValues.cpp`). wry 0.54 implements the public
+  `requestMediaCapturePermissionForOrigin:` delegate (always Grant), which only
+  covers the camera and microphone. On macOS 14.0 to 14.5 implementing that
+  delegate made WebKit refuse every `getDisplayMedia` (`NotAllowedError`,
+  WebKit bug 274896, also 271688); the fix (279566@main, safari-7618 branch,
+  June 2024) falls back to WebKit's own prompt and system picker when the app
+  has no display-capture delegate, which is our case. So: expected to work on
+  macOS 14.6+ and 15+, expected to fail on 14.0–14.5 (the app's minimum is
+  14.0). macOS has no usage string or entitlement for screen capture (the app
+  is not sandboxed); if WebKit captures through its picker no Screen Recording
+  grant is needed, otherwise macOS asks once for the app.
+- **Windows (WebView2).** Chromium's `getDisplayMedia` and its own share
+  picker. wry's `PermissionRequested` handler only allows the clipboard and
+  nothing handles `ScreenCaptureStarting` (WebView2 1.0.2903+), so the default
+  applies: the picker is shown unless a host cancels it.
 
 - **Microphone (`kTCCServiceMicrophone`)** — triggered when the main process
   opens the input device via `cpal`'s `build_input_stream`

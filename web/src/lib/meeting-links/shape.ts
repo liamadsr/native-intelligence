@@ -112,14 +112,15 @@ export function isGuestMetadata(metadata: string | null | undefined): boolean {
 
 /**
  * A guest's name as typed, tidied, or null when it can't be one: 1 to 60
- * characters of letters (any script), marks, digits, spaces and . ' ’ - ( ),
- * with at least one letter; no link, no address, no markup.
+ * characters of letters (any script), marks, digits, spaces and . , ' ’ - & + ( ),
+ * with at least one letter ("Dana Okafor, Northwind & Co"); no link, no
+ * address, no markup.
  */
 export function cleanGuestName(raw: unknown): string | null {
   if (typeof raw !== 'string') return null
   const name = raw.normalize('NFC').replace(/\s+/g, ' ').trim()
   if (name.length < 1 || name.length > MEETING_GUEST_NAME_MAX) return null
-  if (!/^[\p{L}\p{M}\p{N} .'’()-]+$/u.test(name)) return null
+  if (!/^[\p{L}\p{M}\p{N} .,'’&+()-]+$/u.test(name)) return null
   if (!/\p{L}/u.test(name)) return null
   return name
 }
@@ -214,19 +215,40 @@ export function waitingGuests(list: readonly MeetingGuest[], now: number = Date.
 /**
  * Must an admitted guest see the notice and say go before they may publish
  * (phase 6's notice, enforced by the server for guests)? While the call has
- * notes on in a round they haven't said go to, or a recording running they
- * haven't said go to since it started. The same rule as 574's
- * meeting_guest_needs_notice; what they said go to is the server's record
- * (POST /m/<token>/notice), never anything their page sends.
+ * notes on and they have never said go to its notes, or a recording running
+ * they haven't said go to since it started. A go to the notes holds for the
+ * rest of the call: a member turning the notes off and on again (a new
+ * round) never holds a guest who agreed. A guest row is one stay in one call
+ * (a later call on the same link starts from the lobby with a new row), so
+ * `notes_ack_round` above 0 is "said go in this call". The same rule as
+ * 667's meeting_guest_needs_notice; what they said go to is the server's
+ * record (POST /m/<token>/notice, or the entry page's notice when they asked
+ * to join: ./consent.ts), never a value their page sends.
  */
 export function guestNeedsNotice(
-  call: { notes: boolean; notes_round: number; recording: string | null | undefined; recording_started_at: string | null | undefined },
+  call: { notes: boolean; notes_round?: number; recording: string | null | undefined; recording_started_at: string | null | undefined },
   guest: { notes_ack_round: number | null | undefined; recording_ack_at: string | null | undefined },
 ): boolean {
-  const notes = call.notes && (guest.notes_ack_round ?? 0) < call.notes_round
+  const notes = call.notes && (guest.notes_ack_round ?? 0) < 1
   const recordingOn = call.recording === 'on' || call.recording === 'starting'
   const recording = recordingOn && (!guest.recording_ack_at || (!!call.recording_started_at && Date.parse(guest.recording_ack_at) < Date.parse(call.recording_started_at)))
   return notes || recording
+}
+
+/**
+ * What a guest's entry page says is on, above "Ask to join": the notes when
+ * the meeting's live call has them on, or, with no call live yet, when every
+ * call starts with them (`notesAtStart`: the call recorder takes the notes, so
+ * a call that starts later has them from its start). A live call whose notes
+ * a member turned off says nothing of notes: a go is never taken for more
+ * than is on. The recording when the live call has one running. The page and the join route both use this, so the server knows
+ * what the page it served said.
+ */
+export function entryNotice(
+  live: { notes?: boolean | null; recording?: string | null } | null | undefined,
+  notesAtStart: boolean,
+): { notes: boolean; recording: boolean } {
+  return { notes: live ? live.notes === true : notesAtStart, recording: live?.recording === 'on' || live?.recording === 'starting' }
 }
 
 /** The lobby's line for members: "Dana is waiting", "Dana and Lee are waiting", "3 people are waiting". */

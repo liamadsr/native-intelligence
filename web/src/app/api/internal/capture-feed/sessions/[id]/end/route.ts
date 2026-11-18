@@ -14,7 +14,7 @@ import { notFound } from '@/lib/api-errors'
 import { isUuid } from '@/lib/team-chat/types'
 import { EndSchema } from '@/lib/capture-feed/contract'
 import { feedRequest, feedRetryLater } from '@/lib/capture-feed/route'
-import { endFeed } from '@/lib/capture-feed/store'
+import { endFeed, stampFeedHealth } from '@/lib/capture-feed/store'
 
 export const dynamic = 'force-dynamic'
 
@@ -28,6 +28,8 @@ export async function POST(request: Request, { params }: Params) {
   try {
     const ended = await endFeed(getServiceClient(), id.toLowerCase(), body.producer, body.reason)
     console.info(`[capture-feed] session=${id.toLowerCase()} producer=${body.producer.id} ended=${ended}`)
+    // Nothing more is coming from it: any failure it reported is over (668). Never fails the end.
+    await stampFeedHealth(getServiceClient(), body.producer, [{ id: id.toLowerCase(), state: 'ok' }]).catch(() => [])
     return NextResponse.json({ ended })
   } catch (err) {
     console.error(`[capture-feed] session=${id.toLowerCase()} end failed:`, err instanceof Error ? err.message.slice(0, 200) : 'unknown')

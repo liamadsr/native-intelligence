@@ -31,7 +31,6 @@
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import {
-  ChevronDown,
   Circle,
   NotebookPen,
   Square,
@@ -41,7 +40,6 @@ import {
   Minimize2,
   MonitorUp,
   PhoneOff,
-  Settings2,
   UserPlus,
   Video,
   VideoOff,
@@ -59,12 +57,12 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import type { CallDeviceKind, CallDeviceState, CallSnapshot, TeamCallSession } from '@/lib/team-calls/call-session'
+import type { CallDeviceState, CallSnapshot, TeamCallSession } from '@/lib/team-calls/call-session'
 import { guestIdOfIdentity, waitingGuests, waitingLine, type MeetingGuest } from '@/lib/meeting-links/shape'
-import { CallBadges, IconButton, TileView, callErrorLine, deviceNotice } from './call-tiles'
+import { CallBadges, IconButton, TileView, callErrorLine, deviceNotice, screenNotice, screenDroppedNotice } from './call-tiles'
+import { DevicesMenu } from './devices-menu'
 import { CallLiveNotes } from './call-live-notes'
 import type { ActiveTeamCall } from './team-calls-provider'
 import { useTeamCalls } from './team-calls-provider'
@@ -209,7 +207,7 @@ function CallWindow({ call, snap, onMinimize, onLeave }: { call: ActiveTeamCall;
   const desktop = isDesktopApp()
   const screens = snap.tiles.filter((t) => t.kind === 'screen')
   const people = snap.tiles.filter((t) => t.kind === 'person')
-  const notices = [deviceNotice('mic', snap.mic, desktop), deviceNotice('camera', snap.camera, desktop)].filter((n): n is string => !!n)
+  const notices = [deviceNotice('mic', snap.mic, desktop), deviceNotice('camera', snap.camera, desktop), screenNotice(snap.screenBlocked || (desktop && snap.screenRefused), desktop), screenDroppedNotice(snap.screenDropped)].filter((n): n is string => !!n)
   const cols = people.length <= 1 ? 1 : people.length <= 4 ? 2 : 3
 
   return (
@@ -260,8 +258,9 @@ function CallWindow({ call, snap, onMinimize, onLeave }: { call: ActiveTeamCall;
             <TileView key={t.key} tile={t} compact={screens.length > 0} action={t.guest && !t.isLocal ? <RemoveGuestButton identity={t.identity} name={t.name} /> : undefined} />
           ))}
         </div>
-        {/* The shared live notes the live agent writes on the server (phase 2), for everyone in the call. */}
-        {call.features.liveAgent && call.notes.capture_id && (
+        {/* The shared live notes the live agent writes on the server (phase 2), for everyone in the call,
+            and, wherever the recorder takes the notes, the line saying why they are not being written (668). */}
+        {(call.features.liveAgent || call.features.liveNotes) && call.notes.capture_id && (
           <CallLiveNotes callId={call.callId} captureId={call.notes.capture_id} onOpen={captureOpener(call, call.notes.capture_id)} />
         )}
         {notices.map((n) => (
@@ -369,47 +368,6 @@ function LeaveButton({ onLeave, small = false }: { onLeave: () => void; small?: 
     <IconButton label="Leave the call" onClick={onLeave} danger small={small} data-team-call-leave="">
       <PhoneOff className={small ? 'h-4 w-4' : 'h-5 w-5'} />
     </IconButton>
-  )
-}
-
-const DEVICE_SECTIONS: ReadonlyArray<{ kind: CallDeviceKind; label: string }> = [
-  { kind: 'audioinput', label: 'Microphone' },
-  { kind: 'audiooutput', label: 'Speaker' },
-  { kind: 'videoinput', label: 'Camera' },
-]
-
-function DevicesMenu({ session, snap }: { session: TeamCallSession; snap: CallSnapshot }) {
-  const sections = DEVICE_SECTIONS.filter((s) => (s.kind === 'audiooutput' ? snap.canPickSpeaker : true)).filter((s) => snap.devices[s.kind].length > 0)
-  if (sections.length === 0) return null
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          aria-label="Devices"
-          title="Devices"
-          data-team-call-devices=""
-          className="flex h-11 shrink-0 items-center gap-0.5 rounded-full bg-muted px-3 text-foreground hover:bg-accent"
-        >
-          <Settings2 className="h-5 w-5" />
-          <ChevronDown className="h-3.5 w-3.5 opacity-60" />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent side="top" align="center" className="z-[90] w-72">
-        {sections.map((s, i) => (
-          <div key={s.kind}>
-            {i > 0 && <DropdownMenuSeparator />}
-            <DropdownMenuLabel className="text-xs text-muted-foreground">{s.label}</DropdownMenuLabel>
-            {snap.devices[s.kind].map((d, n) => (
-              <DropdownMenuItem key={d.deviceId} onSelect={() => void session.setDevice(s.kind, d.deviceId)} className="gap-2">
-                <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', snap.active[s.kind] === d.deviceId ? 'bg-emerald-500' : 'bg-transparent')} aria-hidden />
-                <span className="truncate">{d.label || `${s.label} ${n + 1}`}</span>
-              </DropdownMenuItem>
-            ))}
-          </div>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
   )
 }
 

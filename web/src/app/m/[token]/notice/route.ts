@@ -2,8 +2,9 @@
  * POST /m/<token>/notice → { ok: true } an admitted guest has seen that the
  * meeting's call has notes (or a recording) on and pressed "Join with
  * microphone" (phase 7; the guests' side of phase 6's notice route). The
- * server records it first (574's meeting_guest_ack: this notes round, and
- * the recording running now; only then is a notes file of theirs ever made),
+ * server records it first (667's meeting_guest_ack: the call's notes, for
+ * the rest of the call, and the recording running now; only then is a notes
+ * file of theirs ever made),
  * then lets their listen-only connection publish, raised through LiveKit to a
  * guest token's sources, never more. Only for a guest let into the live
  * call; the cookie is checked first; limited per guest. 409 when they are

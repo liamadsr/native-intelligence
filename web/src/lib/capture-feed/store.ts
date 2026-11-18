@@ -7,7 +7,7 @@
  * never words or names.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { rosterEventRow, segmentRow, type CaptureFeedProducer, type CaptureFeedRosterEvent, type CaptureFeedSegment, type CaptureFeedSourceKind } from './contract'
+import { rosterEventRow, segmentRow, type CaptureFeedHealthState, type CaptureFeedProducer, type CaptureFeedRosterEvent, type CaptureFeedSegment, type CaptureFeedSourceKind } from './contract'
 
 export type FeedStartOutcome = 'started' | 'resumed' | 'busy' | 'not_wanted' | 'unknown'
 
@@ -74,6 +74,39 @@ export async function heartbeatFeeds(svc: SupabaseClient, producer: CaptureFeedP
   }))
 }
 
+/** Why a call's words are not being written (668's team_call_live_notes.feed_state); 'lost' is the sweeper's. */
+export type FeedHealthStamp = CaptureFeedHealthState | 'lost'
+
+/**
+ * Whether these sessions' words are being written (668's capture_feed_health_stamp): the producer's
+ * own (null: the sweeper's, any session), each row saying whether the members' row changed. A
+ * database without 668 answers nothing (logged once): the notes go on, unannounced, as before.
+ * Throws on any other failed write.
+ */
+export async function stampFeedHealth(
+  svc: SupabaseClient,
+  producer: CaptureFeedProducer | null,
+  entries: ReadonlyArray<{ id: string; state: FeedHealthStamp }>,
+): Promise<Array<{ sessionId: string; captureId: string; changed: boolean }>> {
+  if (entries.length === 0) return []
+  const { data, error } = await svc.rpc('capture_feed_health_stamp', {
+    p_producer_id: producer?.id ?? null,
+    p_sessions: entries.map((e) => e.id),
+    p_states: entries.map((e) => e.state),
+  })
+  if (error) {
+    // 668 not applied yet: PostgREST does not know the function.
+    if (error.code === 'PGRST202' || error.code === '42883') {
+      if (!healthMissingLogged) console.warn('[capture-feed] health not stamped: migration 668 is not applied')
+      healthMissingLogged = true
+      return []
+    }
+    throw new Error(`capture feed: health not stamped: ${error.message}`)
+  }
+  return ((data ?? []) as Array<{ o_session: string; o_capture: string; o_changed: boolean }>).map((r) => ({ sessionId: r.o_session, captureId: r.o_capture, changed: r.o_changed === true }))
+}
+let healthMissingLogged = false
+
 export type RosterOutcome = 'applied' | 'stale' | 'unknown_speaker' | 'refused' | 'invalid' | 'locked' | 'taken' | 'unknown'
 
 /** Who joined and left (588's capture_feed_roster), each event's outcome by its key. */
@@ -138,7 +171,17 @@ export const FEED_LOST_AFTER_SECONDS = 90
 export async function markLostFeeds(svc: SupabaseClient, staleSeconds = FEED_LOST_AFTER_SECONDS): Promise<Array<{ sessionId: string; captureId: string; sourceRef: string }>> {
   const { data, error } = await svc.rpc('capture_feed_mark_lost', { stale_seconds: staleSeconds })
   if (error) throw new Error(`capture feed: lost read failed: ${error.message}`)
-  return ((data ?? []) as Array<{ session_id: string; capture_id: string; source_ref: string }>).map((r) => ({ sessionId: r.session_id, captureId: r.capture_id, sourceRef: r.source_ref }))
+  const lost = ((data ?? []) as Array<{ session_id: string; capture_id: string; source_ref: string }>).map((r) => ({ sessionId: r.session_id, captureId: r.capture_id, sourceRef: r.source_ref }))
+  // The members in the call read that the recorder went quiet (668); its next heartbeat clears it.
+  if (lost.length > 0) {
+    try {
+      const stamped = await stampFeedHealth(svc, null, lost.map((l) => ({ id: l.sessionId, state: 'lost' as const })))
+      for (const s of stamped) if (s.changed) console.warn(`[capture-feed] session=${s.sessionId} capture=${s.captureId} health=lost`)
+    } catch (err) {
+      console.warn('[capture-feed] lost health not stamped:', err instanceof Error ? err.message.slice(0, 160) : 'unknown')
+    }
+  }
+  return lost
 }
 
 /**
