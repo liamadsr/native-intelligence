@@ -136,7 +136,8 @@ describe('POST /api/local-agent/model/[...path]', () => {
     m.checkUsageLimits.mockRejectedValue(new Response(JSON.stringify({ error: 'Usage limit exceeded' }), { status: 429 }))
     const res = await call()
     expect(res.status).toBe(429)
-    expect(m.checkUsageLimits).toHaveBeenCalledWith(USER)
+    // With the session's own workspace: the model token names none.
+    expect(m.checkUsageLimits).toHaveBeenCalledWith(USER, undefined, { workspaceId: WS })
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
@@ -382,7 +383,8 @@ describe('POST /api/local-agent/model/plan/responses (the ChatGPT free tier)', (
     m.checkUsageLimits.mockRejectedValue(new Response(JSON.stringify({ error: 'Usage limit exceeded', reason: 'chatgpt_plan_unsupported' }), { status: 429 }))
     const res = await call({ token: signModelToken({ sid: SID, uid: USER, wid: WS, plan: true }).token })
     expect(res.status).toBe(429)
-    expect(m.checkUsageLimits).toHaveBeenCalledWith(USER)
+    // With the session's own workspace: the model token names none.
+    expect(m.checkUsageLimits).toHaveBeenCalledWith(USER, undefined, { workspaceId: WS })
     expect(fetchMock).not.toHaveBeenCalled()
     expect((await call({ path: ['plan', 'other'] })).status).toBe(404)
   })

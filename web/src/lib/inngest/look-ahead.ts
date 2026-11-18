@@ -50,7 +50,7 @@ export const lookAheadRun = inngest.createFunction(
     const data = event.data as LookAheadRequestData
     const live = lookAheadLive(data.userId)
     // A live run spends money: the usage gate first, in a step (a replay doesn't re-check).
-    const { chatgptPlan } = live ? await step.run('guard', () => guardBackgroundUsageOnPlan(data.userId)) : { chatgptPlan: false }
+    const { chatgptPlan } = live ? await step.run('guard', () => guardBackgroundUsageOnPlan(data.userId, data.workspaceId)) : { chatgptPlan: false }
 
     const delivered = await step.run('deliver', async () => {
       const supabase = getServiceClient()

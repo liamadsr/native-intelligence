@@ -135,6 +135,10 @@
     {
       "path": "/api/cron/email-scheduled-send",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/demo-workspace-reset",
+      "schedule": "10 5 * * *"
     }
   ]
 }

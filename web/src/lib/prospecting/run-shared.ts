@@ -75,7 +75,7 @@ export interface RunEngineDeps {
   /** Injected so the monthly window and every timestamp are deterministic. */
   now: () => Date
   /** `guardBackgroundUsage`. Throws NonRetriable when the user is over cap. */
-  guardUsage: (userId: string | null | undefined) => Promise<void>
+  guardUsage: (userId: string | null | undefined, workspaceId?: string | null) => Promise<void>
   /**
    * "Is this domain a live site?" for discovery's parked-domain gate — see
    * ./parked. Optional because only discovery probes; the engine falls back
@@ -396,7 +396,7 @@ export async function preflight(
   args: RunEngineArgs,
   icp: Icp,
 ): Promise<PreflightResult> {
-  await deps.guardUsage(args.userId)
+  await deps.guardUsage(args.userId, args.workspaceId)
 
   const monthly = await readMonthlySpend(deps.supabase, args.workspaceId, args.runId, deps.now())
   if (!monthlyCapVerdict(monthly).ok) {

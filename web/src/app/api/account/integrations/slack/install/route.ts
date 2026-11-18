@@ -17,6 +17,7 @@
  *     answer only, for that window alone.
  */
 import { NextResponse } from 'next/server'
+import { DEMO_OFF, isDemoWorkspace } from '@/lib/demo/demo-mode'
 import { requireWorkspaceMember } from '@/lib/api-auth'
 import { apiError, forbidden, notFound } from '@/lib/api-errors'
 import { OAUTH_STATE_TTL_MS, bindingCookieOptions } from '@/lib/oauth/state'
@@ -30,6 +31,8 @@ export async function POST(request: Request) {
   const auth = await requireWorkspaceMember({ select: 'id, role' })
   if (auth instanceof Response) return auth
   if (!INSTALLING_ROLES.has(auth.member.role ?? 'member')) return forbidden('Only a workspace admin can add Native Intelligence to Slack')
+  // No real Slack workspace is bound to a demo workspace (migration 669).
+  if (await isDemoWorkspace(auth.workspaceId)) return forbidden(DEMO_OFF.connector)
   const body = (await request.json().catch(() => null)) as { returnTo?: unknown; source?: unknown } | null
   const source = body?.source === 'desktop' ? 'desktop' : 'web'
   try {

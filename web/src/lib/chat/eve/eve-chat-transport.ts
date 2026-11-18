@@ -3642,6 +3642,11 @@ function usageLimitMintMessage(body: Record<string, unknown>): string {
   if (reason === 'subscription_required') {
     return 'Your Native Intelligence trial or subscription isn\'t active. Start a free trial or update billing in Settings → Billing to keep going.'
   }
+  // A demo workspace's refusals (migration 669) carry their own plain words.
+  if (reason === 'demo_cost_limit_exceeded' || reason === 'demo_workspace_only') {
+    const own = str(body.message)
+    if (own) return own
+  }
   let message = reason ? `${headline}: ${reason}` : headline
   if (!/[.!?]$/.test(message)) message += '.'
   if (resetDate) message += ` Resets ${resetDate}.`

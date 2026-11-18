@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getCurrentWorkspaceIdSafe } from '@/lib/workspace'
 import { getBillingAccess } from '@/lib/billing/access.server'
 import { redirect } from 'next/navigation'
+import { DEMO_ENTER_PATH } from '@/lib/demo/demo-mode'
 import { OnboardingWizard } from './onboarding-wizard'
 import { AuthSessionPinger } from '@/components/analytics/auth-session-pinger'
 
@@ -36,6 +37,13 @@ export default async function OnboardingPage() {
   // (Degrades open: if the workspace or member can't be resolved, render the
   // wizard and let its own GET sort things out.)
   const workspaceId = await getCurrentWorkspaceIdSafe()
+
+  // A demo workspace's visitor never onboards a workspace of their own: no
+  // seat covers it (see the dashboard layout).
+  if (access.state === 'demo' && workspaceId && workspaceId !== access.demoWorkspaceId) {
+    redirect(DEMO_ENTER_PATH)
+  }
+
   if (workspaceId) {
     const { data: member } = await supabase
       .from('member')

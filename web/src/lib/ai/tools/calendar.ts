@@ -1,4 +1,5 @@
 import { tool } from 'ai'
+import { getCalendarProviderIn } from '@/lib/integrations/calendar-here'
 import { z } from 'zod'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
@@ -7,7 +8,6 @@ import {
   createCalendarEvent,
   updateCalendarEvent,
   deleteCalendarEvent,
-  getCalendarProvider,
 } from '@/lib/integrations/calendar'
 import type { CalendarEvent, CalendarSkip } from '@/lib/integrations/calendar'
 import { isoInZone, readRangeEdge } from '@/lib/integrations/calendar-zone'
@@ -106,7 +106,7 @@ export function createCalendarTools(userId: string, workspaceId?: string, zone?:
           .describe('Filter events to a specific account email. If omitted, returns events from all accounts.'),
       }),
       execute: async ({ start_date, end_date, max_results, account_email }) => {
-        const [provider, timeZone] = await Promise.all([getCalendarProvider(userId), personZone(userId, workspaceId, zone)])
+        const [provider, timeZone] = await Promise.all([getCalendarProviderIn(userId, workspaceId), personZone(userId, workspaceId, zone)])
         if (!provider) {
           return {
             success: false,
@@ -218,7 +218,7 @@ export function createCalendarTools(userId: string, workspaceId?: string, zone?:
         account_email,
         add_meeting_link,
       }) => {
-        const provider = await getCalendarProvider(userId)
+        const provider = await getCalendarProviderIn(userId, workspaceId)
         if (!provider) {
           return {
             success: false,
@@ -309,7 +309,7 @@ export function createCalendarTools(userId: string, workspaceId?: string, zone?:
         location: z.string().optional().describe('New location'),
       }),
       execute: async ({ event_id, title, description, start, end, location }) => {
-        const provider = await getCalendarProvider(userId)
+        const provider = await getCalendarProviderIn(userId, workspaceId)
         if (!provider) {
           return { success: false, error: 'No calendar connected.' }
         }
@@ -340,7 +340,7 @@ export function createCalendarTools(userId: string, workspaceId?: string, zone?:
         event_id: z.string().describe('The event ID to delete'),
       }),
       execute: async ({ event_id }) => {
-        const provider = await getCalendarProvider(userId)
+        const provider = await getCalendarProviderIn(userId, workspaceId)
         if (!provider) {
           return { success: false, error: 'No calendar connected.' }
         }

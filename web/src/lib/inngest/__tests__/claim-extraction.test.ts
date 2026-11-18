@@ -125,7 +125,8 @@ describe('claimExtraction', () => {
     vi.mocked(guardBackgroundUsageOnPlan).mockResolvedValueOnce({ chatgptPlan: true })
     hoisted.generateObject.mockResolvedValueOnce({ object: { claims: [] } })
     await hoisted.handler({ event: makeEvent(), step: makeStep() })
-    expect(guardBackgroundUsageOnPlan).toHaveBeenCalledWith('u-test')
+    // With the workspace the extraction runs in (a demo workspace's visitor is covered there only).
+    expect(guardBackgroundUsageOnPlan).toHaveBeenCalledWith('u-test', 'ws-test')
     expect(hoisted.generateObject.mock.calls[0][0]).toMatchObject({ kind: 'claim_extraction', userId: 'u-test', chatgptPlan: true })
   })
 

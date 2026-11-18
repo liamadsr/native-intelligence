@@ -418,7 +418,7 @@ describe('dispatch by kind', () => {
     await deps.deepSearch({ query: 'q', outputSchema: {} })
     expect(hoisted.planDeepSearch).toHaveBeenCalledWith({ query: 'q', outputSchema: {} }, { userId: 'user-1', workspaceId: 'ws-1' })
     await deps.guardUsage('user-1')
-    expect(hoisted.guardBackgroundUsageOnPlan).toHaveBeenCalledWith('user-1')
+    expect(hoisted.guardBackgroundUsageOnPlan.mock.calls[0][0]).toBe('user-1')
     expect(hoisted.guardBackgroundUsage).not.toHaveBeenCalled()
   })
 

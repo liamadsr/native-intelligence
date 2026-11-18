@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getCurrentWorkspaceIdSafe } from '@/lib/workspace'
 import { getBillingAccess } from '@/lib/billing/access.server'
 import { redirect } from 'next/navigation'
+import { DEMO_ENTER_PATH } from '@/lib/demo/demo-mode'
 import { DashboardShell } from './dashboard-shell'
 import { DashboardErrorBoundary } from './dashboard-error-boundary'
 
@@ -38,6 +39,15 @@ export default async function AccountLayout({
 
   // Redirect new users to onboarding if they haven't completed it
   const workspaceId = await getCurrentWorkspaceIdSafe()
+
+  // A demo workspace's visitor has no seat: they are in only inside that
+  // workspace (migration 669). Anywhere else (their own signup workspace, with
+  // its onboarding wizard and paid research step) sends them back to it. The
+  // route handler sets the cookie, which a layout cannot.
+  if (access.state === 'demo' && workspaceId && workspaceId !== access.demoWorkspaceId) {
+    redirect(DEMO_ENTER_PATH)
+  }
+
   if (workspaceId) {
     const { data: member } = await supabase
       .from('member')

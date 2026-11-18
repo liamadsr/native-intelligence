@@ -214,7 +214,7 @@ export const claimExtraction = inngest.createFunction(
     }
 
     // Opted in to the ChatGPT free tier: a free user's extraction runs on their own plan.
-    const { chatgptPlan } = await guardBackgroundUsageOnPlan(data.userId)
+    const { chatgptPlan } = await guardBackgroundUsageOnPlan(data.userId, data.workspaceId as string | undefined)
 
     const supabase = getServiceClient()
 

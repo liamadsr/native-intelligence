@@ -15,6 +15,13 @@ import { isAdminEmail } from '@/lib/admin-emails'
  *     AI runs on their own ChatGPT plan, so it costs Native Intelligence nothing. An
  *     `exhausted` plan still lets them in (AI just stops and says so); a
  *     subscription, when present, wins.
+ *   • a place in a DEMO workspace: a member or guest of a workspace an admin
+ *     flagged in `demo_workspace` (migration 669, src/lib/demo/demo-mode.ts).
+ *     No seat is granted: it lasts while they are a member there, the app
+ *     keeps them inside that workspace (the dashboard layout sends them back
+ *     to it), and their AI use is metered on that workspace (capped only
+ *     where an admin set a cap on its flag row).
+ *     A subscription or a ChatGPT plan, when present, wins.
  *
  * `subscriptions` is per USER (auth.users.id); seats are per person, so a
  * teammate joining a paying workspace still needs their own trial.
@@ -47,6 +54,8 @@ export type BillingState =
   | 'none'
   /** The ChatGPT free tier: no subscription, AI on the person's own ChatGPT plan. */
   | 'chatgpt'
+  /** A visitor to a demo workspace: no seat, allowed only inside `demoWorkspaceId`. */
+  | 'demo'
 
 /** chatgpt_plan_status() for the signed-in person (migration 409). */
 export type ChatGptPlanStatus = 'active' | 'exhausted' | 'revoked' | null
@@ -71,6 +80,11 @@ export interface BillingAccess {
   canSkipPayment: boolean
   /** Native Intelligence staff (ADMIN_EMAILS) — exempt from billing entirely. */
   staff: boolean
+  /**
+   * Set only for state 'demo': the one workspace this person may use. Null for
+   * everyone who holds a seat of their own, demo member or not.
+   */
+  demoWorkspaceId: string | null
 }
 
 export function isGrantedSubscriptionId(id: string | null | undefined): boolean {
@@ -80,14 +94,25 @@ export function isGrantedSubscriptionId(id: string | null | undefined): boolean 
 /** Pure classification — everything the page and the layout gate need. */
 export function classifyBillingAccess(
   rows: SubscriptionRow[] | null | undefined,
-  opts: { invitedByAdmin: boolean; email?: string | null; chatgptPlan?: ChatGptPlanStatus },
+  opts: {
+    invitedByAdmin: boolean
+    email?: string | null
+    chatgptPlan?: ChatGptPlanStatus
+    /** my_demo_seat_workspace() for this person (migration 669), when they have one. */
+    demoWorkspaceId?: string | null
+  },
   now: Date = new Date(),
 ): BillingAccess {
-  const access = classifySubscription(rows, opts, now)
+  const access = { ...classifySubscription(rows, opts, now), demoWorkspaceId: null }
   // A subscription that lets them in wins; otherwise the ChatGPT free tier
   // does (the same order as check_ai_usage_limit, migration 409).
   if (!access.allowed && (opts.chatgptPlan === 'active' || opts.chatgptPlan === 'exhausted')) {
     return { ...access, state: 'chatgpt', allowed: true }
+  }
+  // Last, a demo workspace's visitor (the same order as check_ai_usage_limit,
+  // migration 669): in, but only inside that workspace.
+  if (!access.allowed && opts.demoWorkspaceId) {
+    return { ...access, state: 'demo', allowed: true, demoWorkspaceId: opts.demoWorkspaceId }
   }
   return access
 }
@@ -96,7 +121,7 @@ function classifySubscription(
   rows: SubscriptionRow[] | null | undefined,
   opts: { invitedByAdmin: boolean; email?: string | null },
   now: Date,
-): BillingAccess {
+): Omit<BillingAccess, 'demoWorkspaceId'> {
   const hasUsedTrial = (rows ?? []).some((r) => !isGrantedSubscriptionId(r.stripe_subscription_id))
   const picked = pickSubscriptionRow(rows, now)
   const base = {

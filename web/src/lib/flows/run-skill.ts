@@ -19,6 +19,7 @@
  * by workspace_id — this runs RLS-bypassed.
  */
 import { placeRunSuggestions } from '@/lib/suggestions/deliver'
+import { demoVisitorOutside } from '@/lib/demo/demo-mode'
 import { getServiceClient } from '@/lib/admin'
 import { recordVerdictTouches } from '@/lib/work/touch'
 import { usageProviderLabel } from '@/lib/ai/models'
@@ -817,6 +818,10 @@ async function assembleSkillRun(
     p_user_id: runAsUserId,
     p_chatgpt_plan: true,
   })
+  // A demo workspace's visitor (migration 669) is covered in that workspace only.
+  if (!limitError && (await demoVisitorOutside(limitCheck?.[0], workspaceId))) {
+    return { kind: 'delivered', result: failed('AI usage limit exceeded (demo_workspace_only) — skill run skipped') }
+  }
   if (!limitError && limitCheck && limitCheck.length > 0 && !limitCheck[0].allowed) {
     return {
       kind: 'delivered',

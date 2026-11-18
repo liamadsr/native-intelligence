@@ -20,7 +20,7 @@ import {
 } from '@/lib/team-calls/notes-store'
 import { sweepCallAudio } from '@/lib/team-calls/notes-retention'
 import { expireCallAudio } from '@/lib/capture-feed/audio-retention'
-import { CallNotesLiveError, postExtraction, runOwnerBatch } from './capture-finalizer'
+import { CallNotesLiveError, OwnerUsageError, postExtraction, runOwnerBatch } from './capture-finalizer'
 import {
   FED_TAIL_CAP_MS,
   fedNotesStatus,
@@ -147,9 +147,16 @@ export async function runTeamCallNotesFinish({ event, step }: NotesRunContext) {
   }
   const { captureId, ownerUserId, workspaceId } = written
   // The end-of-meeting pass a recorded meeting gets (summary, actions, claims), as the notes' owner.
-  const batch = await step.run('batch', () => runOwnerBatch(getServiceClient(), { captureId, workspaceId, ownerId: ownerUserId }))
+  const batch = await step.run('batch', async () => {
+    try {
+      return await runOwnerBatch(getServiceClient(), { captureId, workspaceId, ownerId: ownerUserId })
+    } catch (err) {
+      if (err instanceof OwnerUsageError) return NO_USAGE
+      throw err
+    }
+  })
   if (batch === 'in_flight') await step.sleep('let-batch-settle', '11m')
-  await step.run('post-extraction', () => postExtraction(getServiceClient(), { captureId, workspaceId, ownerId: ownerUserId, captureProcessed: false }))
+  await step.run('post-extraction', () => postExtraction(getServiceClient(), { captureId, workspaceId, ownerId: ownerUserId, captureProcessed: batch === NO_USAGE }))
   const removed = await step.run('remove-audio', () => removeNotesAudio(getServiceClient(), callId))
   console.info(`[team-call-notes] call=${callId} capture=${captureId} outcome=written batch=${batch} audio_removed=${removed}`)
   return { status: 'ready', captureId }
@@ -215,7 +222,8 @@ async function runFedNotesFinish(callId: string, fed: FedNotesStatus, step: Note
     batch = await runCallBatch(captureId, { workspaceId, ownerId: ownerUserId }, step)
     if (batch === 'in_flight') await letBatchSettle(captureId, step)
   }
-  await step.run('post-extraction', () => postExtraction(getServiceClient(), { captureId, workspaceId, ownerId: ownerUserId, captureProcessed: !written.spoke }))
+  // No pass (nothing said, or no usage left): the record written live is closed as it stands.
+  await step.run('post-extraction', () => postExtraction(getServiceClient(), { captureId, workspaceId, ownerId: ownerUserId, captureProcessed: !written.spoke || batch === NO_USAGE }))
   await step.run('pass-done', () => markPassDone(getServiceClient(), captureId))
   console.info(`[team-call-notes] call=${callId} capture=${captureId} outcome=written via=recorder batch=${String(batch)}`)
   return { status: 'ready', captureId }
@@ -289,6 +297,15 @@ export const CALL_BATCH_ATTEMPTS = 3
  * A lease ends at most LIVE_TURN_LEASE_SECONDS after the call ended (no turn
  * begins once it has), so the second wait already outlasts any.
  */
+/**
+ * The end-of-meeting pass did not run because the notes' owner has no AI
+ * usage left (their plan, or a demo workspace's cap where an admin set one:
+ * migration 669).
+ * The notes still finish: the transcript and the summary written during the
+ * call stand, are titled where that still works, indexed and marked done.
+ */
+export const NO_USAGE = 'no_usage' as const
+
 async function runCallBatch(captureId: string, args: { workspaceId: string; ownerId: string }, step: NotesRunContext['step']) {
   for (let attempt = 0; attempt < CALL_BATCH_ATTEMPTS; attempt++) {
     const last = attempt === CALL_BATCH_ATTEMPTS - 1
@@ -300,6 +317,8 @@ async function runCallBatch(captureId: string, args: { workspaceId: string; owne
       } catch (err) {
         // The last "not yet" escapes the step: Inngest's step retry asks the route again.
         if (err instanceof CallNotesLiveError && !last) return 'not_yet' as const
+        // The owner has no AI usage left: the notes finish without the pass, they do not fail.
+        if (err instanceof OwnerUsageError) return NO_USAGE
         throw err
       }
     })
@@ -320,7 +339,7 @@ async function runClosedCaptureFinish(callId: string, captureId: string, step: N
     batch = await runCallBatch(captureId, { workspaceId, ownerId: ownerUserId }, step)
     if (batch === 'in_flight') await letBatchSettle(captureId, step)
   }
-  await step.run('post-extraction', () => postExtraction(getServiceClient(), { captureId, workspaceId, ownerId: ownerUserId, captureProcessed: !finished.spoke }))
+  await step.run('post-extraction', () => postExtraction(getServiceClient(), { captureId, workspaceId, ownerId: ownerUserId, captureProcessed: !finished.spoke || batch === NO_USAGE }))
   await step.run('pass-done', () => markPassDone(getServiceClient(), captureId))
   console.info(`[team-call-notes] call=${callId} capture=${captureId} outcome=written via=closed_by_hand batch=${String(batch)}`)
   return { status: 'ready', captureId }

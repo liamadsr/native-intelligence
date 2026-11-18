@@ -1,7 +1,7 @@
 import { tool } from 'ai'
+import { getCalendarProviderIn } from '@/lib/integrations/calendar-here'
 import { z } from 'zod'
 import { getServiceClient } from '@/lib/admin'
-import { getCalendarProvider } from '@/lib/integrations/calendar'
 import { isoInZone, readRangeEdge } from '@/lib/integrations/calendar-zone'
 import { isTimeZone } from '@/lib/chat-cards/calendar'
 import { findTimes, FIND_TIMES_MAX_DAYS, FREE_WINDOWS_MAX } from '@/lib/availability/find-times'
@@ -96,7 +96,7 @@ export function createAvailabilityTools(userId: string, workspaceId?: string, zo
           return { success: false, error: "Teammates' availability is read only on the person's own turn. Find a time on the person's calendar alone." }
         }
         if (asked.length && !workspaceId) return { success: false, error: 'Teammates can be included only in a workspace.' }
-        const provider = await getCalendarProvider(userId)
+        const provider = await getCalendarProviderIn(userId, workspaceId)
         if (!provider) {
           return { success: false, error: 'No calendar connected. Offer the person a Connect card: call connect with provider "google" or "microsoft" and capability "calendar". Never ask for a password or token.' }
         }

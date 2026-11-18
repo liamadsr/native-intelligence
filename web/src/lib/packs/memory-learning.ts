@@ -43,6 +43,7 @@
  *     within MEMORY_NOTE_MAX_LINES active lines.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { demoVisitorOutside } from '@/lib/demo/demo-mode'
 import { z } from 'zod'
 import { logUsage } from '@/lib/ai/auth'
 import { usageProviderLabel } from '@/lib/ai/models'
@@ -89,7 +90,7 @@ export interface LearningDeps {
     supabase: SupabaseClient
   }) => Promise<{ object: MailToneAnswer; model: string; usage: { inputTokens: number; outputTokens: number; costUsd: number | null; cacheReadTokens: number; cacheWriteTokens: number; steps: number } }>
   /** Whether the person is within their AI usage limit. Fails open. */
-  withinUsage?: (supabase: SupabaseClient, userId: string) => Promise<boolean>
+  withinUsage?: (supabase: SupabaseClient, userId: string, workspaceId?: string) => Promise<boolean>
   /** Whether Mail is on in the workspace's edition. */
   mailEnabled?: (supabase: SupabaseClient, workspaceId: string) => Promise<boolean>
   /** Usage logging; defaults to logUsage. */
@@ -136,13 +137,15 @@ const defaultRunUtility: NonNullable<LearningDeps['runUtility']> = async ({ work
   return { object: result.object as MailToneAnswer, model: result.model, usage: result.usage }
 }
 
-const defaultWithinUsage: NonNullable<LearningDeps['withinUsage']> = async (supabase, userId) => {
+const defaultWithinUsage: NonNullable<LearningDeps['withinUsage']> = async (supabase, userId, workspaceId) => {
   // Opted in to the ChatGPT free tier: the pass runs a free user on their own plan.
   const { data, error } = await supabase.rpc('check_ai_usage_limit', { p_user_id: userId, p_chatgpt_plan: true })
   // Unattended spend: a meter that can't be read blocks, as the auto-attempt
   // gate does. The pass comes back on a later night.
   if (error) return false
   const row = Array.isArray(data) ? data[0] : data
+  // A demo workspace's visitor (migration 669) is covered in that workspace only.
+  if (await demoVisitorOutside(row as { reason?: string | null } | null, workspaceId)) return false
   return !(row && (row as { allowed?: boolean }).allowed === false)
 }
 
@@ -353,7 +356,7 @@ async function learnMailTone(
     return { outcome: 'no_signal', called: false }
   }
 
-  if (!(await ctx.deps.withinUsage(supabase, userId))) return { outcome: 'over_limit', called: false }
+  if (!(await ctx.deps.withinUsage(supabase, userId, workspaceId))) return { outcome: 'over_limit', called: false }
 
   // Claim the day before the call: a second run today finds the row and skips.
   const claim = await supabase.from('area_memory_learning_run').insert({ workspace_id: workspaceId, user_id: userId, area: 'mail', run_date: ctx.today })

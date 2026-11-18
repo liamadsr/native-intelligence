@@ -20,7 +20,7 @@ export async function getBillingAccess(
     return classifyBillingAccess(null, { invitedByAdmin: false, email: user.email })
   }
   const userId = user.id
-  const [{ data: rows }, invited, chatgptPlan] = await Promise.all([
+  const [{ data: rows }, invited, chatgptPlan, demoWorkspaceId] = await Promise.all([
     supabase
       .from('subscriptions')
       .select('status, stripe_subscription_id, stripe_customer_id, current_period_start, current_period_end, cancel_at_period_end, created_at')
@@ -29,12 +29,29 @@ export async function getBillingAccess(
       ? findSignupInviteForUser(serviceClient, user).then((row) => !!row && row.skip_payment !== false)
       : Promise.resolve(false),
     chatgptPlanStatus(supabase),
+    demoSeatWorkspace(supabase),
   ])
   return classifyBillingAccess(rows as SubscriptionRow[] | null, {
     invitedByAdmin: invited,
     email: user.email,
     chatgptPlan,
+    demoWorkspaceId,
   })
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** The demo workspace the caller visits as a member or guest (migration 669's
+ *  my_demo_seat_workspace(), callable with the user's own client). Any failure
+ *  reads as none: the trial wall then shows, never a free pass. */
+async function demoSeatWorkspace(supabase: SupabaseClient): Promise<string | null> {
+  try {
+    const { data, error } = await supabase.rpc('my_demo_seat_workspace')
+    if (error) return null
+    return typeof data === 'string' && UUID_RE.test(data) ? data : null
+  } catch {
+    return null
+  }
 }
 
 /** The caller's ChatGPT plan status (migration 409's chatgpt_plan_status(),

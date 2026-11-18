@@ -21,6 +21,7 @@
  * Server only.
  */
 import crypto from 'node:crypto'
+import { DEMO_OFF, isDemoWorkspace } from '@/lib/demo/demo-mode'
 import type Stripe from 'stripe'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { bindingCookieName, oauthStateSecret, secretsEqual } from '@/lib/oauth/state'
@@ -70,6 +71,9 @@ async function prefill(supabase: SupabaseClient, workspaceId: string, userId: st
  * unfinished created account (so a second tap continues, never duplicates).
  */
 export async function startNewAccount(supabase: SupabaseClient, stripe: Stripe, args: StartArgs & { livemode: boolean }): Promise<StartResult> {
+  // No real Stripe account for a demo workspace (migration 669): refused
+  // before one is made at Stripe.
+  if (await isDemoWorkspace(args.workspaceId)) return { ok: false, reason: 'store_failed', error: DEMO_OFF.connector }
   const existing = await getConnectedAccount(supabase, args.workspaceId)
   if (existing && existing.status === 'ready') return { ok: false, reason: 'already_connected' }
 
@@ -206,6 +210,8 @@ export async function completeOAuth(
   if (!verified.ok) return { ok: false, reason: 'bad_state', error: verified.error }
   if (args.error || !args.code) return { ok: false, reason: 'denied', error: args.error ?? 'no code' }
   const { workspaceId, userId } = verified.state
+  // Refused before the code is exchanged (migration 669).
+  if (await isDemoWorkspace(workspaceId)) return { ok: false, reason: 'store_failed', error: DEMO_OFF.connector }
 
   let stripeAccountId: string | undefined
   try {

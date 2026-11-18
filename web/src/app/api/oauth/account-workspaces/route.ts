@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentWorkspaceId } from '@/lib/workspace'
 import { reconcileThreadCopies } from '@/lib/email/account-scope'
+import { DEMO_OFF, isDemoWorkspace, isDemoWorkspaceDbRefusal } from '@/lib/demo/demo-mode'
 
 /** GET /api/oauth/account-workspaces?account_id=X — list workspace IDs for an account */
 export async function GET(request: NextRequest) {
@@ -74,6 +75,12 @@ export async function PUT(request: NextRequest) {
     }
   }
 
+  // A real account is never shared into a demo workspace (migration 669; the
+  // database refuses it too, whichever path asks).
+  for (const id of workspace_ids) {
+    if (await isDemoWorkspace(id)) return NextResponse.json({ error: DEMO_OFF.connector, code: 'DEMO_WORKSPACE' }, { status: 403 })
+  }
+
   // Add the new set first, then remove what is no longer in it, so a failed
   // write can never leave the account linked to no workspace at all.
   if (workspace_ids.length > 0) {
@@ -85,6 +92,9 @@ export async function PUT(request: NextRequest) {
       .from('connected_account_workspace')
       .upsert(rows, { onConflict: 'account_id,workspace_id', ignoreDuplicates: true })
     if (upsertError) {
+      if (isDemoWorkspaceDbRefusal(upsertError)) {
+        return NextResponse.json({ error: DEMO_OFF.connector, code: 'DEMO_WORKSPACE' }, { status: 403 })
+      }
       console.error('[account-workspaces] link failed:', upsertError)
       return NextResponse.json({ error: 'Failed to update workspaces' }, { status: 500 })
     }

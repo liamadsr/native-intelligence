@@ -33,6 +33,7 @@
  * Never throws for an outcome the owner should hear: each is a result.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { DEMO_OFF, isDemoWorkspace } from '@/lib/demo/demo-mode'
 import { inngest } from '@/lib/inngest/client'
 import { storedGithubToken } from '@/lib/oauth/github-token'
 import { startSiteCodingRun } from '@/lib/chat/cloud-coding-tools'
@@ -145,6 +146,10 @@ async function companySiteUrl(svc: Svc, workspaceId: string): Promise<string | n
  * problem shows at connect, not at the first change.
  */
 export async function connectWebsite(svc: Svc, who: Who, input: { repo: string; siteUrl?: string | null; remoteTurn?: boolean }, deps: StartDeps = {}): Promise<Outcome> {
+  // No real repo is linked to a demo workspace (migration 669). The GitHub
+  // token below is found by person, so one connected in another workspace
+  // would otherwise link their own site here.
+  if (await isDemoWorkspace(who.workspaceId)) return fail('DEMO_WORKSPACE', DEMO_OFF.connector)
   const token = await tokenOf(deps, svc, who.userId)
   if (!token) return NO_GITHUB
   // Who may connect the business's site: an owner or admin; who may re-point it: the person who connected it, or an owner or admin.

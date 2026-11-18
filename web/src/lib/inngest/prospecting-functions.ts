@@ -339,7 +339,7 @@ export const prospectingRunExecute = inngest.createFunction(
             supabase,
             deepSearch: planSearcher ? (args) => planDeepSearch(args, planSearcher) : deepSearch,
             now: () => new Date(),
-            guardUsage: planSearcher ? async (id) => { await guardBackgroundUsageOnPlan(id) } : guardBackgroundUsage,
+            guardUsage: planSearcher ? async (id, ws) => { await guardBackgroundUsageOnPlan(id, ws) } : guardBackgroundUsage,
             // Discovery's parked-domain gate — one GET per candidate domain,
             // so a for-sale page never becomes a row (see ./parked).
             probeDomain: probeParkedDomain,

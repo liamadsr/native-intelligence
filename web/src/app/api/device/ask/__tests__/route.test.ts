@@ -220,7 +220,9 @@ describe('POST /api/device/ask — the eve session runs as the device', () => {
   it("on the person's own ChatGPT plan: the check opts in, the run token says so, and it's billed to the plan", async () => {
     h.checkUsageLimits.mockResolvedValue({ allowed: true, reason: 'chatgpt_plan', is_paid_plan: false })
     await POST(req({ question: 'what is due?' }))
-    expect(h.checkUsageLimits).toHaveBeenCalledWith('user-1', undefined, { chatgptPlan: true })
+    // Once, with the workspace the ask runs in (the device's), not the one a cookie names.
+    expect(h.checkUsageLimits).toHaveBeenCalledTimes(1)
+    expect(h.checkUsageLimits).toHaveBeenCalledWith('user-1', undefined, { chatgptPlan: true, workspaceId: 'ws-device' })
     const opts = h.clients[0] as { headers: Record<string, string> }
     expect(verifyChatRunToken(opts.headers['x-chat-run-token'])).toMatchObject({ surface: 'device_ask', chatgptPlan: true })
     const [, row] = h.logUsage.mock.calls[0] as [string, { model: string; provider: string }]

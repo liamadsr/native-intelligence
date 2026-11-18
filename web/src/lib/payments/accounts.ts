@@ -23,6 +23,7 @@
  * Server only; service role.
  */
 import type Stripe from 'stripe'
+import { DEMO_OFF, isDemoWorkspace } from '@/lib/demo/demo-mode'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { platformFeeOf, type PlatformFee } from './fees'
 
@@ -132,6 +133,8 @@ export async function upsertConnectedAccount(
   supabase: SupabaseClient,
   args: { workspaceId: string; stripeAccountId: string; linkedVia: 'created' | 'oauth'; livemode: boolean; connectedBy: string },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
+  // No real Stripe account is linked to a demo workspace (migration 669).
+  if (await isDemoWorkspace(args.workspaceId)) return { ok: false, error: DEMO_OFF.connector }
   const now = new Date().toISOString()
   const { error } = await supabase.from('stripe_connect_account').upsert(
     {

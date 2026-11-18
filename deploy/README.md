@@ -1826,6 +1826,112 @@ Three things that catch people out:
 - **`git pull` says "Permission denied"** when files in the checkout are owned by root: something was copied in, or run, as root. Find them with `sudo find . ! -user <owner>` in `/opt/native-intelligence`, give them back (`sudo chown <owner>:<owner> <file>`), and never run git as root.
 - **No tool adds a line to an existing `.env`.** They only change values of lines that exist, and `set-secret.sh` refuses a name the file has no line for. A new setting's line is copied from that folder's `.env.example` by hand (`sudo nano .env`), then filled in.
 
+### The demo workspace
+
+One workspace of made-up data ("Fernhill Studio") that outsiders are invited
+into. Migration 669 and `web/src/lib/demo/` hold it; nothing here is on until
+a workspace is flagged.
+
+- **Order.** The code is safe before the migration (no demo workspaces
+  exist). Apply 669, roll the code out, and only THEN flag a workspace: the
+  database's gate lets a flagged workspace's visitors in everywhere, and only
+  the new code keeps them inside it. 669 carries its own `begin`/`commit`: a
+  `BEGIN ... ROLLBACK` wrapped round it for a rehearsal commits it.
+- **Flag it** (the owner, in the database container, as for a migration). The
+  workspace must be owned by an account with nothing real connected: the
+  insert is refused, naming the table, while the workspace has a connected
+  account or its link, mail or CRM sync state, an MCP server, a Slack
+  workspace, a shared email, a Stripe account, a business number or a
+  website's repo.
+
+  ```sql
+  insert into public.demo_workspace (workspace_id) values ('<workspace id>');
+  -- what the demo has cost this month:
+  select spend_month, ai_spend_usd from public.demo_workspace where workspace_id = '<workspace id>';
+  -- the off switch (not set by default): a monthly AI cap in dollars
+  update public.demo_workspace set ai_cap_usd = 50 where workspace_id = '<workspace id>';
+  -- and off again:
+  update public.demo_workspace set ai_cap_usd = null where workspace_id = '<workspace id>';
+  -- no longer a demo:
+  delete from public.demo_workspace where workspace_id = '<workspace id>';
+  ```
+
+- **Invite a person**: as the demo workspace's owner or admin, Settings ›
+  Members › Invite, as **member** or **guest** (an admin there needs a seat of
+  their own). A personal address (Gmail and the like) may sign up because the
+  invite names it. They need no card, land in the demo workspace, and cannot
+  use any other workspace until they hold a seat.
+- **Visitors inviting others** works as in any workspace, and is off until
+  the owner switches on "members can invite people" in Settings › Members
+  (the join link is the owner's switch there too). A member then invites as
+  member or guest only, never admin; a guest never invites; nobody changes
+  their own role. Everyone who comes in that way is a visitor like any other.
+- **Who is a visitor**: a member or guest with nothing of their own. A person
+  with a subscription, a ChatGPT plan, credits, a paid plan or a granted free
+  period keeps using that, in the demo and elsewhere, and their use is not
+  counted against the demo.
+- **What is refused there, and only this**: connecting or linking anything
+  real. A mail, calendar or contacts account, GitHub, HubSpot and the other
+  OAuth connectors, an MCP server, a Slack workspace, a Stripe account, a
+  business phone number, a website's repo, an email shared into the
+  workspace: refused where the connect starts, and again by the database.
+  The desktop app's calendar sync is not taken there either. And a person's
+  own calendar and mailbox, connected in another workspace, do not answer
+  there: the assistant has no calendar in a demo, and no mail is read or
+  sent from a real mailbox.
+- **Everything else works there as in any workspace** (the owner's decisions,
+  2026-11-18): texts, phone calls, the cloud browser, coding runs, web
+  research, enrichment, SEO data, prospecting, Studio, email, call notes and
+  recording. Each still needs what it needs anywhere (a server key, a
+  connected account, a verified phone), and since nothing can be connected in
+  the demo, some cannot be used by a visitor at all: the pull request's
+  description lists them one by one.
+- **If the flag cannot be read** (a database error), the app treats the
+  workspace as not a demo and logs `[demo-workspace] flag read failed`. No
+  other workspace is ever refused anything because of this feature. For the
+  demo itself the app's own refusals of a connect are skipped while the read
+  fails; the database's refusals (and a cap, where one is set) hold
+  regardless.
+- **AI use is not capped** (the owner's decision, 2026-11-18: visitors are to
+  try the product, not be stopped by a budget). Every visitor's AI use is
+  metered on the flag row (`ai_spend_usd`, this month's total), so what the
+  demo costs can be read at any time. Nothing stops it by default: a demo
+  workspace's AI spend is unbounded until an admin sets `ai_cap_usd` (above).
+  With a cap set, visitors' AI stops for the month once the total reaches it,
+  with a plain message; it is one pool, the nightly reset does not give it
+  back, and calls in flight when it is crossed still finish.
+- **Call notes and recording** are as in any workspace, under the server's
+  own switches (`TEAM_CALL_RECORDER`, `TEAM_CALL_AUDIO`, `LIVEKIT_EGRESS`) and
+  the guests' consent rules: the transcript, the live summary, the notes at
+  the end, and a recording or kept audio where the server keeps them.
+  - The live summary's turns and the end-of-call pass run on the plan of the
+    notes' owner (the meeting's host, else whoever started the call). A
+    visitor's are metered on the flag row like their other AI use; a call
+    the demo's owner or an admin starts runs on their own seat and is not
+    counted.
+  - Only where a cap is set, at the cap: the live summary stops and says so,
+    the transcript goes on, and at the end the notes are finished as they
+    stand (titled where that still works, indexed), without the end-of-call
+    pass. The call itself is untouched.
+  - Transcription (the call recorder's speech-to-text) is not AI usage: it
+    is not in `ai_spend_usd`, no cap sees it, and it has no limit of its own
+    beyond what every workspace has (nothing is heard until two people are
+    in a call; a call's notes stop after 3 hours).
+- **It cleans itself**: `/api/cron/demo-workspace-reset` runs at 05:10 UTC and
+  puts every flagged workspace back (visitors' content goes, the made-up
+  content is written again, members stay). A workspace with a call going on
+  at that moment is left alone and done the next night. Before a visit, an admin can run
+  the same reset now: `POST /api/admin/demo-workspace/reset` with
+  `{"workspace_id": "<workspace id>"}` while signed in as an admin (always
+  this deployment's own database, whatever the admin panel's environment
+  switch says). The job's log line names any table it could not clear.
+- **Remove a person**: Settings › Members, as for any workspace. Their account
+  stays; without a seat it is behind the trial page again.
+- **Not closed**: a visitor's own MCP servers (connected in their own
+  workspace) follow them, as they follow anyone; the AI Gateway's web search
+  tool and a few background jobs that name no workspace are metered, not
+  refused.
+
 ### Slack
 
 The app talks to Slack directly, with our own Slack app (`web/src/lib/slack/`): "Add to Slack" in Settings › Connectors › Slack is Slack's own OAuth install, run by the app (`/api/slack/oauth/callback`); from the desktop app the install is finished in the person's browser and handed back to the app, which claims it (`/api/slack/oauth/claim`), so the same redirect URL serves both; each Slack workspace's bot token is stored in the app's database, encrypted with `CREDENTIAL_ENCRYPTION_KEY` (table `slack_bot_token`, migration 644, readable by the server only); every event and button click Slack sends must carry Slack's signature. Slack is on only when the four `SLACK_*` settings are in `app/.env`; while any is empty or malformed the app answers that Slack is not set up (and logs which one, by name).
