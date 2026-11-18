@@ -47,7 +47,6 @@ import { endCall, getCall, openRings, requestRingTimers, ringMembers, startCall,
 import { callsUnreachable, joinAnswer, joinsListenOnly, memberIn, notesViewOf, readyRoom, teamCallsUnavailable } from '@/lib/team-calls/routes'
 import { teamCallFeatures } from '@/lib/team-calls/egress'
 import { setNotes } from '@/lib/team-calls/notes-store'
-import { isDemoWorkspace } from '@/lib/demo/demo-mode'
 import { newCallTakesNotes } from '@/lib/team-calls/notes'
 import { liveRingPushDeps, pushRings } from '@/lib/team-calls/ring-push'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -127,10 +126,7 @@ export async function POST(request: NextRequest) {
     }
     const features = teamCallFeatures()
     let notes = notesViewOf(null)
-    // A demo workspace's calls are held, not recorded or transcribed (migration
-    // 669): no notes from the start either. An unreadable flag takes none.
-    const demo = await isDemoWorkspace(auth.supabase, channel.workspace_id).catch(() => true)
-    if (started.created && !demo && newCallTakesNotes(features, input.notes)) {
+    if (started.created && newCallTakesNotes(features, input.notes)) {
       try {
         const on = await setNotes(auth.supabase, started.callId, true)
         // The recorder's notes (src/lib/team-calls/recorder.ts): no capture yet. The recorder's

@@ -15,6 +15,7 @@
  *        public address. 404 for anyone else, or before it is saved.
  */
 import { holdGuestsForNotice } from '@/lib/meeting-links/consent'
+import { DEMO_OFF, isDemoWorkspace } from '@/lib/demo/demo-mode'
 import { NextResponse, type NextRequest } from 'next/server'
 import { requireUser } from '@/lib/api-auth'
 import { apiError, badRequest, forbidden, notFound } from '@/lib/api-errors'
@@ -65,6 +66,10 @@ export async function POST(request: NextRequest, { params }: Params) {
     if (call.status !== 'live' || call.channel_archived) return callEnded()
     const me = await memberIn(auth.supabase, auth.user.id, call.workspace_id)
     if (!me) return notFound()
+    // A demo workspace's calls take notes but are never recorded (migration 669).
+    if (input.action === 'start' && (await isDemoWorkspace(auth.supabase, call.workspace_id))) {
+      return apiError(DEMO_OFF.call_recording, { status: 403, code: 'DEMO_WORKSPACE' })
+    }
     const svc = getServiceClient()
     const port = liveKitEgress(config)
     if (input.action === 'stop') {

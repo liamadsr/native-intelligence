@@ -1852,10 +1852,26 @@ a workspace is flagged.
   use any other workspace until they hold a seat.
 - **What is off there**: texts, answered phone calls, Studio generation,
   enrichment, workspace web research, the cloud browser, coding runs, SEO
-  data, prospecting, call notes and recording, and linking anything real
-  (accounts, MCP servers, Slack, shared email, Stripe, a business number).
-  Visitors share one AI budget a month (`ai_cap_usd`); `ai_spend_usd` on the
-  row is this month's total.
+  data, prospecting, call recording and kept call audio, and linking anything
+  real (accounts, MCP servers, Slack, shared email, Stripe, a business
+  number). Visitors share one AI budget a month (`ai_cap_usd`);
+  `ai_spend_usd` on the row is this month's total.
+- **Call notes are on there** (the owner's decision, 2026-11-18), as in any
+  workspace: the transcript, the live summary, the notes at the end. What
+  they cost and what bounds it:
+  - The live summary's turns and the end-of-call pass run on the plan of the
+    notes' owner (the meeting's host, else whoever started the call). A
+    visitor's count against the workspace's shared budget; a call the demo's
+    owner or an admin starts runs on their own seat and is not counted.
+  - At the budget: the live summary stops and says so, the transcript goes
+    on, and at the end the notes are finished as they stand (titled where
+    that still works, indexed), without the end-of-call pass. The call
+    itself is untouched.
+  - Transcription (the call recorder's Deepgram streams) is not AI usage and
+    is NOT under the budget. It is bounded only by the rules every workspace
+    has: nothing is heard until two people are in a call, and a call's notes
+    stop after 3 hours. Nothing limits how many calls a demo workspace holds
+    in a day.
 - **It cleans itself**: `/api/cron/demo-workspace-reset` runs at 09:40 UTC and
   puts every flagged workspace back (visitors' content goes, the made-up
   content is written again, members stay). Before a visit, an admin can run

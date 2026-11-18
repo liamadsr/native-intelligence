@@ -8,7 +8,10 @@
  *   - one small monthly AI cap shared by those visitors (the SQL gate and its
  *     ledger; `checkUsageLimits` adds the "inside it only" check per request);
  *   - the surfaces that bill a third party per use are off (the callers of
- *     `refuseInDemoWorkspace` below);
+ *     `refuseInDemoWorkspace` below). Call notes are NOT one of them (the
+ *     owner's decision, 2026-11-18): a call there takes notes as anywhere,
+ *     its summary turns and end-of-call pass on the notes' owner's plan,
+ *     which for a visitor is the workspace's shared cap. Recording is off;
  *   - nothing real may be linked to it (the `refuse_in_demo_workspace`
  *     triggers, with the friendlier refusals in the routes);
  *   - it is put back to its made-up content every night (./reset.ts).
@@ -47,7 +50,7 @@ export const DEMO_OFF = {
   seo: 'SEO lookups that cost money are switched off in the demo workspace.',
   prospecting: 'Prospecting is switched off in the demo workspace.',
   outbound_email: 'Sending email is switched off in the demo workspace.',
-  call_notes: 'Call notes and recording are switched off in the demo workspace.',
+  call_recording: 'Recording is switched off in the demo workspace. Notes are taken as usual.',
   web_search: 'Web research is switched off in the demo workspace.',
   connector: 'Real accounts cannot be connected to or shared into the demo workspace.',
 } as const

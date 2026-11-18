@@ -31,7 +31,6 @@ import { after, NextResponse, type NextRequest } from 'next/server'
 import { requireUser } from '@/lib/api-auth'
 import { apiError, badRequest, forbidden, notFound } from '@/lib/api-errors'
 import { getServiceClient } from '@/lib/admin'
-import { DEMO_OFF, isDemoWorkspace } from '@/lib/demo/demo-mode'
 import { isUuid } from '@/lib/team-chat/types'
 import { TeamChatError } from '@/lib/team-chat/store'
 import { teamChatErrorResponse } from '@/lib/team-chat/route-errors'
@@ -66,10 +65,6 @@ export async function POST(request: NextRequest, { params }: Params) {
     const call = await getCall(auth.supabase, id)
     if (!call) return notFound()
     if (call.status !== 'live' || call.channel_archived) return callEnded()
-    // A demo workspace's calls are held, not recorded or transcribed (migration 669).
-    if (on && (await isDemoWorkspace(auth.supabase, call.workspace_id))) {
-      return apiError(DEMO_OFF.call_notes, { status: 403, code: 'DEMO_WORKSPACE' })
-    }
     let changed: Awaited<ReturnType<typeof setNotes>>
     try {
       changed = await setNotes(auth.supabase, id, on)

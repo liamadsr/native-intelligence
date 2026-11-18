@@ -23,6 +23,7 @@
  * show no audio: a missing table or function reads as "no files".
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { isDemoWorkspace } from '@/lib/demo/demo-mode'
 import type { CaptureFeedAudioGrant, CaptureFeedProducer } from './contract'
 
 /** Where every fed audio file is kept (566's private bucket). */
@@ -58,6 +59,18 @@ export function missingFromDatabase(error: { code?: string; message?: string } |
   }
 }
 
+async function sessionInDemoWorkspace(svc: SupabaseClient, sessionId: string): Promise<boolean> {
+  try {
+    const { data, error } = await svc.from('capture_feed_session').select('workspace_id').eq('id', sessionId).maybeSingle<{ workspace_id: string }>()
+    if (error) return true
+    // No such session: the grant's own check answers for it.
+    if (!data) return false
+    return await isDemoWorkspace(svc, data.workspace_id)
+  } catch {
+    return true
+  }
+}
+
 export interface AudioGrant {
   outcome: AudioGrantOutcome
   /** 'granted': where to PUT the file, once. */
@@ -67,6 +80,10 @@ export interface AudioGrant {
 
 /** A producer asks to upload one take (650's capture_feed_audio_grant, then a signed upload to its path). Throws on a failed write. */
 export async function grantAudio(svc: SupabaseClient, sessionId: string, producer: CaptureFeedProducer, input: Omit<CaptureFeedAudioGrant, 'producer'>): Promise<AudioGrant> {
+  // A demo workspace's calls take notes but keep no audio (migration 669): the
+  // producer hears "not wanted", as where call audio is off. An unreadable
+  // session or flag keeps none either.
+  if (await sessionInDemoWorkspace(svc, sessionId)) return { outcome: 'not_wanted', upload: null, expiresAt: null }
   const { data, error } = await svc.rpc('capture_feed_audio_grant', {
     p_session: sessionId,
     p_producer_id: producer.id,
