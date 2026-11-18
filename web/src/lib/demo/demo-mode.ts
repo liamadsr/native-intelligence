@@ -53,6 +53,9 @@ export const DEMO_CAP_REACHED_MESSAGE =
 export const DEMO_ONLY_MESSAGE =
   'Your access covers the demo workspace only. Switch back to it, or start a trial to use your own workspace.'
 
+/** A visitor's workspace could not be checked just now (the flag read failed or ran out of time): nothing they did, and it heals in seconds. */
+export const DEMO_UNREADABLE_MESSAGE = 'We could not check your demo access just now. Try again in a few seconds.'
+
 /** What a person reads where a demo workspace refuses something. */
 export const DEMO_OFF = {
   connector: 'Real accounts cannot be connected to or shared into the demo workspace.',
@@ -249,7 +252,9 @@ export async function isDemoWorkspace(workspaceId: string | null | undefined): P
  * 'demo_workspace'), for work that runs in `workspaceId`: true unless that
  * workspace is known to BE a demo. Their place covers the demo workspace
  * only; anywhere else they hold no seat. The SQL gate is per person and
- * cannot see this, so every usage check asks here with where its work runs.
+ * cannot see this, so every usage check asks here with where its work runs
+ * (checkUsageLimits applies the same rule itself, to tell a person apart a
+ * flag it could not read from a workspace that is not the demo).
  *
  * REFUSES WHEN IT CANNOT TELL: no workspace named, or a flag that could not
  * be read, is "outside". A check that forgot to say where its work runs then

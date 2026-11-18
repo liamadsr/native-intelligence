@@ -25,10 +25,6 @@ export const maxDuration = 60
 export async function POST(req: Request) {
   try {
     const { user, supabase } = await authenticateUser(req)
-    // Opted in to the ChatGPT free tier: the claim extraction this sends runs
-    // on a free user's own plan (claim-extraction.ts); the embeddings are
-    // Native Intelligence's, fractions of a cent, as for every capture.
-    await checkUsageLimits(user.id, undefined, { chatgptPlan: true })
 
     const body = await req.json()
     const { captureId, noteId, title, content, summary, ai_summary, project_id, capture_processed } =
@@ -69,11 +65,14 @@ export async function POST(req: Request) {
     // workspace_id here.
     const wsId = captureRow?.workspace_id || (await getCurrentWorkspaceId())
 
-    // The check above read the workspace the request names; the work runs in
-    // the capture's own. A demo workspace's visitor (migration 669) is covered
-    // in the demo only, and the request's workspace always reads as the demo
-    // for them, so the capture's is checked here.
-    if (captureRow?.workspace_id) await checkUsageLimits(user.id, undefined, { chatgptPlan: true, workspaceId: captureRow.workspace_id })
+    // One usage check, for the workspace the work runs in (the capture's own,
+    // not the one the request names): a demo workspace's visitor (migration
+    // 669) is covered in the demo only, and the request's workspace always
+    // reads as the demo for them. Before anything is indexed or sent.
+    // Opted in to the ChatGPT free tier: the claim extraction this sends runs
+    // on a free user's own plan (claim-extraction.ts); the embeddings are
+    // Native Intelligence's, fractions of a cent, as for every capture.
+    await checkUsageLimits(user.id, undefined, { chatgptPlan: true, workspaceId: wsId ?? null })
 
     // Extraction send (BEFORE indexing) + capture indexing live in a shared
     // helper so the index-reconciler cron can re-run the identical logic

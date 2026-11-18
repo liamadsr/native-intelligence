@@ -20,7 +20,7 @@ vi.mock('@/lib/supabase/service', () => ({ getServiceClient: () => ({ rpc: hoist
 vi.mock('@/lib/workspace', () => ({ getCurrentWorkspaceId: hoisted.currentWorkspace }))
 
 const { checkUsageLimits } = await import('@/lib/ai/auth')
-const { DEMO_CAP_REACHED_MESSAGE, DEMO_ONLY_MESSAGE, setDemoWorkspaceLookupForTests } = await import('@/lib/demo/demo-mode')
+const { DEMO_CAP_REACHED_MESSAGE, DEMO_ONLY_MESSAGE, DEMO_UNREADABLE_MESSAGE, setDemoWorkspaceLookupForTests } = await import('@/lib/demo/demo-mode')
 
 const DEMO = 'demo-ws'
 const OWN = 'own-ws'
@@ -83,6 +83,21 @@ describe('checkUsageLimits: a demo workspace visitor', () => {
     hoisted.currentWorkspace.mockResolvedValue(OWN)
     await expect(checkUsageLimits('u1', undefined, { workspaceId: DEMO })).resolves.toMatchObject({ allowed: true })
     expect(hoisted.currentWorkspace).not.toHaveBeenCalled()
+  })
+
+  it('a flag that cannot be read is still a refusal, but says "try again", never "switch back": they may be in the demo already', async () => {
+    gateAnswers({ allowed: true, reason: 'demo_workspace' })
+    setDemoWorkspaceLookupForTests(() => {
+      throw new Error('no answer in 4000 ms')
+    })
+    hoisted.currentWorkspace.mockResolvedValue(DEMO)
+    const { status, body } = await refusal(checkUsageLimits('u1'))
+    expect(status).toBe(503)
+    expect(body).toMatchObject({ code: 'BILLING_UNAVAILABLE', error: DEMO_UNREADABLE_MESSAGE })
+    expect(body.reason).toBeUndefined()
+    expect((await refusal(checkUsageLimits('u1', undefined, { workspaceId: OWN }))).status).toBe(503)
+    // No workspace named is not a read failure: the plain refusal, as before.
+    expect((await refusal(checkUsageLimits('u1', undefined, { workspaceId: null }))).body.reason).toBe('demo_workspace_only')
   })
 
   it('says so in plain words once the workspace’s monthly cap is reached', async () => {
