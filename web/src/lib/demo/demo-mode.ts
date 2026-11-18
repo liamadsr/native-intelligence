@@ -252,7 +252,9 @@ export async function isDemoWorkspace(workspaceId: string | null | undefined): P
  * 'demo_workspace'), for work that runs in `workspaceId`: true unless that
  * workspace is known to BE a demo. Their place covers the demo workspace
  * only; anywhere else they hold no seat. The SQL gate is per person and
- * cannot see this, so every usage check asks here with where its work runs.
+ * cannot see this, so every usage check asks here with where its work runs
+ * (checkUsageLimits applies the same rule itself, to tell a person apart a
+ * flag it could not read from a workspace that is not the demo).
  *
  * REFUSES WHEN IT CANNOT TELL: no workspace named, or a flag that could not
  * be read, is "outside". A check that forgot to say where its work runs then

@@ -169,8 +169,11 @@ export async function checkUsageLimits(
     // told: a flag that could not be read is our failure and passes in
     // seconds, so it must not read as "switch back" to someone who is
     // already in the demo workspace. The shape is the usage check's own
-    // "unavailable" (the RPC's failure above): clients already stop a turn
-    // on it and show `error` as it is.
+    // "unavailable" (the RPC's failure above): every client already stops a
+    // turn on that code (the chat agent's gate lets any other 503 run), the
+    // chat mint shows `error` as it is, and the others say "try again" in
+    // their own words. The rule itself is demoVisitorOutside's: keep the two
+    // the same.
     const demo = runsIn ? await readDemoWorkspace(runsIn) : false
     if (demo === null) {
       throw new Response(
