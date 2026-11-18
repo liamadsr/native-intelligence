@@ -14,6 +14,7 @@
  * workspace can't starve others or blow the sandbox budget.
  */
 import { inngest } from './client'
+import { DEMO_OFF, isDemoWorkspace } from '@/lib/demo/demo-mode'
 import { getServiceClient } from '@/lib/admin'
 import { internalSecret } from '@/lib/agent-run/agent-run-token'
 import { buildAgentRunSpec, AGENT_RUN_NOT_FOUND, NOT_LIVE_STATUSES } from '@/lib/agent-run/spec-rebuild'
@@ -108,6 +109,8 @@ export const agentRunExecute = inngest.createFunction(
       // whichever way it was started (Start, an answered pre-check, a flow).
       // Refused before the pre-check, which is a model call too.
       const freeTier = !failure && (await chatgptPlanFor(built.run.triggeredBy))
+      // A demo workspace (migration 667) never starts a coding sandbox.
+      const demo = !failure && !freeTier && (await isDemoWorkspace(supabase, workspace_id))
       return {
         actionId: built.run.actionId,
         triggeredBy: built.run.triggeredBy,
@@ -115,7 +118,7 @@ export const agentRunExecute = inngest.createFunction(
         // The repo the sandbox will clone (non-secret). Stamped onto the row below
         // so the outcome route opens the PR against the SAME repo.
         repoFullName: built.ok ? built.spec.repoFullName : null,
-        failure: failure ?? (freeTier ? CHATGPT_PLAN_NO_CODING_REASON : null),
+        failure: failure ?? (freeTier ? CHATGPT_PLAN_NO_CODING_REASON : demo ? DEMO_OFF.coding_sandbox : null),
       }
     })
 

@@ -35,6 +35,10 @@
  */
 import type { ProspectingRunMirror } from '@/lib/work/prospecting-run-mirror'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { isDemoWorkspace } from '@/lib/demo/demo-mode'
+
+/** A run parked because its workspace is a demo workspace. */
+export const DEMO_WORKSPACE_ERROR = 'demo_workspace'
 import type { DomainProber } from './parked'
 import type { DeepSearchArgs, DeepSearchResult } from '@/lib/exa/deep-search'
 import { emptyRunCounts } from './exclusions'
@@ -397,6 +401,12 @@ export async function preflight(
   icp: Icp,
 ): Promise<PreflightResult> {
   await deps.guardUsage(args.userId)
+
+  // A demo workspace (migration 667) runs no prospecting: parked like a spent
+  // month, with its own reason. An unreadable flag parks too.
+  if (await isDemoWorkspace(deps.supabase, args.workspaceId).catch(() => true)) {
+    return { parked: { status: 'budget_exhausted', error: DEMO_WORKSPACE_ERROR } }
+  }
 
   const monthly = await readMonthlySpend(deps.supabase, args.workspaceId, args.runId, deps.now())
   if (!monthlyCapVerdict(monthly).ok) {

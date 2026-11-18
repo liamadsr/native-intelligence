@@ -1,5 +1,7 @@
 import 'server-only'
 import { CLOUD_BROWSER, cloudBrowserBackendKind, cloudBrowserMaxRunning, cloudBrowserNamespace, cloudBrowserRelayOrigin } from './config'
+import { refuseInDemoWorkspace } from '@/lib/demo/demo-mode'
+import { getServiceClient } from '@/lib/supabase/service'
 import { cloudBrowserNamePrefix, cloudBrowserSandboxName } from './ids'
 import { createHash } from 'node:crypto'
 import { mintBrowserRelayToken } from './relay-token'
@@ -183,6 +185,8 @@ async function startRelay(backend: CloudBrowserBackend, sandbox: BackendSandbox,
  * already runs is used as it is.
  */
 export async function ensureCloudBrowser(ref: CloudBrowserRef, opts: { signal?: AbortSignal; background?: boolean } = {}): Promise<EnsuredCloudBrowser> {
+  // Off in a demo workspace (migration 667): no sandbox is started or woken.
+  await refuseInDemoWorkspace(getServiceClient, ref.workspaceId, 'cloud_browser')
   const started = performance.now()
   const deadline = Date.now() + CLOUD_BROWSER.ensureTimeoutMs
   const signal = within(CLOUD_BROWSER.ensureTimeoutMs, opts.signal)

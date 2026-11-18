@@ -12,6 +12,8 @@ export interface UsageLimitInfo {
   reason?: string
   /** Is the user on a paid plan? Determines whether we show "upgrade" vs "wait for reset". */
   isPaidPlan?: boolean
+  /** The refusal's own plain words, when it sent some (a demo workspace's, migration 667). */
+  message?: string
   /** ISO timestamp of when the user's counters reset. Used on paid plans. */
   usageResetDate?: string | null
   /** Available credit balance in USD (Stripe-backed top-up credits). */
@@ -65,10 +67,12 @@ export async function parseUsageLimitResponse(
       isPaidPlan?: boolean
       usageResetDate?: string | null
       creditBalanceUsd?: number
+      message?: string
     }
     if (body?.error !== 'Usage limit exceeded') return null
     return {
       reason: body.reason,
+      ...(typeof body.message === 'string' && body.message ? { message: body.message } : {}),
       isPaidPlan: body.isPaidPlan,
       usageResetDate: body.usageResetDate ?? null,
       creditBalanceUsd: body.creditBalanceUsd,

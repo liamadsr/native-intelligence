@@ -1661,6 +1661,45 @@ Three things that catch people out:
 - **`git pull` says "Permission denied"** when files in the checkout are owned by root: something was copied in, or run, as root. Find them with `sudo find . ! -user <owner>` in `/opt/native-intelligence`, give them back (`sudo chown <owner>:<owner> <file>`), and never run git as root.
 - **No tool adds a line to an existing `.env`.** They only change values of lines that exist, and `set-secret.sh` refuses a name the file has no line for. A new setting's line is copied from that folder's `.env.example` by hand (`sudo nano .env`), then filled in.
 
+### The demo workspace
+
+One workspace of made-up data ("Fernhill Studio") that outsiders are invited
+into. Migration 667 and `web/src/lib/demo/` hold it; nothing here is on until
+a workspace is flagged.
+
+- **Flag it** (the owner, in the database container, as for a migration). The
+  workspace must be owned by an account with nothing real connected: the
+  insert is refused while a mail or calendar account, an MCP server or a Slack
+  workspace is linked to it.
+
+  ```sql
+  insert into public.demo_workspace (workspace_id) values ('<workspace id>');
+  -- another cap than $25 a month:
+  update public.demo_workspace set ai_cap_usd = 40 where workspace_id = '<workspace id>';
+  -- no longer a demo:
+  delete from public.demo_workspace where workspace_id = '<workspace id>';
+  ```
+
+- **Invite a person**: as the demo workspace's owner or admin, Settings ›
+  Members › Invite, as **member** or **guest** (an admin there needs a seat of
+  their own). A personal address (Gmail and the like) may sign up because the
+  invite names it. They need no card, land in the demo workspace, and cannot
+  use any other workspace until they hold a seat.
+- **What is off there**: texts, answered phone calls, Studio generation,
+  enrichment, workspace web research, the cloud browser, coding runs, SEO
+  data, prospecting, call notes and recording, and linking anything real
+  (accounts, MCP servers, Slack, shared email, Stripe, a business number).
+  Visitors share one AI budget a month (`ai_cap_usd`); `ai_spend_usd` on the
+  row is this month's total.
+- **It cleans itself**: `/api/cron/demo-workspace-reset` runs at 09:40 UTC and
+  puts every flagged workspace back (visitors' content goes, the made-up
+  content is written again, members stay). Before a visit, an admin can run
+  the same reset now: `POST /api/admin/demo-workspace/reset` with
+  `{"workspace_id": "<workspace id>"}` while signed in as an admin. The job's
+  log line names any table it could not clear.
+- **Remove a person**: Settings › Members, as for any workspace. Their account
+  stays; without a seat it is behind the trial page again.
+
 ### Slack
 
 The app talks to Slack directly, with our own Slack app (`web/src/lib/slack/`): "Add to Slack" in Settings › Connectors › Slack is Slack's own OAuth install, run by the app (`/api/slack/oauth/callback`); from the desktop app the install is finished in the person's browser and handed back to the app, which claims it (`/api/slack/oauth/claim`), so the same redirect URL serves both; each Slack workspace's bot token is stored in the app's database, encrypted with `CREDENTIAL_ENCRYPTION_KEY` (table `slack_bot_token`, migration 644, readable by the server only); every event and button click Slack sends must carry Slack's signature. Slack is on only when the four `SLACK_*` settings are in `app/.env`; while any is empty or malformed the app answers that Slack is not set up (and logs which one, by name).

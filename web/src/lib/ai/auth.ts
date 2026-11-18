@@ -5,6 +5,15 @@ import { getServiceClient } from '@/lib/supabase/service'
 import { isDeviceToken, resolveDeviceToken } from '@/lib/device-tokens'
 import { inngest } from '@/lib/inngest/client'
 import { CHATGPT_PLAN_PROVIDER } from '@/lib/chatgpt/plan-models'
+import {
+  DEMO_CAP_REACHED_MESSAGE,
+  DEMO_CAP_REACHED_REASON,
+  DEMO_ONLY_MESSAGE,
+  DEMO_ONLY_REASON,
+  DEMO_USAGE_REASON,
+  isDemoWorkspace,
+} from '@/lib/demo/demo-mode'
+import { getCurrentWorkspaceId } from '@/lib/workspace'
 
 // Emergency escape hatch: when the usage-limit RPC itself fails, we block the
 // request (fail closed) rather than hand out free AI. Set BILLING_FAIL_OPEN=true
@@ -144,11 +153,24 @@ export async function checkUsageLimits(
     | UsageLimitRow
     | undefined
 
+  // A demo workspace's visitor (migration 667) is covered inside that
+  // workspace only. The SQL gate is per person and cannot see where the
+  // request is, so that half is checked here: a request that NAMES another
+  // workspace (cookie or x-workspace-id) is refused. One that names none (an
+  // app-to-agent call, a job) passes: the shared cap still bounds it.
+  if (limit?.allowed && limit.reason === DEMO_USAGE_REASON && (await outsideDemoWorkspace(serviceClient))) {
+    throw new Response(
+      JSON.stringify({ error: 'Usage limit exceeded', reason: DEMO_ONLY_REASON, message: DEMO_ONLY_MESSAGE }),
+      { status: 429, headers: { 'Content-Type': 'application/json' } },
+    )
+  }
+
   if (limit && !limit.allowed) {
     throw new Response(
       JSON.stringify({
         error: 'Usage limit exceeded',
         reason: limit.reason,
+        ...(limit.reason === DEMO_CAP_REACHED_REASON ? { message: DEMO_CAP_REACHED_MESSAGE } : {}),
         plan: limit.plan_name,
         isPaidPlan: limit.is_paid_plan,
         usageResetDate: limit.usage_reset_date,
@@ -159,6 +181,26 @@ export async function checkUsageLimits(
   }
 
   return limit
+}
+
+/**
+ * True when this request names a workspace that is not a demo workspace.
+ * False when it names a demo workspace, names none, or runs outside a request
+ * (no headers): only positive evidence of "elsewhere" refuses.
+ */
+async function outsideDemoWorkspace(serviceClient: ReturnType<typeof getServiceClient>): Promise<boolean> {
+  let workspaceId: string | null
+  try {
+    workspaceId = await getCurrentWorkspaceId()
+  } catch {
+    return false
+  }
+  if (!workspaceId) return false
+  try {
+    return !(await isDemoWorkspace(serviceClient, workspaceId))
+  } catch {
+    return false
+  }
 }
 
 /** Params for logUsage / the log_ai_usage RPC. Exported for the retry worker. */

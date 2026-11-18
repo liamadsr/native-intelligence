@@ -87,7 +87,9 @@ export const ROUTES: Readonly<Record<string, RouteRule>> = {
   // People's pages.
   '': page('The home page.'),
   about: page('Marketing page.'),
-  account: page('The app itself. Its API is under api/account, never forwarded.'),
+  account: page('The app itself. Its API is under api/account, never forwarded.', {
+    'enter-demo': flow('account/enter-demo: sets the active-workspace cookie of the domain it is called on, for a demo workspace\'s visitor.'),
+  }),
   b: page('A guest\'s page for a meeting they booked; its buttons post to the API of the domain it was loaded from.'),
   admin: page('The admin panel.', {
     auth: flow('admin/auth/callback: the admin sign-in returns here with a code its own domain\'s verifier cookie exchanges.'),

@@ -37,6 +37,9 @@ export function UsageLimitDialog() {
 
   const open = info !== null
   const isPaid = info?.isPaidPlan === true
+  // A refusal that says what happened in its own words (a demo workspace's
+  // budget, migration 667): nothing to buy, nothing to upgrade.
+  const ownWords = !!info?.message
 
   async function buyCredits(amountUsd: number) {
     setTopupLoading(amountUsd)
@@ -95,7 +98,7 @@ export function UsageLimitDialog() {
           <Button variant="outline" onClick={closeUsageLimit}>
             {isPaid ? 'Got it' : 'Dismiss'}
           </Button>
-          {!isPaid && (
+          {!isPaid && !ownWords && (
             <Button asChild>
               <Link href="/account/settings/billing" onClick={closeUsageLimit}>
                 Upgrade to Pro
@@ -110,12 +113,14 @@ export function UsageLimitDialog() {
 
 function title(info: UsageLimitInfo | null): string {
   if (!info) return ''
+  if (info.message) return info.reason === 'demo_workspace_only' ? 'Only in the demo workspace' : 'The demo\'s AI budget is used up'
   if (info.isPaidPlan) return 'You\'ve used up this month\'s tokens'
   return 'You\'ve used up your allowance'
 }
 
 function description(info: UsageLimitInfo | null): string {
   if (!info) return ''
+  if (info.message) return info.message
   if (info.isPaidPlan) {
     const resetCopy = formatResetCopy(info.usageResetDate)
     const resetLine = resetCopy
