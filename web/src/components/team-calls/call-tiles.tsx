@@ -98,15 +98,20 @@ export function CallBadges({ notes, small = false, onOpenNotes }: { notes: Pick<
   )
 }
 
-/** One person (or a shared screen) in the call. A meeting guest is labelled "Guest". */
-export function TileView({ tile, large = false, compact = false, action }: { tile: CallTile; large?: boolean; compact?: boolean; action?: React.ReactNode }) {
+/**
+ * One person (or a shared screen) in the call. A meeting guest is labelled "Guest".
+ * `glass`: the tile sits on the public sky (a meeting guest's page), so with no
+ * video it is clear glass, not the app's muted fill.
+ */
+export function TileView({ tile, large = false, compact = false, glass = false, action }: { tile: CallTile; large?: boolean; compact?: boolean; glass?: boolean; action?: React.ReactNode }) {
   return (
     <div
       data-team-call-tile={tile.kind}
       data-team-call-guest={tile.guest || undefined}
       data-speaking={tile.speaking || undefined}
       className={cn(
-        'group relative overflow-hidden rounded-2xl bg-muted transition-shadow duration-150',
+        'group relative overflow-hidden transition-shadow duration-150',
+        glass ? cn('rounded-3xl', tile.video ? 'bg-black' : 'border border-foreground/10 bg-background/35 backdrop-blur-2xl dark:bg-white/[0.04]') : 'rounded-2xl bg-muted',
         large ? 'aspect-video' : compact ? 'aspect-square' : 'aspect-video',
         tile.speaking ? 'ring-2 ring-emerald-500' : 'ring-0',
       )}
@@ -115,12 +120,18 @@ export function TileView({ tile, large = false, compact = false, action }: { til
         <TrackVideo track={tile.video} mirror={tile.isLocal && tile.kind === 'person'} contain={tile.kind === 'screen'} />
       ) : (
         <div className="flex h-full w-full items-center justify-center">
-          <span className={cn('flex items-center justify-center rounded-full bg-background font-semibold text-muted-foreground', compact ? 'h-9 w-9 text-xs' : 'h-14 w-14 text-base')}>
+          <span
+            className={cn(
+              'flex items-center justify-center rounded-full font-semibold text-muted-foreground',
+              glass ? 'border border-foreground/10 bg-background/70 dark:bg-white/10' : 'bg-background',
+              compact ? 'h-9 w-9 text-xs' : glass ? 'h-16 w-16 text-lg sm:h-20 sm:w-20 sm:text-xl' : 'h-14 w-14 text-base',
+            )}
+          >
             {initialsOf(tile.name)}
           </span>
         </div>
       )}
-      <span className="absolute bottom-1.5 left-1.5 flex max-w-[calc(100%-12px)] items-center gap-1 rounded-full bg-black/55 px-2 py-0.5 text-[11px] font-medium text-white">
+      <span className={cn('absolute flex max-w-[calc(100%-12px)] items-center gap-1 rounded-full bg-black/55 font-medium text-white', glass && !compact ? 'bottom-3 left-3 px-2.5 py-1 text-xs' : 'bottom-1.5 left-1.5 px-2 py-0.5 text-[11px]')}>
         {!tile.micOn && tile.kind === 'person' && <MicOff className="h-3 w-3 shrink-0" aria-label="Muted" />}
         <span className="truncate">{tile.kind === 'screen' ? `${tile.isLocal ? 'Your' : `${tile.name}’s`} screen` : tile.isLocal ? 'You' : tile.name}</span>
         {tile.guest && tile.kind === 'person' && (
@@ -155,6 +166,7 @@ export function IconButton({
   danger = false,
   small = false,
   disabled = false,
+  glass = false,
   children,
   ...rest
 }: {
@@ -164,6 +176,8 @@ export function IconButton({
   danger?: boolean
   small?: boolean
   disabled?: boolean
+  /** On the public sky (a meeting guest's page): a clear resting fill, not the app's muted one. */
+  glass?: boolean
   children: React.ReactNode
 } & Record<`data-${string}`, string | undefined>) {
   return (
@@ -178,7 +192,7 @@ export function IconButton({
       className={cn(
         'flex shrink-0 items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40',
         small ? 'h-8 w-8' : 'h-11 w-11',
-        danger ? 'bg-red-500 text-white hover:bg-red-600' : active ? 'bg-foreground text-background hover:bg-foreground/90' : 'bg-muted text-foreground hover:bg-accent',
+        danger ? 'bg-red-500 text-white hover:bg-red-600' : active ? 'bg-foreground text-background hover:bg-foreground/90' : glass ? 'bg-foreground/[0.08] text-foreground hover:bg-foreground/[0.14]' : 'bg-muted text-foreground hover:bg-accent',
       )}
     >
       {children}
