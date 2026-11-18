@@ -67,6 +67,42 @@ export function isDemoWorkspaceDbRefusal(error: { message?: unknown; hint?: unkn
 const TTL_MS = 60_000
 /** How long an answer that could not be read stands in: long enough that a database blip is not re-asked (and logged) on every request, short enough to heal. */
 const FAILED_TTL_MS = 10_000
+/**
+ * How long one read may take. These reads are shared by everyone asking at
+ * once, and they sit in front of nearly every request: one that stalls (the
+ * service client has no time limit of its own) would hold them all until the
+ * connection gave up, minutes later. Past this it is an unreadable answer,
+ * like any other failure.
+ */
+export const READ_TIMEOUT_MS = 4_000
+
+/**
+ * `query`'s answer, or a rejection once READ_TIMEOUT_MS has passed. The
+ * request itself is cancelled too where the client can (a PostgREST builder's
+ * `abortSignal`); where it cannot, it is left to end by itself, unheard.
+ */
+function inTime<T>(query: PromiseLike<T>): Promise<T> {
+  const stop = new AbortController()
+  const builder = query as PromiseLike<T> & { abortSignal?: (signal: AbortSignal) => PromiseLike<T> }
+  const running = typeof builder.abortSignal === 'function' ? builder.abortSignal(stop.signal) : query
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`no answer in ${READ_TIMEOUT_MS} ms`))
+      stop.abort()
+    }, READ_TIMEOUT_MS)
+    Promise.resolve(running).then(
+      (answer) => {
+        clearTimeout(timer)
+        resolve(answer)
+      },
+      (err) => {
+        clearTimeout(timer)
+        reject(err)
+      },
+    )
+  })
+}
+
 /** The most entries either cache holds; past it the oldest go. A workspace or a person costs one small entry. */
 const MAX_ENTRIES = 5_000
 
@@ -176,7 +212,7 @@ export async function readDemoWorkspace(workspaceId: string | null | undefined):
     }
     try {
       const { getServiceClient } = await import('@/lib/supabase/service')
-      const { data, error } = await getServiceClient().rpc('is_demo_workspace', { p_workspace_id: workspaceId })
+      const { data, error } = await inTime(getServiceClient().rpc('is_demo_workspace', { p_workspace_id: workspaceId }))
       if (error) {
         // Before migration 669 there are no demo workspaces at all.
         if (error.code === 'PGRST202' || error.code === '42883') {
@@ -272,7 +308,7 @@ async function anyDemoWorkspace(): Promise<boolean | null> {
     }
     try {
       const { getServiceClient } = await import('@/lib/supabase/service')
-      const { data, error } = await getServiceClient().from('demo_workspace').select('workspace_id').limit(1)
+      const { data, error } = await inTime(getServiceClient().from('demo_workspace').select('workspace_id').limit(1))
       if (error) {
         // Before migration 669 the table is not there: no demo workspaces.
         if (error.code === '42P01' || error.code === 'PGRST205') return answer(false)
@@ -331,11 +367,11 @@ export async function demoVisitorWorkspace(userId: string | null | undefined): P
       if (!exists) return null
       const { getServiceClient } = await import('@/lib/supabase/service')
       const service = getServiceClient()
-      const seat = await service.rpc('demo_seat_workspace', { p_user_id: userId })
+      const seat = await inTime(service.rpc('demo_seat_workspace', { p_user_id: userId }))
       if (seat.error) return failed(seat.error.message)
       let workspaceId: string | null = typeof seat.data === 'string' && seat.data ? seat.data : null
       if (workspaceId) {
-        const gate = await service.rpc('check_ai_usage_limit', { p_user_id: userId, p_chatgpt_plan: true })
+        const gate = await inTime(service.rpc('check_ai_usage_limit', { p_user_id: userId, p_chatgpt_plan: true }))
         if (gate.error) return failed(gate.error.message)
         const row = (Array.isArray(gate.data) ? gate.data[0] : gate.data) as { reason?: string | null } | null | undefined
         if (row?.reason !== DEMO_USAGE_REASON && row?.reason !== DEMO_CAP_REACHED_REASON) workspaceId = null

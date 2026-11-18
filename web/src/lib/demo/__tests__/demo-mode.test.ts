@@ -18,6 +18,7 @@ import {
   demoVisitorOutside,
   isDemoWorkspace,
   isDemoWorkspaceDbRefusal,
+  READ_TIMEOUT_MS,
   readDemoWorkspace,
   setDemoWorkspaceLookupForTests,
 } from '../demo-mode'
@@ -83,6 +84,53 @@ describe('isDemoWorkspace', () => {
     release({ data: true, error: null })
     expect(await Promise.all(asked)).toEqual([true, true, true])
     expect(h.rpc).toHaveBeenCalledTimes(1)
+  })
+
+  it('a read that never answers is given up on: everyone waiting on it is let go, and the next read goes through', async () => {
+    vi.useFakeTimers()
+    try {
+      h.rpc.mockImplementation(() => new Promise(() => undefined))
+      const asked = [isDemoWorkspace('w'), isDemoWorkspace('w'), readDemoWorkspace('w')]
+      await vi.advanceTimersByTimeAsync(READ_TIMEOUT_MS - 1)
+      let settled = false
+      void Promise.all(asked).then(() => { settled = true })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(settled).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+      // Unreadable, as any failed read is: "not a demo", one read, one log line.
+      expect(await Promise.all(asked)).toEqual([false, false, null])
+      expect(h.rpc).toHaveBeenCalledTimes(1)
+      expect(console.error).toHaveBeenCalledTimes(1)
+      answers(() => ({ data: true, error: null }))
+      await vi.advanceTimersByTimeAsync(10_001)
+      expect(await isDemoWorkspace('w')).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('giving up cancels the request where the client can, and an answer in time cancels nothing', async () => {
+    vi.useFakeTimers()
+    try {
+      const signals: AbortSignal[] = []
+      const builder = (answer: Promise<unknown>) => ({
+        abortSignal: (signal: AbortSignal) => {
+          signals.push(signal)
+          return answer
+        },
+      })
+      h.rpc.mockImplementation(() => builder(new Promise(() => undefined)))
+      const stalled = isDemoWorkspace('stalled')
+      await vi.advanceTimersByTimeAsync(READ_TIMEOUT_MS)
+      expect(await stalled).toBe(false)
+      expect(signals[0].aborted).toBe(true)
+      h.rpc.mockImplementation(() => builder(Promise.resolve({ data: true, error: null })))
+      expect(await isDemoWorkspace('quick')).toBe(true)
+      await vi.advanceTimersByTimeAsync(READ_TIMEOUT_MS * 2)
+      expect(signals[1].aborted).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('the cache is bounded: the oldest answers go', async () => {
