@@ -250,7 +250,7 @@ describe('GET /api/local-agent/agent/spec', () => {
     const res = await spec('?live=1')
     expect(await res.json()).toEqual({ live: true })
     // Opted in to the ChatGPT free tier: a person on their own plan goes on.
-    expect(m.checkUsageLimits).toHaveBeenCalledWith(USER, undefined, { chatgptPlan: true })
+    expect(m.checkUsageLimits).toHaveBeenCalledWith(USER, undefined, expect.objectContaining({ chatgptPlan: true }))
     m.checkUsageLimits.mockRejectedValueOnce(new Response('{}', { status: 429 }))
     expect((await spec('?live=1')).status).toBe(429)
     seed({ status: 'failed' })

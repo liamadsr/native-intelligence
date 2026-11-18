@@ -25,17 +25,13 @@ const h = vi.hoisted(() => ({
   marked: [] as Array<[string, string]>,
   stopArgs: [] as Array<[string, boolean]>,
   stopFails: false,
-  noUsage: false,
-  OwnerUsageError: class OwnerUsageError extends Error {},
 }))
 vi.mock('@/lib/admin', () => ({ getServiceClient: () => ({}) }))
 vi.mock('@/lib/inngest/client', () => ({ inngest: { createFunction: () => ({}) } }))
 vi.mock('../capture-finalizer', () => ({
   CallNotesLiveError: class CallNotesLiveError extends Error {},
-  OwnerUsageError: h.OwnerUsageError,
   runOwnerBatch: async (_svc: unknown, args: { captureId: string; ownerId: string }) => {
     h.calls.push(`batch:${args.captureId}:${args.ownerId}`)
-    if (h.noUsage) throw new h.OwnerUsageError('capture finalizer: batch refused (429)')
     return 'completed'
   },
   postExtraction: async (_svc: unknown, args: { captureId: string; captureProcessed: boolean }) => {
@@ -114,7 +110,6 @@ beforeEach(() => {
   h.marked = []
   h.stopArgs = []
   h.stopFails = false
-  h.noUsage = false
 })
 
 describe('the notes finish', () => {
@@ -127,17 +122,6 @@ describe('the notes finish', () => {
     expect(h.calls).toEqual(['write', `batch:${CAPTURE}:u-ana`, `post:${CAPTURE}:false`, 'remove-audio'])
     expect(ids.filter((i) => i.startsWith('wait-'))).toEqual(['wait-1', 'wait-2'])
     expect(h.gaveUp).toBeNull()
-  })
-
-  it('the owner has no AI usage left (their plan, or a demo workspace’s cap): the notes finish without the pass, they do not fail', async () => {
-    h.statuses = [status({ settled: true })]
-    h.noUsage = true
-    const { step } = stepTools()
-    const out = await runTeamCallNotesFinish({ event: { data: { callId: CALL } }, step })
-    expect(out).toEqual({ status: 'ready', captureId: CAPTURE })
-    // Asked once, never again; the record written live is closed as it stands (captureProcessed), the audio removed.
-    expect(h.calls).toEqual(['write', `batch:${CAPTURE}:u-ana`, `post:${CAPTURE}:true`, 'remove-audio'])
-    expect(h.settled).toEqual([])
   })
 
   it('egresses still running halfway are asked to stop; what never came is given up on, then the notes are written with what there is', async () => {

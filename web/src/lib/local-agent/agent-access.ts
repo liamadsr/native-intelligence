@@ -266,9 +266,10 @@ export function workerJobRefusal(): Response {
  * model runs on their plan (the relay's plan path) and web-tools.ts runs its
  * search on the plan too, never Exa; everyone else is checked as before.
  */
-export async function usageRefusal(userId: string): Promise<Response | null> {
+export async function usageRefusal(userId: string, workspaceId: string): Promise<Response | null> {
   try {
-    await checkUsageLimits(userId, undefined, { chatgptPlan: true })
+    // With the session's own workspace: the Mac body's token names none.
+    await checkUsageLimits(userId, undefined, { chatgptPlan: true, workspaceId })
     return null
   } catch (err) {
     if (err instanceof Response) return err

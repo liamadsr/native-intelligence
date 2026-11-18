@@ -105,7 +105,7 @@ describe('draftingBlocked (the gates both paths share)', () => {
   it('defaults to checkUsageLimits for the person, opted in to the ChatGPT free tier', async () => {
     hoisted.checkUsageLimits.mockRejectedValueOnce(new Response(null, { status: 429 }))
     expect(await draftingBlocked(db as never, 'u-1', W, { isDormant: async () => false })).toBe('usage')
-    expect(hoisted.checkUsageLimits).toHaveBeenCalledWith('u-1', undefined, { chatgptPlan: true })
+    expect(hoisted.checkUsageLimits).toHaveBeenCalledWith('u-1', undefined, expect.objectContaining({ chatgptPlan: true }))
     // A person on their own plan is let through: their drafts and decisions run on it.
     hoisted.checkUsageLimits.mockResolvedValueOnce({ allowed: true, reason: 'chatgpt_plan' } as never)
     expect(await draftingBlocked(db as never, 'u-1', W, { isDormant: async () => false })).toBeNull()

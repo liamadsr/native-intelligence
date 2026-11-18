@@ -85,10 +85,11 @@ describe('demoVisitorOutside', () => {
     expect(await demoVisitorOutside(visitor, 'own')).toBe(true)
   })
 
-  it('only positive evidence: no workspace named, or a flag that cannot be read, is not outside', async () => {
+  it('refuses when it cannot tell: no workspace named, or a flag that cannot be read, is outside', async () => {
     answers(() => ({ data: null, error: { message: 'down' } }))
-    expect(await demoVisitorOutside(visitor, null)).toBe(false)
-    expect(await demoVisitorOutside(visitor, 'own')).toBe(false)
+    expect(await demoVisitorOutside(visitor, null)).toBe(true)
+    expect(await demoVisitorOutside(visitor, undefined)).toBe(true)
+    expect(await demoVisitorOutside(visitor, 'demo')).toBe(true)
   })
 
   it('anyone let in another way is never asked about', async () => {

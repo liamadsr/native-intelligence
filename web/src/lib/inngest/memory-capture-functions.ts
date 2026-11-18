@@ -49,7 +49,7 @@ export const memoryCapture = inngest.createFunction(
     // In a step: a replayed run (after the model step) must not re-check, and a
     // refusal must be recorded once.
     // Opted in to the ChatGPT free tier: a free user's capture runs on their own plan.
-    const { chatgptPlan } = await step.run('guard', () => guardBackgroundUsageOnPlan(input.userId))
+    const { chatgptPlan } = await step.run('guard', () => guardBackgroundUsageOnPlan(input.userId, input.workspaceId))
 
     const answer: MemoryCaptureAnswer = await step.run('read', async () => {
       const result = await runUtilityTask({

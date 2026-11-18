@@ -1,4 +1,5 @@
 import crypto from 'crypto'
+import { demoVisitorWorkspace } from '@/lib/demo/demo-mode'
 import { createStatelessClient } from '@/lib/supabase/stateless'
 import { agentActivityHeaders } from '@/lib/activity-actor'
 import { appHost } from '@/lib/app-url'
@@ -130,6 +131,12 @@ export async function authenticateMcpRequest(request: Request): Promise<{
 
     workspaceId = membership?.workspace_id || null
   }
+
+  // A demo workspace's visitor (migration 669): their connector works in the
+  // demo workspace, whatever it was pointed at (the tools' own routing keeps
+  // them there too: getUserWorkspaces, resolveEntityWorkspace).
+  const demoHome = await demoVisitorWorkspace(tokenRecord.user_id as string)
+  if (demoHome) workspaceId = demoHome
 
   if (!workspaceId) {
     throw new Response(

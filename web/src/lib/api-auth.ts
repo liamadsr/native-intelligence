@@ -26,6 +26,7 @@
  *   const { supabase, user, workspaceId, member } = auth
  */
 import { timingSafeEqual } from 'crypto'
+import { DEMO_ONLY_MESSAGE, demoVisitorWorkspace } from '@/lib/demo/demo-mode'
 import type { SupabaseClient, User } from '@supabase/supabase-js'
 import { createStatelessClient } from '@/lib/supabase/stateless'
 import { cookies, headers } from 'next/headers'
@@ -366,6 +367,20 @@ async function resolveWorkspaceMembership(
 }
 
 /**
+ * A demo workspace's visitor (migration 669) holds no seat anywhere else:
+ * a request that resolves to any other workspace is refused, whatever it is
+ * for. This is what keeps "free inside the demo" from being free in a
+ * workspace of the visitor's own, where every paid surface with a
+ * per-workspace budget (search data, prospecting) would start a fresh one,
+ * and where something real could be connected. Null for everyone else.
+ */
+async function demoVisitorElsewhere(userId: string, workspaceId: string): Promise<Response | null> {
+  const home = await demoVisitorWorkspace(userId)
+  if (!home || home === workspaceId) return null
+  return apiError(DEMO_ONLY_MESSAGE, { status: 403, code: 'DEMO_WORKSPACE_ONLY' })
+}
+
+/**
  * Resolve the authenticated user AND current workspace.
  * Returns 401 if no user, 400 if no workspace can be determined.
  *
@@ -397,6 +412,8 @@ export async function requireWorkspace(): Promise<
       return isJwtExpiredError(error) ? sessionExpired() : serverError()
     }
     if (!member) return notMember()
+    const elsewhere = await demoVisitorElsewhere(auth.user.id, deviceWorkspaceId)
+    if (elsewhere) return elsewhere
     return { ...auth, workspaceId: deviceWorkspaceId }
   }
 
@@ -411,6 +428,8 @@ export async function requireWorkspace(): Promise<
     throw err
   }
   if (!membership) return noWorkspace()
+  const elsewhere = await demoVisitorElsewhere(auth.user.id, membership.workspaceId)
+  if (elsewhere) return elsewhere
 
   return { ...auth, workspaceId: membership.workspaceId }
 }
@@ -451,6 +470,8 @@ export async function requireWorkspaceMember(options?: {
       return isJwtExpiredError(error) ? sessionExpired() : serverError()
     }
     if (!member) return notMember()
+    const elsewhere = await demoVisitorElsewhere(user.id, deviceWorkspaceId)
+    if (elsewhere) return elsewhere
     return { supabase, user, workspaceId: deviceWorkspaceId, member }
   }
 
@@ -465,6 +486,8 @@ export async function requireWorkspaceMember(options?: {
     throw err
   }
   if (!membership) return noWorkspace()
+  const elsewhere = await demoVisitorElsewhere(user.id, membership.workspaceId)
+  if (elsewhere) return elsewhere
 
   return { supabase, user, workspaceId: membership.workspaceId, member: membership.member }
 }

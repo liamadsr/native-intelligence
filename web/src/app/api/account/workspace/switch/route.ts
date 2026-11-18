@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { DEMO_ONLY_MESSAGE, demoVisitorWorkspace } from '@/lib/demo/demo-mode'
 import { NextResponse, type NextRequest } from 'next/server'
 import { cookies } from 'next/headers'
 import { WORKSPACE_COOKIE } from '@/lib/workspace'
@@ -30,6 +31,13 @@ export async function POST(request: NextRequest) {
 
   if (!member) {
     return NextResponse.json({ error: 'Not a member' }, { status: 403 })
+  }
+
+  // A demo workspace's visitor (migration 669) stays in it: no other
+  // workspace of theirs can be used until they hold a seat.
+  const demoHome = await demoVisitorWorkspace(user.id)
+  if (demoHome && demoHome !== workspace_id) {
+    return NextResponse.json({ error: DEMO_ONLY_MESSAGE, code: 'DEMO_WORKSPACE_ONLY' }, { status: 403 })
   }
 
   const cookieStore = await cookies()

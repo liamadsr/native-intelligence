@@ -37,9 +37,9 @@ import type { EventNeedsPersonInput } from '@/lib/ai/decisions/tasks/event-needs
  * puts them there), and Jev, NI-paid, refuses them on its own
  * (runDecision's usage check) at no cost.
  */
-export async function isOverBackgroundUsage(userId: string): Promise<boolean> {
+export async function isOverBackgroundUsage(userId: string, workspaceId?: string): Promise<boolean> {
   try {
-    await guardBackgroundUsageOnPlan(userId)
+    await guardBackgroundUsageOnPlan(userId, workspaceId)
     return false
   } catch (err) {
     return err instanceof NonRetriableError

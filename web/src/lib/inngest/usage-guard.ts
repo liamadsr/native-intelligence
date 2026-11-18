@@ -19,10 +19,11 @@ import { isChatGptPlanUsage } from '@/lib/chatgpt/plan-models'
  */
 /**
  * A demo workspace's visitor (migration 669) holds no seat anywhere else: a
- * job the caller says runs in another workspace is refused, as the request
- * path refuses it (checkUsageLimits). A caller that names no workspace is not
- * refused here: the job is metered on the demo workspace like the rest of a
- * visitor's use.
+ * job that runs in another workspace is refused, as the request path refuses
+ * it (checkUsageLimits). So is one whose caller names no workspace: a job
+ * that cannot say where it runs does not run for a visitor. Every caller
+ * here passes its workspace; nobody but a visitor is affected by one that
+ * does not.
  */
 async function refuseDemoVisitorElsewhere(userId: string, row: { reason?: string | null } | null | undefined, workspaceId: string | null | undefined): Promise<void> {
   if (await demoVisitorOutside(row, workspaceId)) {

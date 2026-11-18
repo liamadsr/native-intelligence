@@ -122,7 +122,7 @@ describe('runDecision on a free user’s own ChatGPT plan', () => {
   it('answers on the plan (never Jev), and meters it at $0 under the plan', async () => {
     const result = await runDecision('email.reply_required', mail, ctx)
     expect(result).toMatchObject({ status: 'accepted', value: { replyRequired: true } })
-    expect(mock.check).toHaveBeenCalledWith('plan-user', expect.any(AbortSignal), { chatgptPlan: true })
+    expect(mock.check).toHaveBeenCalledWith('plan-user', expect.any(AbortSignal), expect.objectContaining({ chatgptPlan: true }))
     expect(mock.evaluate).not.toHaveBeenCalled()
     expect(mock.utility).toHaveBeenCalledWith(expect.objectContaining({ kind: 'plan_decision', chatgptPlan: true, userId: 'plan-user', workspaceId: 'workspace' }))
     expect(mock.log).toHaveBeenCalledWith('plan-user', expect.objectContaining({

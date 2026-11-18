@@ -63,12 +63,14 @@ describe('checkUsageLimits: a demo workspace visitor', () => {
     expect(body).toMatchObject({ reason: 'demo_workspace_only', message: DEMO_ONLY_MESSAGE })
   })
 
-  it('passes a request that names no workspace (an app-to-agent call): the cap still bounds it', async () => {
+  it('is refused when no workspace is named at all (an internal route, a job with no cookie): it cannot pass into any workspace they belong to', async () => {
     gateAnswers({ allowed: true, reason: 'demo_workspace' })
     hoisted.currentWorkspace.mockResolvedValue(null)
-    await expect(checkUsageLimits('u1')).resolves.toMatchObject({ allowed: true })
+    expect((await refusal(checkUsageLimits('u1'))).body.reason).toBe('demo_workspace_only')
     hoisted.currentWorkspace.mockRejectedValue(new Error('no request scope'))
-    await expect(checkUsageLimits('u1')).resolves.toMatchObject({ allowed: true })
+    expect((await refusal(checkUsageLimits('u1'))).body.reason).toBe('demo_workspace_only')
+    // The same check, told where it runs (as the chat's spec route tells it), passes.
+    await expect(checkUsageLimits('u1', undefined, { workspaceId: DEMO })).resolves.toMatchObject({ allowed: true })
   })
 
   it('where the work really runs wins over what the request names', async () => {

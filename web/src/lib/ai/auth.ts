@@ -159,9 +159,9 @@ export async function checkUsageLimits(
   // workspace only. The SQL gate is per person and cannot see where the work
   // runs, so that half is checked here, against the workspace the caller
   // names (`opts.workspaceId`), else the one the request names (cookie,
-  // x-workspace-id, a device token's pin). With neither (a job that passed
-  // none) it passes: it is metered on the demo workspace like the rest of a
-  // visitor's use.
+  // x-workspace-id, a device token's pin). With NEITHER it is refused: an
+  // internal route or a job has no cookie, and a check that cannot say where
+  // its work runs must not pass a visitor into any workspace they belong to.
   if (limit?.allowed && limit.reason === DEMO_USAGE_REASON) {
     const runsIn = opts.workspaceId !== undefined ? opts.workspaceId : await requestWorkspace()
     if (await demoVisitorOutside(limit, runsIn)) {

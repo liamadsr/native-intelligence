@@ -185,7 +185,7 @@ async function recordPlanUsage(
 async function planCall(request: Request, svc: SupabaseClient, auth: { sid: string; uid: string; row: { workspace_id: string } }): Promise<Response> {
   const { sid, uid, row } = auth
   try {
-    await checkUsageLimits(uid, undefined, { chatgptPlan: true })
+    await checkUsageLimits(uid, undefined, { chatgptPlan: true, workspaceId: row.workspace_id })
   } catch (err) {
     if (err instanceof Response) return err
     throw err

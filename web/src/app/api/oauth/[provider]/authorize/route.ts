@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { DEMO_OFF, isDemoWorkspace } from '@/lib/demo/demo-mode'
+import { DEMO_OFF, demoVisitorWorkspace, isDemoWorkspace } from '@/lib/demo/demo-mode'
 import { isValidProvider, isValidCapability } from '@/lib/oauth/config'
 import { OAUTH_NONCE_COOKIE, OAUTH_STATE_TTL_MS, bindingCookieOptions } from '@/lib/oauth/state'
 import { buildOAuthStart } from '@/lib/oauth/authorize-url'
@@ -65,7 +65,10 @@ export async function GET(
     const workspaceId = requestedWorkspaceId || await getCurrentWorkspaceId()
     // Nothing real is connected from inside a demo workspace (migration 669):
     // refused here, before the person is sent to the provider at all.
-    if (await isDemoWorkspace(workspaceId)) {
+    // Nor does a demo workspace's visitor connect anything anywhere else: a
+    // token is found by person, so one connected through a workspace of their
+    // own (GitHub, above all) would answer inside the demo.
+    if ((await isDemoWorkspace(workspaceId)) || (await demoVisitorWorkspace(user.id))) {
       return NextResponse.json({ error: DEMO_OFF.connector, code: 'DEMO_WORKSPACE' }, { status: 403 })
     }
 
