@@ -30,6 +30,7 @@ const h = vi.hoisted(() => ({
   usage: [] as unknown[],
   advanced: [] as unknown[],
   limitError: null as Response | null,
+  limitChecks: [] as unknown[][],
   /** The row's bot's team: public, or private with or without the caller's seat. */
   botTeam: 'public' as 'public' | 'private' | 'private-seated',
   // ── A session that expired (the 30-day timeout): the chat reopens ──
@@ -126,7 +127,8 @@ vi.mock('@/lib/supabase/service', () => ({
   }),
 }))
 vi.mock('@/lib/ai/auth', () => ({
-  checkUsageLimits: async () => {
+  checkUsageLimits: async (...args: unknown[]) => {
+    h.limitChecks.push(args)
     if (h.limitError) throw h.limitError
   },
 }))
@@ -286,6 +288,7 @@ beforeEach(() => {
   h.usage = []
   h.advanced = []
   h.limitError = null
+  h.limitChecks = []
   h.botTeam = 'public'
   h.clients = 0
   h.sendErrors = {}
@@ -409,6 +412,11 @@ describe('POST: one follow-up turn', () => {
       expect.objectContaining({ userId: 'user-1', workItemId: 'job-1', sessionId: undefined, teammateId: 'tm-1', events: h.events }),
     ])
     expect(h.advanced).toEqual([{ record: RECORD, next: 15 }])
+  })
+
+  it('the usage check names the RUN’s own workspace, not the one the request points at (a demo workspace’s visitor is covered in the demo only)', async () => {
+    await post()
+    expect(h.limitChecks).toEqual([['user-1', undefined, { chatgptPlan: true, workspaceId: 'ws-1' }]])
   })
 
   it('the usage limit stops a turn before it is sent', async () => {

@@ -1937,10 +1937,22 @@ a workspace is flagged.
   is not free in a workspace of their own making. If the app cannot read who
   is a visitor it logs `[demo-workspace] visitor read failed` and that
   request is not fenced; nobody who is not a visitor is ever refused by this.
-- **Not closed**: something a person connected BEFORE they became a visitor
-  (a lapsed subscriber invited into the demo) still answers by person: their
-  GitHub token for a coding run, their own MCP servers. The AI Gateway's web
-  search tool is metered, not refused.
+- **A free guest of another workspace who is invited into the demo** is a
+  visitor too (they have nothing of their own), so that other workspace
+  answers 403 `DEMO_WORKSPACE_ONLY` for them until they leave the demo.
+  Invite people with a seat as they are; think twice before inviting someone
+  who is a free guest somewhere else.
+- **The known remainder**: what a person connected or set up BEFORE they
+  became a visitor (a lapsed subscriber invited into the demo). Their GitHub
+  token still answers for a coding run in the demo, and their own MCP servers
+  follow them. Their old SEO schedules in a workspace of their own do NOT run
+  again: a visitor counts as paying for search data in the demo only. The AI
+  Gateway's web search tool is metered, not refused.
+- **An AI request names its row's workspace**: a call that works on a row (a
+  capture to index, a run's chat) is checked against that row's workspace,
+  not the request's, which always reads as the demo for a visitor. The
+  desktop's transcription token has no row and no workspace of its own: for a
+  visitor it is metered on the demo.
 
 ### Slack
 

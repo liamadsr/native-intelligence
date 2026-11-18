@@ -31,7 +31,8 @@ export interface ScheduledGateDeps {
   isConfigured?: () => boolean
   isMember?: (workspaceId: string, userId: string) => Promise<boolean>
   /** True on the free plan; throws when the plan can't be read. */
-  isFreePlan?: (userId: string) => Promise<boolean>
+  /** For the tracker's own workspace: a demo workspace's visitor pays for search data there only. */
+  isFreePlan?: (userId: string, workspaceId: string) => Promise<boolean>
 }
 
 export type GateRefusal = {
@@ -87,8 +88,8 @@ export async function scheduledRunGate(
   let free: boolean
   try {
     free = await (
-      deps.isFreePlan ?? ((userId: string) => onFreePlan(userId, { attempts: 2 }))
-    )(tracker.created_by)
+      deps.isFreePlan ?? ((userId: string, workspaceId: string) => onFreePlan(userId, { attempts: 2, workspaceId }))
+    )(tracker.created_by, tracker.workspace_id)
   } catch (err) {
     console.error('[seo-ai] schedule gate: plan check failed', err)
     return refuse('plan_unreadable')

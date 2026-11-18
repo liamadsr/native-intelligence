@@ -33,9 +33,8 @@ vi.mock('@/lib/supabase/service', () => ({
 }))
 vi.mock('@/lib/seo/dataforseo', () => ({ isDataforseoConfigured: () => true }))
 vi.mock('@/lib/seo/membership', () => ({ memberRole: async () => 'member', isFullMemberRole: (r: string | null) => r === 'member' || r === 'owner' || r === 'admin' }))
-vi.mock('@/lib/seo/plan', () => ({ onFreePlan: async () => false }))
 
-import { clearDemoWorkspaceCache, demoVisitorWorkspace, setDemoVisitorLookupForTests } from '../demo-mode'
+import { clearDemoWorkspaceCache, demoVisitorWorkspace, setDemoVisitorLookupForTests, setDemoWorkspaceLookupForTests } from '../demo-mode'
 import { getUserWorkspaces, resolveCreateWorkspace, resolveEntityWorkspace } from '@/lib/ai/tools/_shared'
 import { completeOAuthConnect } from '@/lib/oauth/complete-connect'
 
@@ -141,15 +140,38 @@ describe('the tools’ workspace routing, for a visitor', () => {
 })
 
 describe('paid search data', () => {
-  beforeEach(() => setDemoVisitorLookupForTests((id) => (id === 'visitor' ? DEMO : null)))
+  beforeEach(() => setDemoWorkspaceLookupForTests((id) => id === DEMO))
 
-  it('a visitor gets it in the demo workspace only: a workspace of their own has no plan behind it', async () => {
+  it('a visitor counts as paying for the demo workspace and for no other', async () => {
+    const { onFreePlan } = await import('@/lib/seo/plan')
+    for (const reason of ['demo_workspace', 'demo_cost_limit_exceeded']) {
+      h.reason = reason
+      expect(await onFreePlan('visitor', { workspaceId: DEMO }), reason).toBe(false)
+      // A workspace of their own, an old schedule in one they used to pay for, or none named.
+      expect(await onFreePlan('visitor', { workspaceId: OWN }), reason).toBe(true)
+      expect(await onFreePlan('visitor', { workspaceId: null }), reason).toBe(true)
+      expect(await onFreePlan('visitor'), reason).toBe(true)
+    }
+  })
+
+  it('a flag that cannot be read: not paying (nothing is bought on "could not tell")', async () => {
+    const { onFreePlan } = await import('@/lib/seo/plan')
+    setDemoWorkspaceLookupForTests(() => { throw new Error('down') })
+    expect(await onFreePlan('visitor', { workspaceId: DEMO })).toBe(true)
+  })
+
+  it('everyone else is as before, whatever the workspace', async () => {
+    const { onFreePlan } = await import('@/lib/seo/plan')
+    h.reason = 'within_limits'
+    expect(await onFreePlan('subscriber', { workspaceId: OWN })).toBe(false)
+    h.reason = 'subscription_required'
+    expect(await onFreePlan('nobody', { workspaceId: DEMO })).toBe(true)
+  })
+
+  it('the access check asks about the workspace the data is for', async () => {
     const { checkSeoDataAccess } = await import('@/lib/seo/access')
     expect(await checkSeoDataAccess({ userId: 'visitor', workspaceId: DEMO })).toEqual({ ok: true })
     expect(await checkSeoDataAccess({ userId: 'visitor', workspaceId: OWN })).toMatchObject({ ok: false, code: 'FREE_PLAN' })
-    expect(await checkSeoDataAccess({ userId: 'visitor', workspaceId: null })).toMatchObject({ ok: false, code: 'FREE_PLAN' })
-    // Anyone else: as before, in any workspace of theirs.
-    expect(await checkSeoDataAccess({ userId: 'member-with-a-seat', workspaceId: OWN })).toEqual({ ok: true })
   })
 })
 

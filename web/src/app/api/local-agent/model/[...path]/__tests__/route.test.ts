@@ -313,7 +313,7 @@ describe('POST /api/local-agent/model/plan/responses (the ChatGPT free tier)', (
   it("runs the call on the person's own plan: the usage check opts in, the call is logged at $0, the slot is freed", async () => {
     const res = await planCall()
     expect(res.status).toBe(200)
-    expect(m.checkUsageLimits).toHaveBeenCalledWith(USER, undefined, expect.objectContaining({ chatgptPlan: true }))
+    expect(m.checkUsageLimits).toHaveBeenCalledWith(USER, undefined, expect.objectContaining({ chatgptPlan: true, workspaceId: expect.any(String) }))
     expect(m.proxyPlanResponses).toHaveBeenCalledWith(expect.any(Request), USER, expect.objectContaining({ rawBody: expect.any(String) }))
     // Metered and freed after the response (after()), never on the stream's path.
     expect(m.logUsage).not.toHaveBeenCalled()

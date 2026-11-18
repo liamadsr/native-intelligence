@@ -69,6 +69,12 @@ export async function POST(req: Request) {
     // workspace_id here.
     const wsId = captureRow?.workspace_id || (await getCurrentWorkspaceId())
 
+    // The check above read the workspace the request names; the work runs in
+    // the capture's own. A demo workspace's visitor (migration 669) is covered
+    // in the demo only, and the request's workspace always reads as the demo
+    // for them, so the capture's is checked here.
+    if (captureRow?.workspace_id) await checkUsageLimits(user.id, undefined, { chatgptPlan: true, workspaceId: captureRow.workspace_id })
+
     // Extraction send (BEFORE indexing) + capture indexing live in a shared
     // helper so the index-reconciler cron can re-run the identical logic
     // against captures that missed indexing due to the summary-timing race.

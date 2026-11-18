@@ -27,7 +27,8 @@ describe('scheduledCheckGate', () => {
     const d = deps()
     expect(await scheduledCheckGate(tracker, 3, d)).toEqual({ ok: true })
     expect(d.memberRole).toHaveBeenCalledWith(WS, PERSON)
-    expect(d.onFreePlan).toHaveBeenCalledWith(PERSON)
+    // For the tracker's own workspace: a demo workspace's visitor pays for search data there only.
+    expect(d.onFreePlan).toHaveBeenCalledWith(PERSON, WS)
   })
 
   it('owners and admins count as members; a guest does not', async () => {
@@ -118,10 +119,10 @@ describe('gateDeps', () => {
   it('reads the plan through the paid-plan rule, and an unreadable plan throws instead of reading as paid', async () => {
     hoisted.onFreePlan.mockResolvedValue(false)
     const d = gateDeps({} as never)
-    expect(await d.onFreePlan(PERSON)).toBe(false)
-    expect(hoisted.onFreePlan).toHaveBeenCalledWith(PERSON)
+    expect(await d.onFreePlan(PERSON, WS)).toBe(false)
+    expect(hoisted.onFreePlan).toHaveBeenCalledWith(PERSON, { workspaceId: WS })
     hoisted.onFreePlan.mockRejectedValue(new Error('seo plan check failed'))
-    await expect(d.onFreePlan(PERSON)).rejects.toThrow(/plan check failed/)
+    await expect(d.onFreePlan(PERSON, WS)).rejects.toThrow(/plan check failed/)
   })
 
   it('reads the member’s role in the tracker’s workspace', async () => {

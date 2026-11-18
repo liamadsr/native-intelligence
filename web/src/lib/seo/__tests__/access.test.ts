@@ -37,7 +37,8 @@ describe('checkSeoDataAccess', () => {
   it('lets a paying member’s own request through, having read their role in THAT workspace and their plan', async () => {
     expect(await checkSeoDataAccess({ userId: USER, workspaceId: WS })).toEqual({ ok: true })
     expect(membership.memberRole).toHaveBeenCalledWith(SVC, WS, USER)
-    expect(plan.onFreePlan).toHaveBeenCalledWith(USER)
+    // For THAT workspace: a demo workspace's visitor pays for search data in the demo only.
+    expect(plan.onFreePlan).toHaveBeenCalledWith(USER, { workspaceId: WS })
   })
 
   it('owners and admins are members too', async () => {

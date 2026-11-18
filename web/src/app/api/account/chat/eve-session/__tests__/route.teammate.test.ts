@@ -19,6 +19,7 @@
  * The helpers themselves (RLS visibility, membership, the upsert) are pinned
  * in src/lib/chat/__tests__/teammate-chat.test.ts.
  */
+import { setDemoVisitorLookupForTests } from '@/lib/demo/demo-mode'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 // The idle-compaction signal is covered in route.idle-compaction.test.ts: no Inngest here.
@@ -89,6 +90,23 @@ describe('mint — teammate chat', () => {
     expect(ensureTeammateThread).toHaveBeenCalledWith(supabaseMock, { userId: 'user-1', teammate: TEAMMATE })
     // No RLS recipe check for the persona (a system teammate's recipe is invisible under RLS).
     expect(supabaseMock.from).not.toHaveBeenCalledWith('recipe')
+  })
+
+  it('a demo workspace’s visitor gets no token for a teammate in another workspace of theirs (migration 669)', async () => {
+    // The usage gate above passes them (the request names the demo); the
+    // token would be for the TEAMMATE's workspace, and every turn would run there.
+    setDemoVisitorLookupForTests((userId) => (userId === 'user-1' ? 'ws-DEMO' : null))
+    const res = await POST(req({ action: 'mint', teammateId: 'tm-1' }))
+    expect(res.status).toBe(429)
+    expect(await res.json()).toMatchObject({ reason: 'demo_workspace_only' })
+    expect(mintChatRunToken).not.toHaveBeenCalled()
+  })
+
+  it('and does get one for a teammate in the demo workspace', async () => {
+    setDemoVisitorLookupForTests(() => 'ws-TEAMMATE')
+    const res = await POST(req({ action: 'mint', teammateId: 'tm-1' }))
+    expect(res.status).toBe(200)
+    expect(mintChatRunToken).toHaveBeenCalledWith(expect.objectContaining({ workspaceId: 'ws-TEAMMATE' }))
   })
 
   it('runs the usage gate first: a blocked user gets no thread and no token', async () => {

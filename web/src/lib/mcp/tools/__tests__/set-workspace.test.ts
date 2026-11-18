@@ -93,8 +93,9 @@ describe('ni_set_workspace persistence', () => {
 
     // Let the write begin and confirm the handler has NOT returned yet — it must
     // be parked on the await, not racing ahead to a fire-and-forget success.
-    await Promise.resolve()
-    expect(order).toEqual(['write-start'])
+    // (The handler has a few awaits before the write: the visitor fence, the
+    // membership check. Wait for the write to begin rather than count them.)
+    await vi.waitFor(() => expect(order).toEqual(['write-start']))
 
     releaseWrite()
     const result = await resultPromise

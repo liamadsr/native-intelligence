@@ -86,9 +86,9 @@ describe('rebuildChatSpec — a turn on the ChatGPT plan', () => {
 
   it('opts the usage check in to the plan, the device ask included', async () => {
     await rebuildChatSpec(claims(), {}, SPLIT)
-    expect(state.checkUsageLimits).toHaveBeenCalledWith('user-1', undefined, expect.objectContaining({ chatgptPlan: true }))
+    expect(state.checkUsageLimits).toHaveBeenCalledWith('user-1', undefined, expect.objectContaining({ chatgptPlan: true, workspaceId: expect.any(String) }))
     await rebuildChatSpec(claims({ surface: 'device_ask' }), {}, SPLIT).catch(() => null)
-    expect(state.checkUsageLimits).toHaveBeenLastCalledWith('user-1', undefined, expect.objectContaining({ chatgptPlan: true }))
+    expect(state.checkUsageLimits).toHaveBeenLastCalledWith('user-1', undefined, expect.objectContaining({ chatgptPlan: true, workspaceId: expect.any(String) }))
   })
 
   it('routes a person on their plan to Sol on the plan, with no Gateway attribution', async () => {
