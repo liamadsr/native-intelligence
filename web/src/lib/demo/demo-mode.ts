@@ -53,6 +53,9 @@ export const DEMO_CAP_REACHED_MESSAGE =
 export const DEMO_ONLY_MESSAGE =
   'Your access covers the demo workspace only. Switch back to it, or start a trial to use your own workspace.'
 
+/** A visitor's workspace could not be checked just now (the flag read failed or ran out of time): nothing they did, and it heals in seconds. */
+export const DEMO_UNREADABLE_MESSAGE = 'We could not check your demo access just now. Try again in a few seconds.'
+
 /** What a person reads where a demo workspace refuses something. */
 export const DEMO_OFF = {
   connector: 'Real accounts cannot be connected to or shared into the demo workspace.',

@@ -119,12 +119,27 @@ describe('POST /api/ai/index-content — extraction trigger', () => {
 
   it("opts in to the ChatGPT plan: a free user's capture is indexed, its extraction on their plan", async () => {
     await POST(request({ captureId: 'cap-1', title: 'Weekly Sync', ai_summary: LONG_SUMMARY }))
-    expect(usage.check).toHaveBeenCalledWith('user-1', undefined, { chatgptPlan: true })
+    expect(usage.check).toHaveBeenCalledWith('user-1', undefined, expect.objectContaining({ chatgptPlan: true }))
   })
 
-  it('checks usage again for the CAPTURE’s own workspace: the work runs there, not where the request points', async () => {
+  it('checks usage once, for the CAPTURE’s own workspace: the work runs there, not where the request points', async () => {
+    usage.check.mockClear()
     await POST(request({ captureId: 'cap-1', title: 'Weekly Sync', ai_summary: LONG_SUMMARY }))
-    expect(usage.check).toHaveBeenLastCalledWith('user-1', undefined, { chatgptPlan: true, workspaceId: 'ws-row' })
+    expect(usage.check).toHaveBeenCalledExactlyOnceWith('user-1', undefined, { chatgptPlan: true, workspaceId: 'ws-row' })
+  })
+
+  it('with no capture row, the check is for the workspace the request names', async () => {
+    usage.check.mockClear()
+    captureRow = null
+    hoisted.getCurrentWorkspaceId.mockResolvedValueOnce('ws-request')
+    await POST(request({ captureId: 'cap-gone', title: 'Weekly Sync', ai_summary: LONG_SUMMARY }))
+    expect(usage.check).toHaveBeenCalledExactlyOnceWith('user-1', undefined, { chatgptPlan: true, workspaceId: 'ws-request' })
+  })
+
+  it('a request with no capture id is turned away before any usage check', async () => {
+    usage.check.mockClear()
+    expect((await POST(request({ title: 'Weekly Sync' }))).status).toBe(400)
+    expect(usage.check).not.toHaveBeenCalled()
   })
 
   it('a demo workspace’s visitor indexing a capture in a workspace of their own is refused, and nothing is indexed or sent', async () => {

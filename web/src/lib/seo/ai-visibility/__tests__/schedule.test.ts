@@ -17,7 +17,9 @@ const h = vi.hoisted(() => ({
   dispatchRun: vi.fn(),
   failIfStuck: vi.fn(),
   getLiveRun: vi.fn(),
+  onFreePlan: vi.fn(),
 }))
+vi.mock('@/lib/seo/plan', () => ({ onFreePlan: h.onFreePlan }))
 vi.mock('../runs', () => ({
   createRun: h.createRun,
   dispatchRun: h.dispatchRun,
@@ -183,6 +185,16 @@ describe('scheduledRunGate', () => {
     await scheduledRunGate(svc, t, { ...allowAll, isFreePlan })
     // For the tracker's own workspace: a demo workspace's visitor pays for search data there only.
     expect(isFreePlan).toHaveBeenCalledWith(OWNER, WS)
+  })
+
+  it('with nothing passed in, the plan lookup it makes itself names the tracker’s workspace', async () => {
+    const { isFreePlan: _left, ...rest } = allowAll
+    h.onFreePlan.mockResolvedValue(false)
+    expect(await scheduledRunGate(svc, t, rest)).toEqual({ ok: true })
+    expect(h.onFreePlan).toHaveBeenCalledExactlyOnceWith(OWNER, { attempts: 2, workspaceId: WS })
+    // And its answer is the gate's: free there (a visitor outside the demo) is refused.
+    h.onFreePlan.mockResolvedValue(true)
+    expect(await scheduledRunGate(svc, t, rest)).toMatchObject({ ok: false, reason: 'free_plan' })
   })
 })
 
