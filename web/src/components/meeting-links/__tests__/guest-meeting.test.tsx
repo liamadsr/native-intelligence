@@ -142,6 +142,27 @@ describe('a guest waiting in the lobby', () => {
     expect(el.textContent).toContain('couldn’t be reached')
   })
 
+  it('a camera still starting when they are let in is stopped as it arrives: no stream is left running', async () => {
+    await askToJoin()
+    const stop = vi.fn()
+    let arrive: (stream: unknown) => void = () => undefined
+    vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: () => new Promise((resolve) => (arrive = resolve)) }, sendBeacon: () => true })
+    // The camera's switch is theirs in the lobby too; the browser's prompt is still open.
+    await act(async () => {
+      q('[data-guest-camera]')!.click()
+    })
+    lobby = () => json({ state: 'admitted', open: true })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_100)
+    })
+    expect(q('[data-guest-done]')).not.toBeNull()
+    await act(async () => {
+      arrive({ getTracks: () => [{ stop }] })
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
+
   it('let in to a call that is over: it ended', async () => {
     await askToJoin()
     lobby = () => json({ state: 'admitted', open: true })

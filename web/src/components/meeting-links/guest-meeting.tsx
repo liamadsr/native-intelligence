@@ -146,7 +146,10 @@ export function GuestMeeting({
   // What the entry page says is on: asking to join from it is their go to that (the server checks it said so).
   const entryOnNow: OnNow = { notes: onNow.notes || notesAtStart, recording: onNow.recording }
 
+  // Counts every stop of the preview: a camera still starting when one happens (they were let in, or it ended) is stopped as it arrives.
+  const previewStops = useRef(0)
   const stopPreview = useCallback(() => {
+    previewStops.current += 1
     for (const t of preview.current?.getTracks() ?? []) t.stop()
     preview.current = null
   }, [])
@@ -158,11 +161,18 @@ export function GuestMeeting({
       setCamera('off')
       return
     }
+    const stops = previewStops.current
     try {
-      preview.current = await navigator.mediaDevices.getUserMedia({ video: true })
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true })
+      // The preview was stopped while the camera started (the browser's prompt was open, and they were let in): nothing would own this stream, so it ends here.
+      if (stops !== previewStops.current) {
+        for (const t of stream.getTracks()) t.stop()
+        return
+      }
+      preview.current = stream
       setCamera('on')
     } catch {
-      setCamera('blocked')
+      if (stops === previewStops.current) setCamera('blocked')
     }
   }, [camera, stopPreview])
 
@@ -384,10 +394,12 @@ export function GuestMeeting({
             <button
               type="button"
               onClick={() => void toggleCamera()}
+              // Let in: the call takes the camera from here.
+              disabled={phase.kind === 'joining'}
               aria-pressed={camera === 'on'}
               data-guest-camera={camera}
               className={cn(
-                'flex h-10 items-center gap-2 rounded-full px-4 text-sm font-medium backdrop-blur-md transition-colors',
+                'flex h-10 items-center gap-2 rounded-full px-4 text-sm font-medium backdrop-blur-md transition-colors disabled:opacity-60',
                 camera === 'on' ? 'bg-white text-black hover:bg-white/90' : 'bg-black/55 text-white hover:bg-black/70',
               )}
             >
