@@ -49,7 +49,8 @@ export interface GateDeps {
   /** The person's role in the workspace, or null when they are not in it. Throws when it can't be read. */
   memberRole: (workspaceId: string, userId: string) => Promise<string | null>
   /** Whether the person runs on their own ChatGPT plan (the free tier). Throws when it can't be read. */
-  onFreePlan: (userId: string) => Promise<boolean>
+  /** For the tracker's own workspace: a demo workspace's visitor pays for search data there only. */
+  onFreePlan: (userId: string, workspaceId: string) => Promise<boolean>
 }
 
 function skip(reason: RankSkipReason | 'paused'): ScheduledGateResult {
@@ -80,7 +81,7 @@ export async function scheduledCheckGate(
     role = await deps.memberRole(tracker.workspace_id, tracker.created_by)
     if (!isFullMemberRole(role))
       return skip('creator_not_member')
-    freePlan = await deps.onFreePlan(tracker.created_by)
+    freePlan = await deps.onFreePlan(tracker.created_by, tracker.workspace_id)
   } catch (err) {
     console.error(
       '[seo-rank] schedule gate: could not read the person’s standing',
@@ -113,6 +114,6 @@ export function gateDeps(svc: SupabaseClient): GateDeps {
       return (data as { role?: string } | null)?.role ?? null
     },
     // An unreadable plan throws, so the gate skips instead of spending.
-    onFreePlan: (userId) => onFreePlan(userId),
+    onFreePlan: (userId, workspaceId) => onFreePlan(userId, { workspaceId }),
   }
 }

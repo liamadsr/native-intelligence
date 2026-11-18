@@ -181,7 +181,8 @@ describe('scheduledRunGate', () => {
   it('checks the plan of the schedule’s owner, failing closed', async () => {
     const isFreePlan = vi.fn(async () => false)
     await scheduledRunGate(svc, t, { ...allowAll, isFreePlan })
-    expect(isFreePlan).toHaveBeenCalledWith(OWNER)
+    // For the tracker's own workspace: a demo workspace's visitor pays for search data there only.
+    expect(isFreePlan).toHaveBeenCalledWith(OWNER, WS)
   })
 })
 

@@ -24,7 +24,6 @@
  */
 import 'server-only'
 import { getServiceClient } from '@/lib/supabase/service'
-import { demoVisitorWorkspace } from '@/lib/demo/demo-mode'
 import { isDataforseoConfigured } from './dataforseo'
 import { isFullMemberRole, memberRole } from './membership'
 import { onFreePlan } from './plan'
@@ -74,18 +73,12 @@ export async function checkSeoDataAccess(who: {
   }
   // Nobody to ask about: a schedule's own run, checked by its gate.
   if (!who.userId) return { ok: true }
-  // A demo workspace's visitor (migration 669) is let through below for the
-  // demo workspace only. Anywhere else they have no plan that pays for search
-  // data, and every workspace they could make would bring its own monthly
-  // budget. An unreadable answer is "not a visitor"; the plan check still runs.
-  const demoHome = await demoVisitorWorkspace(who.userId)
-  if (demoHome && who.workspaceId !== demoHome) {
-    return { ok: false, code: 'FREE_PLAN', message: 'Keyword, ranking and backlink data is part of the paid plan. The site audit is free.' }
-  }
   let free: boolean
   try {
     // An unreadable plan throws, so the call is refused instead of bought.
-    free = await onFreePlan(who.userId)
+    // For THIS workspace: a demo workspace's visitor pays for search data in
+    // the demo only (onFreePlan), and an unreadable answer refuses.
+    free = await onFreePlan(who.userId, { workspaceId: who.workspaceId ?? null })
   } catch (err) {
     console.error('[seo] access: plan check failed', err)
     return CHECK_FAILED

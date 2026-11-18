@@ -65,13 +65,70 @@ export function isDemoWorkspaceDbRefusal(error: { message?: unknown; hint?: unkn
 }
 
 const TTL_MS = 60_000
-const cache = new Map<string, { demo: boolean; at: number }>()
+/** How long an answer that could not be read stands in: long enough that a database blip is not re-asked (and logged) on every request, short enough to heal. */
+const FAILED_TTL_MS = 10_000
+/** The most entries either cache holds; past it the oldest go. A workspace or a person costs one small entry. */
+const MAX_ENTRIES = 5_000
+
+/**
+ * A small cache for one kind of read: answers kept for a while, the oldest
+ * dropped past MAX_ENTRIES, and one read shared by everyone who asks for the
+ * same key while it is in flight.
+ */
+class ReadCache<V> {
+  private readonly entries = new Map<string, { value: V; until: number }>()
+  private readonly inFlight = new Map<string, Promise<V>>()
+
+  get(key: string): { value: V } | null {
+    const hit = this.entries.get(key)
+    if (!hit) return null
+    if (Date.now() >= hit.until) {
+      this.entries.delete(key)
+      return null
+    }
+    return { value: hit.value }
+  }
+
+  set(key: string, value: V, ttlMs: number): void {
+    this.entries.delete(key)
+    this.entries.set(key, { value, until: Date.now() + ttlMs })
+    while (this.entries.size > MAX_ENTRIES) {
+      const oldest = this.entries.keys().next().value
+      if (oldest === undefined) break
+      this.entries.delete(oldest)
+    }
+  }
+
+  /** The cached answer, else `read()`'s, which stores its own answer with `set`. Concurrent askers share one read. */
+  async load(key: string, read: () => Promise<V>): Promise<V> {
+    const hit = this.get(key)
+    if (hit) return hit.value
+    const running = this.inFlight.get(key)
+    if (running) return running
+    const started = read().finally(() => this.inFlight.delete(key))
+    this.inFlight.set(key, started)
+    return started
+  }
+
+  clear(): void {
+    this.entries.clear()
+    this.inFlight.clear()
+  }
+
+  get size(): number {
+    return this.entries.size
+  }
+}
+
+/** true / false as read; null: could not be read (kept only FAILED_TTL_MS). */
+const cache = new ReadCache<boolean | null>()
 
 /** For tests, and after a reset. */
 export function clearDemoWorkspaceCache(): void {
   cache.clear()
   visitorCache.clear()
   anyDemo = null
+  anyDemoInFlight = null
 }
 
 type DemoLookup = (workspaceId: string) => boolean | Promise<boolean>
@@ -98,7 +155,8 @@ export function setDemoWorkspaceLookupForTests(lookup: DemoLookup | null): void 
  * Always read by the service role (is_demo_workspace() is its alone,
  * migration 669), whoever is asking: the answer is then the same for every
  * caller, so one cached answer per workspace is true for everyone. Cached per
- * process for a minute; an unreadable answer is never cached.
+ * process for a minute; an unreadable answer for ten seconds, so a database
+ * blip is one read and one log line, not one per request.
  */
 export async function readDemoWorkspace(workspaceId: string | null | undefined): Promise<boolean | null> {
   if (!workspaceId) return false
@@ -110,27 +168,30 @@ export async function readDemoWorkspace(workspaceId: string | null | undefined):
       return null
     }
   }
-  const hit = cache.get(workspaceId)
-  if (hit && Date.now() - hit.at < TTL_MS) return hit.demo
-  try {
-    const { getServiceClient } = await import('@/lib/supabase/service')
-    const { data, error } = await getServiceClient().rpc('is_demo_workspace', { p_workspace_id: workspaceId })
-    if (error) {
-      // Before migration 669 there are no demo workspaces at all.
-      if (error.code === 'PGRST202' || error.code === '42883') {
-        cache.set(workspaceId, { demo: false, at: Date.now() })
-        return false
-      }
-      console.error('[demo-workspace] flag read failed:', error.message)
+  return cache.load(workspaceId, async () => {
+    const failed = (message: string): null => {
+      console.error('[demo-workspace] flag read failed:', message)
+      cache.set(workspaceId, null, FAILED_TTL_MS)
       return null
     }
-    const demo = data === true
-    cache.set(workspaceId, { demo, at: Date.now() })
-    return demo
-  } catch (err) {
-    console.error('[demo-workspace] flag read failed:', err instanceof Error ? err.message : err)
-    return null
-  }
+    try {
+      const { getServiceClient } = await import('@/lib/supabase/service')
+      const { data, error } = await getServiceClient().rpc('is_demo_workspace', { p_workspace_id: workspaceId })
+      if (error) {
+        // Before migration 669 there are no demo workspaces at all.
+        if (error.code === 'PGRST202' || error.code === '42883') {
+          cache.set(workspaceId, false, TTL_MS)
+          return false
+        }
+        return failed(error.message)
+      }
+      const demo = data === true
+      cache.set(workspaceId, demo, TTL_MS)
+      return demo
+    } catch (err) {
+      return failed(err instanceof Error ? err.message : String(err))
+    }
+  })
 }
 
 /**
@@ -180,10 +241,14 @@ export function setDemoVisitorLookupForTests(lookup: VisitorLookup | null): void
   ;(globalThis as Record<symbol, unknown>)[TEST_VISITOR_LOOKUP] = lookup
   visitorCache.clear()
   anyDemo = null
+  anyDemoInFlight = null
 }
 
-const visitorCache = new Map<string, { workspaceId: string | null; at: number }>()
-let anyDemo: { exists: boolean; at: number } | null = null
+/** The visitor's demo workspace, or null (not a visitor, or unreadable: kept only FAILED_TTL_MS). */
+const visitorCache = new ReadCache<string | null>()
+/** true / false as read; null: could not be read. */
+let anyDemo: { exists: boolean | null; until: number } | null = null
+let anyDemoInFlight: Promise<boolean | null> | null = null
 
 /**
  * Does any demo workspace exist? For a caller that would otherwise ask the
@@ -193,28 +258,37 @@ let anyDemo: { exists: boolean; at: number } | null = null
 export async function anyDemoWorkspaceExists(): Promise<boolean> {
   // Under the suite's lookups the database is not asked: let the caller go on.
   if (testVisitorLookup()) return true
-  try {
-    return await anyDemoWorkspace()
-  } catch {
-    return true
-  }
+  return (await anyDemoWorkspace()) !== false
 }
 
-/** One small read a minute per process; with none, nobody is ever asked about. */
-async function anyDemoWorkspace(): Promise<boolean> {
-  if (anyDemo && Date.now() - anyDemo.at < TTL_MS) return anyDemo.exists
-  const { getServiceClient } = await import('@/lib/supabase/service')
-  const { data, error } = await getServiceClient().from('demo_workspace').select('workspace_id').limit(1)
-  if (error) {
-    // Before migration 669 the table is not there: no demo workspaces.
-    if (error.code === '42P01' || error.code === 'PGRST205') {
-      anyDemo = { exists: false, at: Date.now() }
-      return false
+/** One small read a minute per process, shared by everyone asking at once; with none, nobody is ever asked about. Null: could not tell. */
+async function anyDemoWorkspace(): Promise<boolean | null> {
+  if (anyDemo && Date.now() < anyDemo.until) return anyDemo.exists
+  if (anyDemoInFlight) return anyDemoInFlight
+  const read = async (): Promise<boolean | null> => {
+    const answer = (exists: boolean | null): boolean | null => {
+      anyDemo = { exists, until: Date.now() + (exists === null ? FAILED_TTL_MS : TTL_MS) }
+      return exists
     }
-    throw new Error(error.message)
+    try {
+      const { getServiceClient } = await import('@/lib/supabase/service')
+      const { data, error } = await getServiceClient().from('demo_workspace').select('workspace_id').limit(1)
+      if (error) {
+        // Before migration 669 the table is not there: no demo workspaces.
+        if (error.code === '42P01' || error.code === 'PGRST205') return answer(false)
+        console.error('[demo-workspace] flag table read failed:', error.message)
+        return answer(null)
+      }
+      return answer(((data as unknown[] | null) ?? []).length > 0)
+    } catch (err) {
+      console.error('[demo-workspace] flag table read failed:', err instanceof Error ? err.message : err)
+      return answer(null)
+    }
   }
-  anyDemo = { exists: ((data as unknown[] | null) ?? []).length > 0, at: Date.now() }
-  return anyDemo.exists
+  anyDemoInFlight = read().finally(() => {
+    anyDemoInFlight = null
+  })
+  return anyDemoInFlight
 }
 
 /**
@@ -231,34 +305,56 @@ async function anyDemoWorkspace(): Promise<boolean> {
  * it, "free inside the demo" is free everywhere a paid surface has its own
  * per-workspace budget (a workspace of their own making has a fresh one).
  *
- * Cached per person for a minute. With no demo workspace at all it costs one
- * shared read a minute. A read that fails answers null and is logged: the
- * fence then does not hold for that request, and no one who is not a visitor
+ * Cached per person for a minute (bounded, and one read shared by everyone
+ * asking at once). With no demo workspace at all it costs one shared read a
+ * minute. A read that fails answers null, is logged once and stands for ten
+ * seconds: the fence does not hold meanwhile, and no one who is not a visitor
  * is ever refused by it.
  */
 export async function demoVisitorWorkspace(userId: string | null | undefined): Promise<string | null> {
   if (!userId) return null
   const forTests = testVisitorLookup()
   if (forTests) return forTests(userId)
-  const hit = visitorCache.get(userId)
-  if (hit && Date.now() - hit.at < TTL_MS) return hit.workspaceId
-  try {
-    if (!(await anyDemoWorkspace())) return null
-    const { getServiceClient } = await import('@/lib/supabase/service')
-    const service = getServiceClient()
-    const seat = await service.rpc('demo_seat_workspace', { p_user_id: userId })
-    if (seat.error) throw new Error(seat.error.message)
-    let workspaceId: string | null = typeof seat.data === 'string' && seat.data ? seat.data : null
-    if (workspaceId) {
-      const gate = await service.rpc('check_ai_usage_limit', { p_user_id: userId, p_chatgpt_plan: true })
-      if (gate.error) throw new Error(gate.error.message)
-      const row = (Array.isArray(gate.data) ? gate.data[0] : gate.data) as { reason?: string | null } | null | undefined
-      if (row?.reason !== DEMO_USAGE_REASON && row?.reason !== DEMO_CAP_REACHED_REASON) workspaceId = null
+  return visitorCache.load(userId, async () => {
+    const failed = (message: string): null => {
+      console.error('[demo-workspace] visitor read failed:', message)
+      visitorCache.set(userId, null, FAILED_TTL_MS)
+      return null
     }
-    visitorCache.set(userId, { workspaceId, at: Date.now() })
-    return workspaceId
-  } catch (err) {
-    console.error('[demo-workspace] visitor read failed:', err instanceof Error ? err.message : err)
-    return null
-  }
+    try {
+      const exists = await anyDemoWorkspace()
+      // Could not tell whether any demo workspace exists: already logged there.
+      if (exists === null) {
+        visitorCache.set(userId, null, FAILED_TTL_MS)
+        return null
+      }
+      if (!exists) return null
+      const { getServiceClient } = await import('@/lib/supabase/service')
+      const service = getServiceClient()
+      const seat = await service.rpc('demo_seat_workspace', { p_user_id: userId })
+      if (seat.error) return failed(seat.error.message)
+      let workspaceId: string | null = typeof seat.data === 'string' && seat.data ? seat.data : null
+      if (workspaceId) {
+        const gate = await service.rpc('check_ai_usage_limit', { p_user_id: userId, p_chatgpt_plan: true })
+        if (gate.error) return failed(gate.error.message)
+        const row = (Array.isArray(gate.data) ? gate.data[0] : gate.data) as { reason?: string | null } | null | undefined
+        if (row?.reason !== DEMO_USAGE_REASON && row?.reason !== DEMO_CAP_REACHED_REASON) workspaceId = null
+      }
+      visitorCache.set(userId, workspaceId, TTL_MS)
+      return workspaceId
+    } catch (err) {
+      return failed(err instanceof Error ? err.message : String(err))
+    }
+  })
+}
+
+/** True when this person is a demo workspace's visitor and `workspaceId` is not that workspace: theirs to use nowhere else. */
+export async function demoVisitorElsewhere(userId: string | null | undefined, workspaceId: string | null | undefined): Promise<boolean> {
+  const home = await demoVisitorWorkspace(userId)
+  return !!home && home !== workspaceId
+}
+
+/** TESTS ONLY: how many entries the two caches hold, and their bound. */
+export function demoCacheSizesForTests(): { flags: number; visitors: number; max: number } {
+  return { flags: cache.size, visitors: visitorCache.size, max: MAX_ENTRIES }
 }

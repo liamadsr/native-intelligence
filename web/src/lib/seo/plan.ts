@@ -19,6 +19,7 @@
  * have (./access.ts, rank/gate.ts, ai-visibility/gate.ts).
  */
 import { getServiceClient } from '@/lib/supabase/service'
+import { readDemoWorkspace } from '@/lib/demo/demo-mode'
 import 'server-only'
 
 const NOT_PAYING_REASONS: ReadonlySet<string> = new Set([
@@ -30,9 +31,22 @@ const NOT_PAYING_REASONS: ReadonlySet<string> = new Set([
 ])
 
 /** True when this person's plan does not pay for search data. Throws when the plan can't be read. */
+/**
+ * A demo workspace's visitor (migration 669): the usage gate lets them in
+ * for the demo workspace only, so they pay for nothing anywhere else.
+ */
+const DEMO_VISITOR_REASONS: ReadonlySet<string> = new Set(['demo_workspace', 'demo_cost_limit_exceeded'])
+
+/**
+ * `workspaceId`: the workspace the search data would be bought for. A demo
+ * workspace's visitor counts as paying for the demo workspace and for no
+ * other (a workspace of their own, an old schedule in one they used to pay
+ * for): there, and when no workspace is named or the flag cannot be read,
+ * they are on the free plan.
+ */
 export async function onFreePlan(
   userId: string,
-  opts: { attempts?: number } = {},
+  opts: { attempts?: number; workspaceId?: string | null } = {},
 ): Promise<boolean> {
   const attempts = Math.max(1, opts.attempts ?? 1)
   for (let attempt = 1; ; attempt++) {
@@ -47,6 +61,9 @@ export async function onFreePlan(
         | undefined
       // No row is no answer: refuse to guess.
       if (!row) throw new Error('seo plan check returned nothing')
+      if (typeof row.reason === 'string' && DEMO_VISITOR_REASONS.has(row.reason)) {
+        return (await readDemoWorkspace(opts.workspaceId)) !== true
+      }
       return typeof row.reason === 'string' && NOT_PAYING_REASONS.has(row.reason)
     }
     if (attempt >= attempts)

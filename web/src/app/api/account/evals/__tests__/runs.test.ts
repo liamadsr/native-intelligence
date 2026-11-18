@@ -209,7 +209,7 @@ describe('POST /api/account/evals/runs', () => {
   it('checks the usage limit exactly ONCE per run', async () => {
     await runsRoute.POST(nextRequest('https://nativeintelligence.dev/x', { body: START_BODY }))
     expect(hoisted.checkUsageLimits).toHaveBeenCalledTimes(1)
-    expect(hoisted.checkUsageLimits).toHaveBeenCalledWith(USER.id, undefined, expect.objectContaining({ chatgptPlan: true }))
+    expect(hoisted.checkUsageLimits).toHaveBeenCalledWith(USER.id, undefined, expect.objectContaining({ chatgptPlan: true, workspaceId: expect.any(String) }))
   })
 
   it('returns the 429 from checkUsageLimits verbatim, without queueing', async () => {

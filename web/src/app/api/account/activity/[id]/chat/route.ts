@@ -212,7 +212,8 @@ export async function POST(request: Request, { params }: RouteContext) {
   // Opted in to the ChatGPT free tier: a person on their own plan chats on it.
   let chatgptPlan: boolean
   try {
-    chatgptPlan = await usageOnPlan(ctx.userId)
+    // With the run's own workspace (the item's row), not the one the request names.
+    chatgptPlan = await usageOnPlan(ctx.userId, undefined, ctx.record.workspaceId)
   } catch (err) {
     if (err instanceof Response) return err
     throw err

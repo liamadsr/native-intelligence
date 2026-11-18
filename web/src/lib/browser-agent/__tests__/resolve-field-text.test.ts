@@ -55,6 +55,8 @@ describe('resolveBrowserFieldText', () => {
     generated(undefined, usage({ timeline }))
     const result = await resolveBrowserFieldText(input(), ctx())
     expect(result.metrics.generationTimeline).toEqual(timeline)
+    // The budget check names the workspace the task runs in (a demo workspace's visitor is covered there only).
+    expect(mocks.budget).toHaveBeenCalledWith('user', expect.anything(), { chatgptPlan: true, workspaceId: 'workspace' })
     expect(mocks.log.mock.calls[0][1].metadata.generation_timeline_ms).toEqual(timeline)
   })
   it('supplies picker expansion and only bounded, same-dialog suggestion labels without refs or other values', async () => {

@@ -122,6 +122,25 @@ describe('POST /api/ai/index-content — extraction trigger', () => {
     expect(usage.check).toHaveBeenCalledWith('user-1', undefined, { chatgptPlan: true })
   })
 
+  it('checks usage again for the CAPTURE’s own workspace: the work runs there, not where the request points', async () => {
+    await POST(request({ captureId: 'cap-1', title: 'Weekly Sync', ai_summary: LONG_SUMMARY }))
+    expect(usage.check).toHaveBeenLastCalledWith('user-1', undefined, { chatgptPlan: true, workspaceId: 'ws-row' })
+  })
+
+  it('a demo workspace’s visitor indexing a capture in a workspace of their own is refused, and nothing is indexed or sent', async () => {
+    const refusal = new Response(JSON.stringify({ error: 'Usage limit exceeded', reason: 'demo_workspace_only' }), { status: 429 })
+    usage.check.mockImplementation(async (...args: unknown[]) => {
+      const opts = args[2] as { workspaceId?: string } | undefined
+      if (opts?.workspaceId === 'ws-row') throw refusal
+      return undefined
+    })
+    const res = await POST(request({ captureId: 'cap-1', title: 'Weekly Sync', ai_summary: LONG_SUMMARY }))
+    expect(res.status).toBe(429)
+    expect(hoisted.indexCapture).not.toHaveBeenCalled()
+    expect(hoisted.inngestSend).not.toHaveBeenCalled()
+    usage.check.mockImplementation(async () => undefined)
+  })
+
   it('skips the send for short bodies (auto-record blips)', async () => {
     captureRow = { ...captureRow!, ai_summary: 'too short', content: null }
     const res = await POST(request({ captureId: 'cap-1' }))

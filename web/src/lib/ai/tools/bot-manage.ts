@@ -1,4 +1,5 @@
 import { tool } from 'ai'
+import { demoVisitorElsewhere } from '@/lib/demo/demo-mode'
 import { z } from 'zod'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getServiceClient } from '@/lib/supabase/service'
@@ -380,6 +381,8 @@ export function createBotManageTools(
           } else {
             ws = workspace_id ?? workspaceId
             if (strict && ws !== workspaceId) return failure('NOT_FOUND', 'That workspace is not open to this run.')
+            // A demo workspace's visitor (migration 669) has the demo workspace only.
+            if (await demoVisitorElsewhere(userId, ws)) return failure('NOT_FOUND', 'You are not a member of that workspace.')
             const caller = await readBotCaller(service, ws, userId)
             if (!caller) return failure('NOT_FOUND', 'You are not a member of that workspace.')
             const found = await findDuplicateGroups(service, { workspaceId: ws, caller })

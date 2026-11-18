@@ -17,8 +17,12 @@ import { isChatGptPlanUsage } from './plan-models'
  * usage: it throws exactly as checkUsageLimits does for everyone it refuses,
  * and resolves to whether this person runs on their plan.
  */
-export async function usageOnPlan(userId: string, signal?: AbortSignal): Promise<boolean> {
-  return isChatGptPlanUsage(await checkUsageLimits(userId, signal, { chatgptPlan: true }))
+export async function usageOnPlan(userId: string, signal?: AbortSignal, workspaceId?: string | null): Promise<boolean> {
+  // `workspaceId`: where the work runs, for a caller that takes it from a row
+  // and not from the request (a demo workspace's visitor is covered in the
+  // demo only, and the request's own workspace always reads as the demo for
+  // them: src/lib/workspace.ts).
+  return isChatGptPlanUsage(await checkUsageLimits(userId, signal, { chatgptPlan: true, ...(workspaceId !== undefined ? { workspaceId } : {}) }))
 }
 
 /**

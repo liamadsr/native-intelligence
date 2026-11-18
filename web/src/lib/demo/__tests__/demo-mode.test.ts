@@ -14,6 +14,7 @@ vi.mock('@/lib/supabase/service', () => ({
 
 import {
   clearDemoWorkspaceCache,
+  demoCacheSizesForTests,
   demoVisitorOutside,
   isDemoWorkspace,
   isDemoWorkspaceDbRefusal,
@@ -54,14 +55,43 @@ describe('isDemoWorkspace', () => {
     expect(await isDemoWorkspace('w')).toBe(false)
   })
 
-  it('an unreadable flag is "not a demo": never thrown, logged, and not remembered', async () => {
-    let fail = true
-    answers(() => (fail ? { data: null, error: { message: 'timeout' } } : { data: true, error: null }))
-    expect(await isDemoWorkspace('w')).toBe(false)
-    expect(await readDemoWorkspace('w')).toBeNull()
-    expect(console.error).toHaveBeenCalled()
-    fail = false
-    expect(await isDemoWorkspace('w')).toBe(true)
+  it('an unreadable flag is "not a demo": never thrown, logged once, and stands for ten seconds only', async () => {
+    vi.useFakeTimers()
+    try {
+      let fail = true
+      answers(() => (fail ? { data: null, error: { message: 'timeout' } } : { data: true, error: null }))
+      expect(await isDemoWorkspace('w')).toBe(false)
+      expect(await readDemoWorkspace('w')).toBeNull()
+      // A database blip is one read and one log line, not one per request.
+      expect(h.rpc).toHaveBeenCalledTimes(1)
+      expect(console.error).toHaveBeenCalledTimes(1)
+      fail = false
+      vi.advanceTimersByTime(9_000)
+      expect(await isDemoWorkspace('w')).toBe(false)
+      vi.advanceTimersByTime(2_000)
+      expect(await isDemoWorkspace('w')).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('everyone asking at once shares one read', async () => {
+    let release: (v: { data: unknown; error: null }) => void = () => undefined
+    h.rpc.mockImplementation(() => new Promise((resolve) => { release = resolve }))
+    const asked = [isDemoWorkspace('w'), isDemoWorkspace('w'), isDemoWorkspace('w')]
+    await vi.waitFor(() => expect(h.rpc).toHaveBeenCalled())
+    release({ data: true, error: null })
+    expect(await Promise.all(asked)).toEqual([true, true, true])
+    expect(h.rpc).toHaveBeenCalledTimes(1)
+  })
+
+  it('the cache is bounded: the oldest answers go', async () => {
+    answers(() => ({ data: false, error: null }))
+    const { max } = demoCacheSizesForTests()
+    for (let i = 0; i < max + 50; i += 500) {
+      await Promise.all(Array.from({ length: 500 }, (_, j) => isDemoWorkspace(`w-${i + j}`)))
+    }
+    expect(demoCacheSizesForTests().flags).toBe(max)
   })
 
   it('a client that throws is unreadable too', async () => {

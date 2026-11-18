@@ -1,4 +1,5 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { demoVisitorElsewhere, demoVisitorWorkspace } from '@/lib/demo/demo-mode'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { z } from 'zod'
 import { displayName } from '@/lib/ai/tools/_shared'
@@ -78,7 +79,9 @@ export function registerWorkspaceTools(
         }
       }
 
-      const workspaces = (data || []).map((m) => {
+      // A demo workspace's visitor (migration 669) has the demo workspace only.
+      const demoHome = await demoVisitorWorkspace(userId)
+      const workspaces = (data || []).filter((m) => !demoHome || m.workspace_id === demoHome).map((m) => {
         // Supabase returns joined relations as arrays or objects depending on cardinality
         const wsRaw = m.workspace as unknown
         const ws = (Array.isArray(wsRaw) ? wsRaw[0] : wsRaw) as { id: string; name: string; slug: string } | null
@@ -117,6 +120,8 @@ export function registerWorkspaceTools(
       // active workspace needs no probe: auth already resolved it from this
       // token.
       if (workspace_id && workspace_id !== workspaceId) {
+        // A demo workspace's visitor (migration 669) has the demo workspace only.
+        if (await demoVisitorElsewhere(userId, workspace_id)) return notAMember()
         const { data: membership, error: memberError } = await supabase
           .from('member')
           .select('workspace_id, role')
@@ -185,6 +190,8 @@ export function registerWorkspaceTools(
       workspace_id: z.string().describe('The workspace ID to switch to.'),
     },
     async ({ workspace_id }) => {
+      // A demo workspace's visitor (migration 669) is not moved out of it.
+      if (await demoVisitorElsewhere(userId, workspace_id)) return notAMember()
       // Verify the user is a member of this workspace
       const { data: membership, error } = await supabase
         .from('member')
