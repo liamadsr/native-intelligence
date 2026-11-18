@@ -1841,18 +1841,17 @@ a workspace is flagged.
   workspace must be owned by an account with nothing real connected: the
   insert is refused, naming the table, while the workspace has a connected
   account or its link, mail or CRM sync state, an MCP server, a Slack
-  workspace, a shared email, a Stripe account or a business number.
+  workspace, a shared email, a Stripe account, a business number or a
+  website's repo.
 
   ```sql
   insert into public.demo_workspace (workspace_id) values ('<workspace id>');
   -- what the demo has cost this month:
   select spend_month, ai_spend_usd from public.demo_workspace where workspace_id = '<workspace id>';
-  -- the off switches (none is set by default): a monthly AI cap in dollars,
-  -- and how many seconds of a day's (UTC) calls are transcribed
+  -- the off switch (not set by default): a monthly AI cap in dollars
   update public.demo_workspace set ai_cap_usd = 50 where workspace_id = '<workspace id>';
-  update public.demo_workspace set notes_seconds_per_day = 7200 where workspace_id = '<workspace id>';
   -- and off again:
-  update public.demo_workspace set ai_cap_usd = null, notes_seconds_per_day = null where workspace_id = '<workspace id>';
+  update public.demo_workspace set ai_cap_usd = null where workspace_id = '<workspace id>';
   -- no longer a demo:
   delete from public.demo_workspace where workspace_id = '<workspace id>';
   ```
@@ -1874,9 +1873,12 @@ a workspace is flagged.
 - **What is refused there, and only this**: connecting or linking anything
   real. A mail, calendar or contacts account, GitHub, HubSpot and the other
   OAuth connectors, an MCP server, a Slack workspace, a Stripe account, a
-  business phone number, an email shared into the workspace: refused where
-  the connect starts, and again by the database. The desktop app's calendar
-  sync is not taken there either.
+  business phone number, a website's repo, an email shared into the
+  workspace: refused where the connect starts, and again by the database.
+  The desktop app's calendar sync is not taken there either. And a person's
+  own calendar and mailbox, connected in another workspace, do not answer
+  there: the assistant has no calendar in a demo, and no mail is read or
+  sent from a real mailbox.
 - **Everything else works there as in any workspace** (the owner's decisions,
   2026-11-18): texts, phone calls, the cloud browser, coding runs, web
   research, enrichment, SEO data, prospecting, Studio, email, call notes and
@@ -1912,15 +1914,13 @@ a workspace is flagged.
     stand (titled where that still works, indexed), without the end-of-call
     pass. The call itself is untouched.
   - Transcription (the call recorder's speech-to-text) is not AI usage: it
-    is not in `ai_spend_usd` and no cap sees it. It has no limit by default
-    either. `notes_seconds_per_day` on the flag row (above) is its off
-    switch: past that much heard call time in a day (UTC), all the demo's
-    calls together, a NEW call there is not heard (it takes no notes and
-    ends silent); one already being heard goes on to its own end, at most
-    the 3 hours any call's notes run.
-- **It cleans itself**: `/api/cron/demo-workspace-reset` runs at 09:40 UTC and
+    is not in `ai_spend_usd`, no cap sees it, and it has no limit of its own
+    beyond what every workspace has (nothing is heard until two people are
+    in a call; a call's notes stop after 3 hours).
+- **It cleans itself**: `/api/cron/demo-workspace-reset` runs at 05:10 UTC and
   puts every flagged workspace back (visitors' content goes, the made-up
-  content is written again, members stay). Before a visit, an admin can run
+  content is written again, members stay). A workspace with a call going on
+  at that moment is left alone and done the next night. Before a visit, an admin can run
   the same reset now: `POST /api/admin/demo-workspace/reset` with
   `{"workspace_id": "<workspace id>"}` while signed in as an admin (always
   this deployment's own database, whatever the admin panel's environment

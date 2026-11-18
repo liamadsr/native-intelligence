@@ -32,6 +32,9 @@ export async function POST(request: Request) {
   const service = getServiceClient()
   try {
     const report = await resetDemoWorkspace(service, workspaceId)
+    if (report.skipped === 'live_call') {
+      return NextResponse.json({ error: 'A call is going on in this workspace. Reset it once the call is over.', code: 'LIVE_CALL', report }, { status: 409 })
+    }
     return NextResponse.json({ ok: report.seeded, report })
   } catch (err) {
     if (err instanceof DemoResetRefused) {

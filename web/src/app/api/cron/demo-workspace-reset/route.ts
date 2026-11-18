@@ -15,9 +15,13 @@ import { listDemoWorkspaces, resetDemoWorkspace, type DemoResetReport } from '@/
  *
  * With no flagged workspace this reads one empty table and does nothing.
  *
- * Schedule: daily from the server's cron at 09:40 UTC (vercel.json), after
- * the servers' 08:37 UTC restart and in the small hours of the Americas. GET
- * with `Authorization: Bearer ${CRON_SECRET}`.
+ * A workspace with a call going on is left alone and done the next night
+ * (reset.ts), so the hour only has to be quiet, not empty.
+ *
+ * Schedule: daily from the server's cron at 05:10 UTC (vercel.json): late
+ * evening on the American west coast, after midnight in the east, before the
+ * working day in Europe, and well clear of the servers' 08:37 UTC restart.
+ * GET with `Authorization: Bearer ${CRON_SECRET}`.
  */
 export const maxDuration = 300
 
@@ -42,7 +46,7 @@ export async function GET(request: NextRequest) {
       const report = await resetDemoWorkspace(service, id)
       reports.push(report)
       console.info(
-        `[demo-workspace-reset] ${id}: seeded=${report.seeded} members=${report.members} cleared=${JSON.stringify(report.cleared)}` +
+        `[demo-workspace-reset] ${id}: seeded=${report.seeded} skipped=${report.skipped ?? 'no'} members=${report.members} cleared=${JSON.stringify(report.cleared)}` +
           (Object.keys(report.failed).length ? ` failed=${JSON.stringify(report.failed)}` : '') +
           (report.seedError ? ` seedError=${report.seedError}` : ''),
       )
@@ -51,6 +55,7 @@ export async function GET(request: NextRequest) {
       console.error(`[demo-workspace-reset] ${id} failed:`, errors[id])
     }
   }
-  const ok = Object.keys(errors).length === 0 && reports.every((r) => r.seeded)
+  // A workspace put off because of a live call is not a failure: the next run does it.
+  const ok = Object.keys(errors).length === 0 && reports.every((r) => r.seeded || r.skipped !== null)
   return NextResponse.json({ ok, reports, errors }, { status: ok ? 200 : 500 })
 }

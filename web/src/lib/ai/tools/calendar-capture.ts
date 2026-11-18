@@ -1,8 +1,9 @@
 import { tool } from 'ai'
+import { getCalendarProviderIn } from '@/lib/integrations/calendar-here'
 import { z } from 'zod'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { syncCalendarToCaptures, getUpcomingCaptures } from '@/lib/integrations/calendar-sync'
-import { listCalendarEvents, getCalendarProvider } from '@/lib/integrations/calendar'
+import { listCalendarEvents } from '@/lib/integrations/calendar'
 import { deriveSeriesIdentity } from '@/lib/integrations/meeting-series'
 import { applyEmbeddedCaptureVisibility, captureRequester, isCaptureVisible } from './_shared'
 import { excludeClaimsHiddenFrom } from '@/lib/knowledge/claim-visibility'
@@ -40,7 +41,7 @@ export function createCalendarCaptureTools(
         'Sync upcoming calendar events to captures. Creates pending captures for meetings with 2+ attendees. Run this when the user wants to see their upcoming meetings or prepare for them.',
       inputSchema: z.object({}),
       execute: async () => {
-        const provider = await getCalendarProvider(userId)
+        const provider = await getCalendarProviderIn(userId, workspaceId)
         if (!provider) {
           return {
             success: false,
@@ -83,7 +84,7 @@ export function createCalendarCaptureTools(
 
           if (!captures.length) {
             // Also check calendar directly for events without captures
-            const provider = await getCalendarProvider(userId)
+            const provider = await getCalendarProviderIn(userId, workspaceId)
             if (!provider) {
               return {
                 success: true,
@@ -163,7 +164,7 @@ export function createCalendarCaptureTools(
         }
 
         // Get event details from calendar
-        const provider = await getCalendarProvider(userId)
+        const provider = await getCalendarProviderIn(userId, workspaceId)
         if (!provider) {
           return { success: false, error: 'No calendar connected.' }
         }

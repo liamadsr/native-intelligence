@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
+import { DEMO_OFF, isDemoWorkspace } from '@/lib/demo/demo-mode'
 import { z } from 'zod'
 import { requireWorkspace } from '@/lib/api-auth'
 import { badRequest, serverError } from '@/lib/api-errors'
@@ -43,6 +44,12 @@ export async function POST(req: NextRequest) {
   const auth = await requireWorkspace()
   if (auth instanceof Response) return auth
   const { user, workspaceId } = auth
+
+  // No real server is connected from inside a demo workspace (migration 669):
+  // refused here, before the provider is asked anything.
+  if (await isDemoWorkspace(workspaceId)) {
+    return NextResponse.json({ error: DEMO_OFF.connector, code: 'DEMO_WORKSPACE' }, { status: 403 })
+  }
 
   let body: z.infer<typeof StartSchema>
   try {

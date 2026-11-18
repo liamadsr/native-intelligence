@@ -8,9 +8,8 @@
  *     `demoVisitorOutside` below is the "inside it only" half, asked by every
  *     usage check that knows where its work runs);
  *   - those visitors' AI spend is metered on the flag row, with NO cap by
- *     default; an admin may set one there, and a daily limit on transcribed
- *     call time, as off switches (the SQL gate and its ledger; the recorder's
- *     work);
+ *     default; an admin may set one there as the off switch (the SQL gate
+ *     and its ledger);
  *   - nothing real may be connected or linked to it: a mail, calendar or
  *     contacts account, an MCP server, a Slack workspace, a Stripe account, a
  *     business number, a shared email (refused where a connect starts, and by

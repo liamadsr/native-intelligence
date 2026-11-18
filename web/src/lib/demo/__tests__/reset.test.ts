@@ -33,7 +33,7 @@ interface Call {
 }
 
 /** A service client that records every statement and answers from `tables`. */
-function fakeService(opts: { flagged?: string[]; flagError?: string; refuse?: Record<string, string>; members?: Array<{ id: string; user_id: string; role: string }> } = {}) {
+function fakeService(opts: { flagged?: string[]; flagError?: string; refuse?: Record<string, string>; members?: Array<{ id: string; user_id: string; role: string }>; liveCalls?: number; liveError?: string } = {}) {
   const calls: Call[] = []
   const flagged = opts.flagged ?? [DEMO]
   const members = opts.members ?? [
@@ -57,6 +57,7 @@ function fakeService(opts: { flagged?: string[]; flagError?: string; refuse?: Re
         return { data: flagged.includes(id as string) ? { workspace_id: id } : null, error: null }
       }
       if (table === 'member') return { data: members, error: null }
+      if (table === 'team_call') return opts.liveError ? { data: null, error: { message: opts.liveError }, count: null } : { data: null, error: null, count: opts.liveCalls ?? 0 }
       if (table === 'team_chat_message') return { data: null, error: null, count: 1 }
       return { data: null, error: null, count: 0 }
     }
@@ -121,7 +122,7 @@ describe('resetDemoWorkspace', () => {
       expect(d.filters).toContainEqual(['eq', 'workspace_id', DEMO])
       expect(NEVER_WIPED).not.toContain(d.table)
     }
-    expect(report).toMatchObject({ workspaceId: DEMO, seeded: true, seedError: null, members: 2, failed: {} })
+    expect(report).toMatchObject({ workspaceId: DEMO, seeded: true, seedError: null, members: 2, failed: {}, skipped: null })
     expect(report.cleared.chat_conversations).toBe(2)
   })
 
@@ -150,6 +151,28 @@ describe('resetDemoWorkspace', () => {
     expect(report.failed).toEqual({ company: 'violates foreign key constraint' })
     expect(calls.filter((c) => c.table === 'company' && c.op === 'delete').length).toBe(2)
     expect(report.seeded).toBe(true)
+  })
+
+  it('people in a call right now: nothing is touched, and the run says it was put off', async () => {
+    const { service, writes } = fakeService({ liveCalls: 1 })
+    const report = await resetDemoWorkspace(service, DEMO)
+    expect(report).toMatchObject({ skipped: 'live_call', seeded: false, cleared: {}, failed: {} })
+    expect(writes()).toEqual([])
+    expect(seedDemoContent).not.toHaveBeenCalled()
+  })
+
+  it('a live-call read that fails puts the reset off too', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const { service, writes } = fakeService({ liveError: 'timeout' })
+    expect((await resetDemoWorkspace(service, DEMO)).skipped).toBe('live_call')
+    expect(writes()).toEqual([])
+  })
+
+  it('asks for live calls in that workspace only', async () => {
+    const { service, calls } = fakeService()
+    await resetDemoWorkspace(service, DEMO)
+    const look = calls.find((c) => c.table === 'team_call' && c.op === 'select')!
+    expect(look.filters).toEqual([['eq', 'workspace_id', DEMO], ['eq', 'status', 'live']])
   })
 
   it('a failed seed is reported, not thrown', async () => {

@@ -45,6 +45,7 @@
  * keeps that rare; the numbers are a cost bound, not a security boundary.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { demoVisitorOutside } from '@/lib/demo/demo-mode'
 import { resolveAgentAutonomyPolicy, type AgentAutonomyPolicy } from './agent-autonomy-policy'
 import { ATTEMPTABLE_WORK_ROLES, isWorkRole, normalizeWorkExpects, type WorkRole } from './roles'
 import { roleBreakerState } from './role-breaker'
@@ -318,6 +319,8 @@ async function decide(candidate: AttemptCandidate, ctx: AutoAttemptContext): Pro
   const row = Array.isArray(limit) ? (limit[0] as { allowed?: boolean; reason?: string } | undefined) : undefined
   if (!row) return refuse('usage_check_failed', 'no limit row')
   if (row.allowed !== true) return refuse('usage_limit', row.reason ?? 'plan limit')
+  // A demo workspace's visitor (migration 669) is covered in that workspace only.
+  if (await demoVisitorOutside(row, workspaceId)) return refuse('usage_limit', 'demo_workspace_only')
 
   return { attempt: true, reused: false, fireKey, teammate: { id: teammate.id, role }, captureId, quote }
 }

@@ -1,4 +1,5 @@
 import { getValidToken, getValidTokenForAccount } from '@/lib/oauth/token-manager'
+import { isDemoWorkspace } from '@/lib/demo/demo-mode'
 import { draftRowsFor, markHoldsSending, releaseDraftRows, restoreHolds, touchHold } from '@/lib/email/hold'
 import { getServiceClient } from '@/lib/admin'
 import { readableWorkspaceEmailAccounts } from '@/lib/email/account-scope'
@@ -197,8 +198,10 @@ export async function fetchFullEmailThreadForClient(
     if (!mailbox) throw new Error('Mailbox not connected')
     token = { provider: mailbox.provider, token: mailbox.token, email: mailbox.email }
   }
-  // Fallback to legacy lookup if no account_id or token not found
-  if (!token) {
+  // Fallback to legacy lookup if no account_id or token not found. Never in a
+  // demo workspace (migration 669): the lookup is by person, so a mailbox the
+  // person connected in another workspace would answer here.
+  if (!token && !(await isDemoWorkspace(workspaceId))) {
     token = await getEmailToken(userId)
   }
   if (!token) throw new Error('No email integration connected')
@@ -509,6 +512,12 @@ export async function sendEmail(
   workspaceId: string,
   params: SendEmailParams,
 ): Promise<SendEmailResult> {
+  // No mailbox answers for a demo workspace (migration 669): nothing real is
+  // connected to it, and the mailbox below is found by person, not by
+  // workspace, so one the person connected elsewhere would send real mail
+  // from inside the demo. The same answer as a person with none connected.
+  if (await isDemoWorkspace(workspaceId)) throw new Error('No email integration connected')
+
   const supabaseAdmin = getServiceClient()
 
   // Resolve the sending identity. account_id pins to one mailbox; the legacy

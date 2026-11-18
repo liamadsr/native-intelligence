@@ -31,7 +31,6 @@
  */
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { isDemoWorkspace } from '@/lib/demo/demo-mode'
 import { dmOtherMember } from '@/lib/team-chat/types'
 import { captureFeedSecretUsable } from '@/lib/capture-feed/auth'
 import { teamCallsConfig } from './livekit'
@@ -232,73 +231,12 @@ export async function recorderWork(
   if (offered.length === 0) return []
   const { data: calls, error: callsError } = await svc
     .from('team_call')
-    .select('id, peak_participants, workspace_id')
+    .select('id, peak_participants')
     .in(
       'id',
       offered.map((o) => o.callId),
     )
   if (callsError) throw new Error(`team calls: recorder work's calls read failed: ${callsError.message}`)
-  const rows = (calls ?? []) as Array<{ id: string; peak_participants: number | null; workspace_id: string | null }>
-  const peak = new Map(rows.map((c) => [c.id, c.peak_participants ?? 0]))
-  const spent = await demoWorkspacesPastTheirDay(svc, rows)
-  const workspaceOf = new Map(rows.map((c) => [c.id, c.workspace_id]))
-  return offered
-    .filter((o) => (peak.get(o.callId) ?? 0) >= RECORDER_MIN_PEOPLE)
-    .filter((o) => !spent.has(workspaceOf.get(o.callId) ?? ''))
-    .slice(0, max)
-}
-
-/**
- * The demo workspaces among these calls' that have used their day of heard
- * call time. NO LIMIT BY DEFAULT (the owner's decision, 2026-11-18: a limit
- * that cuts a demo's notes is a stop like any other): only a demo workspace
- * whose flag row carries `notes_seconds_per_day` (migration 669) has one, set
- * by an admin as the off switch for transcription, the one cost of a demo
- * workspace its AI spend does not show. Past it, a NEW call there is not
- * offered to the recorder (it takes no notes and ends silent); a call already
- * being heard is heard to its own end, at most the 3 hours any call's notes
- * run.
- *
- * Counted from team_call's own clock, per UTC day: the seconds each of the
- * day's calls has had notes on, the running stretch included. A failed read
- * holds nothing back: the limit is a cost bound, not a rule a call may break.
- */
-export async function demoWorkspacesPastTheirDay(
-  svc: SupabaseClient,
-  calls: ReadonlyArray<{ workspace_id: string | null }>,
-  now: Date = new Date(),
-): Promise<Set<string>> {
-  const past = new Set<string>()
-  const workspaces = [...new Set(calls.map((c) => c.workspace_id).filter((w): w is string => !!w))]
-  for (const workspaceId of workspaces) {
-    if (!(await isDemoWorkspace(workspaceId))) continue
-    const { data: flag, error: flagError } = await svc
-      .from('demo_workspace')
-      .select('notes_seconds_per_day')
-      .eq('workspace_id', workspaceId)
-      .maybeSingle<{ notes_seconds_per_day: number | null }>()
-    if (flagError) {
-      console.error(`[team-call-recorder] demo notes limit not read for a workspace: ${flagError.message}`)
-      continue
-    }
-    const limit = flag?.notes_seconds_per_day
-    if (limit === null || limit === undefined) continue
-    const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString()
-    const { data, error } = await svc
-      .from('team_call')
-      .select('notes_seconds, notes_on_since')
-      .eq('workspace_id', workspaceId)
-      .gte('started_at', dayStart)
-    if (error) {
-      console.error(`[team-call-recorder] demo notes limit not read for a workspace: ${error.message}`)
-      continue
-    }
-    let seconds = 0
-    for (const c of (data ?? []) as Array<{ notes_seconds: number | null; notes_on_since: string | null }>) {
-      seconds += c.notes_seconds ?? 0
-      if (c.notes_on_since) seconds += Math.max(0, Math.floor((now.getTime() - Date.parse(c.notes_on_since)) / 1000))
-    }
-    if (seconds >= limit) past.add(workspaceId)
-  }
-  return past
+  const peak = new Map(((calls ?? []) as Array<{ id: string; peak_participants: number | null }>).map((c) => [c.id, c.peak_participants ?? 0]))
+  return offered.filter((o) => (peak.get(o.callId) ?? 0) >= RECORDER_MIN_PEOPLE).slice(0, max)
 }

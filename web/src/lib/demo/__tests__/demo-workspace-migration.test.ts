@@ -37,11 +37,9 @@ describe('migration 669: the flag', () => {
     expect(sql).not.toMatch(/alter table public\.workspace\b/)
   })
 
-  it('has no AI cap and no call-time limit unless an admin sets one', () => {
+  it('has no AI cap unless an admin sets one', () => {
     expect(sql).toMatch(/ai_cap_usd\s+numeric check \(ai_cap_usd is null or ai_cap_usd >= 0\)/)
-    expect(sql).toMatch(/notes_seconds_per_day integer check \(notes_seconds_per_day is null or notes_seconds_per_day >= 0\)/)
     expect(sql).not.toMatch(/ai_cap_usd[^,\n]*default/)
-    expect(sql).not.toMatch(/notes_seconds_per_day[^,\n]*default/)
   })
 
   it('a visitor is a member or guest, never the owner or an admin', () => {
@@ -114,6 +112,7 @@ describe('migration 669: nothing real is linked to a demo workspace', () => {
     sharedEmail,
     'stripe_connect_account',
     'business_phone_number',
+    'website_site',
   ]
 
   it('one list of the tables that link something real to a workspace, the account row itself among them', () => {

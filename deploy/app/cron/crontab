@@ -35,4 +35,4 @@
 */15 * * * * node /app/deploy/app/cron/call.mjs /api/cron/seo-rank-checks
 7 * * * * node /app/deploy/app/cron/call.mjs /api/cron/seo-ai-visibility
 */5 * * * * node /app/deploy/app/cron/call.mjs /api/cron/email-scheduled-send
-40 9 * * * node /app/deploy/app/cron/call.mjs /api/cron/demo-workspace-reset
+10 5 * * * node /app/deploy/app/cron/call.mjs /api/cron/demo-workspace-reset

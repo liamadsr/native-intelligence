@@ -52,11 +52,6 @@ export async function POST(req: Request) {
 
   try {
     const { user, supabase, via } = await authenticateUser(req)
-    // Throws the 429 / 503 Response when the person may not spend. Opted in to
-    // the ChatGPT free tier: a person on their own plan asks on it (the turn's
-    // rebuild puts it there), billed to the plan, never Native Intelligence's models.
-    const onPlan = isChatGptPlanUsage(await checkUsageLimits(user.id, undefined, { chatgptPlan: true }))
-
     const body = await req.json()
     const { question } = body as { question?: string }
 
@@ -91,12 +86,16 @@ export async function POST(req: Request) {
         .maybeSingle()
       workspaceId = membership?.workspace_id ?? null
     }
-    // The check above read the workspace the request names; the ask runs in
-    // the one resolved here. A demo workspace's visitor is covered there only.
-    if (workspaceId) await checkUsageLimits(user.id, undefined, { chatgptPlan: true, workspaceId })
     if (!workspaceId) {
       return Response.json({ error: 'No workspace found' }, { status: 400 })
     }
+    // Throws the 429 / 503 Response when the person may not spend. Opted in to
+    // the ChatGPT free tier: a person on their own plan asks on it (the turn's
+    // rebuild puts it there), billed to the plan, never Native Intelligence's models.
+    // Asked once, with the workspace the ask really runs in (resolved above,
+    // not the one a cookie names): a demo workspace's visitor (migration 669)
+    // is covered there only.
+    const onPlan = isChatGptPlanUsage(await checkUsageLimits(user.id, undefined, { chatgptPlan: true, workspaceId }))
     // Owner derivation BEFORE any workspace-scoped read: a device token's
     // active_workspace_id is not membership-checked when it resolves, and the
     // ask runs in this workspace. A non-member is 403 and a

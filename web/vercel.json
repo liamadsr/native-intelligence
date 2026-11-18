@@ -138,7 +138,7 @@
     },
     {
       "path": "/api/cron/demo-workspace-reset",
-      "schedule": "40 9 * * *"
+      "schedule": "10 5 * * *"
     }
   ]
 }

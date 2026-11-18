@@ -6,10 +6,9 @@
 -- nothing real connected to it.
 --
 --   demo_workspace               the flag, one row per demo workspace, with
---                                this month's shared AI spend, and two
---                                optional limits an admin may set (none by
---                                default): a monthly AI cap and a daily limit
---                                on transcribed call time. RLS on, no policies: only the service
+--                                this month's shared AI spend, and an optional
+--                                monthly AI cap an admin may set (none by
+--                                default). RLS on, no policies: only the service
 --                                role (and psql) reads or writes it. NOT a
 --                                column on workspace: an owner may update
 --                                their own workspace row (013).
@@ -71,9 +70,6 @@ create table if not exists public.demo_workspace (
   -- here is the off switch: visitors' AI stops once the month's spend
   -- reaches it.
   ai_cap_usd    numeric check (ai_cap_usd is null or ai_cap_usd >= 0),
-  -- The same for how much of a day's (UTC) calls is transcribed, in seconds:
-  -- null is no limit.
-  notes_seconds_per_day integer check (notes_seconds_per_day is null or notes_seconds_per_day >= 0),
   spend_month   date not null default (date_trunc('month', now()))::date,
   ai_spend_usd  numeric not null default 0,
   last_reset_at timestamptz,
@@ -422,7 +418,7 @@ create trigger demo_workspace_meter_usage
 
 -- Every table whose row links something real to a workspace: an account
 -- (and what it syncs), an MCP server, a Slack workspace, a shared email, a
--- Stripe account, a business phone number. ONE list, for the refusal below
+-- Stripe account, a business phone number, a website's repo. ONE list, for the refusal below
 -- and for the flag's own check.
 create or replace function public.demo_workspace_linked_tables()
 returns text[]
@@ -440,7 +436,8 @@ as $$
     'slack_installation',
     'email_share',
     'stripe_connect_account',
-    'business_phone_number'
+    'business_phone_number',
+    'website_site'
   ]
 $$;
 
@@ -522,6 +519,6 @@ commit;
 -- Verify (read-only):
 --   select to_regclass('public.demo_workspace') is not null;                                  -> true
 --   select position('demo_cost_limit_exceeded' in pg_get_functiondef('public.check_ai_usage_limit(uuid, boolean)'::regprocedure)) > 0;  -> true
---   select tgrelid::regclass from pg_trigger where tgname = 'refuse_in_demo_workspace' order by 1;   -> the ten tables
+--   select tgrelid::regclass from pg_trigger where tgname = 'refuse_in_demo_workspace' order by 1;   -> the eleven tables
 --   select proacl from pg_proc where oid = 'public.check_ai_usage_limit(uuid, boolean)'::regprocedure;
 --     -> {postgres=X/postgres,service_role=X/postgres}

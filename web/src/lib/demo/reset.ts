@@ -22,6 +22,9 @@
  * calls, forms, tables, flows, lists and so on), seeded or not. Then the
  * seeded content is written again, so an edited seeded row is as new.
  *
+ * NOT WHILE A CALL IS LIVE: a workspace with people in a call is left alone
+ * entirely, and done at the next run.
+ *
  * NOT CLEARED, by choice: saved views and agents (a workspace's own defaults
  * live in the same tables), and anything not named in WIPE. Files in storage
  * are not removed. A table that refuses (a foreign key from a table this list
@@ -157,6 +160,11 @@ export interface DemoResetReport {
   /** What stopped the seed, when it did not finish. */
   seedError: string | null
   members: number
+  /**
+   * Set when nothing was touched this time: 'live_call' (people are in a call
+   * there right now). The next run does it.
+   */
+  skipped: 'live_call' | null
 }
 
 /** The flag, read from the table itself. Throws DemoResetRefused for any other workspace. */
@@ -324,6 +332,21 @@ export async function resetDemoWorkspace(service: SupabaseClient, workspaceId: s
   const owner = members.find((m) => m.role === 'owner')
   if (!owner) throw new DemoResetRefused('refusing: the demo workspace has no owner to seed as')
 
+  // People in a call right now: nothing is touched. The call's row, its
+  // capture, the recorder's feed and its guests would all go with the wipe,
+  // under people who are talking. Put off to the next run (the job runs every
+  // night, and an admin can run it by hand once the call is over). A read
+  // that fails puts it off too.
+  const { count: live, error: liveError } = await service
+    .from('team_call')
+    .select('id', { count: 'exact', head: true })
+    .eq('workspace_id', workspaceId)
+    .eq('status', 'live')
+  if (liveError || (live ?? 0) > 0) {
+    if (liveError) console.error('[demo-reset] live call read failed (reset put off):', liveError.message)
+    return { workspaceId, cleared: {}, failed: {}, seeded: false, seedError: null, members: members.length, skipped: 'live_call' }
+  }
+
   const { cleared, failed } = await wipeVisitorContent(service, workspaceId)
 
   let seeded = false
@@ -361,5 +384,5 @@ export async function resetDemoWorkspace(service: SupabaseClient, workspaceId: s
   await service.from('demo_workspace').update({ last_reset_at: new Date().toISOString() }).eq('workspace_id', workspaceId)
   clearDemoWorkspaceCache()
 
-  return { workspaceId, cleared, failed, seeded, seedError, members: members.length }
+  return { workspaceId, cleared, failed, seeded, seedError, members: members.length, skipped: null }
 }
