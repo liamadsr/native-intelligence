@@ -5,13 +5,16 @@
  * What the flag changes, and where each part lives:
  *   - no seat needed for its members and guests, inside it only
  *     (src/lib/billing/access.ts, the dashboard layout, check_ai_usage_limit);
- *   - one small monthly AI cap shared by those visitors (the SQL gate and its
+ *   - those visitors' AI spend is metered on the flag row, with NO cap by
+ *     default (the owner's decision, 2026-11-18: they are to try the product);
+ *     an admin may set one there as the off switch (the SQL gate and its
  *     ledger; `checkUsageLimits` adds the "inside it only" check per request);
  *   - the surfaces that bill a third party per use are off (the callers of
  *     `refuseInDemoWorkspace` below). Call notes are NOT one of them (the
  *     owner's decision, 2026-11-18): a call there takes notes as anywhere,
  *     its summary turns and end-of-call pass on the notes' owner's plan,
- *     which for a visitor is the workspace's shared cap. Recording is off;
+ *     which for a visitor is the workspace's metered spend (and its cap,
+ *     where an admin set one). Recording is off;
  *   - nothing real may be linked to it (the `refuse_in_demo_workspace`
  *     triggers, with the friendlier refusals in the routes);
  *   - it is put back to its made-up content every night (./reset.ts).
@@ -32,6 +35,7 @@ export const DEMO_CAP_REACHED_REASON = 'demo_cost_limit_exceeded'
 /** Added by checkUsageLimits: the visitor asked for AI outside the demo workspace. */
 export const DEMO_ONLY_REASON = 'demo_workspace_only'
 
+/** Only where an admin set a cap on the flag row (`ai_cap_usd`): there is none by default. */
 export const DEMO_CAP_REACHED_MESSAGE =
   'This demo workspace has used its AI budget for the month. Everything else still works, and the assistant is back on the 1st.'
 export const DEMO_ONLY_MESSAGE =
@@ -145,7 +149,7 @@ export async function readDemoWorkspace(workspaceId: string | null | undefined):
  * declined phone call, no refused search, no unsent text for a paying
  * business because one read failed. For a workspace that IS a demo this
  * opens its switched-off surfaces for as long as the read fails; what still
- * holds then is in the database, not here: the shared AI cap
+ * holds then is in the database, not here: the AI cap where an admin set one
  * (check_ai_usage_limit) and the triggers that refuse linking anything real.
  */
 export async function isDemoWorkspace(workspaceId: string | null | undefined): Promise<boolean> {
@@ -169,7 +173,8 @@ export async function refuseInDemoWorkspace(workspaceId: string | null | undefin
  * cannot see this, so every caller that knows where the work runs asks here.
  *
  * Only positive evidence refuses: no workspace named, or a flag that could
- * not be read, is not "outside" (the shared cap still bounds it).
+ * not be read, is not "outside". Such work is metered on the demo workspace
+ * like the rest of a visitor's, and bounded only where an admin set a cap.
  */
 export async function demoVisitorOutside(
   row: { reason?: string | null } | null | undefined,

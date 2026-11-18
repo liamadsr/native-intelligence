@@ -228,7 +228,7 @@ export async function runOwnerBatch(
         // A call's capture whose last live turn still holds its lease (or whose call is still
         // live): not a refusal but a "not yet". Retryable, never dropped (CallNotesLiveError).
         if (res.status === 409 && callNotesLiveCode(full)) throw new CallNotesLiveError(text)
-        // The owner's usage ran out (their plan's, or a demo workspace's shared cap, migration 669).
+        // The owner's usage ran out (their plan's, or a demo workspace's cap where one is set, migration 669).
         if (res.status === 402 || res.status === 429) throw new OwnerUsageError(`capture finalizer: batch refused (${res.status}) ${text}`)
         if (res.status >= 400 && res.status < 500 && res.status !== 408) {
           throw new NonRetriableError(`capture finalizer: batch refused (${res.status}) ${text}`)

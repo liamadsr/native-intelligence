@@ -37,8 +37,11 @@ describe('migration 669: the flag', () => {
     expect(sql).not.toMatch(/alter table public\.workspace\b/)
   })
 
-  it('defaults the monthly AI cap to $25', () => {
-    expect(sql).toMatch(/ai_cap_usd\s+numeric not null default 25/)
+  it('has no AI cap and no call-time limit unless an admin sets one', () => {
+    expect(sql).toMatch(/ai_cap_usd\s+numeric check \(ai_cap_usd is null or ai_cap_usd >= 0\)/)
+    expect(sql).toMatch(/notes_seconds_per_day integer check \(notes_seconds_per_day is null or notes_seconds_per_day >= 0\)/)
+    expect(sql).not.toMatch(/ai_cap_usd[^,\n]*default/)
+    expect(sql).not.toMatch(/notes_seconds_per_day[^,\n]*default/)
   })
 
   it('a visitor is a member or guest, never the owner or an admin', () => {
@@ -54,7 +57,8 @@ describe('check_ai_usage_limit: the demo branch', () => {
   it('is in the newest definition of the gate', () => {
     expect(gate).toContain("'demo_workspace'")
     expect(gate).toContain("'demo_cost_limit_exceeded'")
-    expect(gate).toContain('v_demo_spend < v_demo_cap')
+    // No cap set: allowed. A cap set: allowed under it.
+    expect(gate).toContain('(v_demo_cap IS NULL OR v_demo_spend < v_demo_cap)')
   })
 
   it('is the last thing before the wall: after an override, staff, a subscription, a ChatGPT plan, the person’s own plan, their credits and a granted free period', () => {

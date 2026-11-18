@@ -6,8 +6,10 @@
 -- nothing real connected to it.
 --
 --   demo_workspace               the flag, one row per demo workspace, with
---                                its monthly AI cap and this month's shared
---                                spend. RLS on, no policies: only the service
+--                                this month's shared AI spend, and two
+--                                optional limits an admin may set (none by
+--                                default): a monthly AI cap and a daily limit
+--                                on transcribed call time. RLS on, no policies: only the service
 --                                role (and psql) reads or writes it. NOT a
 --                                column on workspace: an owner may update
 --                                their own workspace row (013).
@@ -22,9 +24,10 @@
 --                                subscription, ChatGPT plan, paid plan,
 --                                credits or granted free period of their own,
 --                                who is a member or guest of a demo
---                                workspace, is allowed while the shared spend
---                                is under the cap ('demo_workspace'), refused
---                                once it is not ('demo_cost_limit_exceeded').
+--                                workspace, is allowed ('demo_workspace');
+--                                with a cap set on the flag row, refused once
+--                                the shared spend reaches it
+--                                ('demo_cost_limit_exceeded').
 --                                Anything of their own wins: a person with
 --                                credits or a trial is never turned into a
 --                                demo visitor by an invite.
@@ -63,7 +66,14 @@ set local lock_timeout = '5s';
 
 create table if not exists public.demo_workspace (
   workspace_id  uuid primary key references public.workspace(id) on delete cascade,
-  ai_cap_usd    numeric not null default 25 check (ai_cap_usd >= 0),
+  -- No cap unless an admin sets one (the owner's decision, 2026-11-18:
+  -- visitors are to try the product, not be stopped by a budget). A number
+  -- here is the off switch: visitors' AI stops once the month's spend
+  -- reaches it.
+  ai_cap_usd    numeric check (ai_cap_usd is null or ai_cap_usd >= 0),
+  -- The same for how much of a day's (UTC) calls is transcribed, in seconds:
+  -- null is no limit.
+  notes_seconds_per_day integer check (notes_seconds_per_day is null or notes_seconds_per_day >= 0),
   spend_month   date not null default (date_trunc('month', now()))::date,
   ai_spend_usd  numeric not null default 0,
   last_reset_at timestamptz,
@@ -71,7 +81,7 @@ create table if not exists public.demo_workspace (
 );
 
 comment on table public.demo_workspace is
-  'Workspaces flagged as demos (669): made-up data, members and guests need no seat, AI spend shared under ai_cap_usd per month, nothing real may be connected. Service role only.';
+  'Workspaces flagged as demos (669): made-up data, members and guests need no seat, their AI spend metered in ai_spend_usd (capped only when ai_cap_usd is set), nothing real may be connected. Service role only.';
 
 alter table public.demo_workspace enable row level security;
 revoke all on table public.demo_workspace from public, anon, authenticated;
@@ -273,9 +283,10 @@ BEGIN
             -- subscription, no ChatGPT plan, no paid plan of their own, no
             -- credits and no granted free period (each of those is theirs and
             -- wins above), but is a member or guest of a workspace an admin
-            -- flagged as a demo (public.demo_workspace). Allowed while that
-            -- workspace's shared spend this month is under its cap; their
-            -- usage is added to the one ledger (demo_workspace_meter_usage).
+            -- flagged as a demo (public.demo_workspace). Allowed; and when an
+            -- admin has set a cap on the flag row, only while the workspace's
+            -- shared spend this month is under it. Their usage is added to
+            -- the one ledger either way (demo_workspace_meter_usage).
             -- No seat is granted: leave the demo workspace and this is gone.
             SELECT d.workspace_id, d.ai_cap_usd,
                    CASE WHEN d.spend_month = date_trunc('month', now())::date THEN d.ai_spend_usd ELSE 0 END
@@ -286,8 +297,9 @@ BEGIN
             ORDER BY d.created_at
             LIMIT 1;
             IF v_demo_ws IS NOT NULL THEN
-                RETURN QUERY SELECT v_demo_spend < v_demo_cap,
-                    CASE WHEN v_demo_spend < v_demo_cap THEN 'demo_workspace' ELSE 'demo_cost_limit_exceeded' END::TEXT,
+                -- No cap set (the default): allowed, and still metered.
+                RETURN QUERY SELECT (v_demo_cap IS NULL OR v_demo_spend < v_demo_cap),
+                    CASE WHEN v_demo_cap IS NULL OR v_demo_spend < v_demo_cap THEN 'demo_workspace' ELSE 'demo_cost_limit_exceeded' END::TEXT,
                     'Demo workspace'::TEXT, v_demo_spend, v_demo_cap, 0::INT, NULL::INT, false,
                     (date_trunc('month', now()) + interval '1 month')::timestamptz, v_credit_balance;
                 RETURN;

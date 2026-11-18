@@ -249,20 +249,19 @@ export async function recorderWork(
 }
 
 /**
- * How much call time a demo workspace's calls may be heard in one day (UTC),
- * all its calls together. Transcription is the one cost of a demo workspace
- * its AI cap does not see (the recorder's speech-to-text is not AI usage), so
- * this is its bound: past it, a NEW call there is not offered to the recorder
- * (it takes no notes and ends silent); a call already being heard is heard to
- * its own end, at most the 3 hours any call's notes run.
- */
-export const DEMO_NOTES_SECONDS_PER_DAY = 2 * 60 * 60
-
-/**
- * The demo workspaces among these calls' that have used their day. Counted
- * from team_call's own clock: the seconds each of today's calls has had notes
- * on, the running stretch included. A failed read holds nothing back: the
- * limit is a cost bound, not a rule a call may break.
+ * The demo workspaces among these calls' that have used their day of heard
+ * call time. NO LIMIT BY DEFAULT (the owner's decision, 2026-11-18: a limit
+ * that cuts a demo's notes is a stop like any other): only a demo workspace
+ * whose flag row carries `notes_seconds_per_day` (migration 669) has one, set
+ * by an admin as the off switch for transcription, the one cost of a demo
+ * workspace its AI spend does not show. Past it, a NEW call there is not
+ * offered to the recorder (it takes no notes and ends silent); a call already
+ * being heard is heard to its own end, at most the 3 hours any call's notes
+ * run.
+ *
+ * Counted from team_call's own clock, per UTC day: the seconds each of the
+ * day's calls has had notes on, the running stretch included. A failed read
+ * holds nothing back: the limit is a cost bound, not a rule a call may break.
  */
 export async function demoWorkspacesPastTheirDay(
   svc: SupabaseClient,
@@ -273,6 +272,17 @@ export async function demoWorkspacesPastTheirDay(
   const workspaces = [...new Set(calls.map((c) => c.workspace_id).filter((w): w is string => !!w))]
   for (const workspaceId of workspaces) {
     if (!(await isDemoWorkspace(workspaceId))) continue
+    const { data: flag, error: flagError } = await svc
+      .from('demo_workspace')
+      .select('notes_seconds_per_day')
+      .eq('workspace_id', workspaceId)
+      .maybeSingle<{ notes_seconds_per_day: number | null }>()
+    if (flagError) {
+      console.error(`[team-call-recorder] demo notes limit not read for a workspace: ${flagError.message}`)
+      continue
+    }
+    const limit = flag?.notes_seconds_per_day
+    if (limit === null || limit === undefined) continue
     const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString()
     const { data, error } = await svc
       .from('team_call')
@@ -288,7 +298,7 @@ export async function demoWorkspacesPastTheirDay(
       seconds += c.notes_seconds ?? 0
       if (c.notes_on_since) seconds += Math.max(0, Math.floor((now.getTime() - Date.parse(c.notes_on_since)) / 1000))
     }
-    if (seconds >= DEMO_NOTES_SECONDS_PER_DAY) past.add(workspaceId)
+    if (seconds >= limit) past.add(workspaceId)
   }
   return past
 }

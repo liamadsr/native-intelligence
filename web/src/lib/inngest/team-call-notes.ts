@@ -299,7 +299,8 @@ export const CALL_BATCH_ATTEMPTS = 3
  */
 /**
  * The end-of-meeting pass did not run because the notes' owner has no AI
- * usage left (their plan, or a demo workspace's shared cap: migration 669).
+ * usage left (their plan, or a demo workspace's cap where an admin set one:
+ * migration 669).
  * The notes still finish: the transcript and the summary written during the
  * call stand, are titled where that still works, indexed and marked done.
  */

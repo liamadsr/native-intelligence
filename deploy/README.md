@@ -1845,8 +1845,14 @@ a workspace is flagged.
 
   ```sql
   insert into public.demo_workspace (workspace_id) values ('<workspace id>');
-  -- another cap than $25 a month:
-  update public.demo_workspace set ai_cap_usd = 40 where workspace_id = '<workspace id>';
+  -- what the demo has cost this month:
+  select spend_month, ai_spend_usd from public.demo_workspace where workspace_id = '<workspace id>';
+  -- the off switches (none is set by default): a monthly AI cap in dollars,
+  -- and how many seconds of a day's (UTC) calls are transcribed
+  update public.demo_workspace set ai_cap_usd = 50 where workspace_id = '<workspace id>';
+  update public.demo_workspace set notes_seconds_per_day = 7200 where workspace_id = '<workspace id>';
+  -- and off again:
+  update public.demo_workspace set ai_cap_usd = null, notes_seconds_per_day = null where workspace_id = '<workspace id>';
   -- no longer a demo:
   delete from public.demo_workspace where workspace_id = '<workspace id>';
   ```
@@ -1873,29 +1879,33 @@ a workspace is flagged.
   workspace as not a demo and logs `[demo-workspace] flag read failed`. No
   other workspace is ever refused anything because of this feature. For the
   demo itself the switched-off surfaces are open while the read fails; the
-  AI cap and the database's refusals hold regardless.
-- **The AI budget**: visitors share `ai_cap_usd` a month; `ai_spend_usd` on
-  the row is this month's total. It is one pool: one visitor can use all of
-  it, and the nightly reset does not give it back (raise `ai_cap_usd`, or set
-  `ai_spend_usd` to 0, by hand). The cap is read before a call and added to
-  after, so calls in flight when it is crossed still finish: the overshoot is
-  at most what those calls cost.
+  database's refusals (and a cap, where one is set) hold regardless.
+- **AI use is not capped** (the owner's decision, 2026-11-18: visitors are to
+  try the product, not be stopped by a budget). Every visitor's AI use is
+  metered on the flag row (`ai_spend_usd`, this month's total), so what the
+  demo costs can be read at any time. Nothing stops it by default: a demo
+  workspace's AI spend is unbounded until an admin sets `ai_cap_usd` (above).
+  With a cap set, visitors' AI stops for the month once the total reaches it,
+  with a plain message; it is one pool, the nightly reset does not give it
+  back, and calls in flight when it is crossed still finish.
 - **Call notes are on there** (the owner's decision, 2026-11-18), as in any
   workspace: the transcript, the live summary, the notes at the end.
   - The live summary's turns and the end-of-call pass run on the plan of the
     notes' owner (the meeting's host, else whoever started the call). A
-    visitor's count against the workspace's shared budget; a call the demo's
-    owner or an admin starts runs on their own seat and is not counted.
-  - At the budget: the live summary stops and says so, the transcript goes
-    on, and at the end the notes are finished as they stand (titled where
-    that still works, indexed), without the end-of-call pass. The call
-    itself is untouched.
-  - Transcription (the call recorder's speech-to-text) is not AI usage and is
-    not under the budget. Its bound is time: a demo workspace's calls are
-    heard for 2 hours a day (UTC) in all (`DEMO_NOTES_SECONDS_PER_DAY`,
-    `web/src/lib/team-calls/recorder.ts`). Past that a NEW call there is not
-    heard (it takes no notes and ends silent); one already being heard goes
-    on to its own end, at most the 3 hours any call's notes run.
+    visitor's are metered on the flag row like their other AI use; a call
+    the demo's owner or an admin starts runs on their own seat and is not
+    counted.
+  - Only where a cap is set, at the cap: the live summary stops and says so,
+    the transcript goes on, and at the end the notes are finished as they
+    stand (titled where that still works, indexed), without the end-of-call
+    pass. The call itself is untouched.
+  - Transcription (the call recorder's speech-to-text) is not AI usage: it
+    is not in `ai_spend_usd` and no cap sees it. It has no limit by default
+    either. `notes_seconds_per_day` on the flag row (above) is its off
+    switch: past that much heard call time in a day (UTC), all the demo's
+    calls together, a NEW call there is not heard (it takes no notes and
+    ends silent); one already being heard goes on to its own end, at most
+    the 3 hours any call's notes run.
 - **It cleans itself**: `/api/cron/demo-workspace-reset` runs at 09:40 UTC and
   puts every flagged workspace back (visitors' content goes, the made-up
   content is written again, members stay). Before a visit, an admin can run
@@ -1907,8 +1917,8 @@ a workspace is flagged.
   stays; without a seat it is behind the trial page again.
 - **Not closed**: a visitor's own MCP servers (connected in their own
   workspace) follow them, as they follow anyone; the AI Gateway's web search
-  tool and a few background jobs that name no workspace are bounded by the
-  budget, not refused.
+  tool and a few background jobs that name no workspace are metered, not
+  refused.
 
 ### Slack
 

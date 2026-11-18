@@ -160,7 +160,8 @@ export async function checkUsageLimits(
   // runs, so that half is checked here, against the workspace the caller
   // names (`opts.workspaceId`), else the one the request names (cookie,
   // x-workspace-id, a device token's pin). With neither (a job that passed
-  // none) it passes: the shared cap still bounds it.
+  // none) it passes: it is metered on the demo workspace like the rest of a
+  // visitor's use.
   if (limit?.allowed && limit.reason === DEMO_USAGE_REASON) {
     const runsIn = opts.workspaceId !== undefined ? opts.workspaceId : await requestWorkspace()
     if (await demoVisitorOutside(limit, runsIn)) {

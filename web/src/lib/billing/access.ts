@@ -19,7 +19,8 @@ import { isAdminEmail } from '@/lib/admin-emails'
  *     flagged in `demo_workspace` (migration 669, src/lib/demo/demo-mode.ts).
  *     No seat is granted: it lasts while they are a member there, the app
  *     keeps them inside that workspace (the dashboard layout sends them back
- *     to it), and their AI use shares that workspace's small monthly cap.
+ *     to it), and their AI use is metered on that workspace (capped only
+ *     where an admin set a cap on its flag row).
  *     A subscription or a ChatGPT plan, when present, wins.
  *
  * `subscriptions` is per USER (auth.users.id); seats are per person, so a

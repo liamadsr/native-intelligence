@@ -22,7 +22,7 @@ import { joinSettingsView } from '@/lib/workspace-join/view'
 import { sendEmail } from '@/lib/crm/email-client'
 import { requestLinkByEmail } from '@/lib/agent-links/outside'
 import { guardBackgroundUsage, guardBackgroundUsageOnPlan, isUsageAllowed } from '@/lib/inngest/usage-guard'
-import { DEMO_NOTES_SECONDS_PER_DAY, demoWorkspacesPastTheirDay } from '@/lib/team-calls/recorder'
+import { demoWorkspacesPastTheirDay } from '@/lib/team-calls/recorder'
 
 const DEMO = 'ws-demo'
 /** A client that fails the test if anything is read or written through it. */
@@ -113,30 +113,45 @@ describe('a background job, for a demo workspace’s visitor', () => {
 
 describe('how much of a demo workspace’s day of calls is heard', () => {
   const now = new Date('2026-11-18T15:00:00Z')
-  function calls(rows: Array<{ notes_seconds: number; notes_on_since: string | null }>, error: { message: string } | null = null) {
-    const seen: Array<[string, unknown]> = []
-    const q = {
-      select: () => q,
-      eq: (c: string, v: unknown) => (seen.push([c, v]), q),
-      gte: (c: string, v: unknown) => (seen.push([c, v]), q),
-      then: (r: (v: unknown) => unknown) => Promise.resolve({ data: error ? null : rows, error }).then(r),
+  const TWO_HOURS = 2 * 60 * 60
+  function service(opts: { limit: number | null; calls?: Array<{ notes_seconds: number; notes_on_since: string | null }>; flagError?: string; callsError?: string }) {
+    const seen: Array<[string, string, unknown]> = []
+    const from = (table: string) => {
+      const q = {
+        select: () => q,
+        eq: (c: string, v: unknown) => (seen.push([table, c, v]), q),
+        gte: (c: string, v: unknown) => (seen.push([table, c, v]), q),
+        maybeSingle: async () => (opts.flagError ? { data: null, error: { message: opts.flagError } } : { data: { notes_seconds_per_day: opts.limit }, error: null }),
+        then: (r: (v: unknown) => unknown) =>
+          Promise.resolve(opts.callsError ? { data: null, error: { message: opts.callsError } } : { data: opts.calls ?? [], error: null }).then(r),
+      }
+      return q
     }
-    return { svc: { from: () => q } as unknown as SupabaseClient, seen }
+    return { svc: { from } as unknown as SupabaseClient, seen }
   }
 
-  it('under the limit: every call is heard', async () => {
-    const { svc, seen } = calls([{ notes_seconds: 1800, notes_on_since: null }])
+  it('no limit by default: every call is heard, however long the day’s calls ran, and they are not even counted', async () => {
+    const { svc, seen } = service({ limit: null, calls: [{ notes_seconds: 50 * 3600, notes_on_since: null }] })
     expect(await demoWorkspacesPastTheirDay(svc, [{ workspace_id: DEMO }], now)).toEqual(new Set())
-    expect(seen).toContainEqual(['workspace_id', DEMO])
-    expect(seen).toContainEqual(['started_at', '2026-11-18T00:00:00.000Z'])
+    expect(seen.some(([table]) => table === 'team_call')).toBe(false)
   })
 
-  it('at the limit, the running stretch counted: a new call there is not heard', async () => {
-    const half = DEMO_NOTES_SECONDS_PER_DAY / 2
-    const { svc } = calls([
-      { notes_seconds: half, notes_on_since: null },
-      { notes_seconds: 0, notes_on_since: new Date(now.getTime() - half * 1000).toISOString() },
-    ])
+  it('a limit an admin set, under it: heard', async () => {
+    const { svc, seen } = service({ limit: TWO_HOURS, calls: [{ notes_seconds: 1800, notes_on_since: null }] })
+    expect(await demoWorkspacesPastTheirDay(svc, [{ workspace_id: DEMO }], now)).toEqual(new Set())
+    expect(seen).toContainEqual(['team_call', 'workspace_id', DEMO])
+    expect(seen).toContainEqual(['team_call', 'started_at', '2026-11-18T00:00:00.000Z'])
+  })
+
+  it('at that limit, the running stretch counted: a new call there is not heard', async () => {
+    const half = TWO_HOURS / 2
+    const { svc } = service({
+      limit: TWO_HOURS,
+      calls: [
+        { notes_seconds: half, notes_on_since: null },
+        { notes_seconds: 0, notes_on_since: new Date(now.getTime() - half * 1000).toISOString() },
+      ],
+    })
     expect(await demoWorkspacesPastTheirDay(svc, [{ workspace_id: DEMO }], now)).toEqual(new Set([DEMO]))
   })
 
@@ -144,9 +159,9 @@ describe('how much of a demo workspace’s day of calls is heard', () => {
     expect(await demoWorkspacesPastTheirDay(untouched, [{ workspace_id: 'ws-real' }, { workspace_id: null }], now)).toEqual(new Set())
   })
 
-  it('a failed read holds nothing back', async () => {
+  it('a failed read, of the limit or of the calls, holds nothing back', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    const { svc } = calls([], { message: 'timeout' })
-    expect(await demoWorkspacesPastTheirDay(svc, [{ workspace_id: DEMO }], now)).toEqual(new Set())
+    expect(await demoWorkspacesPastTheirDay(service({ limit: TWO_HOURS, flagError: 'timeout' }).svc, [{ workspace_id: DEMO }], now)).toEqual(new Set())
+    expect(await demoWorkspacesPastTheirDay(service({ limit: TWO_HOURS, callsError: 'timeout' }).svc, [{ workspace_id: DEMO }], now)).toEqual(new Set())
   })
 })
