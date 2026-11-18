@@ -56,6 +56,7 @@ import type { AppClient, FeedSession, Job } from './app-client.ts'
 import type { AudioKeeper, CallAudio } from './audio.ts'
 import { DeepgramStream, type SocketFactory } from './deepgram.ts'
 import { Delivery } from './delivery.ts'
+import { callHealth, voiced, type DeepgramVerdict, type FeedHealth, type ListenerHealth } from './health.ts'
 import { Keys, identityOf, mayHear, rosterEvent, segmentOf } from './speech.ts'
 
 /** Nobody but the recorder in the room this long: it leaves, so the room can close. */
@@ -109,6 +110,8 @@ interface Listener {
   /** A member's microphone: in the call's sound (a meeting guest's never is). */
   member: boolean
   reader: ReadableStreamDefaultReader<AudioFrame>
+  /** Voiced audio heard since this microphone's last words came back (./health.ts). */
+  voicedSinceWordsMs: number
 }
 
 export type CallEnd = 'told' | 'alone' | 'disconnected' | 'bound' | 'shutdown' | 'refused' | 'failed'
@@ -241,6 +244,17 @@ export class CallRecorder {
     console.info(`[recorder] call=${this.job.callId} session=${this.session.id} audio take=${opened.meta.take}`)
   }
 
+  /** Each microphone's health now: how long its socket has been down, how much speech since its last words. */
+  listenerHealth(): ListenerHealth[] {
+    return [...this.listeners.values()].map((l) => ({ downForMs: l.deepgram.health().downForMs, voicedSinceWordsMs: l.voicedSinceWordsMs }))
+  }
+
+  /** Is this call's notes being written (./health.ts)? A call that is leaving says ok: it is done. */
+  health(verdict: DeepgramVerdict | null): FeedHealth {
+    if (this.stopping) return 'ok'
+    return callHealth(this.listenerHealth(), verdict)
+  }
+
   /** Speakers being heard now (a health answer's count). */
   get speakers(): number {
     return this.listeners.size
@@ -295,11 +309,13 @@ export class CallRecorder {
     if (!pub.sid || this.listeners.has(pub.sid)) return
     const trackSid = pub.sid
     const identity = p.identity
+    let listener: Listener | null = null
     const deepgram = new DeepgramStream({
       url: this.deps.deepgramUrl,
       key: this.deps.deepgramKey,
       socket: this.deps.socket,
       onHeard: (heard) => {
+        if (listener) listener.voicedSinceWordsMs = 0
         const segment = segmentOf(heard, identity, this.startedAtMs, this.deps.keys.next(trackSid))
         if (segment) this.delivery.push({ kind: 'segment', segment })
       },
@@ -309,7 +325,7 @@ export class CallRecorder {
     })
     const reader = new AudioStream(track, { sampleRate: SAMPLE_RATE, numChannels: 1 }).getReader()
     const who = identityOf(identity)
-    const listener: Listener = { trackSid, identity, deepgram, muted: pub.muted === true, member: !!who && 'memberId' in who, reader }
+    listener = { trackSid, identity, deepgram, muted: pub.muted === true, member: !!who && 'memberId' in who, reader, voicedSinceWordsMs: 0 }
     this.listeners.set(trackSid, listener)
     void this.pump(listener)
     console.info(`[recorder] call=${this.job.callId} track=${trackSid} hearing`)
@@ -329,6 +345,7 @@ export class CallRecorder {
         }
         const durationMs = (frame.samplesPerChannel / frame.sampleRate) * 1000
         l.deepgram.write(frame.data, now - durationMs, durationMs)
+        if (voiced(frame.data)) l.voicedSinceWordsMs += durationMs
         if (l.member && frame.sampleRate === SAMPLE_RATE) this.audio?.push(l.trackSid, frame.data, now)
       }
     } catch (err) {

@@ -3,11 +3,13 @@ import { getServiceClient } from '@/lib/admin'
 import { createClient } from '@/lib/supabase/server'
 import { teamCallsConfig } from '@/lib/team-calls/livekit'
 import { teamCallFeatures } from '@/lib/team-calls/egress'
+import { newCallTakesNotes } from '@/lib/team-calls/notes'
 import { isMemberOf, lookUpMeeting } from '@/lib/meeting-links/public'
-import { firstNameOf } from '@/lib/meeting-links/shape'
+import { entryNotice, firstNameOf } from '@/lib/meeting-links/shape'
 import { hostName } from '@/lib/meeting-links/store'
 import { GuestMeeting } from '@/components/meeting-links/guest-meeting'
 import { MeetingCard } from '@/components/meeting-links/meeting-card'
+import { RefreshWhenOpen } from '@/components/meeting-links/refresh-when-open'
 
 export const dynamic = 'force-dynamic'
 
@@ -25,7 +27,8 @@ export const metadata = {
  * have made their browser open it). Anyone else gets the guest page: no app
  * around it, nothing of the workspace beyond the meeting's title and its
  * host's first name. A link that doesn't work (unknown, revoked, replaced,
- * run out) says only that; one that opens later says when. Looking a link up
+ * run out) says only that; one that opens later says when, and moves on by
+ * itself when it opens (one timer to that time). Looking a link up
  * is limited per address and per link; a member is never shut out by others'
  * tries (src/lib/meeting-links/public.ts).
  */
@@ -66,7 +69,9 @@ export default async function MeetingLinkPage({ params }: { params: Promise<{ to
         title={meeting.title}
         description={`${host ? `${host}’s meeting` : 'This meeting'} opens 15 minutes before it starts. Come back then.`}
         opensAt={meeting.opens_at}
-      />
+      >
+        <RefreshWhenOpen inMs={msUntil(meeting.opens_at)} />
+      </MeetingCard>
     )
   }
   const { data: live } = await svc
@@ -75,20 +80,30 @@ export default async function MeetingLinkPage({ params }: { params: Promise<{ to
     .eq('channel_id', meeting.channel_id)
     .eq('status', 'live')
     .maybeSingle<{ notes: boolean; recording: string }>()
+  // What the entry page says is on (the join route reads the same, so asking from this page is their go to it).
+  const features = teamCallFeatures()
+  const notesAtStart = newCallTakesNotes(features, false)
+  const shown = entryNotice(live, notesAtStart)
   return (
     <div className="min-h-dvh">
       <GuestMeeting
         token={token}
         title={meeting.title}
         host={host}
-        notes={live?.notes === true}
-        recording={live?.recording === 'on' || live?.recording === 'starting'}
-        notesOffered={teamCallFeatures().notes}
-        liveNotes={teamCallFeatures().liveNotes === true}
-        liveAgent={teamCallFeatures().liveAgent === true}
+        notes={shown.notes}
+        recording={shown.recording}
+        notesAtStart={notesAtStart}
+        notesOffered={features.notes}
+        liveNotes={features.liveNotes === true}
+        liveAgent={features.liveAgent === true}
       />
     </div>
   )
+}
+
+/** The server's own count to a time (the guest's clock never decides when a link opens). */
+function msUntil(iso: string): number {
+  return Date.parse(iso) - Date.now()
 }
 
 function Inactive() {

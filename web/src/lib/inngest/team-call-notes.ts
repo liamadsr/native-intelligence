@@ -55,7 +55,7 @@ import { LIVE_TURN_BUSY_MARGIN_SECONDS, LIVE_TURN_LEASE_SECONDS, liveTurnBusy, t
  *   Where the call recorder took the notes (src/lib/team-calls/fed-notes.ts),
  *   the same finish locks the capture that filled in live instead: no files
  *   to wait for, only the recorder's word that it delivered its last words
- *   (its `end`), checked every FED_POLL, at most FED_TAIL_CAP_MS. The same
+ *   (its `end`), checked every FED_TAIL_POLL_MS, at most FED_TAIL_CAP_MS. The same
  *   event with a captureId finishes one capture its owner closed by hand
  *   while the call went on (ended now, then its end-of-meeting pass), whether
  *   or not notes come on again into a new one.
@@ -155,9 +155,39 @@ export async function runTeamCallNotesFinish({ event, step }: NotesRunContext) {
   return { status: 'ready', captureId }
 }
 
-/** How often the finish of the recorder's notes looks for the recorder's last words (it hears of the end at its next heartbeat, then flushes and says so). */
+/** How often the finish waits for a live turn's lease between looks. */
 export const FED_POLL = '5s'
-const FED_POLL_ROUNDS = Math.ceil(FED_TAIL_CAP_MS / 5000)
+/**
+ * How often the finish of the recorder's notes looks for the recorder's last words (it hears of
+ * the end at once when the room closes, or at its next heartbeat, then flushes and says so):
+ * often, since this wait is the first thing between "End for everyone" and the finished notes.
+ */
+export const FED_TAIL_POLL_MS = 2_000
+const FED_TAIL_ROUNDS = Math.ceil(FED_TAIL_CAP_MS / FED_TAIL_POLL_MS)
+/** While a batch that outlived its request (in_flight) still runs: how often, and how long at most, the finish looks for it to be done. */
+export const BATCH_SETTLE_POLL = '20s'
+export const BATCH_SETTLE_ROUNDS = 33
+
+/** Did the capture's end-of-meeting batch finish (its finalize stamps batch_processed_at)? A failed read is "not yet". */
+export async function batchProcessed(svc: ReturnType<typeof getServiceClient>, captureId: string): Promise<boolean> {
+  const { data, error } = await svc.from('captures').select('batch_processed_at').eq('id', captureId).maybeSingle<{ batch_processed_at: string | null }>()
+  if (error) return false
+  return !!data?.batch_processed_at
+}
+
+/**
+ * A batch whose request gave up waiting (in_flight) runs on in the live agent: the steps after it
+ * (title, index, the pass marked done) wait until it is stamped done, looking every
+ * BATCH_SETTLE_POLL, at most about 11 minutes (the old fixed wait), instead of the whole 11 always.
+ */
+async function letBatchSettle(captureId: string, step: NotesRunContext['step']): Promise<boolean> {
+  for (let round = 1; round <= BATCH_SETTLE_ROUNDS; round++) {
+    await step.sleep(`let-batch-settle-${round}`, BATCH_SETTLE_POLL)
+    if (await step.run(`batch-settled-${round}`, () => batchProcessed(getServiceClient(), captureId))) return true
+  }
+  console.warn(`[team-call-notes] capture=${captureId} batch still not stamped done after ${BATCH_SETTLE_ROUNDS} looks; going on`)
+  return false
+}
 
 /**
  * The recorder's notes, once the call ended: wait until every producer that
@@ -172,8 +202,8 @@ async function runFedNotesFinish(callId: string, fed: FedNotesStatus, step: Note
   if (fed.notesState === 'ready' || fed.notesState === 'silent') return { status: 'skipped', reason: fed.notesState }
   // The recorder's last words: until every producer still hearing the call says it delivered them.
   let waiting = fed.undelivered
-  for (let round = 1; round <= FED_POLL_ROUNDS && waiting > 0; round++) {
-    await step.sleep(`feed-tail-${round}`, FED_POLL)
+  for (let round = 1; round <= FED_TAIL_ROUNDS && waiting > 0; round++) {
+    await step.sleep(`feed-tail-${round}`, `${FED_TAIL_POLL_MS / 1000}s`)
     waiting = ((await step.run(`feed-look-${round}`, () => fedNotesStatus(getServiceClient(), callId))) as FedNotesStatus).undelivered
   }
   if (waiting > 0) console.warn(`[team-call-notes] call=${callId} locking with ${waiting} feed(s) that never said they were done`)
@@ -183,7 +213,7 @@ async function runFedNotesFinish(callId: string, fed: FedNotesStatus, step: Note
   let batch: unknown = 'none'
   if (written.spoke) {
     batch = await runCallBatch(captureId, { workspaceId, ownerId: ownerUserId }, step)
-    if (batch === 'in_flight') await step.sleep('let-batch-settle', '11m')
+    if (batch === 'in_flight') await letBatchSettle(captureId, step)
   }
   await step.run('post-extraction', () => postExtraction(getServiceClient(), { captureId, workspaceId, ownerId: ownerUserId, captureProcessed: !written.spoke }))
   await step.run('pass-done', () => markPassDone(getServiceClient(), captureId))
@@ -288,7 +318,7 @@ async function runClosedCaptureFinish(callId: string, captureId: string, step: N
   let batch: unknown = 'none'
   if (finished.spoke) {
     batch = await runCallBatch(captureId, { workspaceId, ownerId: ownerUserId }, step)
-    if (batch === 'in_flight') await step.sleep('let-batch-settle', '11m')
+    if (batch === 'in_flight') await letBatchSettle(captureId, step)
   }
   await step.run('post-extraction', () => postExtraction(getServiceClient(), { captureId, workspaceId, ownerId: ownerUserId, captureProcessed: !finished.spoke }))
   await step.run('pass-done', () => markPassDone(getServiceClient(), captureId))

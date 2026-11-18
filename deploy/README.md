@@ -124,14 +124,28 @@ APT::Periodic::Unattended-Upgrade "1";
 EOF
 ```
 
-Kernel fixes only take effect after a reboot, so let the server reboot itself when one is pending, at a quiet hour. The time is the server's clock, which is UTC: keep 08:37 or pick the hour that is the middle of the night for the people who use the product (step 12 schedules a job two hours after it). Keep it off the hour and the half hour: that is when scheduled jobs fire, and a reboot at that very second makes the ones that start a few seconds later skip a turn. The containers come back by themselves (step 6 makes Docker start at boot, and every service has a restart policy).
+Kernel fixes only take effect after a reboot, so the server reboots itself when one is pending, at a quiet hour, **and not while a call is live**. Unattended upgrades do not reboot by themselves here; a timer of ours does, at 08:37 UTC: [`server/reboot_when_quiet.py`](server/reboot_when_quiet.py), installed as `/usr/local/sbin/ni-reboot-when-quiet`. When `/var/run/reboot-required` says a reboot is pending, it asks this server's LiveKit (step 23) whether any room has someone in it; if so, or while packages are still being installed, it waits and looks again every 5 minutes, and reboots as soon as nobody is in a call. It never waits more than 6 hours (so by 14:37 UTC at the latest): then it reboots anyway, so that the updates land the same day. When LiveKit runs but cannot be asked, that counts as a live call (it waits, up to the same limit): a check that failed because a busy LiveKit was slow must not cut the calls it protects, and waiting costs at most the update a few hours later. When LiveKit does not run at all (the sandbox server, or before step 23), there is nothing to cut and it reboots at 08:37 as before. The reboot itself takes about 3 minutes; the containers come back by themselves (step 6 makes Docker start at boot, and every service has a restart policy).
+
+The time is the server's clock, which is UTC: keep 08:37 or pick the hour that is the middle of the night for the people who use the product (step 12 schedules a job two hours after it; a reboot held by a call may now come later than that job, which step 12 already survives). Keep it off the hour and the half hour: that is when scheduled jobs fire, and a reboot at that very second makes the ones that start a few seconds later skip a turn.
+
+[`server/setup.sh`](server/setup.sh) does all of what follows (`--reboot-time` changes the time). By hand, once the checkout of step 7 is there:
 
 ```bash
 sudo tee /etc/apt/apt.conf.d/52ni-unattended-upgrades >/dev/null <<'EOF'
-Unattended-Upgrade::Automatic-Reboot "true";
-Unattended-Upgrade::Automatic-Reboot-Time "08:37";
+// Managed by deploy/server/setup.sh. The reboot is ni-reboot-when-quiet.timer's.
+Unattended-Upgrade::Automatic-Reboot "false";
 EOF
 ```
+
+```bash
+sudo install -m 755 -o root -g root /opt/native-intelligence/deploy/server/reboot_when_quiet.py /usr/local/sbin/ni-reboot-when-quiet
+```
+
+Then the two units, exactly as `setup.sh` writes them (`ni-reboot-when-quiet.service` and `.timer` in `/etc/systemd/system`), and `sudo systemctl daemon-reload && sudo systemctl enable --now ni-reboot-when-quiet.timer`. On a server that used the earlier setting (`Automatic-Reboot "true"`), a reboot unattended upgrades already scheduled for today is cancelled with `sudo shutdown -c` (`setup.sh` does it when there is one).
+
+To see it: `systemctl list-timers ni-reboot-when-quiet.timer` (the next run), `journalctl -u ni-reboot-when-quiet` (each look, and why it waited), and, at any time, `sudo ni-reboot-when-quiet --check`, which asks LiveKit the same question and reboots nothing (exit 0 quiet, 1 a call is live, 2 cannot tell). **The way back** to the earlier behaviour: `sudo systemctl disable --now ni-reboot-when-quiet.timer`, then the earlier two lines in `52ni-unattended-upgrades` (`Automatic-Reboot "true"`, `Automatic-Reboot-Time "08:37"`).
+
+A copy is installed rather than the checkout's file run: root runs it, and a `git pull` alone should not change what root runs. After a change to `reboot_when_quiet.py`, run `setup.sh` again (or the `install` line above).
 
 Check that it would run. The last lines should list the allowed origins and no error.
 
@@ -143,7 +157,7 @@ This covers Ubuntu's own packages. Docker is upgraded by hand (`sudo apt-get ins
 
 ## 5. Firewall
 
-Only SSH, 80 and 443 come in, and the two media ports of calls (step 23 says why those two).
+Only SSH, 80 and 443 come in, and the two media ports of calls (step 23 says why those two). The `443` rule is for every address of the server: once the server has a second address for TURN over TLS (step 23, "TURN over TLS on 443"), it covers that too, and no other line is needed.
 
 ```bash
 sudo ufw default deny incoming
@@ -181,7 +195,7 @@ sudo ufw enable
 sudo ufw status verbose
 ```
 
-**One rule that the firewall cannot enforce for you.** A port published by a Docker container (`ports:` in a compose file) is reachable from the internet whatever ufw says, because Docker writes its own firewall rules ahead of ufw's. Caddy publishes 80 and 443 for everything that is HTTP. The one other container that publishes ports is LiveKit, and only its two media ports (UDP 7882 and TCP 7881): the media of a call is not HTTP, so it cannot go through Caddy, and goes straight to LiveKit, encrypted between the browser and LiveKit (DTLS-SRTP). Its signalling and its API do go through Caddy. Never add `ports:` to anything else in this folder. To reach a service from your own machine, use an SSH tunnel as in step 10.
+**One rule that the firewall cannot enforce for you.** A port published by a Docker container (`ports:` in a compose file) is reachable from the internet whatever ufw says, because Docker writes its own firewall rules ahead of ufw's. Caddy publishes 80 and 443 for everything that is HTTP. The one other stack that publishes ports is LiveKit's, and only for media: its two media ports (UDP 7882 and TCP 7881), and, once set up, TURN over TLS on port 443 of the server's second address (its TLS terminator, `ni-livekit-turn-tls`; Caddy's 443 is then on the first address only). The media of a call is not HTTP, so it cannot go through Caddy, and goes straight to LiveKit, encrypted between the browser and LiveKit (DTLS-SRTP). Its signalling and its API do go through Caddy. Never add `ports:` to anything else in this folder. To reach a service from your own machine, use an SSH tunnel as in step 10.
 
 ## 6. Docker
 
@@ -1213,20 +1227,26 @@ A later change to `livekit/` holds the automatic deploys in the same way (read i
 | LiveKit's webhooks to the app | Out to the app's public name, and back in through Caddy like any other caller's request | TCP 443 |
 | The media itself, over UDP: the normal path | Straight to LiveKit, every call on one port | UDP 7882 |
 | The same media over TCP, when the network blocks UDP | Straight to LiveKit | TCP 7881 |
+| The same media relayed over TURN over TLS, when the network lets out nothing but 443 (once [set up](#turn-over-tls-on-443-off-until-set-up)) | To LiveKit's TLS terminator on the server's **second** address, then to LiveKit's TURN server, which hands it to the media port | TCP 443 on the second address |
 
-The media cannot go through Caddy: it is not HTTP. It is encrypted between each browser and LiveKit (DTLS-SRTP), so these two ports carry nothing readable. They are the one exception to "only Caddy publishes ports" (step 5). LiveKit tries UDP first and falls back to TCP by itself.
+The media cannot go through Caddy: it is not HTTP. It is encrypted between each browser and LiveKit (DTLS-SRTP), so these ports carry nothing readable, the TURN relay included (it carries the same encrypted packets inside its own TLS). They are the one exception to "only Caddy publishes ports" (step 5). LiveKit tries UDP first and falls back to TCP by itself; with TURN on, every browser also gets the TURN server's name and credentials in its join (made by LiveKit from the API key, for that participant, good for 5 minutes to start a relay), and uses the relay when nothing else connects. The apps need no change for it: none of them sets ICE servers of its own.
 
-**What is left out, and who that leaves out.** LiveKit has a TURN server built in, and it stays off:
-
-- TURN over UDP (3478) adds almost nothing here: a network that lets UDP out to 3478 nearly always lets it out to 7882 too, and this server has a public address of its own, so there is no NAT on its side to get around.
-- TURN over TLS would have to be on port 443 to help the networks it is for, and 443 on this server's one address is Caddy's. LiveKit can share it only behind something that routes by name before TLS ends (below).
-
-So, with UDP 7882 and TCP 7881:
+**Who can call.** With UDP 7882 and TCP 7881 alone (today, until TURN is set up):
 
 - **Can call:** any network that lets UDP out (homes, mobile data, most offices), and any network that blocks UDP but lets TCP out to ports other than 80 and 443.
 - **Cannot call:** networks that let out only TCP 80 and 443 (strict company firewalls, some hotel, airport, school and guest Wi-Fi), and networks that send everything through a company's web proxy. People on them get as far as joining (that is HTTPS on 443) and then have no sound or picture, and the app sees the connection fail.
 
-Covering them later means TURN over TLS on port 443, by one of: a **second IP address** on the server, with LiveKit's TURN (`turn.enabled`, `tls_port: 443`) on that address and Caddy on the first, and a DNS name for it; or **layer-4 routing** in front of Caddy on the one address (a TLS router such as Caddy built with its layer-4 module, or HAProxy, sending one name, say `turn.nativeintelligence.dev`, to LiveKit's TURN with `external_tls` and the PROXY protocol, and everything else to Caddy as today); or a TURN service bought from someone else, named in LiveKit's `rtc.turn_servers`. Each is a change to this step, not to the app.
+With TURN over TLS on 443 set up, the second group can call too, as on Teams, Zoom or Meet, which fall back the same way: the relay is a TLS connection to port 443, which such a firewall lets through like any HTTPS site. Through an explicit web proxy, Chrome and Edge send it as a `CONNECT turn.nativeintelligence.dev:443`, like an HTTPS page. **Still left out:** a proxy or firewall that opens every TLS connection to inspect it (it finds TURN inside, not HTTP, and may cut it), one that allows only an approved list of sites, and one that refuses `CONNECT` to a name it does not know. Those are rare outside banks and governments, and the products above need an exception there too. None of this has been proven from a real 443-only network yet: [the proof](#turn-over-tls-on-443-off-until-set-up) below is that test.
+
+**What was chosen for TURN, and why.** LiveKit's own TURN server (`turn:` in `livekit/compose.yaml`), over TLS on port 443 of a **second public address** of this server, with a DNS name of its own (`turn.nativeintelligence.dev`) pointing there; Caddy keeps 443 on the first address. Against the other two ways:
+
+- **Layer-4 routing on the one address** (something before Caddy reading the name a TLS connection asks for and sending `turn.` to LiveKit, everything else to Caddy) needs no new address, but puts a new piece in front of every public name, the app's included: Caddy built with a module it does not ship with, or HAProxy, and Caddy then behind it with the PROXY protocol for every site. A fault there takes the whole product down; a fault in the second-address design takes down only the relay.
+- **A TURN service bought from someone else** (in `rtc.turn_servers`) needs no change here but a contract and a key, sends every relayed call through a third party, and bills by the gigabyte. It stays the fallback if the second address cannot be had.
+
+Two details of the chosen way:
+
+- **The TLS is ended by a small terminator, not by LiveKit.** LiveKit reads a TURN certificate once, when it starts: every renewal would mean restarting it, which ends every call. So `turn-tls` (nginx's stream module, in [`livekit/compose.turn.yaml`](livekit/compose.turn.yaml)) holds `<second address>:443`, ends the TLS with the certificate Caddy obtains and renews for the name, reads that certificate at each new connection (so a renewal is picked up by the next connection, with no reload and nothing cut), and hands the stream to LiveKit's TURN listener (`ni-livekit:5349`, plain TCP, published nowhere; `external_tls` in LiveKit's terms) with the client's real address in front (the PROXY protocol, which LiveKit requires on that listener and believes only from private addresses). The certificate comes from Caddy's own volume, that one name's folder, mounted read-only; Caddy has a site for the name only to keep its certificate (`edge/Caddyfile`), asks Let's Encrypt alone (so the folder never changes) and answers its challenge on port 80, which stays Caddy's on every address.
+- **No TURN over UDP.** LiveKit offers TURN over UDP only at the node's own address and the port it listens on: on this server that would be the first address, where UDP 7882 already reaches everyone TURN over UDP would. (UDP 443 there would help a network that lets QUIC out and nothing else, but would take the UDP half of Caddy's 443, which HTTP/3 would need. Left out.)
 
 **Its own networks, not `ni-edge`.** LiveKit faces the internet directly on its media ports, so it is kept away from the other stacks' doors. It is on two networks: `ni-livekit`, with its Redis and no route out, and `ni-livekit-edge`, shared with Caddy and nothing else, the way the Supabase gateway has `ni-supabase-edge` (step 7). It is not on `ni-edge`, where it could reach Inngest's dashboard (no login) and the app's own proxy (which trusts the forwarded headers of any private address, because only Caddy is meant to call it). For the same reason its webhooks do not go to the app's proxy by its Docker name: they go to the app's public name and come back in through Caddy, like any other caller's. `ni-livekit-edge` is an ordinary bridge with a way out, which LiveKit needs for that and for the STUN request below.
 
@@ -1332,7 +1352,7 @@ After about half a minute both (`ni-livekit`, `ni-livekit-redis`) must say `heal
 sudo docker compose logs livekit | grep -m1 -o '"nodeIP": "[^"]*"'
 ```
 
-If it prints another address, put the right one in `LIVEKIT_NODE_IP` in `.env` and `sudo docker compose up -d` again. And what is published: this must print Caddy's two ports and LiveKit's two, nothing else.
+If it prints another address, put the right one in `LIVEKIT_NODE_IP` in `.env` and `sudo docker compose up -d` again. And what is published: this must print Caddy's two ports and LiveKit's two, nothing else (once TURN over TLS is set up, also `ni-livekit-turn-tls` on `<second address>:443`, below).
 
 ```bash
 sudo docker ps --format '{{.Names}}  {{.Ports}}' | grep -E '0\.0\.0\.0|\[::\]'
@@ -1391,6 +1411,7 @@ sudo ./test-token.sh phone
   ```
 
   Join with a third token (`sudo ./test-token.sh tcp`): sound and picture must work, and `chrome://webrtc-internals` in that window must show the pair as `tcp`, to port `7881`. Close that window and delete `~/.lk-tcp-test` afterwards.
+- **Port 443 only.** Once TURN over TLS is set up: [its proof](#turn-over-tls-on-443-off-until-set-up), part T7, blocks everything but 443 on your own machine and joins a call through the relay.
 - **Webhooks.** `sudo docker compose logs --tail 50 livekit | grep 'sent webhook'` in `livekit/` lists each one LiveKit sent during the call, with its event and the address. LiveKit does not log the answer, so check separately that the address answers from LiveKit's own container, out and back in through Caddy. Put in the address `make-keys.sh` wrote (`LIVEKIT_WEBHOOK_URL`); this prints the first answer's status line only, so a redirect shows as itself and is not followed:
 
   ```bash
@@ -1406,6 +1427,148 @@ cd /opt/native-intelligence/deploy/livekit && sudo docker compose down
 ```
 
 Then take `LIVEKIT_HOST` and `:compose.livekit.yaml` out of `edge/.env` (check and `up -d` as in part 6), and, if they should not stay, the network (`sudo docker network rm ni-livekit-edge`, once Caddy has left it), the two ufw rules (`sudo ufw delete allow 7882/udp`, `sudo ufw delete allow 7881/tcp`) and the DNS record. The three settings in `app/.env` may stay; with LiveKit gone, the settings check says `cannot tell` for them. There is no data to lose or bring back.
+
+### TURN over TLS on 443 (off until set up)
+
+For people on networks that let out nothing but 443, or only through a web proxy ("Who can call" above, with why it is built this way). It needs a second public IPv4 address on this server, a DNS name pointing at it, and two settings files; nothing in the app changes. Until the settings are filled in, nothing of it runs: `EDGE_PUBLIC_IP` and `LIVEKIT_TURN_HOST` empty leave Caddy as it was, and `compose.turn.yaml` not named with `LIVEKIT_TURN_DOMAIN` empty leave LiveKit as it was. The names below use `turn.nativeintelligence.dev`; `<first address>` is the server's address today (every other name points at it), `<second address>` the new one.
+
+In this order. What each step interrupts is said in it: only T5 (a few seconds of every public name) and T6 (every call in progress ends) interrupt anything.
+
+**T1. The second address** (the owner, at the host: an additional IPv4 address routed to this server). Interrupts nothing.
+
+**T2. On the server's network interface**, so that it survives a reboot. The host's own guide for additional addresses comes first; with netplan (Ubuntu's own) it is one more file. The interface's name is the one `ip -4 route show default` prints after `dev`, and the key under `ethernets:` must be the same as in the provider's file (`sudo cat /etc/netplan/50-cloud-init.yaml`):
+
+```bash
+sudo tee /etc/netplan/60-ni-second-address.yaml >/dev/null <<'EOF'
+network:
+  version: 2
+  ethernets:
+    <interface>:
+      addresses:
+        - <second address>/32
+EOF
+```
+
+```bash
+sudo chmod 600 /etc/netplan/60-ni-second-address.yaml && sudo netplan try
+```
+
+`netplan try` applies it and goes back by itself after two minutes unless you press Enter, so a mistake cannot lock you out. Adding an address does not normally drop anything; do it at a quiet moment all the same. Then `ip -4 addr show` must list both addresses, and `ip -4 route get 1.1.1.1` must still say `src <first address>`: the server's own traffic leaves from the first, so LiveKit's `nodeIP` (part 5) does not change.
+
+**T3. The DNS record** (the owner of the domain). Interrupts nothing.
+
+| Name | Type | Value |
+| --- | --- | --- |
+| `turn.nativeintelligence.dev` | A | `<second address>` |
+
+```bash
+dig +short turn.nativeintelligence.dev
+```
+
+It must print `<second address>` before T5, or Caddy cannot get the name's certificate.
+
+**T4. The files.** `cd /opt/native-intelligence && git pull`, as the checkout's owner. With the settings empty, nothing changes; validate the edge's file all the same, since Caddy reads it at its next start (in `edge/`: `sudo docker compose run --rm --no-deps -T caddy caddy validate --config /etc/caddy/Caddyfile`). With the automatic deploys on, the change to `edge/` and `livekit/` holds them until someone has read it (`sudo ./auto-deploy.sh acknowledge <commit>` in `app/`), as in the part on merging above. The reboot timer that waits for calls (step 4) comes with `sudo ./setup.sh` in `server/`, or by hand as step 4 says; with it, `sudo ni-reboot-when-quiet --check` tells whether a call is live, which T6 uses.
+
+**T5. Caddy on the first address, and the name's certificate.** In `/opt/native-intelligence/deploy/edge/.env` (the two lines are in `.env.example`; add them if the file has none):
+
+```text
+EDGE_PUBLIC_IP=<first address>
+LIVEKIT_TURN_HOST=turn.nativeintelligence.dev
+```
+
+Check, then replace Caddy. This interrupts every public name for a few seconds (as part 6 did), and every call's signalling reconnects by itself; the media keeps flowing. Pick a quiet moment.
+
+```bash
+cd /opt/native-intelligence/deploy/edge && sudo docker compose run --rm --no-deps -T caddy caddy validate --config /etc/caddy/Caddyfile
+```
+
+```bash
+sudo docker compose up -d
+```
+
+Then: Caddy's 443 is on the first address only (this must print `<first address>:443->443/tcp`, and `80` on `0.0.0.0` and `[::]`), the name's certificate is there, and the app answers as before (from your own machine, `curl -sI https://nativeintelligence.dev | head -1`):
+
+```bash
+sudo docker ps --filter name=ni-edge-caddy --format '{{.Ports}}'
+```
+
+```bash
+sudo docker compose exec caddy ls /data/caddy/certificates/acme-v02.api.letsencrypt.org-directory/turn.nativeintelligence.dev
+```
+
+The second must list `turn.nativeintelligence.dev.crt`, `.key` and `.json`, within a minute or so (`sudo docker compose logs caddy | grep turn.nativeintelligence.dev` says why not: usually the DNS record, or port 80 on the second address not reaching the server, which T2 is for). Caddy renews it by itself about a month before it runs out, over port 80 again.
+
+**T6. LiveKit's TURN server and its TLS terminator.** In `/opt/native-intelligence/deploy/livekit/.env` (the three lines are in `.env.example`; copy them in if the file has none). If `COMPOSE_PROFILES` is set for Egress or the recorder, it stays as it is beside these.
+
+```text
+COMPOSE_FILE=compose.yaml:compose.turn.yaml
+LIVEKIT_TURN_DOMAIN=turn.nativeintelligence.dev
+LIVEKIT_TURN_IP=<second address>
+```
+
+The terminator mounts one folder of Caddy's volume, which needs Docker Engine 26 or later (`sudo docker version -f '{{.Server.Version}}'`). Check the files, fetch its image and check its configuration, none of which touches the running LiveKit:
+
+```bash
+cd /opt/native-intelligence/deploy/livekit && sudo docker compose config --quiet && sudo docker compose pull turn-tls
+```
+
+```bash
+sudo docker compose run --rm --no-deps --entrypoint nginx turn-tls -t -c /etc/nginx/turn.conf
+```
+
+Then start it. **This recreates LiveKit: every call in progress ends** (people rejoin). So first make sure nobody is in one, `sudo ni-reboot-when-quiet --check` (it must say no call is live), then:
+
+```bash
+sudo docker compose up -d
+```
+
+```bash
+sudo docker compose ps
+```
+
+`ni-livekit`, `ni-livekit-redis` and `ni-livekit-turn-tls` must say `healthy`. LiveKit's log must show its TURN server, and `nodeIP` must still be the first address:
+
+```bash
+sudo docker compose logs livekit | grep -m1 'Starting TURN server'
+```
+
+It shows `"turn.portTLS": 5349, "turn.externalTLS": true, "turn.proxyProtocol": true`. From your own machine, the certificate on the second address (the name, and an end date about three months away):
+
+```bash
+openssl s_client -connect turn.nativeintelligence.dev:443 -servername turn.nativeintelligence.dev </dev/null 2>/dev/null | openssl x509 -noout -subject -enddate
+```
+
+**T7. The proof: a call over port 443 alone.** Three tests, the last the one that matters for a guest on a company network.
+
+- **The relay, on its own.** LiveKit's connection test (part 8), with a fresh token (`sudo ./test-token.sh relay`): its TURN line, which connects with nothing but the relay, must pass.
+- **Everything but 443 blocked, on your Mac.** This blocks, on your Mac only, all UDP to the server's first address and TCP to its port 7881, which leaves exactly what a 443-only network leaves: TCP 443 to the first address (signalling) and to the second (the relay). It uses the Mac's own firewall (pf), in an anchor of its own, and is undone below:
+
+  ```bash
+  printf 'block drop out quick proto udp to <first address>\nblock drop out quick proto tcp to <first address> port 7881\n' | sudo pfctl -a com.apple/ni-443-only -f -
+  ```
+
+  ```bash
+  sudo pfctl -E
+  ```
+
+  It prints a `Token`: keep it for the undo. Join `meet.livekit.io` ("Custom", `wss://livekit.nativeintelligence.dev` and a token from `sudo ./test-token.sh only443`), with the phone on mobile data in the same room (part 8). Sound and picture must work both ways. In `chrome://webrtc-internals`, the selected candidate pair's local candidate must be of type `relay`, with `relayProtocol` `tls` and the URL `turns:turn.nativeintelligence.dev:443?transport=tcp`, and its remote one `<first address>`, port `7882` (the relay hands the media to LiveKit inside the server, over UDP). On the server, once you have hung up, `sudo docker compose logs --tail 20 turn-tls` in `livekit/` has a line for each TURN connection that ended: your own public address, `200`, `TLSv1.3`, how long, and how many bytes each way (megabytes for a call with video). Then the undo, with the token:
+
+  ```bash
+  sudo pfctl -a com.apple/ni-443-only -F all && sudo pfctl -X <token>
+  ```
+
+  Before T6, or with LiveKit's TURN off, the same test joins and then has no sound or picture: that is the case this fixes, and trying it once shows the block works.
+- **A real company network**, before relying on it with a guest: a laptop on a guest or company Wi-Fi known to block everything but 443, or behind its web proxy, in a call with someone outside. The same two checks (sound and picture; `relay` and `tls` in `chrome://webrtc-internals`).
+
+**How it is used, day to day.** Nothing to do. Caddy renews the certificate and the terminator picks it up at the next connection. Restarting LiveKit (an upgrade, a `.env` change) ends calls as before; the terminator finds the new LiveKit by itself. A move to another server ([`move/`](move)) carries `livekit/.env` with these lines: the new server needs its own second address and the DNS record moved, or the three lines emptied there (the way back below).
+
+**The way back.** In `livekit/.env`, comment the `COMPOSE_FILE` line out and empty `LIVEKIT_TURN_DOMAIN` and `LIVEKIT_TURN_IP`, then, in `livekit/` (this recreates LiveKit: every call in progress ends; `--remove-orphans` removes the terminator, which no named file describes any more):
+
+```bash
+sudo docker compose up -d --remove-orphans
+```
+
+Then, in `edge/.env`, empty `EDGE_PUBLIC_IP` and `LIVEKIT_TURN_HOST`, validate and `sudo docker compose up -d` in `edge/` as in T5 (a few seconds of every name): Caddy is back on every address. The DNS record, the netplan file and the second address can stay or go; with nothing listening on the second address's 443, they do nothing. Caddy's copy of the certificate stays in its volume, unused, until it runs out.
 
 ### Egress: recordings and call notes (off until asked for)
 
@@ -1648,6 +1811,8 @@ Run these from the stack's own folder. The Supabase stack has its own commands (
 | Patch Postgres, Redis, Caddy | `sudo docker compose pull && sudo docker compose up -d` (they follow `17`, `7` and `2.11`) |
 | Upgrade LiveKit | Read the [release notes](https://github.com/livekit/livekit/releases), change the image tag in `livekit/compose.yaml`, then `sudo docker compose pull livekit && sudo docker compose up -d livekit` in `livekit/`. Calls in progress end; people join again. Egress the same way ([its notes](https://github.com/livekit/egress/releases), service `egress`); it finishes its recordings first. |
 | Take a change to the call recorder (`recorder/`) | After `git pull` (the checkout must have `recorder` in its sparse list: R3), in `livekit/` (with its profile on in `.env`): `sudo docker build -t ni-recorder:local ../../recorder`, then `sudo docker compose up -d --no-build recorder` (not `--build`: see R3). The old process delivers its calls' last words and leaves; the new one takes the calls up within seconds (what was said in between is not in the notes). |
+| See whether a call is live (before anything that restarts LiveKit) | `sudo ni-reboot-when-quiet --check` (step 4) |
+| See whether today's reboot waited for a call | `journalctl -u ni-reboot-when-quiet --since today` |
 | Ship the app | In `app/`: `git pull` in the checkout as its owner, then `sudo ./deploy.sh` ([`app/README.md`](app/README.md#deploysh)) |
 | Go back to the app's previous image | `sudo ./deploy.sh --rollback` in `app/` |
 | Automatic deploys of `main` (off unless switched on) | `sudo ./auto-deploy.sh status` in `app/` says what serves and what holds them; `on`, `off` and the rest in [`app/README.md`](app/README.md#automatic-deploys). While they deploy, `deploy.sh` by hand stops at once (one deploy at a time). |
@@ -1846,6 +2011,8 @@ Tested, on a throwaway Docker host with the real images (Inngest v1.51.0, Postgr
 - The SSH drop-in against Ubuntu 24.04's sshd, the apt snippets and `daemon.json` (parsed by their own tools).
 - The whole stack killed without warning (the test machine restarted): every container came back by itself with its data, and the next function ran.
 
+The reboot that waits for calls (step 4, added 2026-11-17) was tested off the server, with `server/tests` (19 checks; `.github/workflows/deploy-scripts.yml` runs that folder, `edge/tests` and `livekit/tests` on a pull request, where the Caddyfile is loaded by Caddy's own image and LiveKit, as pinned, is started with the TURN settings empty and set): a stand-in LiveKit that checks the token as LiveKit does and answers ListRooms (rooms with people are calls, empty rooms are not, a refused or failing or silent LiveKit is "cannot tell", no container or a stopped one is no call); the run with a stand-in clock (nothing pending, quiet, a call that ends after ten minutes, "cannot tell", packages being installed, a call that never ends: rebooted at 6 hours); dpkg's lock held by another process; and what `setup.sh` writes. Not tried: the timer and the reboot on a real machine, the host reaching LiveKit's container address, and the first morning a call holds a reboot (`journalctl -u ni-reboot-when-quiet` shows it).
+
 **Not tested, because there is no server yet:**
 
 - Steps 2 to 7 as a whole on a real machine: the provider's image, `ufw`, the reboot after upgrades, Docker's install from its repository, the `sysctl` line, and `sudo nano` on the `.env` files as the `deploy` user.
@@ -1963,7 +2130,15 @@ Tested on a Mac, 2026-11-11, without Docker (Docker was not running there), with
 - **Discovery from `ni-livekit-edge`** on the server, and the server's own address in the `nodeIP` line: part 5 checks it.
 - **From outside**: a real network, UDP and TCP through Docker's published ports, the certificate for the name, a phone on mobile data. Part 8 is that test.
 - **Webhooks to the app's public name** from LiveKit's container, out and back in through Caddy: the address exists only on the server, and the app has no route for it yet. Part 8's `wget` is the check.
-- **Networks that allow only 443**: not covered by design (above).
+- **Networks that allow only 443**: covered since by TURN over TLS on 443, off until set up; what of it was and was not tried is below.
+
+TURN over TLS on 443 (added 2026-11-17) was written without a server, without Docker running and without LiveKit's binary or Caddy on the machine it was written on. What was checked:
+
+- **LiveKit's side, read in its source at the tag the image is built from** (v1.13.11, `pkg/config/config.go`, `pkg/service/turn.go`, `turnrelay.go`, `roommanager.go`), rather than from memory: the option names (`turn.enabled`, `domain`, `tls_port`, `external_tls`, `proxy_protocol`, `proxy_protocol_trusted_cidrs`); that with `external_tls` LiveKit loads no certificate, and without it loads one only at start (hence the terminator); that the PROXY header is required on that listener and believed only from the listed addresses (loopback alone by default, which is why the private ranges are listed); that every participant's join carries `turns:<domain>:443?transport=tcp` with credentials made from the API key, whatever `tls_port` is inside; that TURN over UDP is offered only at the node's address and its own port (hence none); that relays from the embedded server to the node's own address may reach only the media ports, which is where they go. None of the apps sets ICE servers of its own (searched in `web/src`, `ios`, `desktop/src`, `recorder/src`).
+- **Caddy's side, read in its source** (v2.11.0, `httpcaddyfile/tlsapp.go`, `httptype.go`, `builtins.go`): a site that is all `http://` gets no automation policy, so the unset `http://turn.invalid` asks nothing of any CA, and a `tls` block holding only an issuer adds no connection policy, so it does not make an `http://` site refuse to load.
+- **The compose files rendered** (`docker compose config`, Compose 5.6): `livekit/` with the TURN lines empty (LiveKit's `turn:` values empty, which it reads as off, no terminator, LiveKit's two ports only), set (the values above, the terminator on `<second address>:443` only, Caddy's volume mounted at the name's folder, read-only), and with the overlay named but a setting missing (stops, naming it); `edge/` with `EDGE_PUBLIC_IP` unset, empty (both exactly as before: no address on either port) and set (443 on that address, 80 everywhere). These are tests now, beside the edge's: `livekit/tests`, `edge/tests`.
+
+**Not tried, and only the server and a real network can:** `caddy validate` on the new block (no Caddy where it was written: T4 runs it first, before anything restarts); nginx loading `turn.conf` (`nginx -t` in T6) and reading the certificate at each connection from the mounted folder; Caddy obtaining the name's certificate over port 80 on the second address; Docker publishing on one address of two, and the volume's subpath (Engine 26 or later); LiveKit starting with these values, its TURN server taking the PROXY header from the terminator, and the relayed media reaching its UDP port from inside its own container (out through Docker's published port and back, as the app's own calls to its public name do); a call with sound and picture through all of it; a renewal picked up with nothing cut; and any real company network or web proxy. T6 and T7 are those tests, in that order.
 
 Egress (added later the same day) could not be run at all off the server: it is a Linux image with GStreamer, PulseAudio and Chrome. What was checked instead:
 

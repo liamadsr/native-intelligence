@@ -57,6 +57,23 @@ describe('the members’ live notes', () => {
     expect(host.textContent).toContain('The next update catches up')
     expect(host.textContent).toContain('The pilot starts Monday.')
   })
+
+  it('the call’s words not being written: one plain line saying why, the summary still there; gone once they are', () => {
+    act(() => root.render(<CallLiveNotesView notes={{ summary: '', state: null, feed: 'refused' }} now={NOW} />))
+    const line = host.querySelector('[data-team-call-notes-health]')!
+    expect(line.getAttribute('role')).toBe('status')
+    expect(line.textContent).toBe('Notes aren’t being written right now: the transcription service refused our key.')
+    act(() => root.render(<CallLiveNotesView notes={{ summary: SUMMARY, state: { phase: 'ready', at: '2026-11-13T14:58:00Z', reason: null }, feed: 'no_words' }} now={NOW} />))
+    expect(host.querySelector('[data-team-call-notes-health]')!.textContent).toMatch(/no words are coming back/)
+    expect(host.textContent).toContain('The pilot starts Monday.')
+    act(() => root.render(<CallLiveNotesView notes={{ summary: SUMMARY, state: { phase: 'ready', at: '2026-11-13T14:58:00Z', reason: null }, feed: null }} now={NOW} />))
+    expect(host.querySelector('[data-team-call-notes-health]')).toBeNull()
+  })
+
+  it('the live summary stopped: why, in plain words', () => {
+    act(() => root.render(<CallLiveNotesView notes={{ summary: SUMMARY, state: { phase: 'stopped', at: null, reason: 'usage' } }} now={NOW} />))
+    expect(host.querySelector('[data-team-call-live-notes-status]')!.textContent).toBe('The live summary stopped: the host’s plan has run out of AI usage.')
+  })
 })
 
 describe('a guest’s view', () => {

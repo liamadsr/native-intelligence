@@ -1,0 +1,145 @@
+# TURN over TLS on port 443, for networks that let out nothing but 443 (strict
+# company firewalls, some guest Wi-Fi) or only through a web proxy (../README.md
+# step 23, "TURN over TLS on 443"). Added to compose.yaml by naming it in COMPOSE_FILE
+# in .env, with the two settings it needs:
+#
+#   COMPOSE_FILE=compose.yaml:compose.turn.yaml
+#   LIVEKIT_TURN_DOMAIN=turn.nativeintelligence.dev
+#   LIVEKIT_TURN_IP=<the server's second public IPv4 address>
+#
+# Without this file named, nothing here runs and nothing is published; with
+# LIVEKIT_TURN_DOMAIN empty as well, LiveKit's TURN server is off (compose.yaml).
+#
+# What it adds: turn-tls, a TLS terminator (nginx's stream module) on
+# <LIVEKIT_TURN_IP>:443, the server's SECOND address. Caddy keeps 443 on the first
+# (EDGE_PUBLIC_IP in ../edge/.env), so the two never share a port. turn-tls ends the
+# TLS with the certificate Caddy obtains and renews for LIVEKIT_TURN_DOMAIN (a site of
+# its own in ../edge/Caddyfile), read from Caddy's volume, that one name's folder
+# only, read-only; it reads the files at each new connection, so a renewal needs no
+# reload and cuts nothing. It hands each stream on to LiveKit's TURN listener
+# (ni-livekit:5349, plain TCP, published nowhere) with the client's address in front
+# (the PROXY protocol). LiveKit relays the media from there to its own media port.
+#
+# The PROXY protocol, the certificate's place and the per-connection read are
+# compose.yaml's `turn:` block and the configuration below; the steps, the proof and
+# the way back are in ../README.md.
+services:
+  turn-tls:
+    # Follows 1.28's patches, like Redis and Caddy here (../README.md, "Day to day").
+    image: nginx:1.28-alpine
+    container_name: ni-livekit-turn-tls
+    restart: unless-stopped
+    # nginx alone: not the image's entrypoint scripts, which rewrite files under
+    # /etc/nginx (this container's file system is read-only).
+    entrypoint: ["nginx", "-c", "/etc/nginx/turn.conf", "-g", "daemon off;"]
+    configs:
+      - source: turn-tls
+        target: /etc/nginx/turn.conf
+    ports:
+      # The second address only: 443 on the first is Caddy's. Docker opens this
+      # whatever ufw says; ufw's `allow 443/tcp` (../server/setup.sh) already lists
+      # it, for every address of the server.
+      - "${LIVEKIT_TURN_IP:?set LIVEKIT_TURN_IP in .env: the server's second public address (../README.md step 23)}:443:443/tcp"
+    volumes:
+      # Caddy's certificate and key for this one name: the folder Caddy keeps them
+      # in for Let's Encrypt (the TURN site in ../edge/Caddyfile asks Let's Encrypt
+      # alone, so the folder never changes), and nothing else of Caddy's. It must
+      # exist before this starts: Caddy obtains the certificate first (the README's
+      # order). Needs Docker Engine 26 or later (a volume's subpath).
+      - type: volume
+        source: caddy-data
+        target: /certs
+        read_only: true
+        volume:
+          subpath: caddy/certificates/acme-v02.api.letsencrypt.org-directory/${LIVEKIT_TURN_DOMAIN:?set LIVEKIT_TURN_DOMAIN in .env (../README.md step 23)}
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+    # The key is root's alone (Caddy writes it 0600), and nginx's worker reads it at
+    # each connection, so the worker stays root; switching to root still needs these
+    # two. Nothing else.
+    cap_drop: [ALL]
+    cap_add: [SETUID, SETGID]
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      livekit:
+        condition: service_healthy
+    networks:
+      # LiveKit's TURN listener (ni-livekit:5349), and the published port. Not the
+      # private network: nothing there is this container's business.
+      livekit-edge: {}
+    healthcheck:
+      # The certificate is there and nginx runs.
+      test: ["CMD-SHELL", "test -s /certs/${LIVEKIT_TURN_DOMAIN}.crt && kill -0 \"$$(cat /tmp/nginx.pid)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    stop_grace_period: 10s
+    deploy:
+      resources:
+        limits:
+          # Copies bytes between two sockets and does TLS: little of either.
+          cpus: "1"
+          memory: 128m
+
+  # LiveKit itself needs no port of its own published for TURN: turn-tls reaches it
+  # over ni-livekit-edge, and compose.yaml's `turn:` block turns its TURN server on
+  # from LIVEKIT_TURN_DOMAIN.
+
+configs:
+  # nginx's whole configuration. Compose fills in the name from .env; every `$$` is a
+  # single `$` for nginx (one of its variables).
+  turn-tls:
+    content: |
+      # Workers run as root: they read Caddy's key, which is root's alone (above).
+      user root root;
+      worker_processes 1;
+      pid /tmp/nginx.pid;
+      error_log stderr notice;
+
+      events {
+        worker_connections 4096;
+      }
+
+      stream {
+        # One line per TURN connection, when it ends: who, how long, how much.
+        log_format turn '$$remote_addr [$$time_local] $$status $$ssl_protocol $$session_time s, $$bytes_received B in, $$bytes_sent B out';
+        access_log /dev/stdout turn;
+
+        # Docker's own name server: LiveKit's address is looked up at each new
+        # connection (a variable in proxy_pass), so a recreated LiveKit with a new
+        # address is found without restarting this.
+        resolver 127.0.0.11 valid=10s ipv6=off;
+
+        # A variable in the file names makes nginx read the certificate and key at
+        # each handshake instead of once at start: Caddy's renewal is picked up by the
+        # next connection, with no reload. A few connections a call; the read is cheap.
+        map $$server_port $$turn_cert { default /certs/${LIVEKIT_TURN_DOMAIN}.crt; }
+        map $$server_port $$turn_key { default /certs/${LIVEKIT_TURN_DOMAIN}.key; }
+        map $$server_port $$turn_upstream { default ni-livekit:5349; }
+
+        server {
+          listen 443 ssl;
+          ssl_certificate $$turn_cert;
+          ssl_certificate_key $$turn_key;
+          ssl_protocols TLSv1.2 TLSv1.3;
+          ssl_handshake_timeout 15s;
+
+          proxy_pass $$turn_upstream;
+          # The client's own address, first thing on the stream to LiveKit, which
+          # requires it (proxy_protocol in compose.yaml's `turn:` block).
+          proxy_protocol on;
+          proxy_connect_timeout 5s;
+          # A call's media never goes quiet for this long (keep-alives every few
+          # seconds); a connection whose client vanished is closed after it.
+          proxy_timeout 15m;
+        }
+      }
+
+volumes:
+  # Caddy's (../edge/compose.yaml): read here, never written.
+  caddy-data:
+    name: ni-edge-caddy-data
+    external: true

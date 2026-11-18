@@ -75,6 +75,17 @@ export interface CallSnapshot {
   needsAudioStart: boolean
   /** The microphone waits for the person (they joined a call whose notes are on, and haven't said go). */
   micHeld: boolean
+  /** False while the server lets this person send nothing (a guest before the notice): camera and screen wait too. */
+  canPublish: boolean
+  /** The system refused the last screen share (macOS: Screen Recording is off for the browser). Cleared by the next try. */
+  screenBlocked: boolean
+  /**
+   * The last screen share was refused without the system saying so: in a browser that is the person closing the
+   * picker (nothing to say); in the desktop app's web view it is the share not being available (the panel says so).
+   */
+  screenRefused: boolean
+  /** A lost connection ended this person's screen share (a browser only shares on a click): the panel says to share again. */
+  screenDropped: boolean
   devices: Record<CallDeviceKind, Array<{ deviceId: string; label: string }>>
   active: Partial<Record<CallDeviceKind, string>>
 }
@@ -142,6 +153,10 @@ function initialSnapshot(): CallSnapshot {
     canPickSpeaker: false,
     needsAudioStart: false,
     micHeld: false,
+    canPublish: true,
+    screenBlocked: false,
+    screenRefused: false,
+    screenDropped: false,
     devices: EMPTY_DEVICES,
     active: {},
   }
@@ -159,6 +174,21 @@ export function deviceStateOfError(error: unknown, failure: string | undefined):
   return 'blocked'
 }
 
+/** A lost connection is joined again once; a rejoin that then holds this long earns the next one. */
+export const REJOIN_EARNED_AFTER_MS = 30_000
+
+/**
+ * Did the system refuse a screen share (not the person closing the picker)?
+ * Chrome says "Permission denied by system"; a screen that can't be read is
+ * NotReadableError. A closed picker is NotAllowedError without "system", or
+ * AbortError: nothing to say.
+ */
+export function screenRefusedBySystem(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  if (error.name === 'NotReadableError') return true
+  return error.name === 'NotAllowedError' && /system/i.test(error.message)
+}
+
 export class TeamCallSession {
   private room: Room | null = null
   private sdk: typeof import('livekit-client') | null = null
@@ -171,6 +201,9 @@ export class TeamCallSession {
   private mic: CallDeviceState = 'off'
   private camera: CallDeviceState = 'off'
   private holdMic = false
+  /** The camera was on in the person's preview while their token sent nothing: it comes on with the microphone's release. */
+  private cameraOnRelease = false
+  private rejoinEarned: ReturnType<typeof setTimeout> | null = null
   /** The person muted themselves: a rejoin keeps them muted. */
   private userMuted = false
   /** The call's notes are on, as Egress's files: muting unpublishes the microphone, so each unmuted stretch is its own notes file at its own place in the call. */
@@ -196,8 +229,9 @@ export class TeamCallSession {
   }
 
   /** Join the room: audio on (listening only if the mic is refused, or held back by `holdMic` until the person says go), camera off. */
-  async connect(join: TeamCallJoin, opts: { holdMic?: boolean } = {}): Promise<void> {
+  async connect(join: TeamCallJoin, opts: { holdMic?: boolean; cameraOnRelease?: boolean } = {}): Promise<void> {
     if (opts.holdMic !== undefined) this.holdMic = opts.holdMic
+    if (opts.cameraOnRelease !== undefined) this.cameraOnRelease = opts.cameraOnRelease
     let lk: typeof import('livekit-client')
     try {
       lk = this.sdk ?? (this.sdk = await (this.deps.loadSdk ?? (() => import('livekit-client')))())
@@ -229,7 +263,15 @@ export class TeamCallSession {
       return
     }
     if (this.over || this.room !== room) return
-    this.emit({ phase: 'connected', error: null, micHeld: this.holdMic })
+    this.emit({ phase: 'connected', error: null, micHeld: this.holdMic, canPublish: room.localParticipant.permissions?.canPublish !== false })
+    // A rejoin that holds earns the next one: a second drop, minutes later, is not the end of the call here.
+    if (this.rejoined) {
+      if (this.rejoinEarned) clearTimeout(this.rejoinEarned)
+      this.rejoinEarned = setTimeout(() => {
+        this.rejoinEarned = null
+        if (this.room === room && !this.over) this.rejoined = false
+      }, REJOIN_EARNED_AFTER_MS)
+    }
     // Held for the notice, or muted by the person before a rejoin: the microphone stays off.
     if (!this.holdMic && !this.userMuted) await this.enableMic(room, lk)
     this.refresh()
@@ -258,6 +300,10 @@ export class TeamCallSession {
     await this.untilMayPublish(room, lk)
     await this.enableMic(room, lk)
     this.refresh()
+    if (this.cameraOnRelease) {
+      this.cameraOnRelease = false
+      if (!room.localParticipant.isCameraEnabled) await this.toggleCamera()
+    }
     void this.refreshDevices()
   }
 
@@ -284,6 +330,7 @@ export class TeamCallSession {
     // hasn't said go to): LiveKit unpublished their tracks; the microphone waits for the notice.
     room.on(E.ParticipantPermissionsChanged, (_prev, participant) => {
       if (this.room !== room || participant !== room.localParticipant) return
+      this.emit({ canPublish: participant.permissions?.canPublish !== false })
       if (participant.permissions?.canPublish === false && !this.holdMic) {
         this.holdMic = true
         this.mic = 'off'
@@ -352,6 +399,9 @@ export class TeamCallSession {
       return
     }
     this.rejoined = true
+    // What they were sending when the connection went: the camera comes back by itself, a screen needs their click.
+    const hadCamera = this.snapshot.camera === 'on'
+    const hadScreen = this.snapshot.screen === 'on'
     this.emit({ phase: 'reconnecting' })
     this.clearAudio()
     let join: TeamCallJoin | null = null
@@ -366,6 +416,9 @@ export class TeamCallSession {
       return
     }
     await this.connect(join)
+    if (this.over || this.snapshot.phase !== 'connected') return
+    if (hadCamera && this.room && !this.room.localParticipant.isCameraEnabled) await this.toggleCamera()
+    if (hadScreen && this.snapshot.screen !== 'on') this.emit({ screenDropped: true })
   }
 
   private playAudio(track: RemoteTrack, participant: RemoteParticipant) {
@@ -498,6 +551,8 @@ export class TeamCallSession {
     const room = this.room
     const lk = this.sdk
     if (!room || !lk) return
+    // Nothing may be sent yet (a guest before the notice): not a blocked camera, so nothing is tried.
+    if (room.localParticipant.permissions?.canPublish === false) return
     const on = !room.localParticipant.isCameraEnabled
     try {
       await room.localParticipant.setCameraEnabled(on)
@@ -512,11 +567,17 @@ export class TeamCallSession {
   async toggleScreen(): Promise<void> {
     const room = this.room
     if (!room || !this.snapshot.canShareScreen) return
+    if (room.localParticipant.permissions?.canPublish === false) return
+    let screenBlocked = false
+    let screenRefused = false
     try {
       await room.localParticipant.setScreenShareEnabled(!room.localParticipant.isScreenShareEnabled, { audio: false })
-    } catch {
-      // The person closed the picker, or the system refused: nothing is shared, nothing to say.
+    } catch (err) {
+      // The person closed the picker: nothing to say. The system refused: the panel says where to allow it.
+      screenBlocked = screenRefusedBySystem(err)
+      screenRefused = !screenBlocked && err instanceof Error && err.name === 'NotAllowedError'
     }
+    if (screenBlocked !== this.snapshot.screenBlocked || screenRefused !== this.snapshot.screenRefused || this.snapshot.screenDropped) this.emit({ screenBlocked, screenRefused, screenDropped: false })
     this.refresh()
   }
 
@@ -572,6 +633,8 @@ export class TeamCallSession {
   private finish(why: CallEnd) {
     if (this.over) return
     this.over = true
+    if (this.rejoinEarned) clearTimeout(this.rejoinEarned)
+    this.rejoinEarned = null
     const room = this.room
     this.room = null
     this.clearAudio()

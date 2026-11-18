@@ -128,9 +128,16 @@ export class AppClient {
     return { outcome: out.outcome ?? 'unknown', session }
   }
 
-  /** Every session sent gets an answer (unknown and another producer's included: keep false). */
-  async heartbeat(sessions: readonly string[]): Promise<Beat[]> {
-    const out = await this.post<{ sessions?: Array<Partial<Beat>> }>('/api/internal/capture-feed/heartbeat', { sessions: [...sessions] })
+  /**
+   * Every session sent gets an answer (unknown and another producer's included: keep false).
+   * `health`: whether each listed session's notes are being written (./health.ts), sent when it
+   * changed (and again every so often), never every beat.
+   */
+  async heartbeat(sessions: readonly string[], health: ReadonlyArray<{ id: string; state: string }> = []): Promise<Beat[]> {
+    const out = await this.post<{ sessions?: Array<Partial<Beat>> }>('/api/internal/capture-feed/heartbeat', {
+      sessions: [...sessions],
+      ...(health.length > 0 ? { health: [...health] } : {}),
+    })
     const answers = Array.isArray(out.sessions) ? out.sessions : []
     return answers
       .filter((a): a is Partial<Beat> & { id: string } => typeof a.id === 'string')
@@ -165,6 +172,11 @@ export class AppClient {
   async audioStored(sessionId: string, take: string): Promise<{ outcome: string; expiresAt: string | null }> {
     const out = await this.post<{ outcome?: string; expiresAt?: string | null }>(`/api/internal/capture-feed/sessions/${sessionId}/audio/stored`, { take })
     return { outcome: out.outcome ?? 'unknown', expiresAt: out.expiresAt ?? null }
+  }
+
+  /** The app's side of the notes, for the preflight (./check.ts): what is on, and whether the live agent answers. */
+  async check(): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/api/internal/team-call-recorder/check', {})
   }
 
   async end(sessionId: string, reason: string): Promise<boolean> {

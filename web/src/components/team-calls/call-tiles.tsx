@@ -44,6 +44,19 @@ export function deviceNotice(kind: 'mic' | 'camera', state: CallDeviceState, des
   return null
 }
 
+/** A screen share the system refused: where to allow it (a browser needs a restart after). */
+export function screenNotice(blocked: boolean, desktop: boolean): string | null {
+  if (!blocked) return null
+  return desktop
+    ? 'Your screen couldn’t be shared from the app. It needs macOS 14.6 or later, with Native Intelligence turned on in System Settings → Privacy & Security → Screen & System Audio Recording. You can also open this call in your browser and share from there.'
+    : 'Your screen couldn’t be shared. On a Mac, allow your browser in System Settings → Privacy & Security → Screen & System Audio Recording, restart the browser, then share again.'
+}
+
+/** A screen share a lost connection ended: said once, until they share again (or try to). */
+export function screenDroppedNotice(dropped: boolean): string | null {
+  return dropped ? 'Your connection dropped for a moment, so your screen stopped sharing. Share it again when you’re ready.' : null
+}
+
 /** What an error says: the call couldn't load (its code) or couldn't reach the call server. */
 export function callErrorLine(error: CallSnapshot['error']): string {
   return error === 'load' ? 'Calling couldn’t load. Check your connection, then retry.' : 'Couldn’t reach the call. Check your connection, then retry.'
@@ -141,6 +154,7 @@ export function IconButton({
   active = false,
   danger = false,
   small = false,
+  disabled = false,
   children,
   ...rest
 }: {
@@ -149,18 +163,20 @@ export function IconButton({
   active?: boolean
   danger?: boolean
   small?: boolean
+  disabled?: boolean
   children: React.ReactNode
 } & Record<`data-${string}`, string | undefined>) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       aria-label={label}
       title={label}
       aria-pressed={active || undefined}
       {...rest}
       className={cn(
-        'flex shrink-0 items-center justify-center rounded-full transition-colors',
+        'flex shrink-0 items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40',
         small ? 'h-8 w-8' : 'h-11 w-11',
         danger ? 'bg-red-500 text-white hover:bg-red-600' : active ? 'bg-foreground text-background hover:bg-foreground/90' : 'bg-muted text-foreground hover:bg-accent',
       )}

@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   cleanGuestName,
   cleanMeetingTitle,
+  entryNotice,
   firstNameOf,
   guestIdentity,
   guestIdOfIdentity,
@@ -89,10 +90,13 @@ describe('a guest in a LiveKit room', () => {
 })
 
 describe('a guest’s name', () => {
-  it('is 1 to 60 letters, digits, spaces and . ’ - ( ), with a letter, tidied', () => {
+  it('is 1 to 60 letters, digits, spaces and . , ’ - & + ( ), with a letter, tidied', () => {
     expect(cleanGuestName('  Dana   Lee ')).toBe('Dana Lee')
     expect(cleanGuestName('Zoë O’Brien-Smith (PM)')).toBe('Zoë O’Brien-Smith (PM)')
     expect(cleanGuestName('李小龍')).toBe('李小龍')
+    // How people name themselves to strangers: a firm after a comma, an ampersand.
+    expect(cleanGuestName('Dana Okafor, Northwind & Co')).toBe('Dana Okafor, Northwind & Co')
+    expect(cleanGuestName('Dana + Ben')).toBe('Dana + Ben')
     expect(cleanGuestName('a'.repeat(60))).toHaveLength(60)
     for (const bad of ['', '   ', 'a'.repeat(61), '1234', 'http://x.example', 'dana@example.com', '<b>Dana</b>', 'Dana; drop', 'Dana\u0000', null, 7]) {
       expect(cleanGuestName(bad), String(bad)).toBeNull()
@@ -185,10 +189,14 @@ describe('a guest must say go (the notice) before they may publish', () => {
     expect(guestNeedsNotice(call({ notes_round: 3 }), { notes_ack_round: 0, recording_ack_at: null })).toBe(false)
   })
 
-  it('notes on in a round they have not said go to (each round its own go)', () => {
+  it('notes on and they never said go in this call: held; a go once holds for every later round of the call', () => {
     expect(guestNeedsNotice(call({ notes: true, notes_round: 1 }), { notes_ack_round: 0, recording_ack_at: null })).toBe(true)
     expect(guestNeedsNotice(call({ notes: true, notes_round: 1 }), { notes_ack_round: 1, recording_ack_at: null })).toBe(false)
-    expect(guestNeedsNotice(call({ notes: true, notes_round: 2 }), { notes_ack_round: 1, recording_ack_at: null })).toBe(true)
+    // A member turned the notes off and on again: the guest who agreed is not held.
+    expect(guestNeedsNotice(call({ notes: true, notes_round: 2 }), { notes_ack_round: 1, recording_ack_at: null })).toBe(false)
+    expect(guestNeedsNotice(call({ notes: true, notes_round: 7 }), { notes_ack_round: 1, recording_ack_at: null })).toBe(false)
+    // Who never agreed is held whatever the round.
+    expect(guestNeedsNotice(call({ notes: true, notes_round: 3 }), { notes_ack_round: 0, recording_ack_at: null })).toBe(true)
     expect(guestNeedsNotice(call({ notes: true, notes_round: 1 }), { notes_ack_round: null, recording_ack_at: null })).toBe(true)
   })
 
@@ -201,6 +209,20 @@ describe('a guest must say go (the notice) before they may publish', () => {
 
   it('a go to notes is not a go to a recording, nor the other way round', () => {
     expect(guestNeedsNotice(call({ notes: true, notes_round: 1, recording: 'on', recording_started_at: at('00') }), { notes_ack_round: 1, recording_ack_at: null })).toBe(true)
-    expect(guestNeedsNotice(call({ notes: true, notes_round: 2, recording: 'on', recording_started_at: at('00') }), { notes_ack_round: 1, recording_ack_at: at('01') })).toBe(true)
+    expect(guestNeedsNotice(call({ notes: true, notes_round: 2, recording: 'on', recording_started_at: at('00') }), { notes_ack_round: 0, recording_ack_at: at('01') })).toBe(true)
+    // A recording that starts again later asks again, notes or not.
+    expect(guestNeedsNotice(call({ notes: true, notes_round: 2, recording: 'on', recording_started_at: at('09') }), { notes_ack_round: 1, recording_ack_at: at('01') })).toBe(true)
+  })
+})
+
+describe('what the entry page says is on', () => {
+  it('notes when the live call has them, or when every call starts with them; a recording only while one runs', () => {
+    expect(entryNotice(null, false)).toEqual({ notes: false, recording: false })
+    expect(entryNotice(null, true)).toEqual({ notes: true, recording: false })
+    expect(entryNotice({ notes: true, recording: 'off' }, false)).toEqual({ notes: true, recording: false })
+    expect(entryNotice({ notes: false, recording: 'starting' }, false)).toEqual({ notes: false, recording: true })
+    // A live call whose notes a member turned off: the page says nothing of notes, whatever calls start with.
+    expect(entryNotice({ notes: false, recording: 'on' }, true)).toEqual({ notes: false, recording: true })
+    expect(entryNotice({ notes: false, recording: 'saved' }, false)).toEqual({ notes: false, recording: false })
   })
 })

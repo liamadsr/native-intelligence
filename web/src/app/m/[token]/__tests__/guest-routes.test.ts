@@ -8,7 +8,9 @@
  * members are in the call, a token is minted only for a guest admitted into
  * the live call (identity guest-<id>, never a member id; listen-only while
  * notes or a recording are on that the server has no go of theirs for, and
- * nothing the client sends changes that), the notice records the go before
+ * nothing the client sends changes that; a go to the notes holds for the
+ * rest of the call), the entry page's own notice counts as the go when the
+ * server knows the page said it (asking to join from it), the notice records the go before
  * publishing is allowed, a removed guest gets none, a bad or old link answers
  * the same as any other, a body too large is refused unread, and every limit
  * holds. A member is joined only by a same-origin POST, never by opening the
@@ -132,12 +134,12 @@ beforeEach(() => {
       if (!g || a.token_digest !== tokenDigest(TOKEN)) return { data: [], error: null }
       return { data: [{ state: g.state, call_id: g.call_id ?? null, room: null, notes: false, recording: 'off', open: true, needs_notice: false, members_in_call: 0 }], error: null }
     },
-    // 574's meeting_guest_ack: an admitted guest's go to what is on in their live call.
+    // 667's meeting_guest_ack: an admitted guest's go to what is on in their live call (the notes only while on).
     meeting_guest_ack: (a) => {
       const g = tables.meeting_guest.find((x) => x.id === a.target_guest)
       const c = tables.team_call.find((x) => x.id === g?.call_id && x.status === 'live')
       if (!g || g.state !== 'admitted' || !c || a.token_digest !== tokenDigest(TOKEN)) return { data: [], error: null }
-      g.notes_ack_round = Math.max(Number(g.notes_ack_round ?? 0), Number(c.notes_round ?? 0))
+      if (c.notes) g.notes_ack_round = Math.max(Number(g.notes_ack_round ?? 0), Number(c.notes_round ?? 0), 1)
       if (c.recording === 'on' || c.recording === 'starting') g.recording_ack_at = new Date(Date.now() + 1000).toISOString()
       return { data: [{ call_id: c.id, room: c.room }], error: null }
     },
@@ -271,6 +273,74 @@ describe('asking to join', () => {
   })
 })
 
+describe('the entry page’s notice is the go', () => {
+  // Its own guest: the token route's limit per guest is counted in memory across this file.
+  const ENTRY_GUEST = '88888888-8888-4888-8888-888888888881'
+  const room = `tc-${CALL}`
+  const live = (over: Record<string, unknown> = {}) => {
+    tables.team_call.push({ id: CALL, room, status: 'live', started_at: new Date().toISOString(), channel_id: CH, notes: false, notes_round: 0, recording: 'off', recording_started_at: null, ...over })
+    h.rooms.open.add(room)
+    h.rpc.meeting_guest_request = () => {
+      tables.meeting_guest.push({ id: ENTRY_GUEST, meeting_id: MEETING, name: 'Dana', state: 'waiting', call_id: null, notes_ack_round: 0, recording_ack_at: null })
+      return { data: [{ outcome: 'waiting', guest_id: ENTRY_GUEST, host_member_id: HOST, members_in_call: 1, call_id: tables.team_call.length ? CALL : null }], error: null }
+    }
+  }
+  const admit = () => Object.assign(tables.meeting_guest[0], { state: 'admitted', call_id: CALL })
+  const canPublish = async () => (await (await tokenRoute(req('POST', 'token', { cookie: cookieFor(ENTRY_GUEST) }), params())).json()).join.canPublish
+  const RECORDER_ENV = { TEAM_CALL_RECORDER: 'on', CAPTURE_FEED_SECRET: 'feed-secret-only-for-these-tests' }
+  afterEach(() => {
+    for (const k of Object.keys(RECORDER_ENV)) delete process.env[k]
+  })
+
+  it('the live call has notes on and the page said so: asking is their go, so they come in publishing, and stay through a later round', async () => {
+    live({ notes: true, notes_round: 1 })
+    expect((await join(req('POST', 'join', { body: { name: 'Dana', notice: { notes: true, recording: false } } }), params())).status).toBe(200)
+    expect(tables.meeting_guest[0]).toMatchObject({ state: 'waiting', notes_ack_round: 1, recording_ack_at: null })
+    admit()
+    expect(await canPublish()).toBe(true)
+    tables.team_call[0].notes_round = 2
+    expect(await canPublish()).toBe(true)
+  })
+
+  it('the page showed no notice (served before the notes came on), or sent nothing: no go; the in-call notice asks as before', async () => {
+    live({ notes: true, notes_round: 1 })
+    await join(req('POST', 'join', { body: { name: 'Dana', notice: { notes: false, recording: false } } }), params())
+    expect(tables.meeting_guest[0].notes_ack_round).toBe(0)
+    tables.meeting_guest.length = 0
+    await join(req('POST', 'join', { body: { name: 'Dana' } }), params())
+    expect(tables.meeting_guest[0].notes_ack_round).toBe(0)
+    admit()
+    expect(await canPublish()).toBe(false)
+  })
+
+  it('a page that says notes were shown when the server would not have shown them: no go (the server decides)', async () => {
+    live({ notes: false })
+    await join(req('POST', 'join', { body: { name: 'Dana', notice: { notes: true, recording: true } } }), params())
+    expect(tables.meeting_guest[0]).toMatchObject({ notes_ack_round: 0, recording_ack_at: null })
+  })
+
+  it('every call starts with notes (the call recorder): the notice shows before any call exists, and asking is the go', async () => {
+    Object.assign(process.env, RECORDER_ENV)
+    h.rpc.meeting_guest_request = () => {
+      tables.meeting_guest.push({ id: ENTRY_GUEST, meeting_id: MEETING, name: 'Dana', state: 'waiting', call_id: null, notes_ack_round: 0, recording_ack_at: null })
+      return { data: [{ outcome: 'waiting', guest_id: ENTRY_GUEST, host_member_id: HOST, members_in_call: 0, call_id: null }], error: null }
+    }
+    await join(req('POST', 'join', { body: { name: 'Dana', notice: { notes: true, recording: false } } }), params())
+    expect(tables.meeting_guest[0].notes_ack_round).toBe(1)
+  })
+
+  it('a recording the page showed running: asking is their go to it; one started later asks again', async () => {
+    live({ recording: 'on', recording_started_at: new Date(Date.now() - 60_000).toISOString() })
+    await join(req('POST', 'join', { body: { name: 'Dana', notice: { notes: false, recording: true } } }), params())
+    expect(tables.meeting_guest[0].notes_ack_round).toBe(0)
+    expect(tables.meeting_guest[0].recording_ack_at).toEqual(expect.any(String))
+    admit()
+    expect(await canPublish()).toBe(true)
+    tables.team_call[0].recording_started_at = new Date(Date.now() + 60_000).toISOString()
+    expect(await canPublish()).toBe(false)
+  })
+})
+
 describe('the lobby', () => {
   it('without a cookie, or a tampered, expired or another link’s one: 401, and nothing read', async () => {
     tables.meeting_guest.push({ id: GUEST, state: 'waiting' })
@@ -338,7 +408,7 @@ describe('a guest’s token', () => {
     expect(claims.video?.roomAdmin).toBeFalsy()
   })
 
-  it('notes on in a round they have not said go to: listen-only, whatever the page claims; the notice records the go, then lifts it', async () => {
+  it('notes on and no go of theirs: listen-only, whatever the page claims; the notice records the go, which holds for the rest of the call', async () => {
     Object.assign(tables.team_call[0], { notes: true, notes_round: 1 })
     tables.meeting_guest.push({ id: GUEST, meeting_id: MEETING, name: 'Dana', state: 'admitted', call_id: CALL, notes_ack_round: 0, recording_ack_at: null })
     const res = await tokenRoute(req('POST', 'token', { cookie: cookieFor() }), params())
@@ -355,9 +425,26 @@ describe('a guest’s token', () => {
     expect(h.rooms.allowed).toEqual([GUEST])
     expect(tables.meeting_guest[0].notes_ack_round).toBe(1)
     expect((await (await tokenRoute(req('POST', 'token', { cookie: cookieFor() }), params())).json()).join.canPublish).toBe(true)
-    // Notes off and on again: a new round, the go owed again.
+    // Notes off and on again: a new round, and the guest who agreed keeps publishing.
     tables.team_call[0].notes_round = 2
-    expect((await (await tokenRoute(req('POST', 'token', { cookie: cookieFor() }), params())).json()).join.canPublish).toBe(false)
+    expect((await (await tokenRoute(req('POST', 'token', { cookie: cookieFor() }), params())).json()).join.canPublish).toBe(true)
+  })
+
+  it('a guest who never said go is still held in a later round', async () => {
+    const OWN = '88888888-8888-4888-8888-888888888882'
+    Object.assign(tables.team_call[0], { notes: true, notes_round: 3 })
+    tables.meeting_guest.push({ id: OWN, meeting_id: MEETING, name: 'Dana', state: 'admitted', call_id: CALL, notes_ack_round: 0, recording_ack_at: null })
+    expect((await (await tokenRoute(req('POST', 'token', { cookie: cookieFor(OWN) }), params())).json()).join.canPublish).toBe(false)
+  })
+
+  it('a go given while only a recording ran is not a go to the notes that come on later', async () => {
+    const OWN = '88888888-8888-4888-8888-888888888883'
+    Object.assign(tables.team_call[0], { recording: 'on', recording_started_at: new Date(Date.now() - 1000).toISOString() })
+    tables.meeting_guest.push({ id: OWN, meeting_id: MEETING, name: 'Dana', state: 'admitted', call_id: CALL, notes_ack_round: 0, recording_ack_at: null })
+    expect((await notice(req('POST', 'notice', { cookie: cookieFor(OWN) }), params())).status).toBe(200)
+    expect(tables.meeting_guest[0].notes_ack_round).toBe(0)
+    Object.assign(tables.team_call[0], { notes: true, notes_round: 1 })
+    expect((await (await tokenRoute(req('POST', 'token', { cookie: cookieFor(OWN) }), params())).json()).join.canPublish).toBe(false)
   })
 
   it('a recording started that they have not said go to: listen-only until the notice', async () => {

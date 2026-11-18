@@ -25,6 +25,7 @@ const h = vi.hoisted(() => ({
   rpcs: [] as Array<[string, Record<string, unknown>]>,
   locks: [] as Array<Record<string, unknown>>,
   calls: [] as string[],
+  batch: 'completed' as 'completed' | 'in_flight',
 }))
 vi.mock('@/lib/admin', () => ({ getServiceClient: () => h.svc }))
 vi.mock('@/lib/inngest/client', () => ({ inngest: { createFunction: () => ({}) } }))
@@ -32,16 +33,16 @@ vi.mock('@/lib/inngest/capture-finalizer', () => ({
   CallNotesLiveError: class CallNotesLiveError extends Error {},
   runOwnerBatch: async (_svc: unknown, args: { captureId: string; ownerId: string }) => {
     h.calls.push(`batch:${args.captureId}:${args.ownerId}`)
-    return 'completed'
+    return h.batch
   },
   postExtraction: async (_svc: unknown, args: { captureId: string; captureProcessed: boolean }) => {
     h.calls.push(`post:${args.captureId}:${args.captureProcessed}`)
   },
 }))
 
-import { CLOSED_CAPTURE_PASS_ATTEMPTS, FED_TAIL_CAP_MS, closedCapturesToFinish, fedNotesStatus, writeFedNotes } from '../fed-notes'
+import { CLOSED_CAPTURE_PASS_ATTEMPTS, FED_SILENT_AFTER_END_MS, FED_TAIL_CAP_MS, closedCapturesToFinish, fedNotesStatus, writeFedNotes } from '../fed-notes'
 import { closedCaptureFinishEvent } from '../notes-store'
-import { runTeamCallNotesFinish, teamCallNotesFinishFailed } from '@/lib/inngest/team-call-notes'
+import { BATCH_SETTLE_ROUNDS, FED_TAIL_POLL_MS, runTeamCallNotesFinish, teamCallNotesFinishFailed } from '@/lib/inngest/team-call-notes'
 
 let tables: Record<string, Array<Record<string, unknown>>>
 let lockAnswers: Array<Record<string, unknown>>
@@ -100,6 +101,7 @@ beforeEach(() => {
   h.rpcs = []
   h.locks = []
   h.calls = []
+  h.batch = 'completed'
   lockAnswers = []
   finishAnswers = []
   seed()
@@ -121,12 +123,14 @@ describe('writeFedNotes', () => {
   })
 
   it('a session still waited on: one that has not said it delivered, unless it went quiet before the call ended', async () => {
-    expect((await fedNotesStatus(h.svc, CALL)).undelivered).toBe(0)
+    // Looked at just after the end.
+    const now = Date.parse('2026-11-11T10:30:05.000Z')
+    expect((await fedNotesStatus(h.svc, CALL, now)).undelivered).toBe(0)
     tables.capture_feed_session[0].delivered_at = null
-    expect((await fedNotesStatus(h.svc, CALL)).undelivered).toBe(1)
+    expect((await fedNotesStatus(h.svc, CALL, now)).undelivered).toBe(1)
     // Quiet for two minutes before the end (the sweeper's lost bound is 90 s): nothing more is coming from it.
     tables.capture_feed_session[0].heartbeat_at = '2026-11-11T10:28:00.000Z'
-    expect((await fedNotesStatus(h.svc, CALL)).undelivered).toBe(0)
+    expect((await fedNotesStatus(h.svc, CALL, now)).undelivered).toBe(0)
   })
 
   it('nothing said: silent, no capture left', async () => {
@@ -170,6 +174,8 @@ describe('the finish, for the recorder’s notes', () => {
   })
 
   it('waits for the recorder’s last words (its end), looking every few seconds, then locks', async () => {
+    // Just after the end: the recorder's last heartbeat is seconds old.
+    vi.useFakeTimers({ now: new Date('2026-11-11T10:30:05.000Z'), toFake: ['Date'] })
     tables.capture_feed_session[0].delivered_at = null
     const out = await runTeamCallNotesFinish({
       event: { data: { callId: CALL } },
@@ -180,14 +186,48 @@ describe('the finish, for the recorder’s notes', () => {
     expect(out).toEqual({ status: 'ready', captureId: CAPTURE })
     expect(h.calls).toEqual(['sleep:feed-tail-1', 'sleep:feed-tail-2', `batch:${CAPTURE}:u-rosa`, `post:${CAPTURE}:false`])
     expect(h.locks).toHaveLength(1)
+    vi.useRealTimers()
   })
 
   it('a recorder that never says it is done is waited for at most the cap; what it delivered by then is in the notes', async () => {
+    vi.useFakeTimers({ now: new Date('2026-11-11T10:30:05.000Z'), toFake: ['Date'] })
     tables.capture_feed_session[0].delivered_at = null
     await runTeamCallNotesFinish({ event: { data: { callId: CALL } }, step: step() })
     const sleeps = h.calls.filter((c) => c.startsWith('sleep:'))
-    expect(sleeps).toHaveLength(Math.ceil(FED_TAIL_CAP_MS / 5000))
+    expect(sleeps).toHaveLength(Math.ceil(FED_TAIL_CAP_MS / FED_TAIL_POLL_MS))
     expect(h.locks).toEqual([expect.objectContaining({ target_call: CALL, rebuild: true })])
+    vi.useRealTimers()
+  })
+
+  it('a batch that outlived its request: the title and index wait until it is done, not a fixed 11 minutes', async () => {
+    h.batch = 'in_flight'
+    tables.captures = [{ id: CAPTURE, batch_processed_at: null }]
+    await runTeamCallNotesFinish({
+      event: { data: { callId: CALL } },
+      step: step((id) => {
+        if (id === 'let-batch-settle-2') tables.captures[0].batch_processed_at = '2026-11-11T10:33:00.000Z'
+      }),
+    })
+    expect(h.calls).toEqual([`batch:${CAPTURE}:u-rosa`, 'sleep:let-batch-settle-1', 'sleep:let-batch-settle-2', `post:${CAPTURE}:false`])
+  })
+
+  it('a batch never stamped done is waited for at most about 11 minutes, then the pass goes on', async () => {
+    h.batch = 'in_flight'
+    tables.captures = [{ id: CAPTURE, batch_processed_at: null }]
+    await runTeamCallNotesFinish({ event: { data: { callId: CALL } }, step: step() })
+    expect(h.calls.filter((c) => c.startsWith('sleep:let-batch-settle'))).toHaveLength(BATCH_SETTLE_ROUNDS)
+    expect(h.calls.at(-1)).toBe(`post:${CAPTURE}:false`)
+  })
+
+  it('a recorder silent a minute past its last heartbeat after the end (it died, or restarted) is waited for no more', async () => {
+    tables.capture_feed_session[0].delivered_at = null
+    const beat = Date.parse('2026-11-11T10:29:58.000Z')
+    // Still within the bound: waited for. Past it: nothing more is coming.
+    expect((await fedNotesStatus(h.svc, CALL, beat + FED_SILENT_AFTER_END_MS - 1_000)).undelivered).toBe(1)
+    expect((await fedNotesStatus(h.svc, CALL, beat + FED_SILENT_AFTER_END_MS + 1_000)).undelivered).toBe(0)
+    // While the call is live, a quiet producer is the sweeper's to judge, not this wait's.
+    tables.team_call[0].status = 'live'
+    expect((await fedNotesStatus(h.svc, CALL, beat + 10 * FED_SILENT_AFTER_END_MS)).undelivered).toBe(1)
   })
 
   it('nothing said but the owner wrote notes in it: no batch, the record closed', async () => {

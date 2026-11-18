@@ -54,20 +54,21 @@ beforeEach(() => {
 })
 
 describe('notes or a recording coming on with guests connected', () => {
-  it('holds every connected guest who has not said go to this notes round; never one who has, nor one not in the call', async () => {
+  it('holds every connected guest who never said go to the call’s notes; never one who did (in any round), nor one not in the call', async () => {
     const tables = {
       team_call: [{ id: CALL, room: 'tc-r', status: 'live', notes: true, notes_round: 2, recording: 'off', recording_started_at: null }],
       meeting_guest: [
         g('g-new'), // never said go
-        g('g-old', { notes_ack_round: 1 }), // said go to the last round, not this one
+        g('g-old', { notes_ack_round: 1 }), // said go in an earlier round: holds for the whole call
         g('g-ok', { notes_ack_round: 2 }), // said go to this round
+        g('g-entry', { notes_ack_round: 1 }), // agreed on the entry page
         g('g-out', { in_call: false }), // let in, not connected
         g('g-wait', { state: 'waiting', in_call: false }),
       ],
     }
     const n = await holdGuestsForNotice(memoryDb(tables) as unknown as SupabaseClient, CONFIG, CALL)
-    expect(n).toBe(2)
-    expect(h.held.sort()).toEqual(['tc-r:g-new', 'tc-r:g-old'])
+    expect(n).toBe(1)
+    expect(h.held).toEqual(['tc-r:g-new'])
   })
 
   it('a recording starting holds guests who said go to the notes only', async () => {

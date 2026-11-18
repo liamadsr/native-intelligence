@@ -136,6 +136,7 @@ import { useEntityDetailSync, useEntityListSync } from '@/hooks/use-entity-sync'
 import { useRecordingPollFallback } from '@/hooks/use-recording-poll-fallback'
 import { emitEntityUpdated } from '@/lib/entity-events'
 import { isCallCapture } from '@/lib/live-agent/call-capture-fence'
+import { callNotesFinishing } from '@/lib/team-calls/live-notes'
 
 // Sentinel value for the agent <Select>. A null agentId means the built-in
 // "Assistant" persona (the general-purpose default, resolved server-side in
@@ -2228,6 +2229,15 @@ export function CaptureDetailPanel({
             )
           }
 
+          // A call's notes finished (their end-of-meeting pass stamps this): "Finishing the notes…" goes.
+          if (typeof updated.batch_processed_at === 'string') {
+            const stamped = updated.batch_processed_at
+            setCapture((prev) => {
+              const was = prev as (CaptureDetail & { batch_processed_at?: string | null }) | null
+              return was && was.batch_processed_at !== stamped ? ({ ...was, batch_processed_at: stamped } as CaptureDetail) : prev
+            })
+          }
+
           // A call's notes the call recorder writes on the server (metadata.notes_recorder,
           // src/lib/team-calls/recorder.ts): nobody records them on this machine, so their
           // transcript comes in here as people speak, and once more, ordered, when the call ends.
@@ -3107,6 +3117,13 @@ export function CaptureDetailPanel({
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
+          )}
+          {/* A call's notes between "End for everyone" and the finished pass: say so, the live summary stays readable. */}
+          {callNotesFinishing(capture as CaptureDetail & { batch_processed_at?: string | null }) && (
+            <span data-call-notes-finishing="" className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+              Finishing the notes…
+            </span>
           )}
           {/* Reprocess — re-extract everything from the full transcript (same
                       pipeline). Keeps action items you've already accepted; the summary,

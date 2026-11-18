@@ -2,7 +2,9 @@
  * The end of a call whose notes the call recorder took (./recorder.ts): its
  * capture, which filled in live, is locked as a recorded meeting's is at
  * Stop. The finish first waits for the recorder to say it has delivered its
- * last words (its `end`, 588's delivered_at), at most FED_TAIL_CAP_MS; then
+ * last words (its `end`, 588's delivered_at), at most FED_TAIL_CAP_MS, and no
+ * longer than FED_SILENT_AFTER_END_MS past its last heartbeat (a recorder
+ * that died or restarted at the end has nothing more coming); then
  * 588's team_call_capture_lock ends every feed of the call, writes the
  * transcript once more in the order things were said (read in the database,
  * every segment: no page cap), puts what the notes lack before the person's
@@ -21,6 +23,14 @@ import { TEAM_CALL_NOTES_MAX_SECONDS, notesPreamble } from './notes'
 export const FED_TAIL_CAP_MS = 2 * 60_000
 /** A producer silent this long before the call ended is not waited for (the sweeper's lost bound). */
 const FED_QUIET_MS = 90_000
+/**
+ * A producer whose last heartbeat is this old, once the call ended, is not waited for any more. A
+ * live recorder's last words are in well within it: its heartbeats stop at the end (588 answers
+ * stop), and after its last one it hears of the end within a beat (5 s), closes each Deepgram
+ * socket (4 s at most), delivers (15 s at most, a request already out at most 20 s) and says `end`
+ * (recorder/src/call.ts). One that never says `end` died or restarted: nothing more is coming.
+ */
+export const FED_SILENT_AFTER_END_MS = 60_000
 
 /** A call whose notes are the recorder's, ended, its capture not locked yet: what its finish waits on. */
 export interface FedNotesStatus {
@@ -34,7 +44,7 @@ export interface FedNotesStatus {
 }
 
 /** Are this call's notes the recorder's (a feed session, or a capture made while they were captured)? */
-export async function fedNotesStatus(svc: SupabaseClient, callId: string): Promise<FedNotesStatus> {
+export async function fedNotesStatus(svc: SupabaseClient, callId: string, now: number = Date.now()): Promise<FedNotesStatus> {
   const { data: call, error } = await svc
     .from('team_call')
     .select('status, notes_state, capture_id, ended_at')
@@ -44,9 +54,15 @@ export async function fedNotesStatus(svc: SupabaseClient, callId: string): Promi
   if (!call) return { fed: false, callStatus: null, notesState: null, endedAt: null, undelivered: 0 }
   const sessions = await sourceSessions(svc, { kind: 'team_call', ref: callId })
   const fed = sessions.length > 0 || (!!call.capture_id && call.notes_state !== 'ready')
-  // A producer that had stopped heartbeating before the call ended has nothing more coming.
-  const end = call.ended_at ? Date.parse(call.ended_at) : Date.now()
-  const undelivered = sessions.filter((s) => !s.deliveredAt && Date.parse(s.heartbeatAt) > end - FED_QUIET_MS).length
+  // A producer that had stopped heartbeating before the call ended has nothing more coming, nor one
+  // silent FED_SILENT_AFTER_END_MS since its last heartbeat once the call ended.
+  const end = call.ended_at ? Date.parse(call.ended_at) : now
+  const ended = call.status === 'ended'
+  const undelivered = sessions.filter((s) => {
+    if (s.deliveredAt) return false
+    const beat = Date.parse(s.heartbeatAt)
+    return beat > end - FED_QUIET_MS && (!ended || now - beat < FED_SILENT_AFTER_END_MS)
+  }).length
   return { fed, callStatus: call.status, notesState: call.notes_state, endedAt: call.ended_at, undelivered }
 }
 

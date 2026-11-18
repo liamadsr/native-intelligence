@@ -11,15 +11,18 @@
  * workspace. After this first read the panel follows that small row over
  * Realtime (never the capture's own row, which carries the whole transcript).
  *
- * 404 while the live agent is off here, or when the call or its notes are not
- * the person's to read; `captureId: null` while the call has no notes yet.
+ * `feed`: why the call's words are not being written now (668: the
+ * recorder's health), or null while they are.
+ *
+ * 404 while the call recorder is off here, or when the call or its notes are
+ * not the person's to read; `captureId: null` while the call has no notes yet.
  */
 import { NextResponse } from 'next/server'
 import { requireUser } from '@/lib/api-auth'
 import { notFound, serverError } from '@/lib/api-errors'
 import { isUuid } from '@/lib/team-chat/types'
 import { getCall } from '@/lib/team-calls/store'
-import { teamCallLiveAgentOn } from '@/lib/team-calls/live-turns'
+import { teamCallRecorderOn } from '@/lib/team-calls/recorder'
 import { liveNotesOf, type LiveNotesRow } from '@/lib/team-calls/live-notes'
 import { teamCallsUnavailable } from '@/lib/team-calls/routes'
 
@@ -28,7 +31,8 @@ export const dynamic = 'force-dynamic'
 type Params = { params: Promise<{ id: string }> }
 
 export async function GET(_request: Request, { params }: Params) {
-  if (!teamCallLiveAgentOn()) return teamCallsUnavailable()
+  // The recorder's notes: the live agent's summary when it is on, and the words' health either way.
+  if (!teamCallRecorderOn()) return teamCallsUnavailable()
   const auth = await requireUser()
   if (auth instanceof Response) return auth
   const { id } = await params
@@ -36,11 +40,12 @@ export async function GET(_request: Request, { params }: Params) {
   try {
     const call = await getCall(auth.supabase, id)
     if (!call) return notFound()
-    if (!call.capture_id) return NextResponse.json({ captureId: null, summary: '', state: null })
+    if (!call.capture_id) return NextResponse.json({ captureId: null, summary: '', state: null, feed: null })
     // The narrow row (655), read as the person: its policy asks the capture, under the capture's own rules.
     const { data: notes, error } = await auth.supabase
       .from('team_call_live_notes')
-      .select('summary, state, state_at, until, reason')
+      // Every column (668's feed_state included where it is applied; a database without it reads the rest).
+      .select('*')
       .eq('capture_id', call.capture_id)
       .maybeSingle<LiveNotesRow>()
     if (error) throw new Error(error.message)
@@ -53,7 +58,7 @@ export async function GET(_request: Request, { params }: Params) {
       .maybeSingle<{ id: string; ai_summary: string | null }>()
     if (captureError) throw new Error(captureError.message)
     if (!capture) return notFound()
-    return NextResponse.json({ captureId: capture.id, summary: capture.ai_summary ?? '', state: null })
+    return NextResponse.json({ captureId: capture.id, summary: capture.ai_summary ?? '', state: null, feed: null })
   } catch (err) {
     console.error('[call-live-notes] read failed:', err instanceof Error ? err.message.slice(0, 160) : 'unknown')
     return serverError()

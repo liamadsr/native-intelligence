@@ -7,7 +7,7 @@
  * here), the room closing ends it, and leaving tells the server.
  */
 import { describe, expect, it, vi } from 'vitest'
-import { TeamCallSession, deviceStateOfError, type TeamCallJoin } from '../call-session'
+import { REJOIN_EARNED_AFTER_MS, TeamCallSession, deviceStateOfError, screenRefusedBySystem, type TeamCallJoin } from '../call-session'
 
 type Handler = (...args: unknown[]) => void
 
@@ -396,3 +396,128 @@ describe('TeamCallSession, with call notes (phase 6)', () => {
   })
 })
 
+
+describe('TeamCallSession, a guest who may send nothing yet (the notice comes first)', () => {
+  type Local = { permissions?: { canPublish: boolean }; isCameraEnabled: boolean; isScreenShareEnabled: boolean; isMicrophoneEnabled: boolean }
+
+  it('camera and screen wait with the microphone: nothing is tried, and the camera is never called blocked', async () => {
+    const { sdk, rooms } = fakeSdk()
+    const s = session(sdk, { allowPublish: async () => true })
+    const connect = vi.spyOn(sdk.Room.prototype, 'connect').mockImplementationOnce(async function (this: { localParticipant: Local }) {
+      this.localParticipant.permissions = { canPublish: false }
+    })
+    await s.connect({ ...JOIN, canPublish: false }, { holdMic: true })
+    connect.mockRestore()
+    const local = rooms[0].localParticipant as unknown as Local
+    expect(s.getSnapshot()).toMatchObject({ micHeld: true, canPublish: false })
+    await s.toggleCamera()
+    await s.toggleScreen()
+    expect(local.isCameraEnabled).toBe(false)
+    expect(local.isScreenShareEnabled).toBe(false)
+    expect(s.getSnapshot().camera).toBe('off')
+  })
+
+  it('a camera turned on in the preview comes on with "Join with microphone"', async () => {
+    const { sdk, rooms } = fakeSdk()
+    const s = session(sdk, { allowPublish: async () => true })
+    await s.connect({ ...JOIN, canPublish: false }, { holdMic: true, cameraOnRelease: true })
+    const local = rooms[0].localParticipant as unknown as Local
+    expect(local.isCameraEnabled).toBe(false)
+    await s.releaseMic()
+    expect(local.isMicrophoneEnabled).toBe(true)
+    expect(local.isCameraEnabled).toBe(true)
+    expect(s.getSnapshot().camera).toBe('on')
+  })
+
+  it('the server giving publishing back is told to the page', async () => {
+    const { sdk, rooms } = fakeSdk()
+    const s = session(sdk)
+    await s.connect(JOIN)
+    const local = rooms[0].localParticipant as unknown as Local
+    local.permissions = { canPublish: false }
+    rooms[0].emit('ParticipantPermissionsChanged', { canPublish: true }, local)
+    expect(s.getSnapshot().canPublish).toBe(false)
+    local.permissions = { canPublish: true }
+    rooms[0].emit('ParticipantPermissionsChanged', { canPublish: false }, local)
+    expect(s.getSnapshot().canPublish).toBe(true)
+  })
+})
+
+describe('TeamCallSession, a screen share the system refuses', () => {
+  it('says so; a closed picker says nothing; the next share that works clears it', async () => {
+    vi.stubGlobal('navigator', { mediaDevices: { getDisplayMedia: () => undefined } })
+    const { sdk } = fakeSdk()
+    const s = session(sdk)
+    vi.unstubAllGlobals()
+    await s.connect(JOIN)
+    const room = (s as unknown as { room: { localParticipant: { setScreenShareEnabled: (on: boolean) => Promise<void> } } }).room
+    const real = room.localParticipant.setScreenShareEnabled.bind(room.localParticipant)
+    room.localParticipant.setScreenShareEnabled = async () => {
+      throw Object.assign(new Error('Permission denied'), { name: 'NotAllowedError' })
+    }
+    await s.toggleScreen()
+    expect(s.getSnapshot().screenBlocked).toBe(false)
+    room.localParticipant.setScreenShareEnabled = async () => {
+      throw Object.assign(new Error('Permission denied by system'), { name: 'NotAllowedError' })
+    }
+    await s.toggleScreen()
+    expect(s.getSnapshot().screenBlocked).toBe(true)
+    room.localParticipant.setScreenShareEnabled = real
+    await s.toggleScreen()
+    expect(s.getSnapshot()).toMatchObject({ screenBlocked: false, screen: 'on' })
+  })
+
+  it('tells a refusal by the system from a closed picker', () => {
+    expect(screenRefusedBySystem(Object.assign(new Error('Permission denied by system'), { name: 'NotAllowedError' }))).toBe(true)
+    expect(screenRefusedBySystem(Object.assign(new Error('Could not start video source'), { name: 'NotReadableError' }))).toBe(true)
+    expect(screenRefusedBySystem(Object.assign(new Error('Permission denied'), { name: 'NotAllowedError' }))).toBe(false)
+    expect(screenRefusedBySystem(Object.assign(new Error('x'), { name: 'AbortError' }))).toBe(false)
+  })
+})
+
+describe('TeamCallSession, a second lost connection', () => {
+  it('ends the call here when it follows the first at once, and is joined again when the rejoin had held', async () => {
+    vi.useFakeTimers()
+    try {
+      const { sdk, rooms } = fakeSdk()
+      const onEnded = vi.fn()
+      const refreshJoin = vi.fn(async () => ({ ...JOIN, token: 't2' }))
+      const s = session(sdk, { refreshJoin, onEnded })
+      await s.connect(JOIN)
+      rooms[0].emit('Disconnected', 9)
+      await vi.waitFor(() => expect(rooms).toHaveLength(2))
+      await vi.waitFor(() => expect(s.getSnapshot().phase).toBe('connected'))
+      // The rejoin held: the next loss, later, is joined again too.
+      await vi.advanceTimersByTimeAsync(REJOIN_EARNED_AFTER_MS + 1)
+      rooms[1].emit('Disconnected', 9)
+      await vi.waitFor(() => expect(rooms).toHaveLength(3))
+      await vi.waitFor(() => expect(s.getSnapshot().phase).toBe('connected'))
+      expect(onEnded).not.toHaveBeenCalled()
+      // Lost again at once: over here, as failed (not "the meeting ended").
+      rooms[2].emit('Disconnected', 9)
+      await vi.waitFor(() => expect(onEnded).toHaveBeenCalledWith('failed'))
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('TeamCallSession, a rejoin after a lost connection', () => {
+  it('turns the camera back on, and says a shared screen has to be shared again', async () => {
+    vi.stubGlobal('navigator', { mediaDevices: { getDisplayMedia: () => undefined } })
+    const { sdk, rooms } = fakeSdk()
+    const s = session(sdk, { refreshJoin: async () => ({ ...JOIN, token: 't2' }) })
+    vi.unstubAllGlobals()
+    await s.connect(JOIN)
+    await s.toggleCamera()
+    await s.toggleScreen()
+    expect(s.getSnapshot()).toMatchObject({ camera: 'on', screen: 'on' })
+    rooms[0].emit('Disconnected', 9)
+    await vi.waitFor(() => expect(rooms).toHaveLength(2))
+    await vi.waitFor(() => expect(s.getSnapshot().camera).toBe('on'))
+    expect(rooms[1].localParticipant.isCameraEnabled).toBe(true)
+    expect(s.getSnapshot()).toMatchObject({ screen: 'off', screenDropped: true })
+    await s.toggleScreen()
+    expect(s.getSnapshot()).toMatchObject({ screen: 'on', screenDropped: false })
+  })
+})

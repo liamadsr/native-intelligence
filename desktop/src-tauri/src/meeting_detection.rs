@@ -165,6 +165,12 @@ fn output_counts_as_call_liveness(bundle_id: &str) -> bool {
     !BROWSER_BUNDLES.contains(&bundle_id)
 }
 
+/// How long one "the person is in one of our own calls" word from the web
+/// holds (`set_own_call`). The web re-says it every minute while the call
+/// lasts (web/src/lib/desktop-own-call.ts), so a window that reloads, crashes
+/// or loses its network stops holding detection back within this long.
+pub const OWN_CALL_LEASE: Duration = Duration::from_secs(150);
+
 /// Restart the sidecar if it emits nothing for this long (its own cadence is
 /// ≤5s, so 30s of silence means it's gone or wedged).
 const SIDECAR_SILENCE_TIMEOUT: Duration = Duration::from_secs(30);
@@ -189,6 +195,7 @@ impl MeetingDetector {
                 // Off by default — overwritten from persisted settings at
                 // startup (lib.rs setup). Must match AppSettings::default().
                 auto_record: false,
+                own_call_until: None,
             })),
             should_stop: Arc::new(AtomicBool::new(false)),
         }
@@ -223,6 +230,51 @@ impl MeetingDetector {
 
     pub fn set_auto_record(&mut self, auto_record: bool) {
         self.shared_state.lock().unwrap().auto_record = auto_record;
+    }
+
+    /// The web's word on whether the signed-in person is in one of OUR OWN
+    /// calls right now (a team call or meeting-link call, wherever it runs:
+    /// this app's window, a browser on this computer, their phone). The
+    /// server records those calls itself, so while one lasts a browser or
+    /// meeting app on the mic must neither prompt nor auto-record: that
+    /// would be a second capture of the same call, and a HUD mid-call.
+    ///
+    /// `true` holds detection back for OWN_CALL_LEASE (the web re-says it
+    /// every minute); `false` ends the hold now. Returns true when a pending
+    /// prompt (Detected: the HUD, perhaps counting down to an auto-start)
+    /// was withdrawn, so the caller closes the HUD. A capture already
+    /// running (Recording) is left alone: the person may have started it on
+    /// purpose, and stopping it unasked would lose their recording.
+    pub fn set_own_call(&mut self, active: bool) -> bool {
+        Self::set_own_call_at(&self.shared_state, active, Instant::now())
+    }
+
+    fn set_own_call_at(state: &Arc<Mutex<PollingState>>, active: bool, now: Instant) -> bool {
+        let mut s = state.lock().unwrap();
+        let was = s.own_call_active(now);
+        if !active {
+            s.own_call_until = None;
+            if was {
+                mlog("own call over: detection resumes");
+            }
+            return false;
+        }
+        s.own_call_until = Some(now + OWN_CALL_LEASE);
+        if !was {
+            mlog("own call active: detection and auto-record held back");
+        }
+        if s.state != MeetingDetectionState::Detected {
+            return false;
+        }
+        // Withdraw the prompt (or the auto-start countdown) for the app it
+        // was about; that app stays dismissed until its session is over.
+        if let Some(app) = s.detected_app.take() {
+            mlog(&format!("own call active: withdrawing the prompt for {}", app.display_name));
+            s.dismissed_apps.insert(app.bundle_id);
+        }
+        s.recording_mic_inactive_since = None;
+        s.state = MeetingDetectionState::Monitoring;
+        true
     }
 
     pub fn dismiss_detection(&mut self) {
@@ -582,7 +634,7 @@ impl MeetingDetector {
         Self::expire_dismissals(&mut s, result);
 
         let call_is_active = !result.apps_using_mic.is_empty();
-        let app_using_mic = result.apps_using_mic.first();
+        let mut app_using_mic = result.apps_using_mic.first();
 
         // Track mic state transitions
         if call_is_active && !s.last_mic_state {
@@ -594,6 +646,22 @@ impl MeetingDetector {
 
         if !call_is_active {
             return Vec::new();
+        }
+
+        // In one of our own calls (set_own_call): a BROWSER on the mic is most
+        // likely that call (a tab running it), which the server already
+        // records. Never prompt for it; and dismiss it now, so the hold ending
+        // doesn't pop a prompt for that same session (the dismissal expires
+        // once the browser's mic session is over, as usual). A native meeting
+        // app on the mic (Zoom, Teams) is never our call: it is detected as
+        // always, hold or no hold (the person may be in our call on their
+        // phone and join another meeting here).
+        if s.own_call_active(Instant::now()) {
+            for a in result.apps_using_mic.iter().filter(|a| BROWSER_BUNDLES.contains(&a.bundle_id.as_str())) {
+                s.dismissed_apps.insert(a.bundle_id.clone());
+                s.dismissed_gone_since.remove(&a.bundle_id);
+            }
+            app_using_mic = result.apps_using_mic.iter().find(|a| !BROWSER_BUNDLES.contains(&a.bundle_id.as_str()));
         }
 
         let Some(app) = app_using_mic else {
@@ -850,6 +918,15 @@ struct PollingState {
     state: MeetingDetectionState,
     detected_app: Option<DetectedApp>,
     auto_record: bool,
+    /// Until when the person counts as in one of our own calls (the web's
+    /// last `set_own_call(true)` plus OWN_CALL_LEASE). None: not in one.
+    own_call_until: Option<Instant>,
+}
+
+impl PollingState {
+    fn own_call_active(&self, now: Instant) -> bool {
+        self.own_call_until.is_some_and(|until| now < until)
+    }
 }
 
 impl Drop for MeetingDetector {
@@ -1185,6 +1262,93 @@ mod tests {
         // Recording is entered only when the capture actually starts
         // (recording_started); the HUD countdown window is Detected.
         assert_eq!(state_of(&d), MeetingDetectionState::Detected);
+    }
+
+    const CHROME: &str = "com.google.Chrome";
+
+    #[test]
+    fn own_call_holds_back_prompt_and_auto_record() {
+        let mut d = MeetingDetector::new();
+        d.set_auto_record(true);
+        assert!(!d.set_own_call(true));
+        backdate_mic_active(&d, Duration::from_secs(60));
+        let effects =
+            MeetingDetector::process_result(&d.shared_state, &result(&[CHROME], &[CHROME], &[CHROME]));
+        assert!(effects.is_empty());
+        assert_eq!(state_of(&d), MeetingDetectionState::Monitoring);
+        // The browser on the mic (our call's tab) is dismissed for its session.
+        assert!(d.shared_state.lock().unwrap().dismissed_apps.contains(CHROME));
+    }
+
+    #[test]
+    fn own_call_does_not_hold_back_a_native_meeting_app() {
+        // In our call (on the phone, or in a tab here) and Zoom starts on this computer: Zoom is a meeting of its own.
+        const ZOOM: &str = "us.zoom.xos";
+        let mut d = MeetingDetector::new();
+        d.set_own_call(true);
+        backdate_mic_active(&d, Duration::from_secs(60));
+        let effects =
+            MeetingDetector::process_result(&d.shared_state, &result(&[CHROME, ZOOM], &[CHROME, ZOOM], &[ZOOM]));
+        assert_eq!(effects.len(), 1);
+        let s = d.shared_state.lock().unwrap();
+        assert!(s.dismissed_apps.contains(CHROME));
+    }
+
+    #[test]
+    fn own_call_end_does_not_prompt_for_the_same_session() {
+        let mut d = MeetingDetector::new();
+        d.set_own_call(true);
+        backdate_mic_active(&d, Duration::from_secs(60));
+        MeetingDetector::process_result(&d.shared_state, &result(&[CHROME], &[CHROME], &[]));
+        d.set_own_call(false);
+        // The tab still holds the mic a moment after the call's word ended.
+        let effects =
+            MeetingDetector::process_result(&d.shared_state, &result(&[CHROME], &[CHROME], &[]));
+        assert!(effects.is_empty());
+        assert_eq!(state_of(&d), MeetingDetectionState::Monitoring);
+    }
+
+    #[test]
+    fn own_call_lease_expires_without_a_refresh() {
+        let d = MeetingDetector::new();
+        let long_ago = Instant::now() - OWN_CALL_LEASE - Duration::from_secs(1);
+        MeetingDetector::set_own_call_at(&d.shared_state, true, long_ago);
+        assert!(!d.shared_state.lock().unwrap().own_call_active(Instant::now()));
+        // A call in another app (Zoom) is detected again.
+        backdate_mic_active(&d, Duration::from_secs(6));
+        let effects =
+            MeetingDetector::process_result(&d.shared_state, &result(&[ZOOM], &[ZOOM], &[ZOOM]));
+        assert!(matches!(&effects[..], [Effect::MeetingDetected(app)] if app.bundle_id == ZOOM));
+    }
+
+    #[test]
+    fn own_call_withdraws_a_pending_prompt() {
+        let mut d = MeetingDetector::new();
+        d.set_auto_record(true);
+        backdate_mic_active(&d, Duration::from_secs(6));
+        let effects =
+            MeetingDetector::process_result(&d.shared_state, &result(&[CHROME], &[CHROME], &[]));
+        assert!(matches!(&effects[..], [Effect::MeetingAutoStart(_)]));
+        assert_eq!(state_of(&d), MeetingDetectionState::Detected);
+        // The word arrives during the HUD countdown: withdraw it.
+        assert!(d.set_own_call(true));
+        assert_eq!(state_of(&d), MeetingDetectionState::Monitoring);
+        let s = d.shared_state.lock().unwrap();
+        assert!(s.detected_app.is_none());
+        assert!(s.dismissed_apps.contains(CHROME));
+    }
+
+    #[test]
+    fn own_call_leaves_a_running_capture_alone() {
+        let mut d = MeetingDetector::new();
+        {
+            let mut s = d.shared_state.lock().unwrap();
+            s.detected_app = Some(zoom_app());
+        }
+        d.recording_started();
+        assert!(!d.set_own_call(true));
+        assert_eq!(state_of(&d), MeetingDetectionState::Recording);
+        assert!(d.shared_state.lock().unwrap().detected_app.is_some());
     }
 
     #[test]

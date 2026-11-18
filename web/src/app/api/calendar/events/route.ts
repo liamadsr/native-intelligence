@@ -111,7 +111,8 @@ export async function POST(req: Request) {
       location,
       attendees,
       isAllDay,
-    }, onAccount)
+      // The person typed these guests in: they get the calendar's own invitation (Google sends none unless asked; Outlook always does).
+    }, onAccount, { sendInvites: Array.isArray(attendees) && attendees.length > 0 })
 
     // The meeting remembers the event (586): the PERSON's, so it only ever swaps or takes out its own link in it.
     if (meetingId) {

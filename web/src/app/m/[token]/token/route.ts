@@ -14,10 +14,12 @@
  * first; limited per guest.
  *
  * Listen-only (phase 6's notice, enforced by the server for guests): while
- * the call has notes in a round, or a recording since it started, that the
- * guest has not said go to (573's notes_ack_round, recording_ack_at, written
- * only by POST /m/<token>/notice), the token publishes nothing. Nothing the
- * client sends changes that.
+ * the call has notes on that the guest has never said go to in this call, or
+ * a recording since it started that they haven't (573's notes_ack_round,
+ * recording_ack_at, written by POST /m/<token>/notice, or by the join route
+ * when the entry page itself said so), the token publishes nothing. A go to
+ * the notes holds for the rest of the call. Nothing the client sends here
+ * changes that.
  */
 import { NextResponse, type NextRequest } from 'next/server'
 import { apiError, serverError } from '@/lib/api-errors'
