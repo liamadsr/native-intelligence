@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { isDeviceToken, isDeviceWorkspaceMember, resolveDeviceToken } from '@/lib/device-tokens'
 import { serverError, sessionExpired } from '@/lib/api-errors'
 import type { SupabaseClient, User } from '@supabase/supabase-js'
+import { demoVisitorWorkspace } from '@/lib/demo/demo-mode'
 
 /**
  * Thrown by getCurrentWorkspaceId() when the membership query itself fails.
@@ -142,7 +143,7 @@ async function resolveUser(supabase: SupabaseClient): Promise<ResolvedUser | nul
  * module state between overlapping requests. Returns null for non-device auth.
  * Mirrors `deviceTokenWorkspace()` in api-auth.ts.
  */
-async function deviceTokenWorkspace(): Promise<string | null> {
+async function deviceTokenWorkspace(): Promise<{ workspaceId: string; userId: string } | null> {
   let resolved: { userId: string; workspaceId: string | null } | null = null
   try {
     const headerStore = await headers()
@@ -165,7 +166,7 @@ async function deviceTokenWorkspace(): Promise<string | null> {
   } catch {
     throw new WorkspaceLookupError('query_failed')
   }
-  return isMember ? resolved.workspaceId : null
+  return isMember ? { workspaceId: resolved.workspaceId, userId: resolved.userId } : null
 }
 
 export const WORKSPACE_COOKIE = 'workspace_id'
@@ -185,12 +186,25 @@ export const WORKSPACE_HEADER = 'x-workspace-id'
  *  dashboard. There, `workspaceId` is optional render context — use
  *  `getCurrentWorkspaceIdSafe()` instead, which degrades to null. */
 export async function getCurrentWorkspaceId(): Promise<string | null> {
+  const resolved = await resolveCurrentWorkspace()
+  if (!resolved) return null
+  // A demo workspace's visitor (migration 669) is in the demo workspace and
+  // nowhere else: whatever a cookie, a header or a device's pin names, their
+  // request runs there. (The helpers in api-auth.ts refuse such a request
+  // outright; this one is also what pages render from, so it answers with
+  // the workspace they may use rather than an error.)
+  const home = await demoVisitorWorkspace(resolved.userId)
+  return home ?? resolved.workspaceId
+}
+
+/** The workspace the request names, and whose it is: header → cookie → first membership (a device token's pin first). */
+async function resolveCurrentWorkspace(): Promise<{ workspaceId: string; userId: string } | null> {
   // A device token is PINNED to one workspace, and that pin wins over both the
   // header and the cookie — deliberately. Honouring `x-workspace-id` here
   // would let anyone holding a device token read a workspace it was never
   // issued for, since the pin is the only membership check a device call gets.
-  const deviceWorkspaceId = await deviceTokenWorkspace()
-  if (deviceWorkspaceId) return deviceWorkspaceId
+  const device = await deviceTokenWorkspace()
+  if (device) return device
 
   const headerStore = await headers()
   const fromHeader = headerStore.get(WORKSPACE_HEADER)
@@ -229,10 +243,10 @@ export async function getCurrentWorkspaceId(): Promise<string | null> {
       console.error('[workspace] membership verify query failed:', error)
       throw new WorkspaceLookupError(isJwtExpiredError(error) ? 'session_expired' : 'query_failed')
     }
-    if (membership) return membership.workspace_id
+    if (membership) return { workspaceId: membership.workspace_id, userId: user.id }
     // Not a member: the workspace may have been merged into one they are in.
     const merged = await followWorkspaceMerges(supabase, user.id, candidate)
-    if (merged) return merged.workspace_id
+    if (merged) return { workspaceId: merged.workspace_id, userId: user.id }
     // Otherwise fall through to first membership
   }
 
@@ -258,7 +272,7 @@ export async function getCurrentWorkspaceId(): Promise<string | null> {
     console.error('[workspace] first-membership query failed:', error)
     throw new WorkspaceLookupError(isJwtExpiredError(error) ? 'session_expired' : 'query_failed')
   }
-  return data?.workspace_id ?? null
+  return data?.workspace_id ? { workspaceId: data.workspace_id, userId: user.id } : null
 }
 
 /**

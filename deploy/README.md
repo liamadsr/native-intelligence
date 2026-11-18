@@ -1927,10 +1927,20 @@ a workspace is flagged.
   switch says). The job's log line names any table it could not clear.
 - **Remove a person**: Settings › Members, as for any workspace. Their account
   stays; without a seat it is behind the trial page again.
-- **Not closed**: a visitor's own MCP servers (connected in their own
-  workspace) follow them, as they follow anyone; the AI Gateway's web search
-  tool and a few background jobs that name no workspace are metered, not
-  refused.
+- **A visitor is kept to the demo workspace for everything**, not only AI
+  (a visitor: a member or guest there with nothing of their own). Their
+  requests run in the demo workspace or are refused; the assistant's tools
+  and the MCP connector see only it; a chat is started only there; a usage
+  check that cannot say where its work runs refuses them. And a visitor
+  connects nothing, in any workspace: a token (GitHub, an MCP server) is
+  found by person and would answer inside the demo. So "free inside the demo"
+  is not free in a workspace of their own making. If the app cannot read who
+  is a visitor it logs `[demo-workspace] visitor read failed` and that
+  request is not fenced; nobody who is not a visitor is ever refused by this.
+- **Not closed**: something a person connected BEFORE they became a visitor
+  (a lapsed subscriber invited into the demo) still answers by person: their
+  GitHub token for a coding run, their own MCP servers. The AI Gateway's web
+  search tool is metered, not refused.
 
 ### Slack
 

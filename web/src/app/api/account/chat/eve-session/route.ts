@@ -134,6 +134,7 @@
  * conversation carries on as an ordinary one.
  */
 import { requireWorkspace } from '@/lib/api-auth'
+import { DEMO_ONLY_MESSAGE, DEMO_ONLY_REASON, demoVisitorWorkspace } from '@/lib/demo/demo-mode'
 import { apiError, badRequest, rateLimited, serverError } from '@/lib/api-errors'
 import { NextResponse, type NextRequest } from 'next/server'
 import { checkUsageLimits } from '@/lib/ai/auth'
@@ -554,6 +555,14 @@ async function mintResponse(
     chatgptPlan?: boolean
   },
 ): Promise<Response> {
+  // A demo workspace's visitor (migration 669) gets a chat token for the demo
+  // workspace only. The usage check above read the workspace the request
+  // names; a teammate chat is minted for the TEAMMATE's workspace, which can be
+  // any the caller belongs to, and every turn then runs there.
+  const home = await demoVisitorWorkspace(args.userId)
+  if (home && home !== args.workspaceId) {
+    return NextResponse.json({ error: 'Usage limit exceeded', reason: DEMO_ONLY_REASON, message: DEMO_ONLY_MESSAGE }, { status: 429 })
+  }
   const { conversationId, workspaceId, userId } = args
   const jwt = callerJwt(request, userId)
   let token: string

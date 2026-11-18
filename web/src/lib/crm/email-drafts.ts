@@ -786,9 +786,9 @@ export function buildWritingStyleBlock(mailNote: string, facts: readonly string[
  * skips the review. A person on their own plan is allowed: their review runs
  * on it (reviewDraft's chatgptPlan).
  */
-async function reviewWithinUsage(userId: string): Promise<boolean> {
+async function reviewWithinUsage(userId: string, workspaceId: string): Promise<boolean> {
   try {
-    return (await checkUsageLimits(userId, undefined, { chatgptPlan: true }))?.allowed === true
+    return (await checkUsageLimits(userId, undefined, { chatgptPlan: true, workspaceId }))?.allowed === true
   } catch {
     return false
   }
@@ -930,7 +930,7 @@ async function generateSingleDraft(
           gate: async () => {
             const skip = plan.take()
             if (skip) return skip
-            return (await reviewWithinUsage(userId)) ? null : 'usage'
+            return (await reviewWithinUsage(userId, workspaceId)) ? null : 'usage'
           },
           withinBudget: () => plan.enoughTime(),
           review: (text: string) =>

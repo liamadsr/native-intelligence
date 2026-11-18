@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { DEMO_OFF, isDemoWorkspace } from '@/lib/demo/demo-mode'
+import { DEMO_OFF, demoVisitorWorkspace, isDemoWorkspace } from '@/lib/demo/demo-mode'
 import { z } from 'zod'
 import { requireWorkspace } from '@/lib/api-auth'
 import { badRequest, serverError } from '@/lib/api-errors'
@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
 
   // No real server is connected from inside a demo workspace (migration 669):
   // refused here, before the provider is asked anything.
-  if (await isDemoWorkspace(workspaceId)) {
+  if ((await isDemoWorkspace(workspaceId)) || (await demoVisitorWorkspace(user.id))) {
     return NextResponse.json({ error: DEMO_OFF.connector, code: 'DEMO_WORKSPACE' }, { status: 403 })
   }
 

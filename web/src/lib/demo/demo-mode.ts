@@ -19,9 +19,17 @@
  *
  * Everything else works there as in any workspace (the owner's decisions,
  * 2026-11-18): texts, phone calls, the cloud browser, coding runs, web
- * research, enrichment, SEO data, prospecting, Studio, email, call notes and
+ * research, enrichment, SEO data, prospecting, Studio, call notes and
  * recording, and members inviting people where the workspace allows it. No
  * check for any of them lives here: less code in front of production paths.
+ * (Mail the app itself sends works too. A person's own mailbox and calendar
+ * do not answer there: src/lib/crm/email-client.ts, calendar-here.ts.)
+ *
+ * And a VISITOR (a member or guest with nothing of their own) is kept to the
+ * demo workspace for everything, not only AI: `demoVisitorWorkspace` below is
+ * asked by the request helpers (src/lib/api-auth.ts, src/lib/workspace.ts),
+ * the chat mint, the tools' workspace routing, the MCP connector and every
+ * connect start. A visitor connects nothing, anywhere.
  *
  * Only an admin flags a workspace, with a row in `demo_workspace` (the table
  * is the service role's alone). This module never writes it.
@@ -62,6 +70,8 @@ const cache = new Map<string, { demo: boolean; at: number }>()
 /** For tests, and after a reset. */
 export function clearDemoWorkspaceCache(): void {
   cache.clear()
+  visitorCache.clear()
+  anyDemo = null
 }
 
 type DemoLookup = (workspaceId: string) => boolean | Promise<boolean>
@@ -73,9 +83,9 @@ const testLookup = (): DemoLookup | null => (globalThis as Record<symbol, unknow
 /**
  * TESTS ONLY (src/test/setup.ts): answer isDemoWorkspace without the
  * database. The suite's fake clients have no is_demo_workspace(), and this
- * check now sits in front of every costly call, so the setup file answers
- * "not a demo" for all of them; a test about a demo workspace passes its own
- * answer, and one about the real read passes null.
+ * check sits in the connect paths and the usage checks, so the setup file
+ * answers "not a demo" for all of them; a test about a demo workspace passes
+ * its own answer, and one about the real read passes null.
  */
 export function setDemoWorkspaceLookupForTests(lookup: DemoLookup | null): void {
   ;(globalThis as Record<symbol, unknown>)[TEST_LOOKUP] = lookup
@@ -139,19 +149,116 @@ export async function isDemoWorkspace(workspaceId: string | null | undefined): P
 
 /**
  * A usage row that let a demo workspace's visitor in (reason
- * 'demo_workspace'), for work that runs in `workspaceId`: true when that
- * workspace is known NOT to be a demo. Their place covers the demo workspace
+ * 'demo_workspace'), for work that runs in `workspaceId`: true unless that
+ * workspace is known to BE a demo. Their place covers the demo workspace
  * only; anywhere else they hold no seat. The SQL gate is per person and
- * cannot see this, so every caller that knows where the work runs asks here.
+ * cannot see this, so every usage check asks here with where its work runs.
  *
- * Only positive evidence refuses: no workspace named, or a flag that could
- * not be read, is not "outside". Such work is metered on the demo workspace
- * like the rest of a visitor's, and bounded only where an admin set a cap.
+ * REFUSES WHEN IT CANNOT TELL: no workspace named, or a flag that could not
+ * be read, is "outside". A check that forgot to say where its work runs then
+ * stops a visitor (a bug that shows) instead of letting them spend anywhere
+ * (one that does not). This never touches anyone but a demo visitor: every
+ * other reason returns false before anything is read.
  */
 export async function demoVisitorOutside(
   row: { reason?: string | null } | null | undefined,
   workspaceId: string | null | undefined,
 ): Promise<boolean> {
-  if (row?.reason !== DEMO_USAGE_REASON || !workspaceId) return false
-  return (await readDemoWorkspace(workspaceId)) === false
+  if (row?.reason !== DEMO_USAGE_REASON) return false
+  if (!workspaceId) return true
+  return (await readDemoWorkspace(workspaceId)) !== true
+}
+
+// ── Who is a visitor ───────────────────────────────────────────────────────
+
+type VisitorLookup = (userId: string) => string | null | Promise<string | null>
+const TEST_VISITOR_LOOKUP = Symbol.for('ni.demoVisitorLookupForTests')
+const testVisitorLookup = (): VisitorLookup | null => (globalThis as Record<symbol, unknown>)[TEST_VISITOR_LOOKUP] as VisitorLookup | null ?? null
+
+/** TESTS ONLY (src/test/setup.ts): answer demoVisitorWorkspace without the database; null for the real read. */
+export function setDemoVisitorLookupForTests(lookup: VisitorLookup | null): void {
+  ;(globalThis as Record<symbol, unknown>)[TEST_VISITOR_LOOKUP] = lookup
+  visitorCache.clear()
+  anyDemo = null
+}
+
+const visitorCache = new Map<string, { workspaceId: string | null; at: number }>()
+let anyDemo: { exists: boolean; at: number } | null = null
+
+/**
+ * Does any demo workspace exist? For a caller that would otherwise ask the
+ * database about one person on every page render (the trial wall): with no
+ * demo workspace at all, nobody can be a visitor. True when it cannot tell.
+ */
+export async function anyDemoWorkspaceExists(): Promise<boolean> {
+  // Under the suite's lookups the database is not asked: let the caller go on.
+  if (testVisitorLookup()) return true
+  try {
+    return await anyDemoWorkspace()
+  } catch {
+    return true
+  }
+}
+
+/** One small read a minute per process; with none, nobody is ever asked about. */
+async function anyDemoWorkspace(): Promise<boolean> {
+  if (anyDemo && Date.now() - anyDemo.at < TTL_MS) return anyDemo.exists
+  const { getServiceClient } = await import('@/lib/supabase/service')
+  const { data, error } = await getServiceClient().from('demo_workspace').select('workspace_id').limit(1)
+  if (error) {
+    // Before migration 669 the table is not there: no demo workspaces.
+    if (error.code === '42P01' || error.code === 'PGRST205') {
+      anyDemo = { exists: false, at: Date.now() }
+      return false
+    }
+    throw new Error(error.message)
+  }
+  anyDemo = { exists: ((data as unknown[] | null) ?? []).length > 0, at: Date.now() }
+  return anyDemo.exists
+}
+
+/**
+ * The demo workspace this person is a VISITOR of, else null.
+ *
+ * A visitor is a member or guest of a demo workspace who has nothing of
+ * their own: the usage gate's own answer for them is the demo branch
+ * (check_ai_usage_limit, migration 669). A person in a demo workspace who
+ * holds a seat, a plan, credits or a granted free period is not one.
+ *
+ * This is the fence for everything that is NOT an AI call: a visitor's
+ * requests run in the demo workspace and nowhere else (src/lib/api-auth.ts,
+ * src/lib/workspace.ts), and a visitor connects nothing, anywhere. Without
+ * it, "free inside the demo" is free everywhere a paid surface has its own
+ * per-workspace budget (a workspace of their own making has a fresh one).
+ *
+ * Cached per person for a minute. With no demo workspace at all it costs one
+ * shared read a minute. A read that fails answers null and is logged: the
+ * fence then does not hold for that request, and no one who is not a visitor
+ * is ever refused by it.
+ */
+export async function demoVisitorWorkspace(userId: string | null | undefined): Promise<string | null> {
+  if (!userId) return null
+  const forTests = testVisitorLookup()
+  if (forTests) return forTests(userId)
+  const hit = visitorCache.get(userId)
+  if (hit && Date.now() - hit.at < TTL_MS) return hit.workspaceId
+  try {
+    if (!(await anyDemoWorkspace())) return null
+    const { getServiceClient } = await import('@/lib/supabase/service')
+    const service = getServiceClient()
+    const seat = await service.rpc('demo_seat_workspace', { p_user_id: userId })
+    if (seat.error) throw new Error(seat.error.message)
+    let workspaceId: string | null = typeof seat.data === 'string' && seat.data ? seat.data : null
+    if (workspaceId) {
+      const gate = await service.rpc('check_ai_usage_limit', { p_user_id: userId, p_chatgpt_plan: true })
+      if (gate.error) throw new Error(gate.error.message)
+      const row = (Array.isArray(gate.data) ? gate.data[0] : gate.data) as { reason?: string | null } | null | undefined
+      if (row?.reason !== DEMO_USAGE_REASON && row?.reason !== DEMO_CAP_REACHED_REASON) workspaceId = null
+    }
+    visitorCache.set(userId, { workspaceId, at: Date.now() })
+    return workspaceId
+  } catch (err) {
+    console.error('[demo-workspace] visitor read failed:', err instanceof Error ? err.message : err)
+    return null
+  }
 }

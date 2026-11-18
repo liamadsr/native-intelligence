@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { demoVisitorWorkspace } from '@/lib/demo/demo-mode'
 import { z } from 'zod'
 import { grantedEntityIds, grantedIdsIn, hasEditGrant, withGrantedIds } from '@/lib/entity-access/grants'
 
@@ -679,9 +680,14 @@ export async function getUserWorkspaces(
     .from('member')
     .select('workspace:workspace_id(id, name)')
     .eq('user_id', userId)
-  return (data || [])
+  const all = (data || [])
     .map((m) => m.workspace as unknown as { id: string; name: string } | null)
     .filter((w): w is { id: string; name: string } => Boolean(w))
+  // A demo workspace's visitor (migration 669) has one workspace as far as any
+  // tool is concerned: the demo. The others they belong to are not theirs to
+  // use until they hold a seat.
+  const home = await demoVisitorWorkspace(userId)
+  return home ? all.filter((w) => w.id === home) : all
 }
 
 /**
@@ -746,6 +752,11 @@ export async function resolveEntityWorkspace(
     .maybeSingle()
 
   if (!anywhere?.workspace_id) return null
+
+  // A demo workspace's visitor (migration 669) is never routed out of it: a row
+  // in another workspace of theirs is not found, as a nonexistent id is.
+  const home = await demoVisitorWorkspace(userId)
+  if (home && anywhere.workspace_id !== home) return null
 
   const { data: membership } = await supabase
     .from('member')
@@ -898,6 +909,9 @@ export async function resolveCreateWorkspace(
     }
     // Fenced run: no probe at all, so the refusal carries no timing signal.
     if (opts.strictWorkspace) return notFound
+    // A demo workspace's visitor (migration 669) creates nothing outside it.
+    const home = await demoVisitorWorkspace(userId)
+    if (home && explicitWorkspaceId !== home) return notFound
 
     const { data: membership } = await supabase
       .from('member')

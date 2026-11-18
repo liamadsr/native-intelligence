@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { setDemoVisitorLookupForTests } from '@/lib/demo/demo-mode'
 
 /**
  * Tests for src/lib/workspace.ts.
@@ -156,6 +157,14 @@ describe('getCurrentWorkspaceId', () => {
     const result = await getCurrentWorkspaceId()
     expect(result).toBe('w-cookie')
     expect(hoisted.memberLookup).toHaveBeenCalledOnce()
+  })
+
+  it('a demo workspace’s visitor is in the demo workspace, whatever the cookie names (migration 669)', async () => {
+    setDemoVisitorLookupForTests((userId) => (userId === 'u1' ? 'w-demo' : null))
+    hoisted.cookies[WORKSPACE_COOKIE] = 'w-own'
+    hoisted.getUser.mockResolvedValueOnce({ data: { user: { id: 'u1' } } })
+    hoisted.memberLookup.mockResolvedValueOnce({ data: { workspace_id: 'w-own' }, error: null })
+    expect(await getCurrentWorkspaceId()).toBe('w-demo')
   })
 
   it('prefers header over cookie when both are present', async () => {

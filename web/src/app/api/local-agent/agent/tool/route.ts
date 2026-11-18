@@ -115,7 +115,7 @@ export async function POST(request: Request) {
   const svc = getServiceClient()
   const authorized = await authorizeMacBody(request, svc)
   if (authorized instanceof Response) return authorized
-  const usage = await usageRefusal(authorized.session.userId)
+  const usage = await usageRefusal(authorized.session.userId, authorized.session.workspaceId)
   if (usage) return usage
   // A job a loop started (L5): its class, and the loop's saved request as the
   // reviewer's evidence. A failed read refuses: never the attended policy.

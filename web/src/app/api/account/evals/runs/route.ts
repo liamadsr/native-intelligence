@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
   // Opted in to the ChatGPT free tier: a person on their own plan runs evals
   // on it (startEvalRun prices their run at $0; the lane grades on the plan).
   try {
-    await checkUsageLimits(user.id, undefined, { chatgptPlan: true })
+    await checkUsageLimits(user.id, undefined, { chatgptPlan: true, workspaceId })
   } catch (limitResponse) {
     if (limitResponse instanceof Response) return limitResponse
     throw limitResponse

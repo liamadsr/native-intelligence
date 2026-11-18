@@ -47,7 +47,7 @@ export async function GET(request: Request) {
 
   const params = new URL(request.url).searchParams
   if (params.get('live') === '1') {
-    const refused = await usageRefusal(body.session.userId)
+    const refused = await usageRefusal(body.session.userId, body.session.workspaceId)
     return refused ?? NextResponse.json({ live: true })
   }
 

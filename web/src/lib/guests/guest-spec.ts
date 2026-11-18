@@ -252,7 +252,7 @@ export async function rebuildGuestChatSpec(
   const guest = await loadGuestTurn(supabase, claims)
   if (!guest) throw new GuestTurnRefused()
 
-  const usageLoad = checkUsageLimits(claims.userId, undefined, { chatgptPlan: true })
+  const usageLoad = checkUsageLimits(claims.userId, undefined, { chatgptPlan: true, workspaceId: claims.workspaceId })
   const ownerNameLoad = ownerDisplayName(supabase, claims.userId, claims.workspaceId)
   // How the calls it held for the owner's OK ended (never a customer's: their bookings settle themselves).
   const outcomesLoad =

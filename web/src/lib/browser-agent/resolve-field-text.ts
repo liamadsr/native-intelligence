@@ -103,7 +103,7 @@ export async function resolveBrowserFieldText(
       .eq('user_id', ctx.userId).eq('workspace_id', ctx.workspaceId).abortSignal(controller.signal).maybeSingle()))
     if (membership.error || !membership.data) return reject('not_authorized')
     // Opted in to the ChatGPT free tier: a free user's field text runs on their own plan.
-    const budget = await timed('budget', () => read(() => checkUsageLimits(ctx.userId, controller.signal, { chatgptPlan: true })))
+    const budget = await timed('budget', () => read(() => checkUsageLimits(ctx.userId, controller.signal, { chatgptPlan: true, workspaceId: ctx.workspaceId })))
     if (!budget?.allowed) return reject('budget_unavailable')
     const chatgptPlan = isChatGptPlanUsage(budget)
     if (stop()) return finish(stop()!)

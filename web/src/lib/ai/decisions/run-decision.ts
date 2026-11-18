@@ -170,7 +170,7 @@ export async function runDecision<K extends DecisionKind>(kind: K, raw: Input<K>
     }
     // Opted in to the ChatGPT free tier: a person on their own plan passes,
     // and their decision runs there or not at all (Jev is Native Intelligence's).
-    const allowance = await timed('budget', () => read(() => checkUsageLimits(ctx.userId, signal, { chatgptPlan: true })))
+    const allowance = await timed('budget', () => read(() => checkUsageLimits(ctx.userId, signal, { chatgptPlan: true, workspaceId: ctx.workspaceId })))
     if (!allowance?.allowed) return escalate('budget_unavailable')
     const onPlan = isChatGptPlanUsage(allowance)
     const planDecision = PLAN_DECISIONS[kind]

@@ -847,7 +847,7 @@ describe('the quality layer on automatic drafts: lint, a review on another vendo
     refuse()
     answer([FIRST], [REVISE])
     expect((await generateEmailDrafts('user-1', 'ws-1', { thread_ids: ['pt-a'] })).count).toBe(1)
-    expect(hoisted.checkUsageLimits).toHaveBeenCalledWith('user-1', undefined, { chatgptPlan: true })
+    expect(hoisted.checkUsageLimits).toHaveBeenCalledWith('user-1', undefined, expect.objectContaining({ chatgptPlan: true }))
     expect(calls('draft_review')).toHaveLength(0)
     expect(calls('email_draft_reply')).toHaveLength(1)
     expect(quality()).toMatchObject({ review: null, reviewSkipped: 'usage', lint: { ok: false } })

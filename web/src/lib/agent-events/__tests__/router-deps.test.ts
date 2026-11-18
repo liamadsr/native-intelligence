@@ -137,7 +137,7 @@ describe('gates and Jev', () => {
   it('opts in to the ChatGPT plan: a person on their own plan is not over it', async () => {
     hoisted.guard.mockResolvedValueOnce({ chatgptPlan: true })
     expect(await isOverBackgroundUsage('u1')).toBe(false)
-    expect(hoisted.guard).toHaveBeenLastCalledWith('u1')
+    expect(hoisted.guard).toHaveBeenLastCalledWith('u1', undefined)
   })
 
   it('asks event.needs_person in shadow mode and stores its answer', async () => {

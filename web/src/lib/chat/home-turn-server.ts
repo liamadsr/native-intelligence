@@ -1088,7 +1088,7 @@ export async function planHomeTurn(
     // rebuild runs it on their plan (chat-run-rebuild.ts), never Native Intelligence's models.
     let chatgptPlan: boolean
     try {
-      const usage = await (deps.checkUsage ?? ((userId: string) => checkUsageLimits(userId, undefined, { chatgptPlan: true })))(data.userId)
+      const usage = await (deps.checkUsage ?? ((userId: string) => checkUsageLimits(userId, undefined, { chatgptPlan: true, workspaceId: data.workspaceId })))(data.userId)
       chatgptPlan = isChatGptPlanUsage(usage as { reason?: string | null } | null | undefined)
     } catch (err) {
       if (err instanceof Response && err.status === 429) return { ok: false, reason: 'usage_limited', record }

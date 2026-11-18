@@ -191,7 +191,7 @@ export async function draftingBlocked(
   // Opted in to the ChatGPT free tier: a person on their own plan passes. Their
   // drafts (generateEmailDrafts) and their reply and arrival decisions
   // (runDecision's plan route) then run on their plan, never Native Intelligence's models.
-  const checkUsage = deps.checkUsage ?? ((id: string) => checkUsageLimits(id, undefined, { chatgptPlan: true }))
+  const checkUsage = deps.checkUsage ?? ((id: string) => checkUsageLimits(id, undefined, { chatgptPlan: true, workspaceId }))
   const allowance = await checkUsage(userId).catch(() => undefined)
   if (!allowance?.allowed) return 'usage'
   return null

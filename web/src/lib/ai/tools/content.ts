@@ -162,7 +162,7 @@ export function createContentTools(userId: string, supabase: SupabaseClient, wor
         // the review too, on the plan's other model (reviewDraft's chatgptPlan).
         let chatgptPlan = false
         try {
-          const usage = await checkUsageLimits(userId, undefined, { chatgptPlan: true })
+          const usage = await checkUsageLimits(userId, undefined, { chatgptPlan: true, workspaceId })
           if (usage?.allowed !== true) return { ...base, review: null, review_skipped: 'Not reviewed: the AI usage limit is reached. The deterministic check above still holds.' }
           chatgptPlan = isChatGptPlanUsage(usage)
         } catch {

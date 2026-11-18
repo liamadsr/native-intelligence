@@ -163,7 +163,7 @@ describe('review_post', () => {
     hoisted.reviewPost.mockResolvedValue({ verdict: 'ready', issues: [], model: 'chatgpt-plan/gpt-6-luna' })
     // The writer as the chat turn on the plan names it (its turn selection: `openai/<plan model>`).
     const onPlan = await run('review_post', { text: CLEAN }, { writerModel: 'openai/gpt-6.1-sol' })
-    expect(hoisted.checkUsageLimits).toHaveBeenCalledWith(expect.any(String), undefined, { chatgptPlan: true })
+    expect(hoisted.checkUsageLimits).toHaveBeenCalledWith(expect.any(String), undefined, expect.objectContaining({ chatgptPlan: true }))
     expect(hoisted.reviewPost).toHaveBeenCalledWith(expect.objectContaining({ chatgptPlan: true, writerModel: 'openai/gpt-6.1-sol' }))
     expect(onPlan.review).toMatchObject({ verdict: 'ready' })
   })

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { setDemoVisitorLookupForTests } from '@/lib/demo/demo-mode'
 
 /**
  * Tests for src/lib/api-auth.ts.
@@ -422,6 +423,49 @@ describe('requireWorkspace (device token)', () => {
     // member RLS would hide the row and refuse every member. The check runs on
     // a supabase-js client (service-role in production; mocked here).
     expect(hoisted.memberQueryClient).toBe('token')
+  })
+})
+
+describe('a demo workspace’s visitor (migration 669)', () => {
+  // A visitor holds no seat anywhere but the demo workspace: a request that
+  // resolves to any other workspace is refused, whatever it is for.
+  function signedInWith(cookieWorkspace: string) {
+    hoisted.getUser.mockResolvedValue({ data: { user: { id: 'u1' } }, error: null })
+    hoisted.cookies['workspace_id'] = cookieWorkspace
+    hoisted.candidateLookup.mockResolvedValue({ data: { workspace_id: cookieWorkspace, id: 'm1' }, error: null })
+  }
+
+  it('a request in the demo workspace goes through', async () => {
+    setDemoVisitorLookupForTests(() => 'w-demo')
+    signedInWith('w-demo')
+    expect(((await requireWorkspace()) as { workspaceId: string }).workspaceId).toBe('w-demo')
+    expect(((await requireWorkspaceMember()) as { workspaceId: string }).workspaceId).toBe('w-demo')
+  })
+
+  it('a request in a workspace of their own is refused, by both helpers', async () => {
+    setDemoVisitorLookupForTests(() => 'w-demo')
+    signedInWith('w-own')
+    for (const result of [await requireWorkspace(), await requireWorkspaceMember()]) {
+      expect(result).toBeInstanceOf(Response)
+      expect((result as Response).status).toBe(403)
+      expect((await (result as Response).json()).code).toBe('DEMO_WORKSPACE_ONLY')
+    }
+  })
+
+  it('a device token pinned to a workspace of their own is refused too', async () => {
+    setDemoVisitorLookupForTests(() => 'w-demo')
+    hoisted.getUser.mockResolvedValue({ data: { user: null }, error: null })
+    hoisted.authHeader = 'Bearer nid_secret'
+    hoisted.resolveDeviceToken.mockResolvedValue({ userId: 'u1', workspaceId: 'w-own' })
+    hoisted.candidateLookup.mockResolvedValue({ data: { id: 'm1' }, error: null })
+    const result = await requireWorkspace()
+    expect((result as Response).status).toBe(403)
+  })
+
+  it('nobody else is touched: a person who is not a visitor uses any workspace of theirs', async () => {
+    setDemoVisitorLookupForTests(() => null)
+    signedInWith('w-own')
+    expect(((await requireWorkspace()) as { workspaceId: string }).workspaceId).toBe('w-own')
   })
 })
 

@@ -411,7 +411,7 @@ describe('planHomeTurn', () => {
     const { checkUsageLimits } = await import('@/lib/ai/auth')
     const { client } = memDb(baseSeed())
     await planHomeTurn(client, DATA)
-    expect(checkUsageLimits).toHaveBeenCalledWith(DATA.userId, undefined, { chatgptPlan: true })
+    expect(checkUsageLimits).toHaveBeenCalledWith(DATA.userId, undefined, expect.objectContaining({ chatgptPlan: true }))
   })
 
   it('skips (and records) over the usage limit; a failed check skips without a record', async () => {

@@ -106,11 +106,16 @@ describe('a visitor who may invite (where the workspace lets members invite)', (
 describe('a background job, for a demo workspace’s visitor', () => {
   const visitor = { allowed: true, reason: 'demo_workspace' }
 
-  it('runs in the demo workspace, and where no workspace is named', async () => {
+  it('runs in the demo workspace', async () => {
     h.rpcRow = visitor
     await expect(guardBackgroundUsage('u1', DEMO)).resolves.toBeUndefined()
-    await expect(guardBackgroundUsage('u1')).resolves.toBeUndefined()
     await expect(guardBackgroundUsageOnPlan('u1', DEMO)).resolves.toEqual({ chatgptPlan: false })
+  })
+
+  it('is refused where the job names no workspace: it cannot say where it runs', async () => {
+    h.rpcRow = visitor
+    await expect(guardBackgroundUsage('u1')).rejects.toThrow('demo_workspace_only')
+    await expect(guardBackgroundUsageOnPlan('u1')).rejects.toThrow('demo_workspace_only')
   })
 
   it('is refused in any other workspace: no seat there', async () => {

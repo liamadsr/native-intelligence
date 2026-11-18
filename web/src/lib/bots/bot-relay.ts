@@ -935,7 +935,7 @@ export async function sendBotMessage(
   // their own ChatGPT plan passes, and the turn runs on their plan.
   let chatgptPlan: boolean
   try {
-    chatgptPlan = await relayUsageOnPlan(claims.userId, deps)
+    chatgptPlan = await relayUsageOnPlan(claims.userId, claims.workspaceId, deps)
   } catch {
     await settleRelay(supabase, row, { status: 'failed', error: REASONS.USAGE_LIMIT })
     return refusal('USAGE_LIMIT')
@@ -1231,7 +1231,7 @@ export async function steerItemAsPerson(
   // sent. A person on their own ChatGPT plan passes: the live run already runs
   // on the model its rebuild picked.
   try {
-    await relayUsageOnPlan(input.userId, deps)
+    await relayUsageOnPlan(input.userId, input.workspaceId, deps)
   } catch {
     await settleRelay(supabase, claim.row, { status: 'failed', error: REASONS.USAGE_LIMIT })
     return refusal('USAGE_LIMIT')
@@ -1259,8 +1259,9 @@ function openWorkRunClient(target: WorkRunTarget): Pick<EveClient, 'sessions'> {
  * checkUsageLimits opted in to the ChatGPT free tier): throws to refuse,
  * resolves to whether the person runs on their own plan.
  */
-async function relayUsageOnPlan(userId: string, deps: BotRelayDeps): Promise<boolean> {
-  const row = await (deps.checkUsage ?? ((id: string) => checkUsageLimits(id, undefined, { chatgptPlan: true })))(userId)
+async function relayUsageOnPlan(userId: string, workspaceId: string, deps: BotRelayDeps): Promise<boolean> {
+  // With the workspace the relayed turn runs in (a demo workspace's visitor is covered there only).
+  const row = await (deps.checkUsage ?? ((id: string) => checkUsageLimits(id, undefined, { chatgptPlan: true, workspaceId })))(userId)
   return isChatGptPlanUsage(row as { reason?: string | null } | null | undefined)
 }
 

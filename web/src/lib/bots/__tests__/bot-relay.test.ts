@@ -471,7 +471,7 @@ describe('a loop run’s chat', () => {
     const { session } = makeSession({ events: [text('ok'), turnDone] })
     const deps = waitForever(session, { checkUsage: undefined })
     await sendBotMessage(db.client, claims(), launch(), { item_id: LOOP_ITEM, message: 'why?' }, deps)
-    expect(usageCheck).toHaveBeenCalledWith(USER, undefined, { chatgptPlan: true })
+    expect(usageCheck).toHaveBeenCalledWith(USER, undefined, expect.objectContaining({ chatgptPlan: true }))
     expect(deps.openSession).toHaveBeenCalledWith(expect.anything(), { chatgptPlan: true })
   })
 

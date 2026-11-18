@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, vi } from 'vitest'
-import { setDemoWorkspaceLookupForTests } from '@/lib/demo/demo-mode'
+import { setDemoVisitorLookupForTests, setDemoWorkspaceLookupForTests } from '@/lib/demo/demo-mode'
 
 // Next's build-time server boundary is inert in the Node test runtime.
 vi.mock('server-only', () => ({}))
@@ -14,10 +14,15 @@ vi.mock('node:dns/promises', async (importOriginal) => ({
 }))
 
 // No workspace is a demo workspace (migration 669) unless a test says so: the
-// check sits in front of every costly call, and the suite's fake clients have
-// no is_demo_workspace(). A test about a demo workspace sets its own answer;
+// check sits in the connect paths and the usage checks, and the suite's fake
+// clients have no is_demo_workspace(). A test about a demo workspace sets its own answer;
 // one about the real read passes null.
-beforeEach(() => setDemoWorkspaceLookupForTests(() => false))
+beforeEach(() => {
+  setDemoWorkspaceLookupForTests(() => false)
+  // And nobody is a demo workspace's visitor (the fence in front of every
+  // workspace request, src/lib/api-auth.ts).
+  setDemoVisitorLookupForTests(() => null)
+})
 
 /**
  * Global test setup — runs before every test file.

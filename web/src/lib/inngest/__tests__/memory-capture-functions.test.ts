@@ -78,7 +78,7 @@ describe('chat-memory-capture', () => {
     const db = seed()
     const step = createStepMock()
     const out = await hoisted.handler({ event, step })
-    expect(hoisted.guard).toHaveBeenCalledWith('u1')
+    expect(hoisted.guard).toHaveBeenCalledWith('u1', 'w1')
     // The usage gate runs in its own step, so a replay past it never re-checks.
     expect(step.run.mock.calls.map((c) => c[0])).toEqual(['load', 'guard', 'read', 'write', 'checkpoint'])
     expect(hoisted.runUtilityTask).toHaveBeenCalledTimes(1)

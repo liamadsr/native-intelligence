@@ -414,7 +414,7 @@ export interface RouterDeps {
   isPaused: (supabase: SupabaseClient, workspaceId: string) => Promise<boolean>
   isDormant: (supabase: SupabaseClient, workspaceId: string) => Promise<boolean>
   /** True when the person is over their AI usage limit. */
-  isOverUsage: (userId: string) => Promise<boolean>
+  isOverUsage: (userId: string, workspaceId?: string) => Promise<boolean>
   /** event.needs_person (recorded on every row it answers; applied only where proven). */
   decide: (input: EventNeedsPersonInput, ctx: { userId: string; workspaceId: string; runId: string }) => Promise<JevShadow>
   /** The sides Jev is proven on, per kind (provenKindsFrom over recent rows). Absent or failing: none, the rules decide. */
@@ -485,7 +485,7 @@ export async function routeAgentEvents(
     // money. Paused rows route quiet, never terminal, so nothing is lost.
     deps.isPaused(supabase, person.workspaceId).catch(() => true),
     deps.isDormant(supabase, person.workspaceId).catch(() => false),
-    deps.isOverUsage(person.userId).catch(() => false),
+    deps.isOverUsage(person.userId, person.workspaceId).catch(() => false),
   ])
   const gates: RouterGates = { paused, dormant, overUsage }
 

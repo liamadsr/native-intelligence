@@ -3,6 +3,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { findSignupInviteForUser } from '@/lib/admin/signup-invites'
 import type { SubscriptionRow } from '@/app/api/billing/status/pick-subscription'
+import { anyDemoWorkspaceExists } from '@/lib/demo/demo-mode'
 import { classifyBillingAccess, isNiStaff, type BillingAccess, type ChatGptPlanStatus } from './access'
 
 /**
@@ -46,6 +47,10 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  *  reads as none: the trial wall then shows, never a free pass. */
 async function demoSeatWorkspace(supabase: SupabaseClient): Promise<string | null> {
   try {
+    // This runs on every dashboard and onboarding render: with no demo
+    // workspace at all (one shared read a minute) nobody is asked about. The
+    // person's own answer is never cached: an invite must let them in at once.
+    if (!(await anyDemoWorkspaceExists())) return null
     const { data, error } = await supabase.rpc('my_demo_seat_workspace')
     if (error) return null
     return typeof data === 'string' && UUID_RE.test(data) ? data : null

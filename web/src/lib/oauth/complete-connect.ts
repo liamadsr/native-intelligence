@@ -16,7 +16,7 @@
  * result the caller renders as a redirect (web) or JSON (desktop).
  */
 import { createStatelessClient } from '@/lib/supabase/stateless'
-import { isDemoWorkspace } from '@/lib/demo/demo-mode'
+import { demoVisitorWorkspace, isDemoWorkspace } from '@/lib/demo/demo-mode'
 import { OAUTH_CONFIG, getScopesForCapability, getRedirectUri, isPkceProvider, type OAuthProvider, type OAuthCapability } from '@/lib/oauth/config'
 import { pkceVerifier } from '@/lib/oauth/pkce'
 import { startConnectedImport } from '@/lib/crm/import/connected'
@@ -54,6 +54,9 @@ export async function completeOAuthConnect(input: CompleteConnectInput): Promise
     // start refuses too; this is for a link made before the flag, and the
     // database refuses the account row whatever path writes it.)
     if (stateWorkspaceId && (await isDemoWorkspace(stateWorkspaceId))) return fail('demo_workspace')
+    // Nor for a demo workspace's visitor, into any workspace: a token is found
+    // by person and would answer inside the demo.
+    if (await demoVisitorWorkspace(userId)) return fail('demo_workspace')
 
     // Exchange code for tokens
     const config = OAUTH_CONFIG[provider]

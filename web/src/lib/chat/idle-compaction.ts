@@ -293,7 +293,7 @@ export async function checkIdleCompaction(
 
     // Compaction is billed to the person (decision 8): never past their limits.
     try {
-      await checkUsageLimits(data.userId)
+      await checkUsageLimits(data.userId, undefined, { workspaceId: data.workspaceId })
     } catch (err) {
       const reason = err instanceof Response && err.status === 429 ? 'usage_limited' : 'usage_check_failed'
       return { ok: false, reason, sessionId, billedInputTokens }

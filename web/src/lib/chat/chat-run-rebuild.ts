@@ -765,7 +765,7 @@ export async function rebuildChatSpec(
   // user's turn then runs on their own plan (below), never on Native Intelligence's models.
   // The device ask too: its turn is a chat turn like any other, its token
   // carries the plan claim (device-ask-eve.ts) and its route bills the plan.
-  const usageLoad = checkUsageLimits(claims.userId, undefined, { chatgptPlan: true })
+  const usageLoad = checkUsageLimits(claims.userId, undefined, { chatgptPlan: true, workspaceId: claims.workspaceId })
   // The model the person picked for their main agent (agent-model.ts), read
   // from their account beside the usage check: every turn of their own main
   // agent, whatever the surface. Not a teammate's chat (the teammate's, not

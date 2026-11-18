@@ -179,19 +179,6 @@ export class CallNotesLiveError extends Error {
   }
 }
 
-/**
- * The batch was refused because the owner has no AI usage left (402/429).
- * Still never retried, as before. Its own class so a caller that can go on
- * without the pass (a call's notes: the transcript and the live summary
- * stand) tells it from any other refusal.
- */
-export class OwnerUsageError extends NonRetriableError {
-  constructor(message: string) {
-    super(message)
-    this.name = 'OwnerUsageError'
-  }
-}
-
 function callNotesLiveCode(body: string): boolean {
   try {
     return (JSON.parse(body) as { code?: unknown })?.code === 'CALL_NOTES_LIVE'
@@ -228,8 +215,6 @@ export async function runOwnerBatch(
         // A call's capture whose last live turn still holds its lease (or whose call is still
         // live): not a refusal but a "not yet". Retryable, never dropped (CallNotesLiveError).
         if (res.status === 409 && callNotesLiveCode(full)) throw new CallNotesLiveError(text)
-        // The owner's usage ran out (their plan's, or a demo workspace's cap where one is set, migration 669).
-        if (res.status === 402 || res.status === 429) throw new OwnerUsageError(`capture finalizer: batch refused (${res.status}) ${text}`)
         if (res.status >= 400 && res.status < 500 && res.status !== 408) {
           throw new NonRetriableError(`capture finalizer: batch refused (${res.status}) ${text}`)
         }
