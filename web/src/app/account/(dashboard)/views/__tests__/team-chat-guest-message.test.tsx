@@ -2,9 +2,11 @@
 /**
  * A meeting guest's message in the members' view (../team-chat-view.tsx,
  * migration 670): the guest's name with a small "Guest" label, initials and
- * never a photo, nothing anyone can edit or delete, no "Reply in thread" (a
- * guest never sees a thread); two guests are never one author; and one sent
- * while the conversation is open arrives over Realtime like any message.
+ * never a photo, no Edit, no "Reply in thread" (a guest never sees a
+ * thread), no "Make a task" (its words would be the title), and Delete for any member (the route's guest case takes it down);
+ * two guests are never one author; one sent while the conversation is open
+ * arrives over Realtime like any message; and while the meeting's live call
+ * has a guest let in, one quiet line by the composer says they read the chat.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act } from 'react'
@@ -21,6 +23,12 @@ vi.mock('@/lib/cached-fetch', () => ({
 vi.mock('@/hooks/recording-context', () => ({ useRecordingStable: () => ({}), useOptionalRecordingStable: () => null }))
 vi.mock('@/hooks/use-entity-sync', () => ({ useEntityListSync: () => {} }))
 vi.mock('@/lib/workspace-fetch', () => ({ getClientWorkspaceId: () => 'ws-1' }))
+// The team calls provider: off (as outside it), or, for one test, in the meeting's live call with its lobby.
+const calls = vi.hoisted(() => ({ value: null as Record<string, unknown> | null, kind: 'channel' as 'channel' | 'meeting' }))
+vi.mock('@/components/team-calls/team-calls-provider', async (orig) => {
+  const real = await orig<typeof import('@/components/team-calls/team-calls-provider')>()
+  return { ...real, useTeamCalls: () => ({ ...real.useTeamCalls(), ...(calls.value ?? {}) }) }
+})
 // Realtime: postgres changes kept by table, broadcasts by event; what the page sends on a topic, kept.
 const rt = vi.hoisted(() => ({
   handlers: new Map<string, (payload: unknown) => void>(),
@@ -80,6 +88,7 @@ const ROOT = msg({ id: 'root-1', author_member_id: 'm-me', body: 'Welcome to the
 const PLAIN = guestMsg({ id: 'plain-1', body: 'Thanks for having me', created_at: '2026-11-09T10:01:00Z' })
 const LEE = guestMsg({ id: 'guest-2', guest_id: 'g-lee', guest_name: 'Lee Park', body: 'Hello from Lee', created_at: '2026-11-09T10:02:00Z' })
 
+let requested: Array<{ url: string; method: string }> = []
 let container: HTMLDivElement
 let root: Root
 
@@ -90,10 +99,11 @@ beforeEach(() => {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
+      requested.push({ url, method: init?.method ?? 'GET' })
       if (url === '/api/account/team-chat/channels') {
         return new Response(
           JSON.stringify({
-            channels: [{ id: 'c-general', kind: 'channel', name: 'general', topic: null, team_id: null, dm_member_id: null, last_message_at: null, archived_at: null, unread: 0, mentions: 0, thread_unread: 0, thread_mentions: 0 }],
+            channels: [{ id: 'c-general', kind: calls.kind, name: 'general', topic: null, team_id: null, dm_member_id: null, last_message_at: null, archived_at: null, unread: 0, mentions: 0, thread_unread: 0, thread_mentions: 0 }],
             threads: [],
             memberId: 'm-me',
           }),
@@ -114,6 +124,9 @@ beforeEach(() => {
   // Wide: one pane beside the list.
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
   Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 1200 })
+  calls.value = null
+  calls.kind = 'channel'
+  requested = []
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -135,7 +148,7 @@ async function render() {
 const row = (id: string) => container.querySelector(`[data-team-chat-message="${id}"]`)!
 
 describe('a meeting guest’s message', () => {
-  it('shows the guest’s name and a Guest label, initials and no photo, and nothing to edit, delete or reply in a thread', async () => {
+  it('shows the guest’s name and a Guest label, initials and no photo, and no Edit, no thread reply, no task', async () => {
     await render()
     const guest = row('plain-1')
     expect(guest.textContent).toContain('Sam Ruiz')
@@ -144,12 +157,38 @@ describe('a meeting guest’s message', () => {
     expect(guest.querySelector('img')).toBeNull()
     expect(guest.textContent).toContain('SR')
     expect(guest.querySelector('[aria-label="Edit message"]')).toBeNull()
-    expect(guest.querySelector('[aria-label="Delete message"]')).toBeNull()
     expect(guest.querySelector('[aria-label="Reply in thread"]')).toBeNull()
+    // Never a task titled with a guest's words (it is no record: 670).
+    expect(guest.querySelector('[aria-label="Make a task"]')).toBeNull()
+    expect(row('root-1').querySelector('[aria-label="Make a task"]')).not.toBeNull()
     // A member's own message keeps its tools.
     expect(row('root-1').querySelector('[aria-label="Edit message"]')).not.toBeNull()
     expect(row('root-1').querySelector('[aria-label="Reply in thread"]')).not.toBeNull()
     expect(row('root-1').querySelector('[data-team-chat-guest]')).toBeNull()
+  })
+
+  it('any member may take a guest’s message down: Delete asks the route, and it reads as deleted', async () => {
+    await render()
+    const del = row('plain-1').querySelector('[aria-label="Delete message"]') as HTMLButtonElement
+    expect(del).not.toBeNull()
+    await act(async () => del.click())
+    await settle()
+    expect(requested).toContainEqual({ url: '/api/account/team-chat/messages/plain-1', method: 'DELETE' })
+    expect(row('plain-1').textContent).toContain('This message was deleted.')
+    // Another guest's message: Delete too.
+    expect(row('guest-2').querySelector('[aria-label="Delete message"]')).not.toBeNull()
+  })
+
+  it('guests let into the meeting’s live call: one quiet line by the composer; none without one', async () => {
+    calls.kind = 'meeting'
+    calls.value = { available: true, active: { callId: 'call-1', channelId: 'c-general', channelKind: 'meeting', guests: [{ id: 'g-sam', state: 'waiting', call_id: null, in_call: false }] } }
+    await render()
+    expect(container.querySelector('[data-team-chat-guests-read]')).toBeNull()
+    act(() => root.unmount())
+    root = createRoot(container)
+    calls.value = { available: true, active: { callId: 'call-1', channelId: 'c-general', channelKind: 'meeting', guests: [{ id: 'g-sam', state: 'admitted', call_id: 'call-1', in_call: true }] } }
+    await render()
+    expect(container.querySelector('[data-team-chat-guests-read]')!.textContent).toBe('Guests in this call can read this chat.')
   })
 
   it('two guests a minute apart are two authors: each shows their own name', async () => {

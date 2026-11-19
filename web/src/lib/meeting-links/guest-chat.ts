@@ -7,9 +7,10 @@
  * through the same module.
  *
  * What a guest is given of a message: its time, who wrote it (a member's name
- * as the app shows it, the agent's name, a guest's name; `mine` for their
- * own), and its words as plain text. The members' messages are stored as
- * typed, and the agent's replies are markdown; mentions are plain `@Name`
+ * as the app shows it, or a guest's name; `mine` for their own), and its
+ * words as plain text. An agent's reply is never given (670 leaves it out,
+ * and so does this module). The members' messages are stored as typed,
+ * markdown included; mentions are plain `@Name`
  * words (src/lib/team-chat/compose.ts: the ids live in their own columns, never
  * in the words), so they stay as they read. Made plain: markdown's emphasis,
  * code, headings, quotes and fences; a link with a label becomes its label,
@@ -33,7 +34,8 @@ export const GUEST_CHAT_SHOWN_MAX = 4000
 /** How often the guest's page asks while the call is on screen. */
 export const GUEST_CHAT_POLL_MS = 4_000
 
-export type GuestChatAuthor = 'member' | 'agent' | 'guest'
+/** Who wrote a message a guest reads: a member or a guest (never an agent). */
+export type GuestChatAuthor = 'member' | 'guest'
 
 /** A message as a guest is given it. `text` may be empty when `note` says what it was ("Sent a file"). */
 export interface GuestChatMessage {
@@ -118,7 +120,7 @@ function noteOf(files: number, email: boolean): string | null {
   return null
 }
 
-const AUTHORS: readonly GuestChatAuthor[] = ['member', 'agent', 'guest']
+const AUTHORS: readonly GuestChatAuthor[] = ['member', 'guest']
 
 /**
  * 670's rows as a guest is given them (server side): only these fields, the
@@ -131,7 +133,7 @@ export function guestChatMessagesOf(raw: unknown): GuestChatMessage[] {
     const r = (row ?? {}) as ReadRow
     const author = AUTHORS.find((a) => a === r.author)
     if (typeof r.id !== 'string' || typeof r.at !== 'string' || !author) return []
-    const name = typeof r.label === 'string' && r.label.trim() ? r.label.trim().slice(0, 80) : author === 'guest' ? 'Guest' : author === 'agent' ? 'Agent' : 'Teammate'
+    const name = typeof r.label === 'string' && r.label.trim() ? r.label.trim().slice(0, 80) : author === 'guest' ? 'Guest' : 'Teammate'
     const files = typeof r.files === 'number' && Number.isFinite(r.files) ? Math.max(0, Math.floor(r.files)) : 0
     const email = r.email === true
     // A shared email's words are the sharer's note about mail the guest can't open: the note alone says it.

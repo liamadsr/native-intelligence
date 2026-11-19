@@ -51,7 +51,9 @@
 --                     agent's replies (also the service role's).
 --   meeting_guest_chat_read(target_guest, token_digest, max_messages) → jsonb
 --                     { allowed, messages: [{ id, at, author, label, mine,
---                     body, files, email }] }. The rule of 657's notes: let
+--                     body, files, email }] }: the members' and the guests'
+--                     messages only, never an agent's reply (an agent's
+--                     words are written from the workspace it reads). The rule of 657's notes: let
 --                     in to the live call and in its room now, or out of it
 --                     for under 30 seconds (a reconnect: then only what was
 --                     written before they left), the link's hash, the
@@ -63,14 +65,26 @@
 --                     one stay, so never an earlier call's), oldest first,
 --                     the newest max_messages (1 to 200). label is the
 --                     member's name as the app shows it (display_name, else
---                     "Teammate"), the agent's name, or the guest's; mine is
+--                     "Teammate"), or the guest's; mine is
 --                     the guest's own. files is how many files a message
 --                     has, email whether it carries a shared email: never a
 --                     member's id, a file's path, a link preview or a share.
 --                     The guest's route makes the words plain
 --                     (src/lib/meeting-links/guest-chat.ts).
---   team_chat_search  561's, plus: a guest's message found by a member says
---                     the guest's name, "(guest)", never "A teammate".
+--   meeting_guest_chat_remove(target_message, by_member) → boolean
+--                     a member takes a guest's message down: any member who
+--                     may read the conversation (556/572's
+--                     team_chat_member_can_read). The same soft delete as a
+--                     member's own (the guard's deleted branch, which the
+--                     service role skips, written out here): the words,
+--                     mentions, files and preview cleared, deleted_at set.
+--                     True when it took one down; false for anything that is
+--                     not a guest's message still there, or a member who may
+--                     not read it. The service role's alone, called by the
+--                     members' DELETE route after it checked the caller.
+--   team_chat_search  561's, plus: a guest's message is never found (its
+--                     words would become a record's label when a member
+--                     @-mentions the hit into a chat with their agent).
 --
 -- Deploy order (production applies this file first, by hand, then rolls out
 -- the code). With this file applied and the old code running: no guest row
@@ -78,7 +92,7 @@
 -- columns; the widened checks accept every row there is (none is a guest's,
 -- and no member's or agent's has a guest); the guard's addition is about
 -- columns the old code never writes; team_chat_search answers the same
--- columns and, without guests, the same rows; the two new functions are
+-- columns and, without guests, the same rows; the three new functions are
 -- not called. Nothing changes for it. The new code needs this file first: it
 -- reads guest_id and guest_name with every message.
 --
@@ -89,8 +103,9 @@
 -- since it is nobody's own); a member's agent, called in that conversation,
 -- would read a guest's words as "A teammate"'s in its context (the new code
 -- leaves guests' messages out of what the agent reads); a loop never starts
--- on one (no member wrote it); the search says "(guest)" while this file's
--- function stands. Nothing breaks, and guests can no longer write (the old
+-- on one (no member wrote it); the search leaves it out while this file's
+-- function stands; nobody can take one down (the old code has no route for
+-- it). Nothing breaks, and guests can no longer write (the old
 -- code has no route for it).
 --
 -- Additive. Idempotent. Safe on a live database: the new columns are
@@ -101,7 +116,7 @@
 -- and the new partial index's build take milliseconds) and lock_timeout
 -- (5 s): behind a long-running reader the file fails and rolls back rather
 -- than queue every write behind it. The functions are definers with their
--- search_path pinned; the two new ones are the service role's alone. No
+-- search_path pinned; the three new ones are the service role's alone. No
 -- backslashes anywhere in this file (one MCP transport decodes escapes).
 -- ------------------------------------------------------------
 
@@ -318,7 +333,6 @@ begin
       select x.id, x.created_at, x.author_kind,
              case
                when x.author_kind = 'guest' then coalesce(nullif(trim(x.guest_name), ''), 'Guest')
-               when x.author_kind = 'agent' then coalesce(nullif(trim(x.agent_name), ''), 'Agent')
                else coalesce(nullif(trim(am.display_name), ''), 'Teammate')
              end as label,
              coalesce(x.author_kind = 'guest' and x.guest_id = g.id, false) as mine,
@@ -328,6 +342,8 @@ begin
         from public.team_chat_message x
         left join public.member am on am.id = x.author_member_id and x.author_kind = 'member'
        where x.channel_id = g.channel_id
+         -- The people's messages: never an agent's reply.
+         and x.author_kind in ('member', 'guest')
          and x.kind = 'message'
          and x.thread_root_id is null
          and x.deleted_at is null
@@ -341,14 +357,46 @@ begin
 end;
 $$;
 
+-- A member takes a guest's message down: whoever may read the conversation. The guard's deleted branch, written out (the service role skips the guard).
+create or replace function public.meeting_guest_chat_remove(target_message uuid, by_member uuid)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  msg public.team_chat_message%rowtype;
+begin
+  select * into msg from public.team_chat_message x where x.id = target_message for update;
+  if not found or msg.author_kind <> 'guest' or msg.deleted_at is not null then
+    return false;
+  end if;
+  if by_member is null or not public.team_chat_member_can_read(msg.channel_id, by_member) then
+    return false;
+  end if;
+  update public.team_chat_message x
+     set deleted_at = now(),
+         body = '',
+         mentions = '{}',
+         record_mentions = '[]'::jsonb,
+         attachments = '[]'::jsonb,
+         link_preview = null,
+         mentions_agent = false
+   where x.id = msg.id and x.deleted_at is null;
+  return found;
+end;
+$$;
+
 revoke all on function public.meeting_guest_chat_post(uuid, text, text) from public, anon, authenticated;
 revoke all on function public.meeting_guest_chat_read(uuid, text, integer) from public, anon, authenticated;
+revoke all on function public.meeting_guest_chat_remove(uuid, uuid) from public, anon, authenticated;
 grant execute on function public.meeting_guest_chat_post(uuid, text, text) to service_role;
 grant execute on function public.meeting_guest_chat_read(uuid, text, integer) to service_role;
+grant execute on function public.meeting_guest_chat_remove(uuid, uuid) to service_role;
 
 -- ── The members' search ─────────────────────────────────────────────────────
 
--- 561's, plus: a guest's message says who wrote it, "(guest)".
+-- 561's, plus: a guest's message is never found.
 create or replace function public.team_chat_search(ws uuid, q text, lim integer default 8)
 returns table (
   id uuid,
@@ -401,12 +449,13 @@ begin
   ),
   hits as (
     select x.id, x.channel_id, x.thread_root_id, x.author_kind, x.author_member_id, x.agent_for_member_id,
-           x.agent_name, x.guest_name, x.body, x.created_at,
+           x.agent_name, x.body, x.created_at,
            ts_rank(to_tsvector('english', x.body), tsq) as r
       from public.team_chat_message x
       join readable rc on rc.id = x.channel_id
      where x.workspace_id = ws
        and x.deleted_at is null
+       and x.author_kind <> 'guest'
        and to_tsvector('english', x.body) @@ tsq
      order by r desc, x.created_at desc
      limit greatest(1, least(coalesce(lim, 8), 25))
@@ -432,7 +481,6 @@ begin
          h.agent_for_member_id,
          case
            when h.author_kind = 'agent' then coalesce(h.agent_name, 'Agent')
-           when h.author_kind = 'guest' then coalesce(nullif(trim(h.guest_name), ''), 'A guest') || ' (guest)'
            else coalesce(nullif(trim(am.display_name), ''), 'A teammate')
          end,
          ts_headline('english', h.body, tsq, 'MaxWords=24, MinWords=8, ShortWord=2, MaxFragments=1, StartSel="", StopSel=""'),

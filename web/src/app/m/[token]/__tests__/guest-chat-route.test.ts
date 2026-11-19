@@ -88,7 +88,9 @@ describe('a guest reads the meeting’s chat', () => {
       allowed: true,
       messages: [
         { id: 'm1', at: '2026-11-19T10:00:00Z', author: 'member', label: 'Rosa Lind', mine: false, body: 'Welcome! The plan is **here**: [the plan](https://nativeintelligence.dev/account/documents/0b4c1f8e-1111-4222-8333-444455556666)', files: 0, email: false },
-        { id: 'm2', at: '2026-11-19T10:00:05Z', author: 'agent', label: 'Joseph', mine: false, body: '## Next\n- Ship on `Friday` <!-- proposal:abc -->', files: 0, email: false },
+        { id: 'm2', at: '2026-11-19T10:00:05Z', author: 'member', label: 'Ben Ortiz', mine: false, body: '## Next\n- Ship on `Friday` <!-- proposal:abc -->', files: 0, email: false },
+        // An agent's reply: 670 never hands one over, and if it did it would be dropped here too.
+        { id: 'm2b', at: '2026-11-19T10:00:06Z', author: 'agent', label: 'Joseph', mine: false, body: 'From the workspace', files: 0, email: false },
         { id: 'm3', at: '2026-11-19T10:00:10Z', author: 'member', label: 'Rosa Lind', mine: false, body: '', files: 2, email: false },
         { id: 'm4', at: '2026-11-19T10:00:20Z', author: 'member', label: 'Rosa Lind', mine: false, body: 'Read this one', files: 0, email: true },
         { id: 'm5', at: '2026-11-19T10:00:30Z', author: 'guest', label: 'Sam Ruiz', mine: true, body: 'Thanks, see https://example.test/brief', files: 0, email: false },
@@ -101,12 +103,12 @@ describe('a guest reads the meeting’s chat', () => {
     const body = await res.json()
     expect(body.messages).toEqual([
       { id: 'm1', at: '2026-11-19T10:00:00Z', author: 'member', name: 'Rosa Lind', mine: false, text: 'Welcome! The plan is here: the plan', note: null },
-      { id: 'm2', at: '2026-11-19T10:00:05Z', author: 'agent', name: 'Joseph', mine: false, text: 'Next\n- Ship on Friday', note: null },
+      { id: 'm2', at: '2026-11-19T10:00:05Z', author: 'member', name: 'Ben Ortiz', mine: false, text: 'Next\n- Ship on Friday', note: null },
       { id: 'm3', at: '2026-11-19T10:00:10Z', author: 'member', name: 'Rosa Lind', mine: false, text: '', note: 'Sent 2 files' },
       { id: 'm4', at: '2026-11-19T10:00:20Z', author: 'member', name: 'Rosa Lind', mine: false, text: '', note: 'Shared an email' },
       { id: 'm5', at: '2026-11-19T10:00:30Z', author: 'guest', name: 'Sam Ruiz', mine: true, text: 'Thanks, see https://example.test/brief', note: null },
     ])
-    expect(JSON.stringify(body)).not.toMatch(/0b4c1f8e|\/account|proposal|\*\*|Read this one/)
+    expect(JSON.stringify(body)).not.toMatch(/0b4c1f8e|\/account|proposal|\*\*|Read this one|Joseph|From the workspace/)
     expect(h.tables).toEqual([])
   })
 
@@ -133,6 +135,17 @@ describe('a guest reads the meeting’s chat', () => {
     const res = await GET(req(cookie()), params())
     expect(res.status).toBe(500)
     expect(JSON.stringify(await res.json())).not.toContain('10.0.0.1')
+  })
+
+  it('reads from one address have their own limit, sized for about 20 guests behind it', async () => {
+    h.answer = { allowed: true, messages: [] }
+    const address = '203.0.113.90'
+    let ok = 0
+    for (let g = 0; g < 21; g++) {
+      guest = `77777777-7777-4777-8777-${String(g + 1).padStart(12, '0')}`
+      for (let i = 0; i < 40; i++) if ((await GET(req(cookie(), { address }), params())).status === 200) ok++
+    }
+    expect(ok).toBe(800)
   })
 
   it('asked too often: 429, the function not called', async () => {

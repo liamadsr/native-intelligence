@@ -12,7 +12,8 @@ import { canonicalEntityType, type LinkableEntityType } from './entity-registry'
  *   - calendar_event:    its owner's alone (RLS `auth.uid() = user_id`);
  *   - team_chat_channel: a team channel is its team's, a DM its two members'
  *                        (`team_chat_can_read`, migration 474);
- *   - team_chat_message: whoever may read its channel;
+ *   - team_chat_message: whoever may read its channel (never a meeting
+ *                        guest's message: 670);
  *   - decision:          no workspace_id; readable through its capture: a
  *                        workspace capture's, the capture owner's, or anyone's
  *                        once confirmed (the decision table's RLS);
@@ -168,12 +169,18 @@ const teamChatChannelFence: Fence = async (supabase, userId, ids, workspaceId) =
   return out
 }
 
-/** A message is readable by whoever may read its channel. */
+/**
+ * A message is readable by whoever may read its channel. A meeting guest's
+ * (migration 670, author_kind 'guest') never is, here: someone without an
+ * account wrote it, so it is never a record to mention, link, walk to or
+ * read by id (its words would become a label a model reads). People read it
+ * in the meeting's chat, under RLS.
+ */
 const teamChatMessageFence: Fence = async (supabase, userId, ids, workspaceId) => {
   const wanted = uniq(ids)
   if (!userId || wanted.length === 0) return new Set()
   const messages = await rowsByIds(wanted, (c) => {
-    let q = supabase.from('team_chat_message').select('id, channel_id').in('id', c)
+    let q = supabase.from('team_chat_message').select('id, channel_id').in('id', c).neq('author_kind', 'guest')
     if (workspaceId) q = q.eq('workspace_id', workspaceId)
     return q
   })

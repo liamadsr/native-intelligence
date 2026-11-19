@@ -5,7 +5,8 @@
  *
  *   GET /m/<token>/chat → { messages: [{ id, at, author, name, mine, text,
  *     note }] }: the conversation's own messages since the guest first came
- *     into this call, oldest first (the newest GUEST_CHAT_READ_MAX), made
+ *     into this call, the members' and the guests' (never an agent's reply:
+ *     670 leaves them out), oldest first (the newest GUEST_CHAT_READ_MAX), made
  *     plain (src/lib/meeting-links/guest-chat.ts: never a link's address
  *     behind a label, a link into the signed-in app, a record's id, a file's
  *     path, a link preview or a shared email).
@@ -18,7 +19,7 @@
  *
  * Checked as every guest route is: the signed cookie first, with no read (a
  * forged or missing one is a 401 that touched nothing), then limits counted
- * in memory per guest (and, for a send, per address), then 670's functions
+ * in memory per guest and per address (each its own entry), then 670's functions
  * (by the guest and the link's hash), which also say they are still let into
  * that live call: 403 once they are not (left, removed, the call over, the
  * link revoked). Chat does not need the call's notes: it works with them off.
@@ -45,7 +46,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   const { token } = await params
   const guestId = guestOf(request, token)
   if (!guestId) return privateHeaders(noGuest())
-  if (!meetingMemoryLimiter.hit(MEETING_LIMITS.chatReadsPerGuest, guestId) || !meetingMemoryLimiter.hit(MEETING_LIMITS.pollPerAddress, rateKeyOf(request.headers))) {
+  if (!meetingMemoryLimiter.hit(MEETING_LIMITS.chatReadsPerGuest, guestId) || !meetingMemoryLimiter.hit(MEETING_LIMITS.chatReadsPerAddress, rateKeyOf(request.headers))) {
     return privateHeaders(tooManyTries())
   }
   try {

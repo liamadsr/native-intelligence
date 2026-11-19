@@ -74,15 +74,10 @@ describe('migration 670 (the text)', () => {
     expect(flat(fnIn(SQL, 'team_chat_message_guard'))).toBe(flat(old).replace('or new.call_id is distinct from old.call_id then', `or new.call_id is distinct from old.call_id ${added}`))
   })
 
-  it('the search is 561’s, word for word, plus the guest’s name', () => {
+  it('the search is 561’s, word for word, but a guest’s message is never found', () => {
     const old = fnIn(read('561_team_chat_search.sql'), 'team_chat_search')
     expect(flat(fnIn(SQL, 'team_chat_search'))).toBe(
-      flat(old)
-        .replace('x.agent_name, x.body, x.created_at,', 'x.agent_name, x.guest_name, x.body, x.created_at,')
-        .replace(
-          "when h.author_kind = 'agent' then coalesce(h.agent_name, 'Agent') else",
-          "when h.author_kind = 'agent' then coalesce(h.agent_name, 'Agent') when h.author_kind = 'guest' then coalesce(nullif(trim(h.guest_name), ''), 'A guest') || ' (guest)' else",
-        ),
+      flat(old).replace("and x.deleted_at is null and to_tsvector", "and x.deleted_at is null and x.author_kind <> 'guest' and to_tsvector"),
     )
     expect(flat(SQL)).toContain('revoke all on function public.team_chat_search(uuid, text, integer) from public, anon; grant execute on function public.team_chat_search(uuid, text, integer) to authenticated;')
   })
@@ -92,12 +87,13 @@ describe('migration 670 (the text)', () => {
     for (const [name, args] of [
       ['meeting_guest_chat_post', 'uuid, text, text'],
       ['meeting_guest_chat_read', 'uuid, text, integer'],
+      ['meeting_guest_chat_remove', 'uuid, uuid'],
     ]) {
       expect(flat(fnIn(SQL, name)), name).toContain('security definer set search_path = public, pg_temp')
       expect(f).toContain(`revoke all on function public.${name}(${args}) from public, anon, authenticated;`)
       expect(f).toContain(`grant execute on function public.${name}(${args}) to service_role;`)
     }
-    for (const name of ['meeting_guest_chat_post', 'meeting_guest_chat_read', 'team_chat_message_guard', 'team_chat_search']) {
+    for (const name of ['meeting_guest_chat_post', 'meeting_guest_chat_read', 'meeting_guest_chat_remove', 'team_chat_message_guard', 'team_chat_search']) {
       const newest = migrationsInOrder().filter((m) => m.sql.toLowerCase().includes(`create or replace function public.${name}(`)).at(-1)
       expect(newest?.file, name).toBe(FILE)
     }
@@ -110,6 +106,8 @@ describe('migration 670 (the text)', () => {
     const readFn = flat(fnIn(SQL, 'meeting_guest_chat_read'))
     const built = readFn.slice(readFn.indexOf('jsonb_build_object( '), readFn.indexOf(') order by l.created_at'))
     expect(built).not.toMatch(/author_member_id|agent_for_member_id|guest_id|path|link_preview|email_share_id|channel_id|workspace_id/)
+    expect(readFn).toContain("and x.author_kind in ('member', 'guest')")
+    expect(readFn).not.toContain('agent_name')
   })
 })
 
@@ -195,6 +193,9 @@ $$;
 grant execute on function public.current_member_id(uuid) to authenticated;
 grant execute on function public.team_chat_can_read(uuid) to authenticated;
 grant execute on function public.team_chat_can_post(uuid) to authenticated;
+create function public.team_chat_member_can_read(ch uuid, mem uuid) returns boolean language sql stable security definer set search_path = public, pg_temp as $$
+  select exists (select 1 from public.team_chat_channel c join public.member m on m.id = mem and m.workspace_id = c.workspace_id where c.id = ch)
+$$;
 ${fnIn(T564, 'team_chat_message_guard')}
 create trigger team_chat_message_guard before update on public.team_chat_message for each row execute function public.team_chat_message_guard();
 ${fnIn(T555, 'team_chat_message_insert_guard')}
@@ -335,13 +336,13 @@ describe.skipIf(!PGlite)('migration 670 (run on PGlite)', () => {
     await db.query(`insert into public.team_chat_message (channel_id, workspace_id, author_member_id, body, thread_root_id) values ($1, $2, $3, 'A thread reply', $4)`, [CHANNEL, WS, ROSA, root])
     const chat = await readChat(DANA)
     expect(chat.allowed).toBe(true)
+    // No agent's reply (Joseph's file), no earlier message, no deleted one, no call's row, no thread's reply.
     expect(chat.messages.map((m) => [m.author, m.label, m.mine, m.body.slice(0, 20), m.files])).toEqual([
       ['member', 'Rosa Lind', false, 'Welcome, everyone', 0],
-      ['agent', 'Joseph', false, '', 1],
       ['guest', 'Dana Okafor', true, 'Hello from Dana', 0],
       ['guest', 'Dana Okafor', true, 'x'.repeat(20), 0],
     ])
-    expect(JSON.stringify(chat)).not.toMatch(/x\/y\/z\.pdf|Agenda before the call|A thread reply|Started a call/)
+    expect(JSON.stringify(chat)).not.toMatch(/Joseph|agent|x\/y\/z\.pdf|Agenda before the call|A thread reply|Started a call/)
     expect(Object.keys(chat.messages[0]).sort()).toEqual(['at', 'author', 'body', 'email', 'files', 'id', 'label', 'mine'])
     // The newest N, oldest first.
     expect((await readChat(DANA, 2)).messages.map((m) => m.author)).toEqual(['guest', 'guest'])
@@ -391,9 +392,35 @@ describe.skipIf(!PGlite)('migration 670 (run on PGlite)', () => {
     expect(mine.rows).toEqual([{ author_kind: 'member' }])
   })
 
-  it('a member’s search finds a guest’s message by the guest’s name, never as a teammate’s', async () => {
-    const hits = await asRosa<{ author_kind: string; author_name: string }>(`select author_kind, author_name from public.team_chat_search($1, 'hello dana', 8)`, [WS])
-    expect(hits.rows).toEqual([{ author_kind: 'guest', author_name: 'Dana Okafor (guest)' }])
+  it('a member’s search never finds a guest’s message; a member’s it does', async () => {
+    const guest = await asRosa<{ author_kind: string }>(`select author_kind from public.team_chat_search($1, 'hello dana', 8)`, [WS])
+    expect(guest.rows).toEqual([])
+    const member = await asRosa<{ author_kind: string; author_name: string }>(`select author_kind, author_name from public.team_chat_search($1, 'welcome everyone', 8)`, [WS])
+    expect(member.rows).toEqual([{ author_kind: 'member', author_name: 'Rosa Lind' }])
+  })
+
+  it('a member who may read the conversation takes a guest’s message down, as a soft delete; nobody else, and never a member’s or an agent’s', async () => {
+    const OUTSIDER = '00000000-0000-4000-8000-0000000000b2'
+    await db.query(`insert into public.member values ($1, '00000000-0000-4000-8000-0000000000ff', null, 'Elsewhere')`, [OUTSIDER])
+    const sent = await post(DANA, 'Please take this down')
+    await db.query(`update public.team_chat_message set attachments = '[]'::jsonb, mentions = '{}' where id = $1`, [sent.id])
+    const remove = async (message: string, member: string | null) =>
+      (await one<{ v: boolean }>('select public.meeting_guest_chat_remove($1, $2) as v', [message, member])).v
+    expect(await remove(sent.id!, OUTSIDER)).toBe(false)
+    expect(await remove(sent.id!, null)).toBe(false)
+    const memberMsg = (await one<{ id: string }>(`select id from public.team_chat_message where body = 'Welcome, everyone'`)).id
+    const agentMsg = (await one<{ id: string }>(`select id from public.team_chat_message where author_kind = 'agent'`)).id
+    expect(await remove(memberMsg, ROSA)).toBe(false)
+    expect(await remove(agentMsg, ROSA)).toBe(false)
+    expect(await remove(sent.id!, ROSA)).toBe(true)
+    const row = await one<{ body: string; deleted_at: string | null; author_kind: string; guest_name: string }>('select body, deleted_at, author_kind, guest_name from public.team_chat_message where id = $1', [sent.id])
+    expect(row.body).toBe('')
+    expect(row.deleted_at).not.toBeNull()
+    expect(row.guest_name).toBe('Dana Okafor')
+    // Taken down once: a second try finds nothing to do, and the guest no longer reads it.
+    expect(await remove(sent.id!, ROSA)).toBe(false)
+    expect((await readChat(DANA)).messages.map((m) => m.id)).not.toContain(sent.id)
+    expect((await one<{ body: string }>('select body from public.team_chat_message where id = $1', [memberMsg])).body).toBe('Welcome, everyone')
   })
 
   it('the guest’s row going sets its messages’ guest_id null, and the message keeps its name', async () => {

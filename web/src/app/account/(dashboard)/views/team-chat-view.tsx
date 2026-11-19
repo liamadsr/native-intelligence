@@ -1410,7 +1410,10 @@ function ChannelPane({
   const reactorNames = useReactorNames(membersById, meId)
   const placeholder = channel.kind === 'channel' ? `Message #${title}` : `Message ${title}`
   const archived = !!channel.archived_at
-  const meetingBar = useTeamCalls().available
+  const callsHere = useTeamCalls()
+  const meetingBar = callsHere.available
+  // A meeting's live call with a guest let in (the call this page is in: its lobby, live): they read this chat (migration 670).
+  const guestsRead = channel.kind === 'meeting' && callsHere.active?.channelId === channel.id && callsHere.active.guests.some((g) => g.state === 'admitted')
 
   return (
     <>
@@ -1517,6 +1520,11 @@ function ChannelPane({
         </div>
       )}
 
+      {guestsRead && (
+        <p data-team-chat-guests-read="" className="mx-auto w-full max-w-[var(--chat-reading-max)] shrink-0 px-4 pb-1 text-xs text-muted-foreground">
+          Guests in this call can read this chat.
+        </p>
+      )}
       <Composer
         channelId={channel.id}
         threadRootId={null}
@@ -1829,7 +1837,7 @@ function MessageRow({
   const [pinned, setPinned] = useState(false)
   const isAgent = message.author_kind === 'agent'
   // A meeting guest's message (migration 670): the name they typed and a "Guest" label; no member behind it, so no photo,
-  // no profile and nothing anyone can edit or delete (the database refuses both). Guests read the meeting's own messages only, never a thread.
+  // no profile and no edit. Any member here may take it down (Delete: the route's guest case). Guests read the meeting's own messages only, never a thread.
   const isGuest = message.author_kind === 'guest'
   const mine = !isAgent && !isGuest && !!meId && message.author_member_id === meId
   // Their own agent's reply: theirs to delete (never to edit), if it said something it shouldn't have.
@@ -1944,22 +1952,25 @@ function MessageRow({
               <MessageSquareReply className="h-3.5 w-3.5" />
             </button>
           )}
-          {/* A task about this message, anyone's ("Follow up: <its first line>"), linked to it, opened at once so its title can be checked; the server checks the person reads its channel. */}
-          <button
-            type="button"
-            onClick={() => void makeTaskFromEntity({ type: 'team_chat_message', id: message.id, label: messageTaskLabel(message.body) }, undefined, { openNow: true })}
-            aria-label="Make a task"
-            title="Make a task"
-            className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-          >
-            <CircleCheck className="h-3.5 w-3.5" />
-          </button>
+          {/* A task about this message, anyone's ("Follow up: <its first line>"), linked to it, opened at once so its title can be checked; the server checks the person reads its channel.
+              Never a meeting guest's: it is no record (670), and its words would become the task's title. */}
+          {!isGuest && (
+            <button
+              type="button"
+              onClick={() => void makeTaskFromEntity({ type: 'team_chat_message', id: message.id, label: messageTaskLabel(message.body) }, undefined, { openNow: true })}
+              aria-label="Make a task"
+              title="Make a task"
+              className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <CircleCheck className="h-3.5 w-3.5" />
+            </button>
+          )}
           {mine && message.body && !isCall && (
             <button type="button" onClick={onEdit} aria-label="Edit message" title="Edit" className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground">
               <Pencil className="h-3.5 w-3.5" />
             </button>
           )}
-          {(mine || myAgent) && !isCall && (
+          {(mine || myAgent || isGuest) && !isCall && (
             <button type="button" onClick={onDelete} aria-label="Delete message" title="Delete" className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-destructive">
               <Trash2 className="h-3.5 w-3.5" />
             </button>

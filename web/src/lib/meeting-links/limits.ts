@@ -38,6 +38,8 @@ export const MEETING_LIMITS = {
   notesPerGuest: { bucket: 'notes:guest', max: 20, windowSeconds: 60 },
   /** A guest's reads of the meeting's chat while they are in its call (every 4 s is 15 a minute; a send asks once more). */
   chatReadsPerGuest: { bucket: 'chat-read:guest', max: 40, windowSeconds: 60 },
+  /** Chat reads from one address: about 20 guests behind one network, each at its own per-guest limit. */
+  chatReadsPerAddress: { bucket: 'chat-read:addr', max: 800, windowSeconds: 60 },
   /** A guest's messages into the meeting's chat. */
   chatPostsPerGuest: { bucket: 'chat-post:guest', max: 20, windowSeconds: 60 },
   /** Messages into meetings' chats from one address (a few guests behind one network). */

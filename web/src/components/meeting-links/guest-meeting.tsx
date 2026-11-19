@@ -25,9 +25,10 @@
  *      the meeting's chat (migration 670: src/components/meeting-links/
  *      guest-chat.tsx). The chat is the meeting's own conversation, while
  *      they are in its call and only from when they first came in: they read
- *      the members' messages (as plain words, never a link into the app or a
- *      file) and write their own, which the members see with their name and
- *      "Guest", and which never reaches the agent or notifies anyone. Nothing
+ *      the members' and other guests' messages (as plain words, never a link
+ *      into the app or a file; never an agent's reply) and write their own,
+ *      which the members see with their name and "Guest" (any member may take
+ *      one down), and which never reaches the agent or notifies anyone. Nothing
  *      else of the workspace: no other conversation, no thread, no member
  *      list beyond who is in the call, no notes or recording controls; a
  *      badge says when either is on (asked every 10 seconds). The server

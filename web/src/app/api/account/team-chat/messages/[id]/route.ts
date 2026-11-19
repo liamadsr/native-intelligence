@@ -22,11 +22,19 @@
  *         with it, and an edit's notifications say the new words, in the
  *         database (560's team_chat_message_notices_follow): nobody is told,
  *         or emailed, about words that are gone.
+ *         A meeting guest's message (migration 670) is nobody's own: any
+ *         member who may read its conversation takes it down. The row is read
+ *         as the person (RLS: they may read it), must be a guest's, in this
+ *         workspace, and 670's meeting_guest_chat_remove (the service role's)
+ *         checks again that this member may read the conversation, then makes
+ *         the same soft delete. A member's or an agent's message is never
+ *         taken down this way. The guest's page drops it at its next read.
  */
 import { after, NextResponse, type NextRequest } from 'next/server'
 import { requireWorkspaceMember } from '@/lib/api-auth'
+import { getServiceClient } from '@/lib/admin'
 import { badRequest, notFound } from '@/lib/api-errors'
-import { deleteMessage, editMessage, getChannel, getMessage, removeFiles, workspaceMemberIds } from '@/lib/team-chat/store'
+import { deleteMessage, editMessage, getChannel, getMessage, removeFiles, removeGuestMessage, workspaceMemberIds } from '@/lib/team-chat/store'
 import { requestLinkPreview } from '@/lib/team-chat/link-preview'
 import { teamChatErrorResponse } from '@/lib/team-chat/route-errors'
 import { fenceRecordMentions, storedRecordMentions, syncMessageMentions } from '@/lib/team-chat/record-mentions'
@@ -103,7 +111,15 @@ export async function DELETE(_request: NextRequest, { params }: Params) {
   if (!isUuid(id)) return notFound()
   try {
     const deleted = await deleteMessage(auth.supabase, id)
-    if (!deleted) return notFound()
+    if (!deleted) {
+      // Not theirs: a meeting guest's message, which any member who may read the conversation takes down.
+      const message = await getMessage(auth.supabase, id)
+      if (!message || message.author_kind !== 'guest' || message.deleted_at) return notFound()
+      const channel = await getChannel(auth.supabase, message.channel_id)
+      if (!channel || channel.workspace_id !== auth.workspaceId) return notFound()
+      if (!(await removeGuestMessage(getServiceClient(), id, auth.member.id))) return notFound()
+      return NextResponse.json({ ok: true })
+    }
     // Its files go with it (558's policy lets the person remove only their own uploads).
     await removeFiles(auth.supabase, deleted.paths)
     // A deleted message mentions nothing (the guard cleared its words): its edges go too.

@@ -6,7 +6,8 @@
  * team_chat_open_dm, team_chat_mark_read); messages are plain inserts and
  * updates the policies hold to the author. Only the agent's reply and a
  * message's link preview are written with the service role (./agent-turn.ts,
- * ./link-preview.ts). Threads, reactions and files (migrations 555-558) are
+ * ./link-preview.ts), and a member taking a meeting guest's message down
+ * (removeGuestMessage, migration 670). Threads, reactions and files (migrations 555-558) are
  * read the same way; a reaction and a thread's read mark go through their
  * functions (team_chat_react, team_chat_mark_thread_read).
  *
@@ -433,6 +434,19 @@ export async function editMessage(
     .maybeSingle<TeamChatMessage>()
   if (error) throw teamChatErrorOf(error, 'message edit')
   return data ?? null
+}
+
+/**
+ * Take a meeting guest's message down (migration 670's meeting_guest_chat_remove,
+ * the service role's): the same soft delete as a member's own, for any member
+ * who may read its conversation (the function checks it, by `memberId`). True
+ * when it did; false for anything else (not a guest's, already gone, a member
+ * who may not read it).
+ */
+export async function removeGuestMessage(svc: SupabaseClient, messageId: string, memberId: string): Promise<boolean> {
+  const { data, error } = await svc.rpc('meeting_guest_chat_remove', { target_message: messageId, by_member: memberId })
+  if (error) throw teamChatErrorOf(error, 'guest message remove')
+  return data === true
 }
 
 /**

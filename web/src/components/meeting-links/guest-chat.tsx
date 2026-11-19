@@ -13,6 +13,13 @@
  *     panel is closed. Their own message is sent with POST; a send that fails
  *     says so and keeps the words. A guest has no database session: no
  *     Realtime, a timer at most (no animation loop).
+ *     A refusal (403) never stops it while they are connected: the room says
+ *     they are in before the server does (in_call is set by LiveKit's join
+ *     webhook, a moment after the page connects), and a reconnect can refuse
+ *     for a while too. For the first CHAT_CONNECTING_MS of refusals the chat
+ *     says "Connecting to the chat…" and asks at the usual pace; after that it
+ *     says they are not in the call and asks every CHAT_REFUSED_POLL_MS; the
+ *     next answer brings it back. Only a 401 (no guest cookie any more) stops.
  *   - {@link GuestChatView}: the list and the composer, pure. Enter sends,
  *     Shift+Enter is a new line, 2000 characters at most.
  *   - {@link GuestSidePanel}: one panel, clear glass on the sky like the
@@ -26,7 +33,17 @@ import { cn } from '@/lib/utils'
 import { linkRuns, messageTime } from '@/lib/team-chat/compose'
 import { GUEST_CHAT_MAX, GUEST_CHAT_POLL_MS, guestChatListOf, unreadSince, withMessage, type GuestChatMessage } from '@/lib/meeting-links/guest-chat'
 
-export type GuestChatState = 'loading' | 'ready' | 'failed' | 'refused'
+/**
+ * 'connecting': refused for under CHAT_CONNECTING_MS (the server hasn't seen
+ * them join yet); 'refused': refused for longer (still asked, slower);
+ * 'gone': their guest cookie is no longer good (nothing more is asked).
+ */
+export type GuestChatState = 'loading' | 'connecting' | 'ready' | 'failed' | 'refused' | 'gone'
+
+/** How long refusals read as "Connecting to the chat…". */
+export const CHAT_CONNECTING_MS = 20_000
+/** How often a refused chat asks again, after that. */
+export const CHAT_REFUSED_POLL_MS = 9_000
 
 export interface GuestChat {
   messages: GuestChatMessage[]
@@ -43,7 +60,8 @@ export interface GuestChat {
 function sendErrorOf(status: number | null): string {
   if (status === null) return 'Couldn’t send: you seem to be offline. Your message is still here.'
   if (status === 429) return 'Too many messages at once. Wait a moment, then send again.'
-  if (status === 403 || status === 401) return 'You can’t send messages in this call any more.'
+  if (status === 401) return 'You can’t send messages in this call any more.'
+  if (status === 403) return 'Not sent: you aren’t in the call right now. Your message is still here: try again in a moment.'
   if (status === 400) return `Couldn’t send: a message is 1 to ${GUEST_CHAT_MAX} characters.`
   return 'Couldn’t send. Your message is still here: try again.'
 }
@@ -69,19 +87,35 @@ export function useGuestChat(base: string, active: boolean): GuestChat {
     let stopped = false
     let asking = false
     let timer: ReturnType<typeof setTimeout> | null = null
-    setState((s) => (s === 'refused' ? 'loading' : s))
+    // When this run of refusals began (null: the last answer was not one).
+    let refusedSince: number | null = null
+    let next = GUEST_CHAT_POLL_MS
+    // A 401: nothing more is asked.
+    let ended = false
+    setState((s) => (s === 'refused' || s === 'connecting' ? 'loading' : s))
     const ask = async () => {
       timer = null
       if (stopped || asking || document.visibilityState !== 'visible') return
       asking = true
+      next = GUEST_CHAT_POLL_MS
       try {
         const res = await fetch(`${base}/chat`, { cache: 'no-store' })
         if (stopped) return
-        if (res.status === 401 || res.status === 403) {
-          // No longer in the call (left, removed, it ended): nothing more is asked.
-          setState('refused')
+        if (res.status === 401) {
+          // Their guest cookie is gone or no longer good: nothing more to ask.
+          setState('gone')
+          ended = true
           return
         }
+        if (res.status === 403) {
+          // Not in the call by the server's count: not yet (the join webhook), or for now (a reconnect). Asked again.
+          refusedSince ??= Date.now()
+          const early = Date.now() - refusedSince < CHAT_CONNECTING_MS
+          setState(early ? 'connecting' : 'refused')
+          if (!early) next = CHAT_REFUSED_POLL_MS
+          return
+        }
+        refusedSince = null
         const json = res.ok ? ((await res.json().catch(() => null)) as { messages?: unknown } | null) : null
         if (stopped) return
         if (json) {
@@ -95,11 +129,11 @@ export function useGuestChat(base: string, active: boolean): GuestChat {
         if (!stopped) setState((s) => (s === 'ready' ? s : 'failed'))
       } finally {
         asking = false
+        if (!stopped && !ended && document.visibilityState === 'visible') timer = setTimeout(() => void ask(), next)
       }
-      if (!stopped && document.visibilityState === 'visible') timer = setTimeout(() => void ask(), GUEST_CHAT_POLL_MS)
     }
     const onVisible = () => {
-      if (document.visibilityState !== 'visible' || asking) return
+      if (document.visibilityState !== 'visible' || asking || ended) return
       if (timer) clearTimeout(timer)
       void ask()
     }
@@ -130,7 +164,8 @@ export function useGuestChat(base: string, active: boolean): GuestChat {
     setSending(false)
     if (!message) {
       setSendError(sendErrorOf(res ? (res.ok ? 500 : res.status) : null))
-      if (res?.status === 403 || res?.status === 401) setState('refused')
+      // A refused send keeps the words and the chat's own asking; only a cookie gone for good ends it.
+      if (res?.status === 401) setState('gone')
       return false
     }
     sentAt.current.set(message.id, Date.now())
@@ -172,7 +207,7 @@ export function GuestChatView({ chat, className }: { chat: Pick<GuestChat, 'mess
     const box = list.current
     if (box && atEnd.current) box.scrollTop = box.scrollHeight
   }, [last])
-  const refused = state === 'refused'
+  const gone = state === 'gone'
   const length = [...draft].length
   const over = length > GUEST_CHAT_MAX
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -197,12 +232,16 @@ export function GuestChatView({ chat, className }: { chat: Pick<GuestChat, 'mess
         {state === 'loading' && messages.length === 0 && <p className="text-xs text-muted-foreground">Loading…</p>}
         {state === 'failed' && messages.length === 0 && <p className="text-xs text-amber-700 dark:text-amber-300">Couldn’t load the chat. Trying again…</p>}
         {state === 'ready' && messages.length === 0 && <p className="text-xs text-muted-foreground">No messages yet. Say hello to the people in the meeting.</p>}
+        {state === 'connecting' && messages.length === 0 && (
+          <p className="text-xs text-muted-foreground" data-guest-chat-connecting="">
+            Connecting to the chat…
+          </p>
+        )}
         {messages.map((m) => (
           <div key={m.id} data-guest-chat-message={m.author} data-mine={m.mine || undefined} className="min-w-0">
             <p className="flex items-baseline gap-1.5">
               <span className="min-w-0 truncate text-xs font-semibold text-foreground">{m.mine ? 'You' : m.name}</span>
               {m.author === 'guest' && !m.mine && <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Guest</span>}
-              {m.author === 'agent' && <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Agent</span>}
               <time dateTime={m.at} className="ml-auto shrink-0 text-[11px] text-muted-foreground">
                 {messageTime(m.at)}
               </time>
@@ -215,6 +254,11 @@ export function GuestChatView({ chat, className }: { chat: Pick<GuestChat, 'mess
             {m.note && <p className="text-xs italic text-muted-foreground">{m.note}</p>}
           </div>
         ))}
+        {(state === 'refused' || gone) && (
+          <p role="status" className="text-xs text-muted-foreground" data-guest-chat-refused="">
+            {gone ? 'You’re no longer in the call.' : 'You’re no longer in the call. The chat comes back if you rejoin.'}
+          </p>
+        )}
       </div>
       <form
         className="mt-3 shrink-0 border-t border-foreground/10 pt-3"
@@ -232,10 +276,10 @@ export function GuestChatView({ chat, className }: { chat: Pick<GuestChat, 'mess
             rows={2}
             value={draft}
             maxLength={GUEST_CHAT_MAX}
-            disabled={refused}
+            disabled={gone}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder={refused ? 'You’re no longer in the call' : 'Message everyone in the meeting'}
+            placeholder={gone ? 'You’re no longer in the call' : 'Message everyone in the meeting'}
             aria-describedby="guest-chat-help"
             aria-invalid={!!sendError || undefined}
             className="max-h-32 min-h-[44px] flex-1 resize-none rounded-2xl border border-foreground/15 bg-background/60 px-3 py-2.5 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60 dark:bg-white/[0.06]"
@@ -243,7 +287,7 @@ export function GuestChatView({ chat, className }: { chat: Pick<GuestChat, 'mess
           />
           <button
             type="submit"
-            disabled={refused || sending || !draft.trim() || over}
+            disabled={gone || sending || !draft.trim() || over}
             aria-label={sending ? 'Sending…' : 'Send'}
             title="Send"
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-foreground text-background hover:bg-foreground/90 disabled:opacity-40"
