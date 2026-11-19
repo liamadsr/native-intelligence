@@ -77,6 +77,11 @@ const TOP_BAR_BLUR_STYLE = { height: `calc(var(--chat-top-inset, 0px) + ${TOP_BA
 /** The top bar and the chat row start clear of the app rail (rail/app-rail.tsx). */
 const TOP_BAR_STYLE = { left: 'var(--app-rail-w, 0px)' }
 const CHAT_ROW_STYLE = { marginLeft: 'var(--app-rail-w, 0px)' }
+/** What a call keeps of the window (call-place.ts, on <html>): nothing without one. */
+const SHELL_STYLE = { paddingRight: 'var(--call-dock-w, 0px)', paddingBottom: 'var(--call-dock-b, 0px)' }
+/** Toasts stand clear of the call too: above its bar or its controls (sonner's own 24px, and 16px on a phone, from the window's edges). */
+const TOAST_OFFSET = { bottom: 'calc(24px + var(--call-toast-b, 0px))' }
+const TOAST_MOBILE_OFFSET = { bottom: 'calc(16px + var(--call-toast-b, 0px))' }
 /** The top bar's height, px, on <html>. */
 const TOP_BAR_H_VAR = '--top-bar-h'
 
@@ -580,6 +585,13 @@ export function DashboardShell({
           // The app rail's width, `--app-rail-w` (tailwind.css): here in the
           // server markup, so the top bar and the chat start clear of it.
           {...{ [APP_RAIL_ATTR]: '' }}
+          // A call the person is in keeps its edge of the window (the
+          // right when open at the side, a band at the bottom when
+          // minimised: src/lib/team-calls/call-place.ts), and the chat row,
+          // with its panels and the composer, ends where it begins. The
+          // backdrop, the rail and the top bar are out of the flow: they
+          // keep the whole window.
+          style={SHELL_STYLE}
           className="group/shell relative flex h-dvh flex-col overflow-hidden overscroll-none"
         >
           {/* The shell's own surface: the flat `bg-sidebar`, or the custom
@@ -669,6 +681,8 @@ export function DashboardShell({
       {mounted && createPortal(
         <Toaster
           position="bottom-right"
+          offset={TOAST_OFFSET}
+          mobileOffset={TOAST_MOBILE_OFFSET}
           closeButton
           duration={5000}
           theme={isDark ? 'dark' : 'light'}

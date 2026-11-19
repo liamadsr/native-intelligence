@@ -28,6 +28,15 @@
  *     starter's "Auto-record meetings" setting is (the desktop app's own
  *     switch; a browser has none, so off). A recording always holds it.
  *
+ * In the desktop app the call is not held here but in its own floating
+ * window (src/lib/team-calls/call-window.ts; Liam, 11-18): this provider
+ * asks the server as always, hands the answer to that window, and shows the
+ * call as the window says it is (`active` without a connection of its own).
+ * The window's page mounts this same provider with `callWindow`: there it
+ * holds the call and its panel, and nothing else (no rings, no meeting
+ * link). A desktop build from before the window, and any browser, keep the
+ * call here.
+ *
  * The team chat view (its call buttons, a call's message with Join) reads
  * all of this through useTeamCalls().
  */
@@ -57,26 +66,43 @@ import { TEAM_CALL_RING_COLUMNS, teamCallPlace, type TeamCallRing } from '@/lib/
 import { IncomingCalls } from './incoming-calls'
 import { openTarget } from '@/lib/chat-cards/open-card'
 import { fetchMeetingOf, requestDecide, requestRemoveGuest } from '@/lib/meeting-links/client'
+import { useWorkspaceId } from '@/app/account/workspace-switcher'
+import { registerReloadBlocker } from '@/lib/deploy-reload'
+import { setClientWorkspaceId } from '@/lib/workspace-fetch'
+import {
+  CALL_WINDOW_ASK_EVENT,
+  CALL_WINDOW_BEGIN_EVENT,
+  CALL_WINDOW_CLOSED_EVENT,
+  CALL_WINDOW_LEAVE_EVENT,
+  CALL_WINDOW_STATE_EVENT,
+  closeCallWindow,
+  onCallWindowEvent,
+  openCallWindow,
+  parseCallWindowBegin,
+  parseCallWindowState,
+  showCallWindow,
+  takeCallWindowCall,
+  tellCallWindow,
+  tellWindows,
+  viewOfBegin,
+  type CallWindowBegin,
+  type TeamCallView,
+} from '@/lib/team-calls/call-window'
 import { MEETING_GUEST_COLUMNS, upsertGuest, type MeetingGuest } from '@/lib/meeting-links/shape'
 
 const CallPanel = lazyComponent(() => import('./call-panel').then((m) => m.CallPanel))
 
-/** The call this page is in. */
-export interface ActiveTeamCall {
-  callId: string
-  channelId: string
-  workspaceId: string
-  channelKind: 'channel' | 'dm' | 'meeting'
-  label: string
+/** The call the person is in, as any window shows it: held by this page, or by the desktop's call window. */
+export type ActiveTeamCall = TeamCallView
+
+/** The call this page itself is connected to. */
+export interface HostedTeamCall extends TeamCallView {
   session: TeamCallSession
-  /** The person's member id in the call's workspace. */
-  memberId: string
-  /** What the server offers this call. */
-  features: TeamCallFeatures
-  /** Its notes and recording, live. */
-  notes: TeamCallNotesView
-  /** A meeting's guests waiting or let in (phase 7), live; empty for any other call. */
-  guests: MeetingGuest[]
+}
+
+function viewOf(call: HostedTeamCall): TeamCallView {
+  const { session: _session, ...view } = call
+  return view
 }
 
 export interface TeamCallsApi {
@@ -145,15 +171,35 @@ async function autoRecordOn(): Promise<boolean> {
   }
 }
 
-export function TeamCallsProvider({ children }: { children: ReactNode }) {
-  const [available, setAvailable] = useState(false)
+export function TeamCallsProvider({
+  children,
+  callWindow = false,
+}: {
+  children: ReactNode
+  /** This page is the desktop's call window (/hud/call): it holds the call the app's windows hand it, and only that. */
+  callWindow?: boolean
+}) {
+  const [calling, setAvailable] = useState(false)
+  // The call window exists only because calling is on.
+  const available = callWindow || calling
   const [features, setFeatures] = useState<TeamCallFeatures>(NO_CALL_FEATURES)
   const [userId, setUserId] = useState<string | null>(null)
   const [rings, dispatch] = useReducer(ringReducer, EMPTY_RINGS)
-  const [active, setActive] = useState<ActiveTeamCall | null>(null)
+  const [active, setActive] = useState<HostedTeamCall | null>(null)
   const [minimized, setMinimized] = useState(false)
-  const activeRef = useRef<ActiveTeamCall | null>(null)
+  const activeRef = useRef<HostedTeamCall | null>(null)
   activeRef.current = active
+  // The call the desktop's call window is in, as it says (a dashboard only).
+  const [remote, setRemote] = useState<TeamCallView | null>(null)
+  const remoteRef = useRef<TeamCallView | null>(null)
+  remoteRef.current = remote
+  /** The call window has said something about the call it was handed (it is up and has it). */
+  const remoteHeard = useRef(false)
+  /** A dashboard in the desktop app, until a build without the call window says so. */
+  const popOut = useRef(!callWindow && isDesktopApp())
+  /** The call window is changing calls: leaving the first is not the end of the window. */
+  const switching = useRef(false)
+  const workspaceId = useWorkspaceId()
 
   // Who is signed in (the ring channel's filter), as the presence mount reads it.
   useEffect(() => {
@@ -171,7 +217,7 @@ export function TeamCallsProvider({ children }: { children: ReactNode }) {
 
   // Is calling on here? Once per person.
   useEffect(() => {
-    if (!userId) return
+    if (!userId || callWindow) return
     let alive = true
     void fetchTeamCalls().then((r) => {
       if (!alive) return
@@ -182,11 +228,11 @@ export function TeamCallsProvider({ children }: { children: ReactNode }) {
     return () => {
       alive = false
     }
-  }, [userId])
+  }, [userId, callWindow])
 
   // The person's rings, live; a (re)subscribe reads them all again.
   useEffect(() => {
-    if (!available || !userId) return
+    if (!available || !userId || callWindow) return
     const supabase = createClient()
     const channel = supabase
       .channel(`team-call-rings:${userId}:${Math.random().toString(36).slice(2, 10)}`)
@@ -208,7 +254,7 @@ export function TeamCallsProvider({ children }: { children: ReactNode }) {
     return () => {
       void supabase.removeChannel(channel)
     }
-  }, [available, userId])
+  }, [available, userId, callWindow])
 
   const begin = useCallback((call: CallPlace, join: TeamCallJoin, label: string) => {
     const session = new TeamCallSession(
@@ -226,6 +272,12 @@ export function TeamCallsProvider({ children }: { children: ReactNode }) {
         hangUp: () => requestLeave(call.id),
         onEnded: (why) => {
           setActive((cur) => (cur?.session === session ? null : cur))
+          if (callWindow) {
+            // The window's call is over: the app's windows say why, and the window goes. Changing calls, it stays.
+            if (switching.current) return
+            void tellWindows(CALL_WINDOW_STATE_EVENT, { call: null, ended: why }).then(closeCallWindow)
+            return
+          }
           const line = END_LINES[why]
           if (line) toast(line)
         },
@@ -247,7 +299,7 @@ export function TeamCallsProvider({ children }: { children: ReactNode }) {
     session.setNotesMode(call.notes.notes)
     // Held for the notice: it is being recorded, Egress's notes are on by someone else, or the server gave a listen-only token.
     void session.connect(join, { holdMic: holdMicOnJoin(call) || join.canPublish === false })
-  }, [])
+  }, [callWindow])
 
   // The active call's own row: its notes and recording, as everyone in it sees them. Read once
   // more when the subscription is up, so a change between the join's answer and now isn't lost.
@@ -342,10 +394,33 @@ export function TeamCallsProvider({ children }: { children: ReactNode }) {
     return next
   }, [])
 
-  /** Into a call the server said may be joined: out of the one this page is in, then in. */
+  /**
+   * Into a call the server said may be joined: out of the one this page is in, then in. In the
+   * desktop app the call window joins it instead (and leaves the one it was in); this page holds
+   * the call itself only where there is no such window.
+   */
   const switchInto = useCallback(
     async (call: CallPlace, join: TeamCallJoin, label: string) => {
       const cur = activeRef.current
+      if (!cur && remoteRef.current?.callId === call.id) {
+        void showCallWindow()
+        return
+      }
+      if (!cur && popOut.current) {
+        // A call handed to the window that it never said it took (its page was still loading) is
+        // replaced there by this one: left on the server from here, since nothing else will.
+        const unheard = remoteRef.current
+        if (unheard && !remoteHeard.current && unheard.callId !== call.id) await requestLeave(unheard.callId)
+        const handed: CallWindowBegin = { call, join, label, workspaceId }
+        const opened = await openCallWindow(handed)
+        if (opened === 'opened') {
+          // Shown at once; the window's own word replaces it as soon as it is in.
+          remoteHeard.current = false
+          setRemote(viewOfBegin(handed))
+          return
+        }
+        if (opened === 'missing') popOut.current = false
+      }
       if (cur && cur.callId !== call.id) await cur.session.leave()
       if (cur && cur.callId === call.id) {
         setMinimized(false)
@@ -353,15 +428,33 @@ export function TeamCallsProvider({ children }: { children: ReactNode }) {
       }
       begin(call, join, label)
     },
-    [begin],
+    [begin, workspaceId],
+  )
+
+  /** The call on screen: this page's, or the call window's. */
+  const shown: ActiveTeamCall | null = active ?? remote
+  const shownRef = useRef<ActiveTeamCall | null>(null)
+  shownRef.current = shown
+
+  /** Open the call's panel: this page's, or the desktop's call window. */
+  const openPanel = useCallback(() => {
+    if (activeRef.current) setMinimized(false)
+    else if (remoteRef.current) void showCallWindow()
+  }, [])
+  const minimize = useCallback(
+    (to: boolean) => {
+      if (activeRef.current) setMinimized(to)
+      else if (!to) openPanel()
+    },
+    [openPanel],
   )
 
   const startCall = useCallback<TeamCallsApi['startCall']>(
     (channel) =>
       run(async () => {
-        const cur = activeRef.current
+        const cur = shownRef.current
         if (cur && cur.channelId === channel.id) {
-          setMinimized(false)
+          openPanel()
           return
         }
         // The recorder's notes are the server's to turn on (every call); Egress's, the starter's setting.
@@ -372,14 +465,14 @@ export function TeamCallsProvider({ children }: { children: ReactNode }) {
         }
         await switchInto(res.call, res.join, channel.label)
       }),
-    [run, switchInto, features.notes, features.liveNotes],
+    [run, switchInto, openPanel, features.notes, features.liveNotes],
   )
 
   const joinCall = useCallback<TeamCallsApi['joinCall']>(
     (call) =>
       run(async () => {
-        if (activeRef.current?.callId === call.callId) {
-          setMinimized(false)
+        if (shownRef.current?.callId === call.callId) {
+          openPanel()
           return
         }
         const res = await requestJoin(call.callId)
@@ -389,7 +482,7 @@ export function TeamCallsProvider({ children }: { children: ReactNode }) {
         }
         await switchInto(res.call, res.join, call.label)
       }),
-    [run, switchInto],
+    [run, switchInto, openPanel],
   )
 
   /**
@@ -427,7 +520,7 @@ export function TeamCallsProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const ring = useCallback<TeamCallsApi['ring']>(async (memberIds, names) => {
-    const cur = activeRef.current
+    const cur = shownRef.current
     if (!cur || memberIds.length === 0) return
     const made = await requestRing(cur.callId, memberIds)
     if (made === null) {
@@ -441,11 +534,26 @@ export function TeamCallsProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const leave = useCallback(async () => {
-    await activeRef.current?.session.leave()
+    const held = activeRef.current
+    if (held) {
+      await held.session.leave()
+      return
+    }
+    const away = remoteRef.current
+    if (!away) return
+    if (remoteHeard.current) {
+      // The call window hangs up and goes; its word (and the desktop's, when it is gone) clears the call here.
+      await tellCallWindow(CALL_WINDOW_LEAVE_EVENT)
+      return
+    }
+    // The window never came up with the call: left on the server from here, and the window closed.
+    setRemote(null)
+    await requestLeave(away.callId)
+    await closeCallWindow()
   }, [])
 
   const setNotes = useCallback<TeamCallsApi['setNotes']>(async (on) => {
-    const cur = activeRef.current
+    const cur = shownRef.current
     if (!cur) return
     const res = await requestNotes(cur.callId, on)
     if (!res.ok) {
@@ -453,12 +561,12 @@ export function TeamCallsProvider({ children }: { children: ReactNode }) {
       return
     }
     // The row's Realtime update follows; this is the person's own press, drawn now.
-    cur.session.setNotesMode(res.notes)
+    if (activeRef.current?.callId === cur.callId) activeRef.current.session.setNotesMode(res.notes)
     setActive((a) => (a && a.callId === cur.callId ? { ...a, notes: { ...a.notes, notes: res.notes, notes_by: a.memberId, notes_state: res.notes ? 'capturing' : a.notes.notes_state } } : a))
   }, [])
 
   const setRecording = useCallback<TeamCallsApi['setRecording']>(async (action) => {
-    const cur = activeRef.current
+    const cur = shownRef.current
     if (!cur) return
     const res = await requestRecording(cur.callId, action)
     if (!res.ok) {
@@ -483,7 +591,7 @@ export function TeamCallsProvider({ children }: { children: ReactNode }) {
   // team chat on the meeting's conversation, and into its call. Once, then the address is clean.
   const meetingAsked = useRef(false)
   useEffect(() => {
-    if (!available || meetingAsked.current || typeof window === 'undefined') return
+    if (!available || callWindow || meetingAsked.current || typeof window === 'undefined') return
     const params = new URLSearchParams(window.location.search)
     const channelId = params.get('meeting')
     // Switching workspace first: the page reloads with `meeting` kept (dashboard-shell.tsx).
@@ -496,13 +604,111 @@ export function TeamCallsProvider({ children }: { children: ReactNode }) {
     void fetchMeetingOf(channelId)
       .then((m) => startCall({ id: channelId, kind: 'meeting', label: m?.title ?? 'Meeting' }))
       .then(() => openTarget({ type: 'team_chat', channelId }, { from: 'meeting-link', reuse: true }))
-  }, [available, startCall])
+  }, [available, callWindow, startCall])
 
-  // Signed out (or another person signed in): out of the call. The shell going away: out too.
+  // A dashboard in the desktop app: the call window's call, as the window says it. Asked for once
+  // this page listens (a call may be on already), and gone when the desktop says the window is.
   useEffect(() => {
-    if (!userId) void activeRef.current?.session.leave()
+    if (callWindow || !isDesktopApp()) return
+    const offState = onCallWindowEvent(CALL_WINDOW_STATE_EVENT, (payload) => {
+      const state = parseCallWindowState(payload)
+      if (!state) return
+      remoteHeard.current = state.call !== null
+      remoteRef.current = state.call
+      setRemote(state.call)
+      const line = state.call === null && state.ended ? END_LINES[state.ended] : undefined
+      if (line) toast(line)
+    })
+    const offClosed = onCallWindowEvent(CALL_WINDOW_CLOSED_EVENT, () => {
+      // Gone without saying its call was over (closed from outside, its page lost): the server is told from here.
+      const left = remoteRef.current
+      if (left) void requestLeave(left.callId)
+      remoteHeard.current = false
+      remoteRef.current = null
+      setRemote(null)
+    })
+    void tellCallWindow(CALL_WINDOW_ASK_EVENT)
+    return () => {
+      offState()
+      offClosed()
+    }
+  }, [callWindow])
+
+  // The call window: the call it is for (asked of the desktop once the page is up), another handed
+  // to it while it is open, a dashboard's Leave, and a dashboard asking what call it is in.
+  useEffect(() => {
+    if (!callWindow) return
+    let alive = true
+    const take = (handed: { begin: CallWindowBegin; fresh: boolean } | null) =>
+      run(async () => {
+        if (!alive) return
+        if (!handed) {
+          // Nothing to join (the page loaded with no call kept for it): the window has no purpose.
+          if (!activeRef.current) await closeCallWindow()
+          return
+        }
+        const { begin: next, fresh } = handed
+        const cur = activeRef.current
+        if (cur?.callId === next.call.id) return
+        if (cur) {
+          switching.current = true
+          try {
+            await cur.session.leave()
+          } finally {
+            switching.current = false
+          }
+        }
+        // This page has no workspace of its own: its requests go to the call's (the members "Ring people" lists).
+        setClientWorkspaceId(next.call.workspaceId, { persist: false })
+        if (fresh) {
+          begin(next.call, next.join, next.label)
+          return
+        }
+        // The page loaded again mid-call (its web view was restarted): the token it was handed may be spent.
+        const again = await requestJoin(next.call.id)
+        if (again.ok) begin(again.call, again.join, next.label)
+        else await tellWindows(CALL_WINDOW_STATE_EVENT, { call: null, ended: again.why === 'ended' ? 'ended' : 'failed' }).then(closeCallWindow)
+      })
+    // Asked of the desktop only once this page hears a call handed over: the desktop hands them to a page that said it is up.
+    const offBegin = onCallWindowEvent(
+      CALL_WINDOW_BEGIN_EVENT,
+      (payload) => void take(parseCallWindowBegin(payload)),
+      () => void takeCallWindowCall().then(take),
+    )
+    const offLeave = onCallWindowEvent(CALL_WINDOW_LEAVE_EVENT, () => void activeRef.current?.session.leave())
+    const offAsk = onCallWindowEvent(CALL_WINDOW_ASK_EVENT, () => {
+      const cur = activeRef.current
+      if (cur) void tellWindows(CALL_WINDOW_STATE_EVENT, { call: viewOf(cur) })
+    })
+    return () => {
+      alive = false
+      offBegin()
+      offLeave()
+      offAsk()
+    }
+  }, [callWindow, begin, run])
+
+  // The call window says its call to every window, on each change of it.
+  useEffect(() => {
+    if (callWindow && active) void tellWindows(CALL_WINDOW_STATE_EVENT, { call: viewOf(active) })
+  }, [callWindow, active])
+
+  // Signed out (or another person signed in): out of the call, the call window's too. The shell going
+  // away: out of the call this page holds (the call window's goes on: it is not this page's).
+  const signedIn = useRef(false)
+  useEffect(() => {
+    if (userId) {
+      signedIn.current = true
+      return
+    }
+    void activeRef.current?.session.leave()
+    if (signedIn.current && remoteRef.current) void tellCallWindow(CALL_WINDOW_LEAVE_EVENT)
+    signedIn.current = false
   }, [userId])
   useEffect(() => () => void activeRef.current?.session.leave(), [])
+
+  // A new deploy never reloads a page out of the call it holds (src/lib/deploy-reload.ts).
+  useEffect(() => registerReloadBlocker(() => !!activeRef.current), [])
 
   // A page closing leaves the call (LiveKit's own page-leave handling disconnects; this tells the server too).
   useEffect(() => {
@@ -515,15 +721,28 @@ export function TeamCallsProvider({ children }: { children: ReactNode }) {
   }, [active])
 
   const api = useMemo<TeamCallsApi>(
-    () => (available ? { available, features, active, minimized, setMinimized, startCall, joinCall, ring, leave, setNotes, setRecording, decideGuest, removeGuest } : OFF),
-    [available, features, active, minimized, startCall, joinCall, ring, leave, setNotes, setRecording, decideGuest, removeGuest],
+    () =>
+      available
+        ? { available, features, active: shown, minimized: active ? minimized : false, setMinimized: minimize, startCall, joinCall, ring, leave, setNotes, setRecording, decideGuest, removeGuest }
+        : OFF,
+    [available, features, shown, active, minimized, minimize, startCall, joinCall, ring, leave, setNotes, setRecording, decideGuest, removeGuest],
   )
 
   return (
     <TeamCallsContext.Provider value={api}>
       {children}
-      {available && <IncomingCalls state={rings} dispatch={dispatch} inCall={active?.callId ?? null} onAccept={accept} onDecline={decline} />}
-      {active && <CallPanel key={active.callId} call={active} minimized={minimized} onMinimize={setMinimized} onLeave={leave} />}
+      {available && !callWindow && <IncomingCalls state={rings} dispatch={dispatch} inCall={shown?.callId ?? null} onAccept={accept} onDecline={decline} />}
+      {active && (
+        <CallPanel
+          key={active.callId}
+          call={active}
+          minimized={minimized}
+          onMinimize={setMinimized}
+          onLeave={leave}
+          windowed={callWindow}
+          workspaceId={callWindow ? active.workspaceId : null}
+        />
+      )}
     </TeamCallsContext.Provider>
   )
 }

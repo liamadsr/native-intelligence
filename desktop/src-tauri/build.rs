@@ -177,6 +177,10 @@ const APP_COMMANDS: &[&str] = &[
     "studio_local_status",
     "studio_export_save_cancel",
     "studio_local_export_save_again",
+    "open_call_window",
+    "call_window_ready",
+    "show_call_window",
+    "close_call_window",
 ];
 
 /// Release builds read capabilities/default.json alone; debug builds add

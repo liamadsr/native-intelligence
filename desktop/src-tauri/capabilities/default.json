@@ -5,6 +5,7 @@
     "main",
     "meeting-hud",
     "agent-hud",
+    "call",
     "dictate",
     "workspace-*",
     "studio-recorder"
@@ -183,6 +184,10 @@
     "allow-studio-local-prepare",
     "allow-studio-local-status",
     "allow-studio-export-save-cancel",
-    "allow-studio-local-export-save-again"
+    "allow-studio-local-export-save-again",
+    "allow-open-call-window",
+    "allow-call-window-ready",
+    "allow-show-call-window",
+    "allow-close-call-window"
   ]
 }
