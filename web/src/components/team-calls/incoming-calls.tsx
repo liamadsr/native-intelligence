@@ -18,6 +18,7 @@
  */
 
 import { useEffect, useRef, useState, type Dispatch } from 'react'
+import { createPortal } from 'react-dom'
 import { Phone, PhoneOff } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -91,12 +92,14 @@ export function IncomingCalls({
   }, [quietIds, state.open])
 
   if (surface.ringing.length === 0) return null
-  return (
+  // On <body>: the app's root is its own stacking layer, under a page in front and a call filling the window, and a ring must show over both.
+  return createPortal(
     <div className="pointer-events-none fixed inset-x-0 top-3 z-[80] flex flex-col items-center gap-2 px-4" data-team-call-incoming="">
       {surface.ringing.map((ring) => (
         <RingCard key={ring.id} ring={ring} onAccept={() => onAccept(ring)} onDecline={() => onDecline(ring)} />
       ))}
-    </div>
+    </div>,
+    document.body,
   )
 }
 

@@ -122,7 +122,9 @@ describe('a full-screen card', () => {
       for (const c of uses) expect(c.startsWith('md:[html[data-app-rail]_&]:'), c).toBe(true)
       expect(layer.getAttribute('style') ?? '', offset).not.toContain(offset)
     }
-    expect(layer.className).toContain('right-0')
+    // Its right and bottom end where a call the person is in begins (call-place.ts); the window's edges without one.
+    expect(layer.className).toContain('right-[var(--call-dock-w,0px)]')
+    expect(layer.className).toContain('bottom-[var(--call-dock-b,0px)]')
     expect(layer.className).not.toContain('inset-0')
     // Its card's top is the side panels' top beside the rail (Liam, 11-11): PANEL_TOP in the window's
     // coordinates (the top bar's height + half a gutter); the layer under the rail's header, padded the rest.
@@ -132,8 +134,8 @@ describe('a full-screen card', () => {
     expect(layer.className).toContain('md:[html[data-app-rail]_&]:pt-[calc(var(--card-panel-top)_-_var(--card-layer-top))]')
     // Beside the rail it ends above the main chat's composer (Liam, 11-11: the composer stays on screen):
     // its bottom is the dock's height, on <html> (front-card.ts COMPOSER_RESERVE_VAR); below `md` it runs to the bottom.
-    expect(layer.className).toContain('md:[html[data-app-rail]_&]:bottom-[var(--composer-reserve,0px)]')
-    expect(layer.className).toContain('inset-y-0')
+    expect(layer.className).toContain('md:[html[data-app-rail]_&]:bottom-[calc(var(--composer-reserve,0px)_+_var(--call-dock-b,0px))]')
+    expect(layer.className).toContain('top-0')
     expect(COMPOSER_RESERVE_VAR).toBe('--composer-reserve')
     // Below `md` (no rail) as before: under the window's top, centred.
     expect(layer.className).toContain('pt-14')

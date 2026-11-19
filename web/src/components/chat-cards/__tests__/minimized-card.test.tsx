@@ -686,7 +686,8 @@ describe('the tile is a mini window (Liam, 11-11: "a preview of the window not j
     expect(tile()!.className).toContain('aspect-[16/10]')
     // The page panel's 24px corners, as wide as it.
     expect(tile()!.className).toContain('rounded-3xl')
-    expect(tile()!.style.bottom).toBe('12px')
+    // Above a minimised call's band, where there is one (call-place.ts).
+    expect(tile()!.style.bottom).toBe('calc(12px + var(--call-dock-b, 0px))')
     // Keyboard: its button first and reachable, the × shown while the focus is in the tile.
     expect(tile()!.querySelector('button')).toBe(reopen())
     expect(tile()!.querySelector('[data-minimized-card-clear]')!.className).toContain('group-has-[:focus-visible]/tile:opacity-100')

@@ -313,7 +313,8 @@ function tileBoxStyle(trafficLights: boolean): React.CSSProperties {
   const inset = topBarLeftInset(trafficLights)
   return {
     left: `calc(var(--app-rail-w, 0px) + ${typeof inset === 'number' ? `${inset}px` : inset})`,
-    bottom: PANEL_GUTTER_PX,
+    // Above the band a minimised call keeps at the window's bottom (src/lib/team-calls/call-place.ts).
+    bottom: `calc(${PANEL_GUTTER_PX}px + var(--call-dock-b, 0px))`,
     width: minimizedTileWidth(inset),
   }
 }

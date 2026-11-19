@@ -1060,8 +1060,12 @@ export function ShowToolCard({
             // header already, and beside the rail its padding takes the
             // card's top to the side panels' top (Liam, 11-11;
             // FULL_SCREEN_LAYER_STYLE says the arithmetic), and its bottom is
-            // the composer's top (--composer-reserve; Liam, 11-11).
-            className="card-focus-backdrop card-page-layer fixed inset-y-0 right-0 z-50 flex flex-col items-center px-4 pb-6 pt-14 outline-none sm:px-16 md:pt-2 md:[html[data-app-rail]_&]:[--card-layer-top:min(var(--app-header-bottom,0px),var(--card-panel-top))] md:[html[data-app-rail]_&]:pt-[calc(var(--card-panel-top)_-_var(--card-layer-top))] left-[var(--app-rail-w,0px)] md:[html[data-app-rail]_&]:left-[calc(var(--app-rail-w,0px)_+_var(--page-panel-w,0px))] md:[html[data-app-rail]_&]:bottom-[var(--composer-reserve,0px)]"
+            // the composer's top (--composer-reserve; Liam, 11-11). A call
+            // the person is in keeps its edge of the window (--call-dock-w
+            // at the right, --call-dock-b at the bottom: src/lib/team-calls/
+            // call-place.ts; Liam, 11-18), and the layer ends there, its
+            // wide side padding given up beside the call's column.
+            className="card-focus-backdrop card-page-layer fixed top-0 bottom-[var(--call-dock-b,0px)] right-[var(--call-dock-w,0px)] z-50 flex flex-col items-center px-4 pb-6 pt-14 outline-none sm:px-16 sm:[html[data-call-dock]_&]:px-4 md:pt-2 md:[html[data-app-rail]_&]:[--card-layer-top:min(var(--app-header-bottom,0px),var(--card-panel-top))] md:[html[data-app-rail]_&]:pt-[calc(var(--card-panel-top)_-_var(--card-layer-top))] left-[var(--app-rail-w,0px)] md:[html[data-app-rail]_&]:left-[calc(var(--app-rail-w,0px)_+_var(--page-panel-w,0px))] md:[html[data-app-rail]_&]:bottom-[calc(var(--composer-reserve,0px)_+_var(--call-dock-b,0px))]"
             style={FULL_SCREEN_LAYER_STYLE}
             // A press anywhere outside the card (the space all round, beside
             // the button under it) puts it back in its message. From `md` up
