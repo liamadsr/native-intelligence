@@ -153,6 +153,55 @@ describe('the camera and the microphone before joining', () => {
     expect(q('[data-guest-mic-choice]')?.dataset.guestMicChoice).toBe('on')
     expect(getUserMedia).toHaveBeenCalledTimes(1)
   })
+
+  const refused = () => Object.assign(new Error('refused'), { name: 'NotAllowedError' })
+
+  it('a prompt they closed is not asked again by itself: one ask, nothing blocked', async () => {
+    const getUserMedia = vi.fn(async () => Promise.reject(refused()))
+    vi.stubGlobal('navigator', { mediaDevices: { getUserMedia }, sendBeacon: () => true })
+    await render()
+    expect(getUserMedia).toHaveBeenCalledTimes(1)
+    expect(q('[data-guest-camera]')?.dataset.guestCamera).toBe('off')
+    expect(q('[data-guest-mic-choice]')?.dataset.guestMicChoice).toBe('on')
+  })
+
+  it('a camera blocked in the browser’s settings: said as blocked, and only the microphone is asked for again', async () => {
+    const audio = track('audio')
+    const getUserMedia = vi.fn(async (want: { video?: boolean; audio?: boolean }) => {
+      if (want.video) throw refused()
+      return { getTracks: () => [audio] }
+    })
+    const query = async ({ name }: { name: string }) => ({ state: name === 'camera' ? 'denied' : 'prompt' })
+    vi.stubGlobal('navigator', { mediaDevices: { getUserMedia }, permissions: { query }, sendBeacon: () => true })
+    await render()
+    expect(getUserMedia.mock.calls.map((c) => c[0])).toEqual([{ video: true, audio: true }, { audio: true }])
+    expect(q('[data-guest-camera]')?.dataset.guestCamera).toBe('blocked')
+    expect(q('[data-guest-mic-choice]')?.dataset.guestMicChoice).toBe('on')
+    expect(audio.stop).toHaveBeenCalledTimes(1)
+  })
+
+  it('the camera clicked while the first prompt is still open: no second ask, and one camera only', async () => {
+    const video = track('video')
+    let arrive: (stream: unknown) => void = () => undefined
+    const getUserMedia = vi.fn(() => new Promise((resolve) => (arrive = resolve)))
+    vi.stubGlobal('navigator', { mediaDevices: { getUserMedia }, sendBeacon: () => true })
+    await render()
+    await act(async () => {
+      q('[data-guest-camera]')!.click()
+    })
+    await act(async () => {
+      arrive({ getTracks: () => [track('audio'), video] })
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    expect(getUserMedia).toHaveBeenCalledTimes(1)
+    expect(q('[data-guest-camera]')?.dataset.guestCamera).toBe('on')
+    expect(video.stop).not.toHaveBeenCalled()
+    // Off again: the one camera there is stops.
+    await act(async () => {
+      q('[data-guest-camera]')!.click()
+    })
+    expect(video.stop).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('a guest waiting in the lobby', () => {

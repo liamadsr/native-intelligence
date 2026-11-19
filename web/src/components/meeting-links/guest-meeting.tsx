@@ -161,58 +161,96 @@ export function GuestMeeting({
     previewStops.current += 1
     for (const t of preview.current?.getTracks() ?? []) t.stop()
     preview.current = null
+    setCamera((c) => (c === 'on' ? 'off' : c))
   }, [])
   useEffect(() => stopPreview, [stopPreview])
+
+  // The ask that is out now (the browser's prompt may be open): the next one waits for it, so two never run at once.
+  const asking = useRef<Promise<void> | null>(null)
 
   /**
    * Ask the browser for the camera, the microphone, or both in ONE prompt. The
    * camera's stream becomes the preview; the microphone's is only the browser's
    * yes and ends at once (nothing listens before the call). When the two are
-   * refused together (one is blocked, or missing), each is asked for by itself,
-   * so one refusal never costs the other.
+   * refused together because one is blocked or missing, the other is asked for
+   * by itself, so one refusal never costs the other. A prompt they closed is
+   * not asked again here: the switches, and "Ask to join", ask when they want it.
    */
-  const askDevices = useCallback(async (want: { video: boolean; audio: boolean }) => {
-    const stops = previewStops.current
-    const take = (stream: MediaStream) => {
-      const tracks = stream.getTracks()
-      for (const t of tracks) if (t.kind === 'audio') t.stop()
-      if (tracks.some((t) => t.kind === 'audio')) micAllowed.current = true
-      if (!want.video) return
-      // The preview was stopped while the camera started (the browser's prompt was open, and they were let in): nothing would own this stream, so it ends here.
-      if (stops !== previewStops.current) {
-        for (const t of tracks) t.stop()
-        return
-      }
-      preview.current = stream
-      setCamera('on')
-    }
-    const one = async (kind: 'video' | 'audio') => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia(kind === 'video' ? { video: true } : { audio: true })
-        if (kind === 'audio') {
-          for (const t of stream.getTracks()) t.stop()
+  const askDevices = useCallback((want: { video: boolean; audio: boolean }): Promise<void> => {
+    const before = asking.current
+    const run = async () => {
+      await before
+      // What the ask before this one already settled is not asked twice.
+      const video = want.video && !preview.current
+      const audio = want.audio && !micAllowed.current
+      if (!video && !audio) return
+      const stops = previewStops.current
+      // The preview was stopped while the browser was asked (they were let in, it ended, the page closed): nothing more is asked or shown.
+      const stopped = () => stops !== previewStops.current
+      const take = (stream: MediaStream, keepVideo: boolean) => {
+        const tracks = stream.getTracks()
+        if (tracks.some((t) => t.kind === 'audio')) {
           micAllowed.current = true
-          setMic((m) => (m === 'blocked' ? 'on' : m))
-        } else take(stream)
-      } catch {
+          if (!stopped()) setMic((m) => (m === 'blocked' ? 'on' : m))
+        }
+        // Nothing would own this camera (stopped meanwhile, or a preview is already on): it ends here, with the microphone's.
+        if (!keepVideo || stopped() || preview.current) {
+          for (const t of tracks) t.stop()
+          return
+        }
+        for (const t of tracks) if (t.kind === 'audio') t.stop()
+        preview.current = stream
+        setCamera('on')
+      }
+      const block = (kind: 'video' | 'audio') => {
+        if (stopped()) return
         if (kind === 'audio') setMic('blocked')
-        else if (stops === previewStops.current) setCamera('blocked')
+        else setCamera('blocked')
       }
-    }
-    if (want.video && want.audio) {
+      const one = async (kind: 'video' | 'audio') => {
+        if (stopped()) return
+        try {
+          take(await navigator.mediaDevices.getUserMedia(kind === 'video' ? { video: true } : { audio: true }), kind === 'video')
+        } catch {
+          block(kind)
+        }
+      }
+      if (!(video && audio)) return one(video ? 'video' : 'audio')
+      let refusal: unknown
       try {
-        take(await navigator.mediaDevices.getUserMedia({ video: true, audio: true }))
-        micAllowed.current = true
-        setMic((m) => (m === 'blocked' ? 'on' : m))
+        take(await navigator.mediaDevices.getUserMedia({ video: true, audio: true }), true)
         return
-      } catch {
-        // One of the two was refused or is missing: ask for each.
+      } catch (err) {
+        refusal = err
       }
-      await one('audio')
-      await one('video')
-      return
+      if (stopped()) return
+      if ((refusal as { name?: string } | null)?.name !== 'NotAllowedError') {
+        // A device is missing or busy: ask for each, so the other still works.
+        await one('audio')
+        await one('video')
+        return
+      }
+      // Refused. Blocked in the browser's settings, or a prompt they closed? Only the first is final, and only it is worth asking around.
+      const state = async (name: 'camera' | 'microphone') => {
+        try {
+          return (await navigator.permissions.query({ name: name as PermissionName })).state
+        } catch {
+          return 'prompt' as const
+        }
+      }
+      const [cam, microphone] = [await state('camera'), await state('microphone')]
+      if (stopped()) return
+      if (cam === 'denied') block('video')
+      if (microphone === 'denied') block('audio')
+      if (cam === 'denied' && microphone !== 'denied') await one('audio')
+      if (microphone === 'denied' && cam !== 'denied') await one('video')
     }
-    await one(want.video ? 'video' : 'audio')
+    const mine = run()
+    asking.current = mine
+    void mine.finally(() => {
+      if (asking.current === mine) asking.current = null
+    })
+    return mine
   }, [])
 
   // The page opens: one prompt for both, and the camera's preview comes on if they allow it.
@@ -221,11 +259,7 @@ export function GuestMeeting({
   }, [askDevices])
 
   const toggleCamera = useCallback(async () => {
-    if (camera === 'on') {
-      stopPreview()
-      setCamera('off')
-      return
-    }
+    if (camera === 'on') return stopPreview()
     // Not allowed the microphone yet either: the same prompt asks for it.
     await askDevices({ video: true, audio: !micAllowed.current && micRef.current !== 'off' })
   }, [camera, stopPreview, askDevices])
