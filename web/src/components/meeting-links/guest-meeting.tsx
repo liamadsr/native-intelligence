@@ -617,7 +617,8 @@ function Preview({ stream, name, children }: { stream: MediaStream | null; name:
       data-guest-preview={stream ? 'camera' : 'off'}
     >
       {stream ? (
-        <video ref={ref} muted playsInline autoPlay className="h-full w-full -scale-x-100 object-cover" />
+        // Out of the flow, so the camera's own shape never sets the panel's height.
+        <video ref={ref} muted playsInline autoPlay className="absolute inset-0 h-full w-full -scale-x-100 object-cover" />
       ) : (
         <div className="flex h-full w-full items-center justify-center pb-10">
           <span className="flex h-16 w-16 items-center sm:h-20 sm:w-20 justify-center rounded-full border border-foreground/10 bg-background/70 text-xl dark:bg-white/10 font-semibold text-muted-foreground">{initialsOf(shown || '?')}</span>
