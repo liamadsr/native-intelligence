@@ -147,8 +147,9 @@ async function memberNames(svc: Svc, workspaceId: string, ids: readonly string[]
 /**
  * The messages before this one (not deleted), oldest first, as context
  * lines: for a mention in a thread, the thread's (its root and the replies
- * before it); else the channel's own (never a thread's replies). Throws on a
- * failed read.
+ * before it); else the channel's own (never a thread's replies). A meeting
+ * guest's message (migration 670) is never among them: what a guest writes
+ * never reaches the agent. Throws on a failed read.
  */
 export async function channelContext(
   svc: Svc,
@@ -160,6 +161,7 @@ export async function channelContext(
     .from('team_chat_message')
     .select('id, author_kind, author_member_id, agent_for_member_id, agent_name, body, created_at, email_share_id')
     .eq('channel_id', channel.id)
+    .in('author_kind', ['member', 'agent'])
   query = root ? query.or(`id.eq.${root},thread_root_id.eq.${root}`) : query.is('thread_root_id', null)
   const { data, error } = await query
     .is('deleted_at', null)

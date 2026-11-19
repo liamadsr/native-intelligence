@@ -194,7 +194,7 @@ interface MessageRow {
   id: string
   channel_id: string
   workspace_id: string
-  author_kind: 'member' | 'agent'
+  author_kind: 'member' | 'agent' | 'guest'
   author_member_id: string | null
   agent_for_member_id: string | null
   agent_name: string | null
@@ -220,6 +220,8 @@ export async function notifyTeamChatMessage(svc: SupabaseClient, messageId: stri
     .maybeSingle<MessageRow>()
   if (error) throw new Error(`team chat notify: message read failed: ${error.message}`)
   if (!message || message.deleted_at) return { outcome: 'gone', notified: [] }
+  // A meeting guest's message (migration 670) notifies nobody; its route never asks, and this holds if anything ever does.
+  if (message.author_kind === 'guest') return { outcome: 'nobody', notified: [] }
   const { data: channel, error: channelError } = await svc
     .from('team_chat_channel')
     .select('id, kind, name, archived_at')

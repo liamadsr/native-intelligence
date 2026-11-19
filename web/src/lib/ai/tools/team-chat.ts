@@ -25,6 +25,10 @@ import { emailShareAgentText } from '@/lib/email-share/types'
  * untrusted fence (kind CHAT). A teammate's message can't steer the reader's
  * agent, least of all a loop that runs as its owner.
  *
+ * A meeting guest's message (migration 670, author_kind 'guest') is never
+ * read: asked for by its id it is "not found", and a thread leaves it out
+ * (its root included). What a guest writes never reaches the agent.
+ *
  * A message that carries a shared email (migration 646) reads as its note and
  * "an email was shared" (`email_shared: true`), never the mail: the mail is
  * read live, only by people, in the app (src/lib/email-share). No agent tool
@@ -43,7 +47,7 @@ interface MessageRow {
   id: string
   channel_id: string
   workspace_id: string
-  author_kind: 'member' | 'agent'
+  author_kind: 'member' | 'agent' | 'guest'
   author_member_id: string | null
   agent_name: string | null
   thread_root_id: string | null
@@ -83,6 +87,7 @@ export function createTeamChatTools(
         const { data, error } = await supabase.from('team_chat_message').select(MESSAGE_COLUMNS).eq('id', id).maybeSingle()
         if (error || !data) return NOT_FOUND
         const msg = data as MessageRow
+        if (msg.author_kind === 'guest') return NOT_FOUND
         if (opts.strictWorkspace && msg.workspace_id !== workspaceId) return NOT_FOUND
         // The read rule for the caller, in the message's own workspace (fails closed).
         const readable = await visiblePrivateKindIds(supabase, 'team_chat_channel', userId, [msg.channel_id], msg.workspace_id)
@@ -103,7 +108,8 @@ export function createTeamChatTools(
         const channel = channelRes.data as { id: string; kind: string; name: string | null } | null
         const root = (rootRes.data as MessageRow | null) ?? msg
         const replies = ((repliesRes.data as MessageRow[] | null) ?? []).slice().reverse()
-        const thread = [root, ...replies.filter((r) => r.id !== root.id)]
+        // A guest's messages stay out, the thread's root too when a guest wrote it.
+        const thread = [root, ...replies.filter((r) => r.id !== root.id)].filter((m) => m.author_kind !== 'guest')
         if (!thread.some((m) => m.id === msg.id)) thread.push(msg)
 
         // Authors by name: members from the workspace, an agent by its own name.

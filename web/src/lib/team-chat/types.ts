@@ -123,7 +123,8 @@ export interface TeamChatReaction {
 export interface TeamChatMessage {
   id: string
   channel_id: string
-  author_kind: 'member' | 'agent'
+  /** Who wrote it: a member, a member's agent, or a meeting's guest (migration 670: in a meeting's conversation only). */
+  author_kind: 'member' | 'agent' | 'guest'
   /** The member who wrote it (author_kind 'member'). */
   author_member_id: string | null
   /** Whose agent wrote it (author_kind 'agent'). */
@@ -166,6 +167,14 @@ export interface TeamChatMessage {
    * Its words are the sharer's note, never the mail.
    */
   email_share_id?: string | null
+  /**
+   * A meeting guest's message (migration 670, author_kind 'guest'): their
+   * row (null once it is gone) and the name they typed. Someone without an
+   * account: no member, no profile, never editable by anyone. Absent on an
+   * old realtime payload: none.
+   */
+  guest_id?: string | null
+  guest_name?: string | null
 }
 
 /** A record a message @-mentions: its kind and id, and the label its `@…` shows. */
@@ -173,7 +182,7 @@ export type TeamChatRecordMention = LabeledMentionRef
 
 /** The columns a message is read with. */
 export const TEAM_CHAT_MESSAGE_COLUMNS =
-  'id, channel_id, author_kind, author_member_id, agent_for_member_id, agent_name, in_reply_to, thread_root_id, client_id, body, mentions, mentions_agent, record_mentions, attachments, link_preview, created_at, edited_at, deleted_at, kind, call_id, email_share_id'
+  'id, channel_id, author_kind, author_member_id, agent_for_member_id, agent_name, in_reply_to, thread_root_id, client_id, body, mentions, mentions_agent, record_mentions, attachments, link_preview, created_at, edited_at, deleted_at, kind, call_id, email_share_id, guest_id, guest_name'
 
 /** The most replies a thread's pane loads at once. */
 export const TEAM_CHAT_THREAD_MAX = 200

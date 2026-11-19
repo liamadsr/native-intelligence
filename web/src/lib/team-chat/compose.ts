@@ -120,14 +120,14 @@ export function messageTime(iso: string, locale?: string): string {
   return d.toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' })
 }
 
-/** True when two messages in a row are from the same author within five minutes (the second drops its name line). */
-export function continuesGroup(
-  prev: { author_kind: string; author_member_id: string | null; agent_for_member_id: string | null; created_at: string } | undefined,
-  next: { author_kind: string; author_member_id: string | null; agent_for_member_id: string | null; created_at: string },
-): boolean {
+type GroupAuthor = { author_kind: string; author_member_id: string | null; agent_for_member_id: string | null; guest_id?: string | null; guest_name?: string | null; created_at: string }
+
+/** True when two messages in a row are from the same author within five minutes (the second drops its name line). Two meeting guests are one author only when they are the same guest. */
+export function continuesGroup(prev: GroupAuthor | undefined, next: GroupAuthor): boolean {
   if (!prev) return false
   if (prev.author_kind !== next.author_kind) return false
   if (prev.author_member_id !== next.author_member_id || prev.agent_for_member_id !== next.agent_for_member_id) return false
+  if (next.author_kind === 'guest' && (!next.guest_id || prev.guest_id !== next.guest_id || prev.guest_name !== next.guest_name)) return false
   const gap = Date.parse(next.created_at) - Date.parse(prev.created_at)
   return Number.isFinite(gap) && gap >= 0 && gap < 5 * 60_000
 }

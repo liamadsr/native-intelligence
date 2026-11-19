@@ -36,6 +36,12 @@ export const MEETING_LIMITS = {
   pollPerAddress: { bucket: 'poll:addr', max: 240, windowSeconds: 60 },
   /** A guest's reads of the call's notes while they are in it (every 8 s is under 8 a minute). */
   notesPerGuest: { bucket: 'notes:guest', max: 20, windowSeconds: 60 },
+  /** A guest's reads of the meeting's chat while they are in its call (every 4 s is 15 a minute; a send asks once more). */
+  chatReadsPerGuest: { bucket: 'chat-read:guest', max: 40, windowSeconds: 60 },
+  /** A guest's messages into the meeting's chat. */
+  chatPostsPerGuest: { bucket: 'chat-post:guest', max: 20, windowSeconds: 60 },
+  /** Messages into meetings' chats from one address (a few guests behind one network). */
+  chatPostsPerAddress: { bucket: 'chat-post:addr', max: 60, windowSeconds: 60 },
   /** A guest's tokens (a join, a rejoin after a lost connection). */
   tokenPerGuest: { bucket: 'token:guest', max: 20, windowSeconds: 600 },
 } as const satisfies Record<string, MeetingLimit>

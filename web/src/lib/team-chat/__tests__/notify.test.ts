@@ -214,6 +214,13 @@ describe('notifyTeamChatMessage (the fan-out)', () => {
     expect(tables.notification).toHaveLength(0)
   })
 
+  it('a meeting guest’s message (migration 670) notifies nobody, whoever asks', async () => {
+    const guest = svc([cand(BEN, { mentioned: true })], { author_kind: 'guest', author_member_id: null, guest_name: 'Sam Ruiz' })
+    expect(await notifyTeamChatMessage(guest.db, MSG)).toEqual({ outcome: 'nobody', notified: [] })
+    expect(guest.rpc).not.toHaveBeenCalled()
+    expect(guest.tables.notification ?? []).toHaveLength(0)
+  })
+
   it('a deleted message, or one in an archived channel, notifies nobody', async () => {
     const gone = svc([cand(BEN, { mentioned: true })], { deleted_at: '2026-11-11T00:00:00Z' })
     expect(await notifyTeamChatMessage(gone.db, MSG)).toEqual({ outcome: 'gone', notified: [] })

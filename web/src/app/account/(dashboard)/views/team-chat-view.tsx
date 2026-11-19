@@ -1828,15 +1828,20 @@ function MessageRow({
 }) {
   const [pinned, setPinned] = useState(false)
   const isAgent = message.author_kind === 'agent'
-  const mine = !isAgent && !!meId && message.author_member_id === meId
+  // A meeting guest's message (migration 670): the name they typed and a "Guest" label; no member behind it, so no photo,
+  // no profile and nothing anyone can edit or delete (the database refuses both). Guests read the meeting's own messages only, never a thread.
+  const isGuest = message.author_kind === 'guest'
+  const mine = !isAgent && !isGuest && !!meId && message.author_member_id === meId
   // Their own agent's reply: theirs to delete (never to edit), if it said something it shouldn't have.
   const myAgent = isAgent && !!meId && message.agent_for_member_id === meId
   const name = isAgent
     ? agentDisplayName(message.agent_name, memberName(membersById.get(message.agent_for_member_id ?? '')), message.agent_for_member_id === meId)
-    : `${memberName(membersById.get(message.author_member_id ?? ''))}${mine ? ' (you)' : ''}`
+    : isGuest
+      ? message.guest_name?.trim() || 'Guest'
+      : `${memberName(membersById.get(message.author_member_id ?? ''))}${mine ? ' (you)' : ''}`
   const deleted = !!message.deleted_at
   const pending = message.pending
-  const author = isAgent ? undefined : membersById.get(message.author_member_id ?? '')
+  const author = isAgent || isGuest ? undefined : membersById.get(message.author_member_id ?? '')
   const groups = useMemo(() => groupReactions(reactions, meId), [reactions, meId])
   const toolbar = !deleted && !editing && !pending
   // A call's message is the call's: no edit, no delete (the database refuses both too).
@@ -1853,11 +1858,16 @@ function MessageRow({
         lit && 'bg-primary/10 hover:bg-primary/10',
       )}
     >
-      <div className="w-9 shrink-0">{!grouped && <Avatar name={memberName(author)} url={author?.avatar_url} agent={isAgent} />}</div>
+      <div className="w-9 shrink-0">{!grouped && <Avatar name={isGuest ? name : memberName(author)} url={author?.avatar_url} agent={isAgent} />}</div>
       <div className="min-w-0 flex-1">
         {!grouped && (
           <div className="flex items-baseline gap-2">
             <span className={cn('truncate text-[15px] font-semibold', isAgent ? 'text-violet-700 dark:text-violet-300' : 'text-foreground')}>{name}</span>
+            {isGuest && (
+              <span data-team-chat-guest="" className="shrink-0 self-center rounded-full border border-border px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                Guest
+              </span>
+            )}
             <span className="shrink-0 text-xs text-muted-foreground">{messageTime(message.created_at)}</span>
           </div>
         )}
@@ -1929,7 +1939,7 @@ function MessageRow({
               onOpenChange={setPinned}
             />
           )}
-          {onReplyInThread && (
+          {onReplyInThread && !isGuest && (
             <button type="button" onClick={onReplyInThread} aria-label="Reply in thread" title="Reply in thread" className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground">
               <MessageSquareReply className="h-3.5 w-3.5" />
             </button>

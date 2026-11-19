@@ -18,9 +18,10 @@
  *   - A meeting guest (src/components/meeting-links/guest-meeting.tsx): the
  *     agent's notes of the call as plain words, and under them what has been
  *     said since they were let in (src/lib/team-calls/live-notes.ts says
- *     what a guest is given). Closed until they open it; while open and on
- *     screen, their page asks every few seconds (a guest has no database
- *     session, so no Realtime).
+ *     what a guest is given). Closed until they open it (or, `embedded`, the
+ *     Notes tab of the guest's side panel, beside its Chat: open while the
+ *     tab is shown); while open and on screen, their page asks every few
+ *     seconds (a guest has no database session, so no Realtime).
  *
  * Nothing to show, nothing drawn.
  */
@@ -170,7 +171,9 @@ export type GuestNotesState = 'closed' | 'loading' | 'ready' | 'failed'
 /**
  * A guest's view as drawn: pure. The agent's notes first (when it has written
  * any), then what has been said since the guest joined. `pad`: a notepad
- * beside the call (the guest's page), tall where there is room.
+ * beside the call (the guest's page), tall where there is room. `embedded`:
+ * the body alone, inside a panel that has its own heading (the guest's side
+ * panel's Notes tab): always open, no toggle of its own.
  */
 export function GuestCallNotesView({
   state,
@@ -178,6 +181,7 @@ export function GuestCallNotesView({
   summary = [],
   onToggle,
   pad = false,
+  embedded = false,
   className,
 }: {
   state: GuestNotesState
@@ -185,6 +189,7 @@ export function GuestCallNotesView({
   summary?: SummaryBlock[]
   onToggle: () => void
   pad?: boolean
+  embedded?: boolean
   className?: string
 }) {
   const said = useRef<HTMLDivElement>(null)
@@ -201,16 +206,18 @@ export function GuestCallNotesView({
     <section
       data-guest-notes={state}
       aria-label={noted || pad ? 'Notes' : 'What’s been said'}
-      className={cn(pad ? 'flex min-h-0 flex-col rounded-3xl p-4 lg:h-full' : 'mt-3 rounded-2xl border border-border bg-muted/40 px-3 py-2.5', className)}
+      className={cn(embedded ? 'flex min-h-0 flex-1 flex-col' : pad ? 'flex min-h-0 flex-col rounded-3xl p-4 lg:h-full' : 'mt-3 rounded-2xl border border-border bg-muted/40 px-3 py-2.5', className)}
     >
-      <button type="button" onClick={onToggle} aria-expanded={open} className="flex w-full shrink-0 items-center gap-2 text-left">
-        <NotebookPen className="h-4 w-4 shrink-0 text-sky-700 dark:text-sky-300" aria-hidden />
-        <span className={cn('font-semibold text-foreground', pad ? 'text-sm' : 'text-xs')}>{pad || noted ? 'Notes' : 'What’s been said'}</span>
-        <span className="min-w-0 truncate text-xs text-muted-foreground">{!open ? 'Show the notes of this call' : noted ? 'Of this call' : 'Since you joined'}</span>
-        <ChevronDown className={cn('ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground', open ? '' : '-rotate-90')} aria-hidden />
-      </button>
+      {!embedded && (
+        <button type="button" onClick={onToggle} aria-expanded={open} className="flex w-full shrink-0 items-center gap-2 text-left">
+          <NotebookPen className="h-4 w-4 shrink-0 text-sky-700 dark:text-sky-300" aria-hidden />
+          <span className={cn('font-semibold text-foreground', pad ? 'text-sm' : 'text-xs')}>{pad || noted ? 'Notes' : 'What’s been said'}</span>
+          <span className="min-w-0 truncate text-xs text-muted-foreground">{!open ? 'Show the notes of this call' : noted ? 'Of this call' : 'Since you joined'}</span>
+          <ChevronDown className={cn('ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground', open ? '' : '-rotate-90')} aria-hidden />
+        </button>
+      )}
       {open && (
-        <div className={cn('mt-2 flex min-h-0 flex-col gap-2.5 text-sm', pad ? 'max-h-[32dvh] lg:max-h-none lg:flex-1' : 'max-h-72')} data-guest-notes-body="">
+        <div className={cn('flex min-h-0 flex-col gap-2.5 text-sm', embedded ? 'flex-1' : 'mt-2', !embedded && (pad ? 'max-h-[32dvh] lg:max-h-none lg:flex-1' : 'max-h-72'))} data-guest-notes-body="">
           {noted && (
             <div className="max-h-[45%] shrink-0 space-y-1 overflow-y-auto pr-1 leading-snug" data-guest-notes-summary="">
               <SummaryBlocks blocks={summary} />
@@ -247,19 +254,20 @@ export function GuestCallNotesView({
           </div>
         </div>
       )}
-      {pad && open && <p className="mt-3 shrink-0 border-t border-foreground/10 pt-2.5 text-xs text-muted-foreground">Written by Native Intelligence as people speak.</p>}
+      {(pad || embedded) && open && <p className="mt-3 shrink-0 border-t border-foreground/10 pt-2.5 text-xs text-muted-foreground">Written by Native Intelligence as people speak.</p>}
     </section>
   )
 }
 
 /**
  * A guest's notes of the call (GET /m/<token>/notes): closed until they open
- * them (as a pad on a wide screen, open from the start); open and on screen,
+ * them (as a pad on a wide screen, open from the start; `embedded`, open while
+ * shown); open and on screen,
  * asked every GUEST_NOTES_POLL_MS. Refused (they are no longer in the call, or
  * its notes are over): nothing drawn.
  */
-export function GuestCallNotes({ base, pad = false, className }: { base: string; pad?: boolean; className?: string }) {
-  const [state, setState] = useState<GuestNotesState>(() => (pad && typeof window !== 'undefined' && window.matchMedia?.('(min-width: 1024px)').matches ? 'loading' : 'closed'))
+export function GuestCallNotes({ base, pad = false, embedded = false, className }: { base: string; pad?: boolean; embedded?: boolean; className?: string }) {
+  const [state, setState] = useState<GuestNotesState>(() => (embedded || (pad && typeof window !== 'undefined' && window.matchMedia?.('(min-width: 1024px)').matches) ? 'loading' : 'closed'))
   const [lines, setLines] = useState<GuestNoteLine[]>([])
   const [summary, setSummary] = useState<SummaryBlock[]>([])
   const [refused, setRefused] = useState(false)
@@ -301,6 +309,11 @@ export function GuestCallNotes({ base, pad = false, className }: { base: string;
       document.removeEventListener('visibilitychange', onVisible)
     }
   }, [open, refused, base])
-  if (refused) return null
-  return <GuestCallNotesView state={state} lines={lines} summary={summary} pad={pad} className={className} onToggle={() => setState((s) => (s === 'closed' ? 'loading' : 'closed'))} />
+  if (refused)
+    return embedded ? (
+      <p className="text-xs text-muted-foreground" data-guest-notes="refused">
+        The notes aren’t available right now.
+      </p>
+    ) : null
+  return <GuestCallNotesView state={state} lines={lines} summary={summary} pad={pad} embedded={embedded} className={className} onToggle={() => setState((s) => (s === 'closed' ? 'loading' : 'closed'))} />
 }
