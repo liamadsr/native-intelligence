@@ -33,6 +33,10 @@
  * over Realtime), guests' tiles labelled "Guest" with Remove, and the bar
  * says who is waiting while the panel is minimised.
  *
+ * In the desktop app's call window (/hud/call; src/lib/team-calls/call-window.ts)
+ * it is `windowed`: the whole of that small floating window, dragged by its
+ * header, with nothing to minimise or fill and no place to keep in the app.
+ *
  * Everything it draws comes from the session's snapshot
  * (src/lib/team-calls/call-session.ts), which changes only when LiveKit says
  * something changed: no timer, no animation loop, no audio analyser.
@@ -78,7 +82,7 @@ import { guestIdOfIdentity, waitingGuests, waitingLine, type MeetingGuest } from
 import { CallBadges, IconButton, TileView, callErrorLine, deviceNotice, screenNotice, screenDroppedNotice } from './call-tiles'
 import { DevicesMenu } from './devices-menu'
 import { CallLiveNotes } from './call-live-notes'
-import type { ActiveTeamCall } from './team-calls-provider'
+import type { HostedTeamCall as ActiveTeamCall } from './team-calls-provider'
 import { useTeamCalls } from './team-calls-provider'
 
 interface Member {
@@ -96,11 +100,17 @@ export function CallPanel({
   minimized,
   onMinimize,
   onLeave,
+  windowed = false,
+  workspaceId = null,
 }: {
   call: ActiveTeamCall
   minimized: boolean
   onMinimize: (minimized: boolean) => void
   onLeave: () => void
+  /** The desktop's call window: the panel is the whole of that window, and keeps no place in the app. */
+  windowed?: boolean
+  /** The call window: the call's workspace (this page has none of its own; its requests are sent to that one). */
+  workspaceId?: string | null
 }) {
   const snap = useSnapshot(call.session)
   const wide = useWideWindow()
@@ -110,11 +120,12 @@ export function CallPanel({
   const place = callPlace({ wide, minimized, full })
   // What it keeps of the window, on <html> before the paint, so nothing is ever drawn under it.
   useLayoutEffect(() => {
-    if (ended) return
+    if (ended || windowed) return
     writeCallPlace(place)
     return () => writeCallPlace(null)
-  }, [place, ended])
+  }, [place, ended, windowed])
   if (ended) return null
+  if (windowed) return <CallWindow call={call} snap={snap} sheet windowed workspaceId={workspaceId} onMinimize={() => {}} onLeave={onLeave} />
   return createPortal(
     place === 'band' ? (
       <CallBar call={call} snap={snap} onExpand={() => onMinimize(false)} onLeave={onLeave} />
@@ -261,6 +272,8 @@ function CallWindow({
   call,
   snap,
   sheet,
+  windowed = false,
+  workspaceId = null,
   onFull,
   onMinimize,
   onLeave,
@@ -269,6 +282,9 @@ function CallWindow({
   snap: CallSnapshot
   /** The whole window (a narrow window, or opened to fill it); else the column at the side. */
   sheet: boolean
+  /** The desktop's call window: a rounded card that is the window, its header the handle to move it by. */
+  windowed?: boolean
+  workspaceId?: string | null
   /** Fill the window, or go back to the side: only where the window has room for the column. */
   onFull?: (full: boolean) => void
   onMinimize: () => void
@@ -276,7 +292,9 @@ function CallWindow({
 }) {
   const desktop = isDesktopApp()
   // The whole window in the Mac app: its header starts under the traffic lights.
-  const trafficLights = useHasTrafficLights()
+  const trafficLights = useHasTrafficLights() && !windowed
+  // The call window has no app beside it to open the notes in.
+  const openNotes = windowed ? undefined : notesOpener(call)
   const screens = snap.tiles.filter((t) => t.kind === 'screen')
   const people = snap.tiles.filter((t) => t.kind === 'person')
   const notices = [deviceNotice('mic', snap.mic, desktop), deviceNotice('camera', snap.camera, desktop), screenNotice(snap.screenBlocked || (desktop && snap.screenRefused), desktop), screenDroppedNotice(snap.screenDropped)].filter((n): n is string => !!n)
@@ -285,31 +303,37 @@ function CallWindow({
   return (
     <section
       aria-label={`Call: ${call.label}`}
-      data-team-call-panel={sheet ? 'sheet' : 'side'}
+      data-team-call-panel={windowed ? 'window' : sheet ? 'sheet' : 'side'}
       style={sheet ? undefined : SIDE_STYLE}
       className={cn(
         'fixed flex flex-col overflow-hidden',
-        // Over a page in front (z-50 on <body>) and its popovers' layer: nothing else shows while it fills the window.
-        sheet ? 'inset-0 z-[60] bg-background text-foreground' : cn('z-[40] rounded-3xl border border-border/60', COLUMN_CARD_SKIN),
+        windowed
+          ? 'inset-0 rounded-2xl border border-border/60 bg-background text-foreground'
+          : // Over a page in front (z-50 on <body>) and its popovers' layer: nothing else shows while it fills the window.
+            sheet
+            ? 'inset-0 z-[60] bg-background text-foreground'
+            : cn('z-[40] rounded-3xl border border-border/60', COLUMN_CARD_SKIN),
       )}
     >
       <header className={cn('flex h-12 shrink-0 items-center gap-2 px-4', sheet && trafficLights && 'mt-8')}>
         <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" aria-hidden />
         <h2 className="min-w-0 truncate text-sm font-semibold">{call.label}</h2>
         <StatusLine snap={snap} />
-        <CallBadges notes={call.notes} small={!sheet} onOpenNotes={notesOpener(call)} />
+        <CallBadges notes={call.notes} small={!sheet || windowed} onOpenNotes={openNotes} />
         <span className="ml-auto" />
         {onFull && (
           <IconButton label={sheet ? 'Back to the side' : 'Fill the window'} onClick={() => onFull(!sheet)} small data-team-call-full={sheet ? 'on' : 'off'}>
             {sheet ? <PanelRight className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
           </IconButton>
         )}
-        <IconButton label="Minimise" onClick={onMinimize} small data-team-call-minimise="">
-          <Minimize2 className="h-4 w-4" />
-        </IconButton>
+        {!windowed && (
+          <IconButton label="Minimise" onClick={onMinimize} small data-team-call-minimise="">
+            <Minimize2 className="h-4 w-4" />
+          </IconButton>
+        )}
       </header>
 
-      <div className={cn('min-h-0 flex-1 overflow-y-auto px-3 pb-2', sheet && 'mx-auto w-full max-w-5xl')}>
+      <div className={cn('min-h-0 flex-1 overflow-y-auto px-3 pb-2 pt-0.5', sheet && 'mx-auto w-full max-w-5xl')}>
         {snap.micHeld && snap.phase !== 'error' && <JoinNotice call={call} onJoin={() => void call.session.releaseMic()} onLeave={onLeave} />}
         {call.channelKind === 'meeting' && <Lobby guests={call.guests ?? []} canAdmit={snap.phase === 'connected'} />}
         {snap.phase === 'error' && (
@@ -348,7 +372,7 @@ function CallWindow({
         {/* The shared live notes the live agent writes on the server (phase 2), for everyone in the call,
             and, wherever the recorder takes the notes, the line saying why they are not being written (668). */}
         {(call.features.liveAgent || call.features.liveNotes) && call.notes.capture_id && (
-          <CallLiveNotes callId={call.callId} captureId={call.notes.capture_id} onOpen={captureOpener(call, call.notes.capture_id)} />
+          <CallLiveNotes callId={call.callId} captureId={call.notes.capture_id} onOpen={windowed ? undefined : captureOpener(call, call.notes.capture_id)} />
         )}
         {notices.map((n) => (
           <p key={n} className="mt-2 rounded-xl bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200" data-team-call-notice="">
@@ -368,7 +392,7 @@ function CallWindow({
       </div>
 
       {/* Wraps where the column can't hold every control in one row (a call with recording has eight). */}
-      <footer className={cn('flex shrink-0 flex-wrap items-center justify-center px-3 pb-4 pt-2', sheet ? 'gap-2' : 'gap-1.5')}>
+      <footer className={cn('flex shrink-0 flex-wrap items-center justify-center px-3 pb-4 pt-2', sheet && !windowed ? 'gap-2' : 'gap-1.5')}>
         <MicButton session={call.session} state={snap.mic} />
         <IconButton
           label={snap.camera === 'on' ? 'Turn the camera off' : 'Turn the camera on'}
@@ -391,7 +415,7 @@ function CallWindow({
         <NotesButton call={call} />
         <RecordButton call={call} />
         <DevicesMenu session={call.session} snap={snap} />
-        <RingMenu call={call} snap={snap} />
+        <RingMenu call={call} snap={snap} askerWorkspaceId={workspaceId} />
         <LeaveButton onLeave={onLeave} />
       </footer>
     </section>
@@ -459,9 +483,10 @@ function LeaveButton({ onLeave, small = false }: { onLeave: () => void; small?: 
   )
 }
 
-function RingMenu({ call, snap }: { call: ActiveTeamCall; snap: CallSnapshot }) {
+function RingMenu({ call, snap, askerWorkspaceId = null }: { call: ActiveTeamCall; snap: CallSnapshot; askerWorkspaceId?: string | null }) {
   const { ring } = useTeamCalls()
-  const workspaceId = useWorkspaceId()
+  // The call window's page has no workspace of its own: the call's, which its requests are sent to.
+  const workspaceId = useWorkspaceId() ?? askerWorkspaceId
   const [members, setMembers] = useState<Member[] | null>(null)
   const [open, setOpen] = useState(false)
   useEffect(() => {

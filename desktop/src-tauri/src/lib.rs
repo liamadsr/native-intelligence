@@ -46,9 +46,10 @@ use tauri_plugin_deep_link::DeepLinkExt;
 /// SINGLE OWNER of the HUD label set for the whole crate — `notifications.rs`
 /// and `tray.rs` classify against this list too. Adding an overlay window means
 /// editing exactly this one place.
-pub(crate) const HUD_LABELS: [&str; 4] = [
+pub(crate) const HUD_LABELS: [&str; 5] = [
     "meeting-hud",
     "agent-hud",
+    commands::call_window::LABEL,
     crate::dictate::PANEL,
     commands::studio_recorder::CONTROL_LABEL,
 ];
@@ -540,6 +541,14 @@ pub fn run() {
                 if webview.label() == "agent-hud" {
                     commands::hud::on_agent_hud_page_load_started();
                 }
+                // A dashboard signing out: the call in the call window was that person's.
+                if !is_hud_label(webview.label()) && payload.url().path().starts_with("/sign-out") {
+                    commands::call_window::close_for_sign_out(webview.app_handle());
+                }
+                // The call window's page is going: nothing takes a call until it is up again.
+                if webview.label() == commands::call_window::LABEL {
+                    commands::call_window::on_page_load_started();
+                }
             }
             // The main window has painted: Native Intelligence's own CoreAudio can start
             // (audio::launch_gate).
@@ -669,6 +678,9 @@ pub fn run() {
             if matches!(event, tauri::WindowEvent::Destroyed) {
                 if window.label() == "agent-hud" {
                     commands::hud::on_agent_hud_destroyed(window.app_handle());
+                }
+                if window.label() == commands::call_window::LABEL {
+                    commands::call_window::on_destroyed(window.app_handle());
                 }
                 crate::notifications::forget_window(window.label());
                 // A recreated window starts opaque until its page asks again.
@@ -866,6 +878,10 @@ pub fn run() {
             commands::hud::resize_meeting_hud,
             commands::hud::hud_link_event,
             commands::hud::is_cursor_over_hud,
+            commands::call_window::open_call_window,
+            commands::call_window::call_window_ready,
+            commands::call_window::show_call_window,
+            commands::call_window::close_call_window,
             commands::hud::show_agent_hud,
             commands::hud::ensure_agent_hud,
             commands::hud::hide_agent_hud,
