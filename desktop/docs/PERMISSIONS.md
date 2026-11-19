@@ -70,7 +70,9 @@ exception: the `studio-recorder` sidecar asks for Screen Recording, Camera,
 Microphone, Accessibility and Input Monitoring itself, attributed to the app
 (see "Studio recording" below).
 
-Team calls (the web app's calls between people, in the main window's web view)
+Team calls (the web app's calls between people, in the `call` window's web view:
+`src-tauri/src/commands/call_window.rs`; in the main window's on a web build
+served to a desktop build from before that window)
 add the **camera** (`kTCCServiceCamera`): WebKit asks for it when a person turns
 their camera on in a call (`getUserMedia`; wry grants the web view's own
 request, then macOS prompts once for the app). It needs
