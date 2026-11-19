@@ -477,32 +477,31 @@ export function GuestMeeting({
   const lobby = phase.kind === 'waiting' || phase.kind === 'joining'
   return (
     <MeetingShell data-guest-meeting={phase.kind}>
-      {/* Themselves on one side, the meeting on the other; one column on a phone. The camera stays theirs to turn on or off while they wait. */}
-      <div className="grid w-full max-w-5xl items-center gap-5 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] lg:gap-8">
-        <div>
-          <Preview stream={camera === 'on' ? preview.current : null} name={name}>
-            <PreviewSwitch on={mic === 'on'} disabled={phase.kind === 'joining'} onClick={() => void toggleMic()} data-guest-mic-choice={mic}>
-              {mic === 'on' ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
-              {mic === 'on' ? 'Mic on' : mic === 'blocked' ? 'Mic blocked' : 'Muted'}
-            </PreviewSwitch>
-            {/* Let in: the call takes the camera from here. */}
-            <PreviewSwitch on={camera === 'on'} disabled={phase.kind === 'joining'} onClick={() => void toggleCamera()} data-guest-camera={camera}>
-              {camera === 'on' ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}
-              {camera === 'on' ? 'Camera on' : camera === 'blocked' ? 'Camera blocked' : 'Camera off'}
-            </PreviewSwitch>
-          </Preview>
-          <p className="mt-3 text-center text-xs text-foreground/70">
-            {camera === 'blocked' && mic === 'blocked'
-              ? 'Your camera and microphone are blocked. You can allow them in your browser’s site settings, or join listening only.'
-              : camera === 'blocked'
-                ? 'Your camera is blocked. You can allow it in your browser’s site settings, or join without it.'
-                : mic === 'blocked'
-                  ? 'Your microphone is blocked. You can allow it in your browser’s site settings, or join listening only.'
-                  : 'Choose how you join. You can change both in the call.'}
-          </p>
-        </div>
+      {/* Themselves on one side, the meeting on the other, two panels of one size (the preview takes the card's height); one column on a phone. The camera stays theirs to turn on or off while they wait. */}
+      <div className="grid w-full max-w-5xl gap-x-5 gap-y-3 lg:grid-cols-2 lg:gap-x-8" data-guest-join-panels="">
+        <Preview stream={camera === 'on' ? preview.current : null} name={name}>
+          <PreviewSwitch on={mic === 'on'} disabled={phase.kind === 'joining'} onClick={() => void toggleMic()} data-guest-mic-choice={mic}>
+            {mic === 'on' ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
+            {mic === 'on' ? 'Mic on' : mic === 'blocked' ? 'Mic blocked' : 'Muted'}
+          </PreviewSwitch>
+          {/* Let in: the call takes the camera from here. */}
+          <PreviewSwitch on={camera === 'on'} disabled={phase.kind === 'joining'} onClick={() => void toggleCamera()} data-guest-camera={camera}>
+            {camera === 'on' ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}
+            {camera === 'on' ? 'Camera on' : camera === 'blocked' ? 'Camera blocked' : 'Camera off'}
+          </PreviewSwitch>
+        </Preview>
+        {/* Under the preview, outside the pair, so the two panels end on one line. */}
+        <p className="text-center text-xs text-foreground/70 lg:order-3">
+          {camera === 'blocked' && mic === 'blocked'
+            ? 'Your camera and microphone are blocked. You can allow them in your browser’s site settings, or join listening only.'
+            : camera === 'blocked'
+              ? 'Your camera is blocked. You can allow it in your browser’s site settings, or join without it.'
+              : mic === 'blocked'
+                ? 'Your microphone is blocked. You can allow it in your browser’s site settings, or join listening only.'
+                : 'Choose how you join. You can change both in the call.'}
+        </p>
 
-        <div className={cn('rounded-3xl p-6 sm:p-8', MEETING_GLASS)}>
+        <div className={cn('mt-2 rounded-3xl p-6 sm:p-8 lg:order-2 lg:mt-0', MEETING_GLASS)}>
           {hostLine}
           {heading}
           {lobby ? (
@@ -614,11 +613,12 @@ function Preview({ stream, name, children }: { stream: MediaStream | null; name:
   const shown = name.trim()
   return (
     <div
-      className={cn('relative aspect-[2/1] overflow-hidden rounded-3xl sm:aspect-video', stream ? 'bg-black shadow-xl shadow-black/10' : 'border border-foreground/10 bg-background/35 backdrop-blur-2xl dark:bg-white/[0.04]')}
+      className={cn('relative aspect-[2/1] overflow-hidden rounded-3xl sm:aspect-video lg:aspect-auto lg:h-full lg:min-h-[320px]', stream ? 'bg-black shadow-xl shadow-black/10' : 'border border-foreground/10 bg-background/35 backdrop-blur-2xl dark:bg-white/[0.04]')}
       data-guest-preview={stream ? 'camera' : 'off'}
     >
       {stream ? (
-        <video ref={ref} muted playsInline autoPlay className="h-full w-full -scale-x-100 object-cover" />
+        // Out of the flow, so the camera's own shape never sets the panel's height.
+        <video ref={ref} muted playsInline autoPlay className="absolute inset-0 h-full w-full -scale-x-100 object-cover" />
       ) : (
         <div className="flex h-full w-full items-center justify-center pb-10">
           <span className="flex h-16 w-16 items-center sm:h-20 sm:w-20 justify-center rounded-full border border-foreground/10 bg-background/70 text-xl dark:bg-white/10 font-semibold text-muted-foreground">{initialsOf(shown || '?')}</span>
