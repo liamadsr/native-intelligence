@@ -96,6 +96,19 @@ describe('demoVisitorWorkspace (the real read)', () => {
     expect(h.tableReads).toBe(1)
   })
 
+  it('everyone asking about one person at once shares one read', async () => {
+    expect(await Promise.all([demoVisitorWorkspace('u1'), demoVisitorWorkspace('u1'), demoVisitorWorkspace('u1')])).toEqual([DEMO, DEMO, DEMO])
+    expect(h.rpcs).toEqual(['demo_seat_workspace', 'check_ai_usage_limit'])
+    expect(h.tableReads).toBe(1)
+  })
+
+  it('people asked about at once share the one read of the table', async () => {
+    h.demoRows = []
+    expect(await Promise.all([demoVisitorWorkspace('u2'), demoVisitorWorkspace('u3'), demoVisitorWorkspace('u2')])).toEqual([null, null, null])
+    expect(h.tableReads).toBe(1)
+    expect(h.rpcs).toEqual([])
+  })
+
   it('before migration 669 (no table) and on a failed read: nobody is a visitor', async () => {
     h.demoError = { message: 'relation "demo_workspace" does not exist', code: '42P01' }
     expect(await demoVisitorWorkspace('u1')).toBeNull()
@@ -155,8 +168,9 @@ describe('the tools’ workspace routing, for a visitor', () => {
   })
 
   it('nothing is created outside the demo by naming another workspace', async () => {
-    expect((await resolveCreateWorkspace(db([OWN, DEMO]), 'visitor', DEMO, OWN, 'explicit')).ok).toBe(false)
-    expect((await resolveCreateWorkspace(db([OWN, DEMO]), 'member-with-a-seat', DEMO, OWN, 'explicit')).ok).toBe(true)
+    const opts = { strictWorkspace: false, policy: 'explicit' } as const
+    expect((await resolveCreateWorkspace(db([OWN, DEMO]), 'visitor', DEMO, OWN, opts)).ok).toBe(false)
+    expect((await resolveCreateWorkspace(db([OWN, DEMO]), 'member-with-a-seat', DEMO, OWN, opts)).ok).toBe(true)
   })
 })
 

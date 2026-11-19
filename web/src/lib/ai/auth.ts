@@ -5,7 +5,7 @@ import { getServiceClient } from '@/lib/supabase/service'
 import { isDeviceToken, resolveDeviceToken } from '@/lib/device-tokens'
 import { inngest } from '@/lib/inngest/client'
 import { CHATGPT_PLAN_PROVIDER } from '@/lib/chatgpt/plan-models'
-import { DEMO_CAP_REACHED_MESSAGE, DEMO_CAP_REACHED_REASON, DEMO_ONLY_MESSAGE, DEMO_ONLY_REASON, DEMO_USAGE_REASON, demoVisitorOutside, isDemoWorkspace } from '@/lib/demo/demo-mode'
+import { DEMO_CAP_REACHED_MESSAGE, DEMO_CAP_REACHED_REASON, DEMO_ONLY_MESSAGE, DEMO_ONLY_REASON, DEMO_UNREADABLE_MESSAGE, DEMO_USAGE_REASON, isDemoWorkspace, readDemoWorkspace } from '@/lib/demo/demo-mode'
 import { getCurrentWorkspaceId } from '@/lib/workspace'
 
 // Emergency escape hatch: when the usage-limit RPC itself fails, we block the
@@ -164,7 +164,24 @@ export async function checkUsageLimits(
   // its work runs must not pass a visitor into any workspace they belong to.
   if (limit?.allowed && limit.reason === DEMO_USAGE_REASON) {
     const runsIn = opts.workspaceId !== undefined ? opts.workspaceId : await requestWorkspace()
-    if (await demoVisitorOutside(limit, runsIn)) {
+    // Refused either way unless the workspace is known to be the demo (as
+    // demoVisitorOutside decides it). What differs is what the person is
+    // told: a flag that could not be read is our failure and passes in
+    // seconds, so it must not read as "switch back" to someone who is
+    // already in the demo workspace. The shape is the usage check's own
+    // "unavailable" (the RPC's failure above): every client already stops a
+    // turn on that code (the chat agent's gate lets any other 503 run), the
+    // chat mint shows `error` as it is, and the others say "try again" in
+    // their own words. The rule itself is demoVisitorOutside's: keep the two
+    // the same.
+    const demo = runsIn ? await readDemoWorkspace(runsIn) : false
+    if (demo === null) {
+      throw new Response(
+        JSON.stringify({ error: DEMO_UNREADABLE_MESSAGE, code: 'BILLING_UNAVAILABLE' }),
+        { status: 503, headers: { 'Content-Type': 'application/json', 'Retry-After': '10' } },
+      )
+    }
+    if (demo !== true) {
       throw new Response(
         JSON.stringify({ error: 'Usage limit exceeded', reason: DEMO_ONLY_REASON, message: DEMO_ONLY_MESSAGE }),
         { status: 429, headers: { 'Content-Type': 'application/json' } },
