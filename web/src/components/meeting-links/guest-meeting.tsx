@@ -33,14 +33,14 @@
  *      sweeper ends a call left to guests after a few minutes). Where the
  *      call's notes are shown in the call (TEAM_CALL_LIVE_AGENT), the guest
  *      can open what has been said since they came in: the call's own words
- *      only, never the members' summary, and only while they are in it.
+ *      and the agent's notes of it as plain words, only while they are in it.
  *
  * Nothing runs without a reason: no script animation loop (the lobby's dot is
  * one CSS pulse, off under reduced motion), no timer while hidden.
  */
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { Mic, MicOff, MonitorUp, NotebookPen, PhoneOff, Video, VideoOff, Volume2, WifiOff } from 'lucide-react'
+import { ArrowUpRight, Calendar, Contact, Home, Inbox, ListChecks, Mail, MessagesSquare, Mic, MicOff, MonitorUp, NotebookPen, PhoneOff, Video, VideoOff, Volume2, WifiOff } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TeamCallSession, type CallEnd, type CallSnapshot, type TeamCallJoin } from '@/lib/team-calls/call-session'
 import { MEETING_GUEST_NAME_MAX, MEETING_LOBBY_POLL_MS, cleanGuestName } from '@/lib/meeting-links/shape'
@@ -668,7 +668,23 @@ function useSnapshot(session: TeamCallSession): CallSnapshot {
   return useSyncExternalStore(session.subscribe, session.getSnapshot, session.getSnapshot)
 }
 
-/** The guest in the call: everyone in it, their own controls, Leave. Nothing of the workspace. */
+/** The app's areas, as the rail of the real app lists them: shown to a guest, opened by a member. */
+const APP_AREAS = [
+  { label: 'Home', icon: Home },
+  { label: 'Inbox', icon: Inbox },
+  { label: 'Mail', icon: Mail },
+  { label: 'Chat', icon: MessagesSquare },
+  { label: 'Tasks', icon: ListChecks },
+  { label: 'Calendar', icon: Calendar },
+  { label: 'Contacts', icon: Contact },
+] as const
+
+/**
+ * The guest in the call, in the app's own frame: where a member's workspace
+ * name sits, theirs says Guest; the app's rail beside the call (this meeting is
+ * the one place a guest has in it); everyone in the call, the call's notes as a
+ * pad on the side, their own controls, Leave. Nothing of the workspace itself.
+ */
 function GuestCall({ session, title, onNow, hostGone, notesBase, cameraWaits }: { session: TeamCallSession; title: string; onNow: OnNow; hostGone: boolean; notesBase?: string; cameraWaits: boolean }) {
   const snap = useSnapshot(session)
   const screens = snap.tiles.filter((t) => t.kind === 'screen')
@@ -678,30 +694,61 @@ function GuestCall({ session, title, onNow, hostGone, notesBase, cameraWaits }: 
   const held = snap.micHeld && !snap.canPublish
   const heldLabel = 'Join with your microphone first'
   const cols = people.length <= 1 ? 'grid-cols-1' : people.length <= 4 ? 'grid-cols-2' : 'grid-cols-3'
+  // The agent's notes as plain words and the call's own words since they came in (src/lib/team-calls/live-notes.ts).
+  const showNotes = !!notesBase && onNow.notes && snap.phase === 'connected'
   return (
-    <main className="flex min-h-dvh flex-col text-foreground" data-guest-call={snap.phase}>
-      <header className="flex h-16 shrink-0 items-center gap-3 px-5 sm:px-8">
-        <Logo className="hidden h-6 shrink-0 sm:flex" />
-        <Mark className="h-5 shrink-0 sm:hidden" />
-        <span className="h-5 w-px shrink-0 bg-foreground/15" aria-hidden />
-        <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" aria-hidden />
-        <h1 className="min-w-0 truncate text-sm font-semibold">{title}</h1>
-        <span className="shrink-0 text-xs text-foreground/70">
-          {snap.phase === 'connecting' ? (
-            'Connecting…'
-          ) : snap.phase === 'reconnecting' ? (
-            <span className="flex items-center gap-1 font-medium text-amber-600 dark:text-amber-400">
-              <WifiOff className="h-3.5 w-3.5" aria-hidden /> Reconnecting…
-            </span>
-          ) : snap.people === 1 ? (
-            'Only you'
-          ) : (
-            `${snap.people} people`
-          )}
-        </span>
-        <CallBadges notes={{ notes: onNow.notes, recording: onNow.recording ? 'on' : 'off' }} />
+    <main className="flex h-dvh flex-col text-foreground" data-guest-call={snap.phase}>
+      <header className="flex h-16 shrink-0 items-center gap-2 px-3 sm:px-4">
+        {/* Where the app shows the workspace: a guest has none. */}
+        <div data-guest-workspace="" className={cn('flex h-10 shrink-0 items-center gap-2 rounded-full pl-2.5 pr-4', MEETING_GLASS)}>
+          <Mark className="h-4 shrink-0" />
+          <span className="text-sm font-semibold">Guest</span>
+        </div>
+        <div className={cn('flex h-10 min-w-0 items-center gap-2.5 rounded-full px-4', MEETING_GLASS)}>
+          <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" aria-hidden />
+          <h1 className="min-w-0 truncate text-sm font-semibold">{title}</h1>
+          <span className="shrink-0 text-xs text-foreground/70">
+            {snap.phase === 'connecting' ? (
+              'Connecting…'
+            ) : snap.phase === 'reconnecting' ? (
+              <span className="flex items-center gap-1 font-medium text-amber-600 dark:text-amber-400">
+                <WifiOff className="h-3.5 w-3.5" aria-hidden /> Reconnecting…
+              </span>
+            ) : snap.people === 1 ? (
+              'Only you'
+            ) : (
+              `${snap.people} people`
+            )}
+          </span>
+          <CallBadges notes={{ notes: onNow.notes, recording: onNow.recording ? 'on' : 'off' }} />
+        </div>
+        <a
+          href="/"
+          target="_blank"
+          rel="noreferrer"
+          data-guest-about=""
+          className={cn('ml-auto hidden h-10 shrink-0 items-center gap-1.5 rounded-full px-4 text-sm font-medium hover:bg-background/70 sm:flex dark:hover:bg-white/[0.12]', MEETING_GLASS)}
+        >
+          Native Intelligence
+          <ArrowUpRight className="h-4 w-4" aria-hidden />
+        </a>
       </header>
-      <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col justify-center overflow-y-auto px-4 pb-2 sm:px-8">
+      <div className="flex min-h-0 flex-1 gap-4 px-3 sm:px-4">
+        <div aria-hidden data-guest-rail="" className={cn('hidden shrink-0 flex-col items-center gap-1 self-start rounded-3xl p-1.5 lg:flex', MEETING_GLASS)}>
+          <span title="This meeting" className="flex h-9 w-9 items-center justify-center rounded-full bg-foreground/10">
+            <Video className="h-[18px] w-[18px]" aria-hidden />
+            <span className="sr-only">This meeting</span>
+          </span>
+          <span className="my-1 h-px w-5 bg-foreground/10" aria-hidden />
+          {APP_AREAS.map(({ label, icon: Icon }) => (
+            <span key={label} title={`${label}: for the workspace’s members`} className="flex h-9 w-9 items-center justify-center rounded-full text-foreground/35">
+              <Icon className="h-[18px] w-[18px]" aria-hidden />
+              <span className="sr-only">{label}: for the workspace’s members</span>
+            </span>
+          ))}
+        </div>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 lg:flex-row lg:gap-4">
+      <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col justify-center overflow-y-auto px-1 py-1">
         {hostGone && snap.phase === 'connected' && (
           <div data-guest-host-left="" className="mb-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
             <p className="text-sm font-semibold">The host has left</p>
@@ -744,8 +791,6 @@ function GuestCall({ session, title, onNow, hostGone, notesBase, cameraWaits }: 
             {n}
           </p>
         ))}
-        {/* The call's own words since they came in, never the members' summary (src/lib/team-calls/live-notes.ts). */}
-        {notesBase && onNow.notes && snap.phase === 'connected' && <GuestCallNotes base={notesBase} />}
         {snap.needsAudioStart && (
           <button
             type="button"
@@ -756,6 +801,9 @@ function GuestCall({ session, title, onNow, hostGone, notesBase, cameraWaits }: 
             Your browser paused the sound. Click to hear the call.
           </button>
         )}
+      </div>
+          {showNotes && notesBase && <GuestCallNotes base={notesBase} pad className={cn('lg:w-[340px] lg:shrink-0', MEETING_GLASS)} />}
+        </div>
       </div>
       <footer className="flex shrink-0 justify-center px-4 pb-6 pt-3">
         {/* The controls' dock: one glass bar on the sky. */}
