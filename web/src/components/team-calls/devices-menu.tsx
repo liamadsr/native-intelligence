@@ -18,7 +18,8 @@ const DEVICE_SECTIONS: ReadonlyArray<{ kind: CallDeviceKind; label: string }> = 
   { kind: 'videoinput', label: 'Camera' },
 ]
 
-export function DevicesMenu({ session, snap }: { session: TeamCallSession; snap: CallSnapshot }) {
+/** `glass`: its button sits on the public sky (a meeting guest's page). */
+export function DevicesMenu({ session, snap, glass = false }: { session: TeamCallSession; snap: CallSnapshot; glass?: boolean }) {
   const sections = DEVICE_SECTIONS.filter((s) => (s.kind === 'audiooutput' ? snap.canPickSpeaker : true)).filter((s) => snap.devices[s.kind].length > 0)
   if (sections.length === 0) return null
   return (
@@ -29,7 +30,7 @@ export function DevicesMenu({ session, snap }: { session: TeamCallSession; snap:
           aria-label="Devices"
           title="Devices"
           data-team-call-devices=""
-          className="flex h-11 shrink-0 items-center gap-0.5 rounded-full bg-muted px-3 text-foreground hover:bg-accent"
+          className={cn('flex h-11 shrink-0 items-center gap-0.5 rounded-full px-3 text-foreground', glass ? 'bg-foreground/[0.08] hover:bg-foreground/[0.14]' : 'bg-muted hover:bg-accent')}
         >
           <Settings2 className="h-5 w-5" />
           <ChevronDown className="h-3.5 w-3.5 opacity-60" />

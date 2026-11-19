@@ -2,7 +2,8 @@
 
 /**
  * A meeting guest's page (calls plan, phase 7): someone without an account
- * who opened a meeting link. Light on purpose: no app around it, and the
+ * who opened a meeting link. Light on purpose: no app around it (the public
+ * sky behind, clear glass on it: meeting-card.tsx), and the
  * LiveKit SDK is fetched only once a member has let them in
  * (src/lib/team-calls/call-session.ts loads it on connect).
  *
@@ -31,18 +32,20 @@
  *      can open what has been said since they came in: the call's own words
  *      only, never the members' summary, and only while they are in it.
  *
- * Nothing runs without a reason: no animation loop, no timer while hidden.
+ * Nothing runs without a reason: no script animation loop (the lobby's dot is
+ * one CSS pulse, off under reduced motion), no timer while hidden.
  */
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { Mic, MicOff, MonitorUp, PhoneOff, Video, VideoOff, Volume2, WifiOff } from 'lucide-react'
-import { Mark } from '@/components/logo'
+import { Mic, MicOff, MonitorUp, NotebookPen, PhoneOff, Video, VideoOff, Volume2, WifiOff } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TeamCallSession, type CallEnd, type CallSnapshot, type TeamCallJoin } from '@/lib/team-calls/call-session'
 import { MEETING_GUEST_NAME_MAX, MEETING_LOBBY_POLL_MS, cleanGuestName } from '@/lib/meeting-links/shape'
 import { CallBadges, IconButton, TileView, callErrorLine, deviceNotice, initialsOf, screenNotice, screenDroppedNotice } from '@/components/team-calls/call-tiles'
+import { Logo, Mark } from '@/components/logo'
 import { DevicesMenu } from '@/components/team-calls/devices-menu'
 import { GuestCallNotes } from '@/components/team-calls/call-live-notes'
+import { MEETING_GLASS, MeetingShell } from './meeting-card'
 
 type Done = 'declined' | 'removed' | 'left' | 'ended' | 'inactive' | 'full' | 'limited' | 'early' | 'elsewhere' | 'error' | 'unreachable' | 'lost'
 
@@ -143,7 +146,10 @@ export function GuestMeeting({
   // What the entry page says is on: asking to join from it is their go to that (the server checks it said so).
   const entryOnNow: OnNow = { notes: onNow.notes || notesAtStart, recording: onNow.recording }
 
+  // Counts every stop of the preview: a camera still starting when one happens (they were let in, or it ended) is stopped as it arrives.
+  const previewStops = useRef(0)
   const stopPreview = useCallback(() => {
+    previewStops.current += 1
     for (const t of preview.current?.getTracks() ?? []) t.stop()
     preview.current = null
   }, [])
@@ -155,11 +161,18 @@ export function GuestMeeting({
       setCamera('off')
       return
     }
+    const stops = previewStops.current
     try {
-      preview.current = await navigator.mediaDevices.getUserMedia({ video: true })
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true })
+      // The preview was stopped while the camera started (the browser's prompt was open, and they were let in): nothing would own this stream, so it ends here.
+      if (stops !== previewStops.current) {
+        for (const t of stream.getTracks()) t.stop()
+        return
+      }
+      preview.current = stream
       setCamera('on')
     } catch {
-      setCamera('blocked')
+      if (stops === previewStops.current) setCamera('blocked')
     }
   }, [camera, stopPreview])
 
@@ -349,90 +362,127 @@ export function GuestMeeting({
     return <GuestCall session={phase.session} title={title} onNow={onNow} hostGone={membersInCall === 0} notesBase={liveAgent ? base : undefined} cameraWaits={phase.cameraWaits} />
 
 
-  return (
-    <main className="flex min-h-dvh items-center justify-center bg-background px-4 py-8 text-foreground" data-guest-meeting={phase.kind}>
-      <div className="w-full max-w-lg">
-        <div className="mb-5 flex items-center gap-2 text-sm text-muted-foreground">
-          <Mark className="h-6 fill-foreground" />
-          {host && <span data-guest-host="">{host}’s meeting</span>}
-        </div>
-        <h1 className="text-2xl font-semibold tracking-tight" data-guest-title="">
-          {title}
-        </h1>
+  const hostLine = host && (
+    <p className="text-sm font-medium text-muted-foreground" data-guest-host="">
+      {host}’s meeting
+    </p>
+  )
+  const heading = (
+    <h1 className="mt-1 text-balance text-3xl font-semibold tracking-tight" data-guest-title="">
+      {title}
+    </h1>
+  )
 
-        {phase.kind === 'done' ? (
+  if (phase.kind === 'done')
+    return (
+      <MeetingShell data-guest-meeting={phase.kind}>
+        <div className={cn('w-full max-w-md rounded-3xl p-6 sm:p-8', MEETING_GLASS)}>
+          {hostLine}
+          {heading}
           <DoneCard why={phase.why} onAgain={() => setPhase({ kind: 'entry' })} />
-        ) : phase.kind === 'waiting' || phase.kind === 'joining' ? (
-          <div className="mt-6 rounded-3xl border border-border bg-card p-6 text-card-foreground shadow-sm" data-guest-waiting="">
-            <p className="text-base font-semibold">{phase.kind === 'joining' ? 'Joining…' : 'Waiting for someone to let you in'}</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {phase.kind === 'joining' ? 'You were let in.' : 'Someone in the meeting will see that you’re here. Keep this page open.'}
-            </p>
-            <OnNowNotice onNow={entryOnNow} className="mt-4" />
-            {phase.kind === 'waiting' && (
-              <button type="button" onClick={() => void cancel()} className="mt-5 rounded-full bg-muted px-4 py-2 text-sm font-medium hover:bg-accent" data-guest-cancel="">
-                Cancel
-              </button>
-            )}
-          </div>
-        ) : (
-          <div className="mt-6 rounded-3xl border border-border bg-card p-5 text-card-foreground shadow-sm sm:p-6" data-guest-entry="">
-            <Preview stream={camera === 'on' ? preview.current : null} name={name} />
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => void toggleCamera()}
-                aria-pressed={camera === 'on'}
-                data-guest-camera={camera}
-                className={cn('flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium', camera === 'on' ? 'bg-foreground text-background' : 'bg-muted text-foreground hover:bg-accent')}
-              >
-                {camera === 'on' ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}
-                {camera === 'on' ? 'Camera on' : 'Camera off'}
-              </button>
-              <span className="text-xs text-muted-foreground">Your microphone is asked for when you join.</span>
-            </div>
-            {camera === 'blocked' && <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">Your camera is blocked. You can allow it in your browser’s site settings, or join without it.</p>}
-            <OnNowNotice onNow={entryOnNow} agree className="mt-4" />
-            <form
-              className="mt-4 flex flex-col gap-3"
-              onSubmit={(e) => {
-                e.preventDefault()
-                void ask()
-              }}
-            >
-              <label className="text-sm font-medium" htmlFor="guest-name">
-                Your name
-              </label>
-              <input
-                id="guest-name"
-                name="name"
-                autoComplete="name"
-                maxLength={MEETING_GUEST_NAME_MAX}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="How the others will see you"
-                className="h-11 rounded-xl border border-input bg-background px-3 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring sm:text-sm"
-                data-guest-name=""
-              />
-              {phase.kind === 'entry' && phase.error && (
-                <p className="text-sm text-red-600 dark:text-red-400" data-guest-error="">
-                  {phase.error}
-                </p>
+        </div>
+      </MeetingShell>
+    )
+
+  const lobby = phase.kind === 'waiting' || phase.kind === 'joining'
+  return (
+    <MeetingShell data-guest-meeting={phase.kind}>
+      {/* Themselves on one side, the meeting on the other; one column on a phone. The camera stays theirs to turn on or off while they wait. */}
+      <div className="grid w-full max-w-5xl items-center gap-5 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] lg:gap-8">
+        <div>
+          <Preview stream={camera === 'on' ? preview.current : null} name={name}>
+            <button
+              type="button"
+              onClick={() => void toggleCamera()}
+              // Let in: the call takes the camera from here.
+              disabled={phase.kind === 'joining'}
+              aria-pressed={camera === 'on'}
+              data-guest-camera={camera}
+              className={cn(
+                'flex h-10 items-center gap-2 rounded-full px-4 text-sm font-medium backdrop-blur-md transition-colors disabled:opacity-60',
+                camera === 'on' ? 'bg-white text-black hover:bg-white/90' : 'bg-black/55 text-white hover:bg-black/70',
               )}
-              <button
-                type="submit"
-                disabled={phase.kind === 'asking' || !name.trim()}
-                className="h-11 rounded-full bg-foreground px-5 text-sm font-semibold text-background hover:bg-foreground/90 disabled:opacity-50"
-                data-guest-ask=""
+            >
+              {camera === 'on' ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}
+              {camera === 'on' ? 'Camera on' : 'Camera off'}
+            </button>
+          </Preview>
+          <p className="mt-3 text-center text-xs text-foreground/70">
+            {camera === 'blocked' ? 'Your camera is blocked. You can allow it in your browser’s site settings, or join without it.' : 'Your microphone is asked for when you join.'}
+          </p>
+        </div>
+
+        <div className={cn('rounded-3xl p-6 sm:p-8', MEETING_GLASS)}>
+          {hostLine}
+          {heading}
+          {lobby ? (
+            <div className="mt-6" data-guest-waiting="">
+              <p className="flex items-center gap-2.5 text-base font-semibold">
+                <span className="relative flex h-2.5 w-2.5 shrink-0" aria-hidden>
+                  {phase.kind === 'waiting' && <span className="absolute inset-0 animate-ping rounded-full bg-emerald-500/60 motion-reduce:hidden" />}
+                  <span className="relative h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                </span>
+                {phase.kind === 'joining' ? 'Joining…' : 'Waiting for someone to let you in'}
+              </p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {phase.kind === 'joining' ? 'You were let in.' : 'Someone in the meeting will see that you’re here. Keep this page open.'}
+              </p>
+              <OnNowNotice onNow={entryOnNow} className="mt-5" />
+              {phase.kind === 'waiting' && (
+                <button
+                  type="button"
+                  onClick={() => void cancel()}
+                  className="mt-6 h-11 w-full rounded-full border border-foreground/15 bg-foreground/[0.04] px-5 text-sm font-medium hover:bg-foreground/[0.08]"
+                  data-guest-cancel=""
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="mt-6" data-guest-entry="">
+              <form
+                className="flex flex-col gap-3"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  void ask()
+                }}
               >
-                {phase.kind === 'asking' ? 'Asking…' : 'Ask to join'}
-              </button>
-            </form>
-            <p className="mt-4 text-xs text-muted-foreground">Only the name you type and when you joined are kept with this meeting.</p>
-          </div>
-        )}
+                <label className="text-sm font-medium" htmlFor="guest-name">
+                  Your name
+                </label>
+                <input
+                  id="guest-name"
+                  name="name"
+                  autoComplete="name"
+                  maxLength={MEETING_GUEST_NAME_MAX}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="How the others will see you"
+                  className="h-12 rounded-2xl border border-foreground/15 bg-background/60 px-4 text-base dark:bg-black/20 outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                  data-guest-name=""
+                />
+                {phase.kind === 'entry' && phase.error && (
+                  <p className="text-sm text-red-600 dark:text-red-400" data-guest-error="">
+                    {phase.error}
+                  </p>
+                )}
+                <OnNowNotice onNow={entryOnNow} agree className="mt-1" />
+                <button
+                  type="submit"
+                  disabled={phase.kind === 'asking' || !name.trim()}
+                  className="mt-1 h-12 rounded-full bg-foreground px-5 text-sm font-semibold text-background hover:bg-foreground/90 disabled:opacity-50"
+                  data-guest-ask=""
+                >
+                  {phase.kind === 'asking' ? 'Asking…' : 'Ask to join'}
+                </button>
+              </form>
+              <p className="mt-4 text-center text-xs text-muted-foreground">Only the name you type and when you joined are kept with this meeting.</p>
+            </div>
+          )}
+        </div>
       </div>
-    </main>
+    </MeetingShell>
   )
 }
 
@@ -442,17 +492,22 @@ export function GuestMeeting({
  */
 function OnNowNotice({ onNow, agree = false, className }: { onNow: OnNow; agree?: boolean; className?: string }) {
   if (!onNow.notes && !onNow.recording) return null
-  const lines = [
-    onNow.notes ? 'Notes are on in this meeting: what each person says is written down for its members.' : null,
-    onNow.recording ? 'This meeting is being recorded, sound and video.' : null,
-  ].filter(Boolean)
   return (
-    <div className={cn('rounded-2xl border border-sky-500/30 bg-sky-500/10 px-4 py-3 text-sm', className)} data-guest-notice="">
-      {lines.map((l) => (
-        <p key={l}>{l}</p>
-      ))}
+    <div className={cn('rounded-2xl border border-foreground/10 bg-foreground/[0.04] px-4 py-3 text-sm', className)} data-guest-notice="">
+      {onNow.notes && (
+        <p className="flex gap-2.5">
+          <NotebookPen className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+          <span>Notes are on in this meeting: what each person says is written down for its members.</span>
+        </p>
+      )}
+      {onNow.recording && (
+        <p className={cn('flex gap-2.5', onNow.notes && 'mt-2')}>
+          <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-red-500 mx-1" aria-hidden />
+          <span>This meeting is being recorded, sound and video.</span>
+        </p>
+      )}
       {agree && (
-        <p className="mt-1.5 text-xs text-muted-foreground" data-guest-notice-agree="">
+        <p className="mt-2 text-xs text-muted-foreground" data-guest-notice-agree="">
           By asking to join, you agree to this. You’ll join with your microphone on.
         </p>
       )}
@@ -460,21 +515,27 @@ function OnNowNotice({ onNow, agree = false, className }: { onNow: OnNow; agree?
   )
 }
 
-/** The camera preview, or their initials while it is off. */
-function Preview({ stream, name }: { stream: MediaStream | null; name: string }) {
+/** The camera preview, or their initials while it is off: a tile like the call's, their name on it, the camera's switch (`children`) at its foot. */
+function Preview({ stream, name, children }: { stream: MediaStream | null; name: string; children?: React.ReactNode }) {
   const ref = useRef<HTMLVideoElement>(null)
   useEffect(() => {
     if (ref.current) ref.current.srcObject = stream
   }, [stream])
+  const shown = name.trim()
   return (
-    <div className="relative aspect-video overflow-hidden rounded-2xl bg-muted" data-guest-preview={stream ? 'camera' : 'off'}>
+    <div
+      className={cn('relative aspect-[2/1] overflow-hidden rounded-3xl sm:aspect-video', stream ? 'bg-black shadow-xl shadow-black/10' : 'border border-foreground/10 bg-background/35 backdrop-blur-2xl dark:bg-white/[0.04]')}
+      data-guest-preview={stream ? 'camera' : 'off'}
+    >
       {stream ? (
         <video ref={ref} muted playsInline autoPlay className="h-full w-full -scale-x-100 object-cover" />
       ) : (
-        <div className="flex h-full w-full items-center justify-center">
-          <span className="flex h-16 w-16 items-center justify-center rounded-full bg-background text-lg font-semibold text-muted-foreground">{initialsOf(name.trim() || '?')}</span>
+        <div className="flex h-full w-full items-center justify-center pb-10">
+          <span className="flex h-16 w-16 items-center sm:h-20 sm:w-20 justify-center rounded-full border border-foreground/10 bg-background/70 text-xl dark:bg-white/10 font-semibold text-muted-foreground">{initialsOf(shown || '?')}</span>
         </div>
       )}
+      {shown && <span className="absolute left-3 top-3 max-w-[60%] truncate rounded-full bg-black/55 px-2.5 py-1 text-xs font-medium text-white">{shown}</span>}
+      <div className="absolute inset-x-0 bottom-3 flex justify-center">{children}</div>
     </div>
   )
 }
@@ -482,11 +543,11 @@ function Preview({ stream, name }: { stream: MediaStream | null; name: string })
 function DoneCard({ why, onAgain }: { why: Done; onAgain: () => void }) {
   const copy = DONE_COPY[why]
   return (
-    <div className="mt-6 rounded-3xl border border-border bg-card p-6 text-card-foreground shadow-sm" data-guest-done={why}>
+    <div className="mt-6 border-t border-foreground/10 pt-5" data-guest-done={why}>
       <p className="text-base font-semibold">{copy.title}</p>
       <p className="mt-1 text-sm text-muted-foreground">{copy.body}</p>
       {copy.again && (
-        <button type="button" onClick={onAgain} className="mt-5 rounded-full bg-muted px-4 py-2 text-sm font-medium hover:bg-accent">
+        <button type="button" onClick={onAgain} className="mt-6 h-11 w-full rounded-full bg-foreground px-5 text-sm font-semibold text-background hover:bg-foreground/90">
           {why === 'left' || why === 'ended' || why === 'unreachable' || why === 'lost' ? 'Ask to join again' : 'Try again'}
         </button>
       )}
@@ -509,11 +570,14 @@ function GuestCall({ session, title, onNow, hostGone, notesBase, cameraWaits }: 
   const heldLabel = 'Join with your microphone first'
   const cols = people.length <= 1 ? 'grid-cols-1' : people.length <= 4 ? 'grid-cols-2' : 'grid-cols-3'
   return (
-    <main className="flex min-h-dvh flex-col bg-background text-foreground" data-guest-call={snap.phase}>
-      <header className="flex h-14 shrink-0 items-center gap-2 px-4">
+    <main className="flex min-h-dvh flex-col text-foreground" data-guest-call={snap.phase}>
+      <header className="flex h-16 shrink-0 items-center gap-3 px-5 sm:px-8">
+        <Logo className="hidden h-6 shrink-0 sm:flex" />
+        <Mark className="h-5 shrink-0 sm:hidden" />
+        <span className="h-5 w-px shrink-0 bg-foreground/15" aria-hidden />
         <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" aria-hidden />
         <h1 className="min-w-0 truncate text-sm font-semibold">{title}</h1>
-        <span className="text-xs text-muted-foreground">
+        <span className="shrink-0 text-xs text-foreground/70">
           {snap.phase === 'connecting' ? (
             'Connecting…'
           ) : snap.phase === 'reconnecting' ? (
@@ -528,7 +592,7 @@ function GuestCall({ session, title, onNow, hostGone, notesBase, cameraWaits }: 
         </span>
         <CallBadges notes={{ notes: onNow.notes, recording: onNow.recording ? 'on' : 'off' }} />
       </header>
-      <div className="mx-auto w-full max-w-5xl min-h-0 flex-1 overflow-y-auto px-3 pb-2 sm:px-4">
+      <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col justify-center overflow-y-auto px-4 pb-2 sm:px-8">
         {hostGone && snap.phase === 'connected' && (
           <div data-guest-host-left="" className="mb-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
             <p className="text-sm font-semibold">The host has left</p>
@@ -536,7 +600,7 @@ function GuestCall({ session, title, onNow, hostGone, notesBase, cameraWaits }: 
           </div>
         )}
         {snap.micHeld && snap.phase !== 'error' && (
-          <div data-guest-mic-held="" className="mb-3 rounded-2xl border border-sky-500/30 bg-sky-500/10 px-4 py-3">
+          <div data-guest-mic-held="" className={cn('mb-3 rounded-2xl px-4 py-3', MEETING_GLASS)}>
             <p className="text-sm font-semibold">{onNow.notes ? 'Notes are on for this meeting' : 'This meeting is being recorded'}</p>
             <p className="mt-1 text-xs text-muted-foreground">
               {onNow.notes ? 'What each person says is written down for the meeting’s members.' : 'Its sound and video are recorded.'} {held ? 'Your microphone, camera and screen stay off until you choose to join.' : 'Your microphone stays off until you choose to join with it.'}
@@ -557,13 +621,13 @@ function GuestCall({ session, title, onNow, hostGone, notesBase, cameraWaits }: 
         {screens.length > 0 && (
           <div className="mb-2 flex flex-col gap-2">
             {screens.map((t) => (
-              <TileView key={t.key} tile={t} large />
+              <TileView key={t.key} tile={t} large glass />
             ))}
           </div>
         )}
-        <div className={cn('grid gap-2', screens.length > 0 ? 'grid-cols-4' : cols)}>
+        <div className={cn('grid gap-3', screens.length > 0 ? 'grid-cols-4' : cols)}>
           {people.map((t) => (
-            <TileView key={t.key} tile={t} compact={screens.length > 0} />
+            <TileView key={t.key} tile={t} compact={screens.length > 0} glass />
           ))}
         </div>
         {notices.map((n) => (
@@ -584,22 +648,25 @@ function GuestCall({ session, title, onNow, hostGone, notesBase, cameraWaits }: 
           </button>
         )}
       </div>
-      <footer className="flex shrink-0 items-center justify-center gap-2 px-4 pb-6 pt-3">
-        <IconButton label={snap.mic === 'on' ? 'Mute' : 'Unmute'} onClick={() => void session.toggleMic()} active={snap.mic !== 'on'} data-guest-mic={snap.mic}>
+      <footer className="flex shrink-0 justify-center px-4 pb-6 pt-3">
+        {/* The controls' dock: one glass bar on the sky. */}
+        <div className={cn('flex items-center gap-2 rounded-full p-2', MEETING_GLASS)}>
+        <IconButton glass label={snap.mic === 'on' ? 'Mute' : 'Unmute'} onClick={() => void session.toggleMic()} active={snap.mic !== 'on'} data-guest-mic={snap.mic}>
           {snap.mic === 'on' ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}
         </IconButton>
-        <IconButton label={held ? heldLabel : snap.camera === 'on' ? 'Turn the camera off' : 'Turn the camera on'} onClick={() => void session.toggleCamera()} active={snap.camera === 'on'} disabled={held} data-guest-video={snap.camera}>
+        <IconButton glass label={held ? heldLabel : snap.camera === 'on' ? 'Turn the camera off' : 'Turn the camera on'} onClick={() => void session.toggleCamera()} active={snap.camera === 'on'} disabled={held} data-guest-video={snap.camera}>
           {snap.camera === 'on' ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}
         </IconButton>
         {snap.canShareScreen && (
-          <IconButton label={held ? heldLabel : snap.screen === 'on' ? 'Stop sharing your screen' : 'Share your screen'} onClick={() => void session.toggleScreen()} active={snap.screen === 'on'} disabled={held} data-guest-screen={snap.screen}>
+          <IconButton glass label={held ? heldLabel : snap.screen === 'on' ? 'Stop sharing your screen' : 'Share your screen'} onClick={() => void session.toggleScreen()} active={snap.screen === 'on'} disabled={held} data-guest-screen={snap.screen}>
             <MonitorUp className="h-5 w-5" />
           </IconButton>
         )}
-        <DevicesMenu session={session} snap={snap} />
-        <IconButton label="Leave the meeting" onClick={() => void session.leave()} danger data-guest-leave="">
+        <DevicesMenu session={session} snap={snap} glass />
+        <IconButton glass label="Leave the meeting" onClick={() => void session.leave()} danger data-guest-leave="">
           <PhoneOff className="h-5 w-5" />
         </IconButton>
+        </div>
       </footer>
     </main>
   )
