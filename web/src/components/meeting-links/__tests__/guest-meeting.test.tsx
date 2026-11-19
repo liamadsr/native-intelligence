@@ -99,6 +99,62 @@ async function askToJoin(over: Partial<Props> = {}) {
   expect(q('[data-guest-waiting]')).not.toBeNull()
 }
 
+describe('the camera and the microphone before joining', () => {
+  const track = (kind: 'audio' | 'video') => ({ kind, stop: vi.fn() })
+
+  it('asks the browser for both in one prompt when the page opens, and not again on "Ask to join"', async () => {
+    const audio = track('audio')
+    const video = track('video')
+    const getUserMedia = vi.fn(async () => ({ getTracks: () => [audio, video] }))
+    vi.stubGlobal('navigator', { mediaDevices: { getUserMedia }, sendBeacon: () => true })
+    await askToJoin()
+    expect(getUserMedia).toHaveBeenCalledTimes(1)
+    expect(getUserMedia).toHaveBeenCalledWith({ video: true, audio: true })
+    // The microphone is only the browser's yes: nothing listens before the call. The camera is the preview.
+    expect(audio.stop).toHaveBeenCalledTimes(1)
+    expect(video.stop).not.toHaveBeenCalled()
+    expect(q('[data-guest-camera]')?.dataset.guestCamera).toBe('on')
+    expect(q('[data-guest-mic-choice]')?.dataset.guestMicChoice).toBe('on')
+  })
+
+  it('one refused does not cost the other: a blocked camera still leaves the microphone', async () => {
+    const audio = track('audio')
+    const getUserMedia = vi.fn(async (want: { video?: boolean; audio?: boolean }) => {
+      if (want.video) throw new Error('NotAllowedError')
+      return { getTracks: () => [audio] }
+    })
+    vi.stubGlobal('navigator', { mediaDevices: { getUserMedia }, sendBeacon: () => true })
+    await render()
+    expect(q('[data-guest-camera]')?.dataset.guestCamera).toBe('blocked')
+    expect(q('[data-guest-mic-choice]')?.dataset.guestMicChoice).toBe('on')
+    expect(el.textContent).toContain('Your camera is blocked')
+  })
+
+  it('a refused microphone says they join listening only', async () => {
+    vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: async () => Promise.reject(new Error('NotAllowedError')) }, sendBeacon: () => true })
+    await render({ notes: true })
+    expect(q('[data-guest-mic-choice]')?.dataset.guestMicChoice).toBe('blocked')
+    expect(q('[data-guest-notice-agree]')?.textContent).toContain('you’ll join listening only')
+  })
+
+  it('muted by their own choice: the notice says they join muted, and the browser is not asked again', async () => {
+    const getUserMedia = vi.fn(async () => ({ getTracks: () => [track('audio'), track('video')] }))
+    vi.stubGlobal('navigator', { mediaDevices: { getUserMedia }, sendBeacon: () => true })
+    await render({ notes: true })
+    expect(q('[data-guest-notice-agree]')?.textContent).toContain('You’ll join with your microphone on.')
+    await act(async () => {
+      q('[data-guest-mic-choice]')!.click()
+    })
+    expect(q('[data-guest-mic-choice]')?.dataset.guestMicChoice).toBe('off')
+    expect(q('[data-guest-notice-agree]')?.textContent).toContain('By asking to join, you agree to this. You’ll join muted.')
+    await act(async () => {
+      q('[data-guest-mic-choice]')!.click()
+    })
+    expect(q('[data-guest-mic-choice]')?.dataset.guestMicChoice).toBe('on')
+    expect(getUserMedia).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('a guest waiting in the lobby', () => {
   it('keeps asking while the tab is hidden, every 20 seconds, and at once when it is back', async () => {
     await askToJoin()
@@ -147,7 +203,11 @@ describe('a guest waiting in the lobby', () => {
     const stop = vi.fn()
     let arrive: (stream: unknown) => void = () => undefined
     vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: () => new Promise((resolve) => (arrive = resolve)) }, sendBeacon: () => true })
-    // The camera's switch is theirs in the lobby too; the browser's prompt is still open.
+    // The camera's switch is theirs in the lobby too: off, then on again, and the camera is still starting.
+    await act(async () => {
+      q('[data-guest-camera]')!.click()
+    })
+    expect(q('[data-guest-camera]')?.dataset.guestCamera).toBe('off')
     await act(async () => {
       q('[data-guest-camera]')!.click()
     })

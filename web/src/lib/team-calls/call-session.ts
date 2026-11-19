@@ -229,8 +229,10 @@ export class TeamCallSession {
   }
 
   /** Join the room: audio on (listening only if the mic is refused, or held back by `holdMic` until the person says go), camera off. */
-  async connect(join: TeamCallJoin, opts: { holdMic?: boolean; cameraOnRelease?: boolean } = {}): Promise<void> {
+  async connect(join: TeamCallJoin, opts: { holdMic?: boolean; cameraOnRelease?: boolean; startMuted?: boolean } = {}): Promise<void> {
     if (opts.holdMic !== undefined) this.holdMic = opts.holdMic
+    // They chose to join muted (a meeting guest's entry page): the microphone stays off until they unmute.
+    if (opts.startMuted) this.userMuted = true
     if (opts.cameraOnRelease !== undefined) this.cameraOnRelease = opts.cameraOnRelease
     let lk: typeof import('livekit-client')
     try {

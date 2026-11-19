@@ -7,13 +7,16 @@
  * LiveKit SDK is fetched only once a member has let them in
  * (src/lib/team-calls/call-session.ts loads it on connect).
  *
- *   1. Their name, a camera preview (off until they turn it on), and, when
+ *   1. Their name, a camera preview with a switch for the camera and one for
+ *      the microphone (the browser is asked for both at once when the page
+ *      opens, so one prompt covers them; the preview never leaves the page,
+ *      and the microphone is only checked, not listened to), and, when
  *      the meeting's call has notes or a recording on (or every call starts
  *      with notes), a plain statement of it before anything of theirs is
  *      sent, with "By asking to join, you agree to this." Pressing "Ask to
  *      join" is then their go (the server records it: the join route), so
- *      once let in their microphone and camera are live at once. It is also
- *      when the browser asks for the microphone, never before.
+ *      once let in their microphone and camera are live at once, unless
+ *      they switched either off here (muted, they join muted).
  *   2. The lobby: they wait until someone in the call lets them in. Their
  *      page asks the server every 3 seconds while it is on screen (it has
  *      no database session), and every 20 seconds while the tab is hidden,
@@ -140,6 +143,12 @@ export function GuestMeeting({
   // Ask the lobby now (set by the poll effect): the server took their publishing away mid-call.
   const askNow = useRef<(() => void) | null>(null)
   const [camera, setCamera] = useState<'off' | 'on' | 'blocked'>('off')
+  // How they join: microphone on, muted by their own choice, or refused by the browser (listening only).
+  const [mic, setMic] = useState<'on' | 'off' | 'blocked'>('on')
+  const micRef = useRef(mic)
+  micRef.current = mic
+  // The browser has let this page use the microphone (so "Ask to join" need not ask again).
+  const micAllowed = useRef(false)
   const preview = useRef<MediaStream | null>(null)
   const phaseRef = useRef(phase)
   phaseRef.current = phase
@@ -155,26 +164,78 @@ export function GuestMeeting({
   }, [])
   useEffect(() => stopPreview, [stopPreview])
 
+  /**
+   * Ask the browser for the camera, the microphone, or both in ONE prompt. The
+   * camera's stream becomes the preview; the microphone's is only the browser's
+   * yes and ends at once (nothing listens before the call). When the two are
+   * refused together (one is blocked, or missing), each is asked for by itself,
+   * so one refusal never costs the other.
+   */
+  const askDevices = useCallback(async (want: { video: boolean; audio: boolean }) => {
+    const stops = previewStops.current
+    const take = (stream: MediaStream) => {
+      const tracks = stream.getTracks()
+      for (const t of tracks) if (t.kind === 'audio') t.stop()
+      if (tracks.some((t) => t.kind === 'audio')) micAllowed.current = true
+      if (!want.video) return
+      // The preview was stopped while the camera started (the browser's prompt was open, and they were let in): nothing would own this stream, so it ends here.
+      if (stops !== previewStops.current) {
+        for (const t of tracks) t.stop()
+        return
+      }
+      preview.current = stream
+      setCamera('on')
+    }
+    const one = async (kind: 'video' | 'audio') => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia(kind === 'video' ? { video: true } : { audio: true })
+        if (kind === 'audio') {
+          for (const t of stream.getTracks()) t.stop()
+          micAllowed.current = true
+          setMic((m) => (m === 'blocked' ? 'on' : m))
+        } else take(stream)
+      } catch {
+        if (kind === 'audio') setMic('blocked')
+        else if (stops === previewStops.current) setCamera('blocked')
+      }
+    }
+    if (want.video && want.audio) {
+      try {
+        take(await navigator.mediaDevices.getUserMedia({ video: true, audio: true }))
+        micAllowed.current = true
+        setMic((m) => (m === 'blocked' ? 'on' : m))
+        return
+      } catch {
+        // One of the two was refused or is missing: ask for each.
+      }
+      await one('audio')
+      await one('video')
+      return
+    }
+    await one(want.video ? 'video' : 'audio')
+  }, [])
+
+  // The page opens: one prompt for both, and the camera's preview comes on if they allow it.
+  useEffect(() => {
+    void askDevices({ video: true, audio: true })
+  }, [askDevices])
+
   const toggleCamera = useCallback(async () => {
     if (camera === 'on') {
       stopPreview()
       setCamera('off')
       return
     }
-    const stops = previewStops.current
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true })
-      // The preview was stopped while the camera started (the browser's prompt was open, and they were let in): nothing would own this stream, so it ends here.
-      if (stops !== previewStops.current) {
-        for (const t of stream.getTracks()) t.stop()
-        return
-      }
-      preview.current = stream
-      setCamera('on')
-    } catch {
-      if (stops === previewStops.current) setCamera('blocked')
-    }
-  }, [camera, stopPreview])
+    // Not allowed the microphone yet either: the same prompt asks for it.
+    await askDevices({ video: true, audio: !micAllowed.current && micRef.current !== 'off' })
+  }, [camera, stopPreview, askDevices])
+
+  const toggleMic = useCallback(async () => {
+    if (mic === 'on') return setMic('off')
+    if (micAllowed.current) return setMic('on')
+    setMic('on')
+    await askDevices({ video: false, audio: true })
+  }, [mic, askDevices])
 
   const finish = useCallback(
     (why: Done) => {
@@ -231,7 +292,7 @@ export function GuestMeeting({
     stopPreview()
     session.setNotesMode(first.call.notes)
     setPhase({ kind: 'call', session, cameraWaits: hadCamera && holdMic })
-    await session.connect(first.join, { holdMic, cameraOnRelease: hadCamera && holdMic })
+    await session.connect(first.join, { holdMic, cameraOnRelease: hadCamera && holdMic, startMuted: micRef.current === 'off' })
     if (wantCamera && session.getSnapshot().phase === 'connected') await session.toggleCamera()
   }, [base, title, notesOffered, liveNotes, finish, stopPreview])
 
@@ -333,13 +394,8 @@ export function GuestMeeting({
     }
     setPhase({ kind: 'asking' })
     const shown: OnNow = { notes: onNow.notes || notesAtStart, recording: onNow.recording }
-    // The browser asks for the microphone now, not before. Refused: they join listening only (the call says so).
-    try {
-      const mic = await navigator.mediaDevices.getUserMedia({ audio: true })
-      for (const t of mic.getTracks()) t.stop()
-    } catch {
-      // The call's own notice says how to allow it.
-    }
+    // Not asked yet (they dismissed the page's first prompt) and they mean to talk: the browser asks now. Refused: they join listening only (the call says so).
+    if (micRef.current === 'on' && !micAllowed.current) await askDevices({ video: false, audio: true })
     const res = await post(`${base}/join`, { name: clean, notice: shown })
     if (res?.ok) {
       setPhase({ kind: 'waiting' })
@@ -351,7 +407,7 @@ export function GuestMeeting({
       return
     }
     finish(await doneOf(res))
-  }, [name, base, finish, onNow.notes, onNow.recording, notesAtStart])
+  }, [name, base, finish, onNow.notes, onNow.recording, notesAtStart, askDevices])
 
   const cancel = useCallback(async () => {
     await post(`${base}/leave`)
@@ -391,24 +447,24 @@ export function GuestMeeting({
       <div className="grid w-full max-w-5xl items-center gap-5 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] lg:gap-8">
         <div>
           <Preview stream={camera === 'on' ? preview.current : null} name={name}>
-            <button
-              type="button"
-              onClick={() => void toggleCamera()}
-              // Let in: the call takes the camera from here.
-              disabled={phase.kind === 'joining'}
-              aria-pressed={camera === 'on'}
-              data-guest-camera={camera}
-              className={cn(
-                'flex h-10 items-center gap-2 rounded-full px-4 text-sm font-medium backdrop-blur-md transition-colors disabled:opacity-60',
-                camera === 'on' ? 'bg-white text-black hover:bg-white/90' : 'bg-black/55 text-white hover:bg-black/70',
-              )}
-            >
+            <PreviewSwitch on={mic === 'on'} disabled={phase.kind === 'joining'} onClick={() => void toggleMic()} data-guest-mic-choice={mic}>
+              {mic === 'on' ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
+              {mic === 'on' ? 'Mic on' : mic === 'blocked' ? 'Mic blocked' : 'Muted'}
+            </PreviewSwitch>
+            {/* Let in: the call takes the camera from here. */}
+            <PreviewSwitch on={camera === 'on'} disabled={phase.kind === 'joining'} onClick={() => void toggleCamera()} data-guest-camera={camera}>
               {camera === 'on' ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}
-              {camera === 'on' ? 'Camera on' : 'Camera off'}
-            </button>
+              {camera === 'on' ? 'Camera on' : camera === 'blocked' ? 'Camera blocked' : 'Camera off'}
+            </PreviewSwitch>
           </Preview>
           <p className="mt-3 text-center text-xs text-foreground/70">
-            {camera === 'blocked' ? 'Your camera is blocked. You can allow it in your browser’s site settings, or join without it.' : 'Your microphone is asked for when you join.'}
+            {camera === 'blocked' && mic === 'blocked'
+              ? 'Your camera and microphone are blocked. You can allow them in your browser’s site settings, or join listening only.'
+              : camera === 'blocked'
+                ? 'Your camera is blocked. You can allow it in your browser’s site settings, or join without it.'
+                : mic === 'blocked'
+                  ? 'Your microphone is blocked. You can allow it in your browser’s site settings, or join listening only.'
+                  : 'Choose how you join. You can change both in the call.'}
           </p>
         </div>
 
@@ -467,7 +523,7 @@ export function GuestMeeting({
                     {phase.error}
                   </p>
                 )}
-                <OnNowNotice onNow={entryOnNow} agree className="mt-1" />
+                <OnNowNotice onNow={entryOnNow} agree mic={mic} className="mt-1" />
                 <button
                   type="submit"
                   disabled={phase.kind === 'asking' || !name.trim()}
@@ -490,7 +546,7 @@ export function GuestMeeting({
  * What is on in the meeting's call, said before anything of theirs is sent. Nothing when neither is.
  * `agree`: above "Ask to join", whose press is their go to it (the server records it).
  */
-function OnNowNotice({ onNow, agree = false, className }: { onNow: OnNow; agree?: boolean; className?: string }) {
+function OnNowNotice({ onNow, agree = false, mic = 'on', className }: { onNow: OnNow; agree?: boolean; mic?: 'on' | 'off' | 'blocked'; className?: string }) {
   if (!onNow.notes && !onNow.recording) return null
   return (
     <div className={cn('rounded-2xl border border-foreground/10 bg-foreground/[0.04] px-4 py-3 text-sm', className)} data-guest-notice="">
@@ -508,7 +564,7 @@ function OnNowNotice({ onNow, agree = false, className }: { onNow: OnNow; agree?
       )}
       {agree && (
         <p className="mt-2 text-xs text-muted-foreground" data-guest-notice-agree="">
-          By asking to join, you agree to this. You’ll join with your microphone on.
+          By asking to join, you agree to this. {mic === 'on' ? 'You’ll join with your microphone on.' : mic === 'off' ? 'You’ll join muted.' : 'Your microphone is blocked, so you’ll join listening only.'}
         </p>
       )}
     </div>
@@ -535,8 +591,27 @@ function Preview({ stream, name, children }: { stream: MediaStream | null; name:
         </div>
       )}
       {shown && <span className="absolute left-3 top-3 max-w-[60%] truncate rounded-full bg-black/55 px-2.5 py-1 text-xs font-medium text-white">{shown}</span>}
-      <div className="absolute inset-x-0 bottom-3 flex justify-center">{children}</div>
+      <div className="absolute inset-x-0 bottom-3 flex justify-center gap-2">{children}</div>
     </div>
+  )
+}
+
+/** A switch on the preview: the microphone's, the camera's. White when on, like the call's own controls. */
+function PreviewSwitch({ on, disabled, onClick, children, ...rest }: { on: boolean; disabled?: boolean; onClick: () => void; children: React.ReactNode } & Record<`data-${string}`, string | undefined>) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-pressed={on}
+      {...rest}
+      className={cn(
+        'flex h-10 items-center gap-2 rounded-full px-4 text-sm font-medium backdrop-blur-md transition-colors disabled:opacity-60',
+        on ? 'bg-white text-black hover:bg-white/90' : 'bg-black/55 text-white hover:bg-black/70',
+      )}
+    >
+      {children}
+    </button>
   )
 }
 
