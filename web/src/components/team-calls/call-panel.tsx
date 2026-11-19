@@ -227,7 +227,7 @@ function CallWindow({ call, snap, onMinimize, onLeave }: { call: ActiveTeamCall;
         </IconButton>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-2">
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-2 pt-1">
         {snap.micHeld && snap.phase !== 'error' && <JoinNotice call={call} onJoin={() => void call.session.releaseMic()} onLeave={onLeave} />}
         {call.channelKind === 'meeting' && <Lobby guests={call.guests ?? []} canAdmit={snap.phase === 'connected'} />}
         {snap.phase === 'error' && (

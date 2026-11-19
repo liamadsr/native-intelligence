@@ -3,8 +3,8 @@
  * The call's live notes in the call (./call-live-notes.tsx): nothing drawn
  * with nothing to show; the summary and a plain status line while the agent
  * writes, after an update, after a turn that failed; Open shows the whole
- * capture. A guest's view is closed until opened, then only the lines said,
- * each with its speaker.
+ * capture. A guest's view is closed until opened, then the lines said, each
+ * with its speaker, under the agent's notes once it has written any.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { act } from 'react'
@@ -88,5 +88,28 @@ describe('a guest’s view', () => {
     )
     const body = host.querySelector('[data-guest-notes-body]')!
     expect(body.textContent).toBe('Dana Ortiz Welcome, Sam.')
+    expect(host.querySelector('[data-guest-notes-summary]')).toBeNull()
+  })
+
+  it('the agent’s notes first, then what was said since they joined', () => {
+    act(() =>
+      root.render(
+        <GuestCallNotesView
+          pad
+          state="ready"
+          summary={[
+            { kind: 'heading', text: 'Decisions' },
+            { kind: 'bullet', text: 'Keep the pilot at three partners.' },
+          ]}
+          lines={[{ at: '2026-11-13T14:59:00Z', speaker: 'Dana Ortiz', text: 'Welcome, Sam.' }]}
+          onToggle={() => undefined}
+        />,
+      ),
+    )
+    expect(host.querySelector('[data-guest-notes-summary]')!.textContent).toBe('Decisions•Keep the pilot at three partners.')
+    expect(host.querySelector('[data-guest-notes-said]')!.textContent).toContain('since you joined')
+    const body = host.querySelector('[data-guest-notes-body]')!.textContent!
+    expect(body.indexOf('Decisions')).toBeLessThan(body.indexOf('Welcome, Sam.'))
+    expect(host.textContent).toContain('Of this call')
   })
 })

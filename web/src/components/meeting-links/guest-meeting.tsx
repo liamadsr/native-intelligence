@@ -7,13 +7,16 @@
  * LiveKit SDK is fetched only once a member has let them in
  * (src/lib/team-calls/call-session.ts loads it on connect).
  *
- *   1. Their name, a camera preview (off until they turn it on), and, when
+ *   1. Their name, a camera preview with a switch for the camera and one for
+ *      the microphone (the browser is asked for both at once when the page
+ *      opens, so one prompt covers them; the preview never leaves the page,
+ *      and the microphone is only checked, not listened to), and, when
  *      the meeting's call has notes or a recording on (or every call starts
  *      with notes), a plain statement of it before anything of theirs is
  *      sent, with "By asking to join, you agree to this." Pressing "Ask to
  *      join" is then their go (the server records it: the join route), so
- *      once let in their microphone and camera are live at once. It is also
- *      when the browser asks for the microphone, never before.
+ *      once let in their microphone and camera are live at once, unless
+ *      they switched either off here (muted, they join muted).
  *   2. The lobby: they wait until someone in the call lets them in. Their
  *      page asks the server every 3 seconds while it is on screen (it has
  *      no database session), and every 20 seconds while the tab is hidden,
@@ -30,14 +33,14 @@
  *      sweeper ends a call left to guests after a few minutes). Where the
  *      call's notes are shown in the call (TEAM_CALL_LIVE_AGENT), the guest
  *      can open what has been said since they came in: the call's own words
- *      only, never the members' summary, and only while they are in it.
+ *      and the agent's notes of it as plain words, only while they are in it.
  *
  * Nothing runs without a reason: no script animation loop (the lobby's dot is
  * one CSS pulse, off under reduced motion), no timer while hidden.
  */
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { Mic, MicOff, MonitorUp, NotebookPen, PhoneOff, Video, VideoOff, Volume2, WifiOff } from 'lucide-react'
+import { ArrowUpRight, Calendar, Contact, Home, Inbox, ListChecks, Mail, MessagesSquare, Mic, MicOff, MonitorUp, NotebookPen, PhoneOff, Video, VideoOff, Volume2, WifiOff } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TeamCallSession, type CallEnd, type CallSnapshot, type TeamCallJoin } from '@/lib/team-calls/call-session'
 import { MEETING_GUEST_NAME_MAX, MEETING_LOBBY_POLL_MS, cleanGuestName } from '@/lib/meeting-links/shape'
@@ -140,6 +143,12 @@ export function GuestMeeting({
   // Ask the lobby now (set by the poll effect): the server took their publishing away mid-call.
   const askNow = useRef<(() => void) | null>(null)
   const [camera, setCamera] = useState<'off' | 'on' | 'blocked'>('off')
+  // How they join: microphone on, muted by their own choice, or refused by the browser (listening only).
+  const [mic, setMic] = useState<'on' | 'off' | 'blocked'>('on')
+  const micRef = useRef(mic)
+  micRef.current = mic
+  // The browser has let this page use the microphone (so "Ask to join" need not ask again).
+  const micAllowed = useRef(false)
   const preview = useRef<MediaStream | null>(null)
   const phaseRef = useRef(phase)
   phaseRef.current = phase
@@ -152,29 +161,115 @@ export function GuestMeeting({
     previewStops.current += 1
     for (const t of preview.current?.getTracks() ?? []) t.stop()
     preview.current = null
+    setCamera((c) => (c === 'on' ? 'off' : c))
   }, [])
   useEffect(() => stopPreview, [stopPreview])
 
-  const toggleCamera = useCallback(async () => {
-    if (camera === 'on') {
-      stopPreview()
-      setCamera('off')
-      return
-    }
-    const stops = previewStops.current
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true })
-      // The preview was stopped while the camera started (the browser's prompt was open, and they were let in): nothing would own this stream, so it ends here.
-      if (stops !== previewStops.current) {
-        for (const t of stream.getTracks()) t.stop()
+  // The ask that is out now (the browser's prompt may be open): the next one waits for it, so two never run at once.
+  const asking = useRef<Promise<void> | null>(null)
+
+  /**
+   * Ask the browser for the camera, the microphone, or both in ONE prompt. The
+   * camera's stream becomes the preview; the microphone's is only the browser's
+   * yes and ends at once (nothing listens before the call). When the two are
+   * refused together because one is blocked or missing, the other is asked for
+   * by itself, so one refusal never costs the other. A prompt they closed is
+   * not asked again here: the switches, and "Ask to join", ask when they want it.
+   */
+  const askDevices = useCallback((want: { video: boolean; audio: boolean }): Promise<void> => {
+    const before = asking.current
+    const run = async () => {
+      await before
+      // What the ask before this one already settled is not asked twice.
+      const video = want.video && !preview.current
+      const audio = want.audio && !micAllowed.current
+      if (!video && !audio) return
+      const stops = previewStops.current
+      // The preview was stopped while the browser was asked (they were let in, it ended, the page closed): nothing more is asked or shown.
+      const stopped = () => stops !== previewStops.current
+      const take = (stream: MediaStream, keepVideo: boolean) => {
+        const tracks = stream.getTracks()
+        if (tracks.some((t) => t.kind === 'audio')) {
+          micAllowed.current = true
+          if (!stopped()) setMic((m) => (m === 'blocked' ? 'on' : m))
+        }
+        // Nothing would own this camera (stopped meanwhile, or a preview is already on): it ends here, with the microphone's.
+        if (!keepVideo || stopped() || preview.current) {
+          for (const t of tracks) t.stop()
+          return
+        }
+        for (const t of tracks) if (t.kind === 'audio') t.stop()
+        preview.current = stream
+        setCamera('on')
+      }
+      const block = (kind: 'video' | 'audio') => {
+        if (stopped()) return
+        if (kind === 'audio') setMic('blocked')
+        else setCamera('blocked')
+      }
+      const one = async (kind: 'video' | 'audio') => {
+        if (stopped()) return
+        try {
+          take(await navigator.mediaDevices.getUserMedia(kind === 'video' ? { video: true } : { audio: true }), kind === 'video')
+        } catch {
+          block(kind)
+        }
+      }
+      if (!(video && audio)) return one(video ? 'video' : 'audio')
+      let refusal: unknown
+      try {
+        take(await navigator.mediaDevices.getUserMedia({ video: true, audio: true }), true)
+        return
+      } catch (err) {
+        refusal = err
+      }
+      if (stopped()) return
+      if ((refusal as { name?: string } | null)?.name !== 'NotAllowedError') {
+        // A device is missing or busy: ask for each, so the other still works.
+        await one('audio')
+        await one('video')
         return
       }
-      preview.current = stream
-      setCamera('on')
-    } catch {
-      if (stops === previewStops.current) setCamera('blocked')
+      // Refused. Blocked in the browser's settings, or a prompt they closed? Only the first is final, and only it is worth asking around.
+      const state = async (name: 'camera' | 'microphone') => {
+        try {
+          return (await navigator.permissions.query({ name: name as PermissionName })).state
+        } catch {
+          return 'prompt' as const
+        }
+      }
+      const [cam, microphone] = [await state('camera'), await state('microphone')]
+      if (stopped()) return
+      if (cam === 'denied') block('video')
+      if (microphone === 'denied') block('audio')
+      if (cam === 'denied' && microphone !== 'denied') await one('audio')
+      if (microphone === 'denied' && cam !== 'denied') await one('video')
     }
-  }, [camera, stopPreview])
+    const mine = run()
+    asking.current = mine
+    void mine.finally(() => {
+      if (asking.current === mine) asking.current = null
+    })
+    return mine
+  }, [])
+
+  // The page opens: one prompt for both, and the camera's preview comes on if they allow it.
+  useEffect(() => {
+    void askDevices({ video: true, audio: true })
+  }, [askDevices])
+
+  const toggleCamera = useCallback(async () => {
+    if (camera === 'on') return stopPreview()
+    // Not allowed the microphone yet either: the same prompt asks for it.
+    await askDevices({ video: true, audio: !micAllowed.current && micRef.current !== 'off' })
+  }, [camera, stopPreview, askDevices])
+
+  const toggleMic = useCallback(async () => {
+    if (mic === 'on') return setMic('off')
+    if (micAllowed.current) return setMic('on')
+    setMic('on')
+    await askDevices({ video: false, audio: true })
+  }, [mic, askDevices])
 
   const finish = useCallback(
     (why: Done) => {
@@ -231,7 +326,7 @@ export function GuestMeeting({
     stopPreview()
     session.setNotesMode(first.call.notes)
     setPhase({ kind: 'call', session, cameraWaits: hadCamera && holdMic })
-    await session.connect(first.join, { holdMic, cameraOnRelease: hadCamera && holdMic })
+    await session.connect(first.join, { holdMic, cameraOnRelease: hadCamera && holdMic, startMuted: micRef.current === 'off' })
     if (wantCamera && session.getSnapshot().phase === 'connected') await session.toggleCamera()
   }, [base, title, notesOffered, liveNotes, finish, stopPreview])
 
@@ -333,13 +428,8 @@ export function GuestMeeting({
     }
     setPhase({ kind: 'asking' })
     const shown: OnNow = { notes: onNow.notes || notesAtStart, recording: onNow.recording }
-    // The browser asks for the microphone now, not before. Refused: they join listening only (the call says so).
-    try {
-      const mic = await navigator.mediaDevices.getUserMedia({ audio: true })
-      for (const t of mic.getTracks()) t.stop()
-    } catch {
-      // The call's own notice says how to allow it.
-    }
+    // Not asked yet (they dismissed the page's first prompt) and they mean to talk: the browser asks now. Refused: they join listening only (the call says so).
+    if (micRef.current === 'on' && !micAllowed.current) await askDevices({ video: false, audio: true })
     const res = await post(`${base}/join`, { name: clean, notice: shown })
     if (res?.ok) {
       setPhase({ kind: 'waiting' })
@@ -351,7 +441,7 @@ export function GuestMeeting({
       return
     }
     finish(await doneOf(res))
-  }, [name, base, finish, onNow.notes, onNow.recording, notesAtStart])
+  }, [name, base, finish, onNow.notes, onNow.recording, notesAtStart, askDevices])
 
   const cancel = useCallback(async () => {
     await post(`${base}/leave`)
@@ -391,24 +481,24 @@ export function GuestMeeting({
       <div className="grid w-full max-w-5xl items-center gap-5 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] lg:gap-8">
         <div>
           <Preview stream={camera === 'on' ? preview.current : null} name={name}>
-            <button
-              type="button"
-              onClick={() => void toggleCamera()}
-              // Let in: the call takes the camera from here.
-              disabled={phase.kind === 'joining'}
-              aria-pressed={camera === 'on'}
-              data-guest-camera={camera}
-              className={cn(
-                'flex h-10 items-center gap-2 rounded-full px-4 text-sm font-medium backdrop-blur-md transition-colors disabled:opacity-60',
-                camera === 'on' ? 'bg-white text-black hover:bg-white/90' : 'bg-black/55 text-white hover:bg-black/70',
-              )}
-            >
+            <PreviewSwitch on={mic === 'on'} disabled={phase.kind === 'joining'} onClick={() => void toggleMic()} data-guest-mic-choice={mic}>
+              {mic === 'on' ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
+              {mic === 'on' ? 'Mic on' : mic === 'blocked' ? 'Mic blocked' : 'Muted'}
+            </PreviewSwitch>
+            {/* Let in: the call takes the camera from here. */}
+            <PreviewSwitch on={camera === 'on'} disabled={phase.kind === 'joining'} onClick={() => void toggleCamera()} data-guest-camera={camera}>
               {camera === 'on' ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}
-              {camera === 'on' ? 'Camera on' : 'Camera off'}
-            </button>
+              {camera === 'on' ? 'Camera on' : camera === 'blocked' ? 'Camera blocked' : 'Camera off'}
+            </PreviewSwitch>
           </Preview>
           <p className="mt-3 text-center text-xs text-foreground/70">
-            {camera === 'blocked' ? 'Your camera is blocked. You can allow it in your browser’s site settings, or join without it.' : 'Your microphone is asked for when you join.'}
+            {camera === 'blocked' && mic === 'blocked'
+              ? 'Your camera and microphone are blocked. You can allow them in your browser’s site settings, or join listening only.'
+              : camera === 'blocked'
+                ? 'Your camera is blocked. You can allow it in your browser’s site settings, or join without it.'
+                : mic === 'blocked'
+                  ? 'Your microphone is blocked. You can allow it in your browser’s site settings, or join listening only.'
+                  : 'Choose how you join. You can change both in the call.'}
           </p>
         </div>
 
@@ -467,7 +557,7 @@ export function GuestMeeting({
                     {phase.error}
                   </p>
                 )}
-                <OnNowNotice onNow={entryOnNow} agree className="mt-1" />
+                <OnNowNotice onNow={entryOnNow} agree mic={mic} className="mt-1" />
                 <button
                   type="submit"
                   disabled={phase.kind === 'asking' || !name.trim()}
@@ -490,7 +580,7 @@ export function GuestMeeting({
  * What is on in the meeting's call, said before anything of theirs is sent. Nothing when neither is.
  * `agree`: above "Ask to join", whose press is their go to it (the server records it).
  */
-function OnNowNotice({ onNow, agree = false, className }: { onNow: OnNow; agree?: boolean; className?: string }) {
+function OnNowNotice({ onNow, agree = false, mic = 'on', className }: { onNow: OnNow; agree?: boolean; mic?: 'on' | 'off' | 'blocked'; className?: string }) {
   if (!onNow.notes && !onNow.recording) return null
   return (
     <div className={cn('rounded-2xl border border-foreground/10 bg-foreground/[0.04] px-4 py-3 text-sm', className)} data-guest-notice="">
@@ -508,7 +598,7 @@ function OnNowNotice({ onNow, agree = false, className }: { onNow: OnNow; agree?
       )}
       {agree && (
         <p className="mt-2 text-xs text-muted-foreground" data-guest-notice-agree="">
-          By asking to join, you agree to this. You’ll join with your microphone on.
+          By asking to join, you agree to this. {mic === 'on' ? 'You’ll join with your microphone on.' : mic === 'off' ? 'You’ll join muted.' : 'Your microphone is blocked, so you’ll join listening only.'}
         </p>
       )}
     </div>
@@ -535,8 +625,27 @@ function Preview({ stream, name, children }: { stream: MediaStream | null; name:
         </div>
       )}
       {shown && <span className="absolute left-3 top-3 max-w-[60%] truncate rounded-full bg-black/55 px-2.5 py-1 text-xs font-medium text-white">{shown}</span>}
-      <div className="absolute inset-x-0 bottom-3 flex justify-center">{children}</div>
+      <div className="absolute inset-x-0 bottom-3 flex justify-center gap-2">{children}</div>
     </div>
+  )
+}
+
+/** A switch on the preview: the microphone's, the camera's. White when on, like the call's own controls. */
+function PreviewSwitch({ on, disabled, onClick, children, ...rest }: { on: boolean; disabled?: boolean; onClick: () => void; children: React.ReactNode } & Record<`data-${string}`, string | undefined>) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-pressed={on}
+      {...rest}
+      className={cn(
+        'flex h-10 items-center gap-2 rounded-full px-4 text-sm font-medium backdrop-blur-md transition-colors disabled:opacity-60',
+        on ? 'bg-white text-black hover:bg-white/90' : 'bg-black/55 text-white hover:bg-black/70',
+      )}
+    >
+      {children}
+    </button>
   )
 }
 
@@ -559,7 +668,23 @@ function useSnapshot(session: TeamCallSession): CallSnapshot {
   return useSyncExternalStore(session.subscribe, session.getSnapshot, session.getSnapshot)
 }
 
-/** The guest in the call: everyone in it, their own controls, Leave. Nothing of the workspace. */
+/** The app's areas, as the rail of the real app lists them: shown to a guest, opened by a member. */
+const APP_AREAS = [
+  { label: 'Home', icon: Home },
+  { label: 'Inbox', icon: Inbox },
+  { label: 'Mail', icon: Mail },
+  { label: 'Chat', icon: MessagesSquare },
+  { label: 'Tasks', icon: ListChecks },
+  { label: 'Calendar', icon: Calendar },
+  { label: 'Contacts', icon: Contact },
+] as const
+
+/**
+ * The guest in the call, in the app's own frame: where a member's workspace
+ * name sits, theirs says Guest; the app's rail beside the call (this meeting is
+ * the one place a guest has in it); everyone in the call, the call's notes as a
+ * pad on the side, their own controls, Leave. Nothing of the workspace itself.
+ */
 function GuestCall({ session, title, onNow, hostGone, notesBase, cameraWaits }: { session: TeamCallSession; title: string; onNow: OnNow; hostGone: boolean; notesBase?: string; cameraWaits: boolean }) {
   const snap = useSnapshot(session)
   const screens = snap.tiles.filter((t) => t.kind === 'screen')
@@ -569,30 +694,61 @@ function GuestCall({ session, title, onNow, hostGone, notesBase, cameraWaits }: 
   const held = snap.micHeld && !snap.canPublish
   const heldLabel = 'Join with your microphone first'
   const cols = people.length <= 1 ? 'grid-cols-1' : people.length <= 4 ? 'grid-cols-2' : 'grid-cols-3'
+  // The agent's notes as plain words and the call's own words since they came in (src/lib/team-calls/live-notes.ts).
+  const showNotes = !!notesBase && onNow.notes && snap.phase === 'connected'
   return (
-    <main className="flex min-h-dvh flex-col text-foreground" data-guest-call={snap.phase}>
-      <header className="flex h-16 shrink-0 items-center gap-3 px-5 sm:px-8">
-        <Logo className="hidden h-6 shrink-0 sm:flex" />
-        <Mark className="h-5 shrink-0 sm:hidden" />
-        <span className="h-5 w-px shrink-0 bg-foreground/15" aria-hidden />
-        <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" aria-hidden />
-        <h1 className="min-w-0 truncate text-sm font-semibold">{title}</h1>
-        <span className="shrink-0 text-xs text-foreground/70">
-          {snap.phase === 'connecting' ? (
-            'Connecting…'
-          ) : snap.phase === 'reconnecting' ? (
-            <span className="flex items-center gap-1 font-medium text-amber-600 dark:text-amber-400">
-              <WifiOff className="h-3.5 w-3.5" aria-hidden /> Reconnecting…
-            </span>
-          ) : snap.people === 1 ? (
-            'Only you'
-          ) : (
-            `${snap.people} people`
-          )}
-        </span>
-        <CallBadges notes={{ notes: onNow.notes, recording: onNow.recording ? 'on' : 'off' }} />
+    <main className="flex h-dvh flex-col text-foreground" data-guest-call={snap.phase}>
+      <header className="flex h-16 shrink-0 items-center gap-2 px-3 sm:px-4">
+        {/* Where the app shows the workspace: a guest has none. */}
+        <div data-guest-workspace="" className={cn('flex h-10 shrink-0 items-center gap-2 rounded-full pl-2.5 pr-4', MEETING_GLASS)}>
+          <Mark className="h-4 shrink-0" />
+          <span className="text-sm font-semibold">Guest</span>
+        </div>
+        <div className={cn('flex h-10 min-w-0 items-center gap-2.5 rounded-full px-4', MEETING_GLASS)}>
+          <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" aria-hidden />
+          <h1 className="min-w-0 truncate text-sm font-semibold">{title}</h1>
+          <span className="shrink-0 text-xs text-foreground/70">
+            {snap.phase === 'connecting' ? (
+              'Connecting…'
+            ) : snap.phase === 'reconnecting' ? (
+              <span className="flex items-center gap-1 font-medium text-amber-600 dark:text-amber-400">
+                <WifiOff className="h-3.5 w-3.5" aria-hidden /> Reconnecting…
+              </span>
+            ) : snap.people === 1 ? (
+              'Only you'
+            ) : (
+              `${snap.people} people`
+            )}
+          </span>
+          <CallBadges notes={{ notes: onNow.notes, recording: onNow.recording ? 'on' : 'off' }} />
+        </div>
+        <a
+          href="/"
+          target="_blank"
+          rel="noreferrer"
+          data-guest-about=""
+          className={cn('ml-auto hidden h-10 shrink-0 items-center gap-1.5 rounded-full px-4 text-sm font-medium hover:bg-background/70 sm:flex dark:hover:bg-white/[0.12]', MEETING_GLASS)}
+        >
+          Native Intelligence
+          <ArrowUpRight className="h-4 w-4" aria-hidden />
+        </a>
       </header>
-      <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col justify-center overflow-y-auto px-4 pb-2 sm:px-8">
+      <div className="flex min-h-0 flex-1 gap-4 px-3 sm:px-4">
+        <div aria-hidden data-guest-rail="" className={cn('hidden shrink-0 flex-col items-center gap-1 self-start rounded-3xl p-1.5 lg:flex', MEETING_GLASS)}>
+          <span title="This meeting" className="flex h-9 w-9 items-center justify-center rounded-full bg-foreground/10">
+            <Video className="h-[18px] w-[18px]" aria-hidden />
+            <span className="sr-only">This meeting</span>
+          </span>
+          <span className="my-1 h-px w-5 bg-foreground/10" aria-hidden />
+          {APP_AREAS.map(({ label, icon: Icon }) => (
+            <span key={label} title={`${label}: for the workspace’s members`} className="flex h-9 w-9 items-center justify-center rounded-full text-foreground/35">
+              <Icon className="h-[18px] w-[18px]" aria-hidden />
+              <span className="sr-only">{label}: for the workspace’s members</span>
+            </span>
+          ))}
+        </div>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 lg:flex-row lg:gap-4">
+      <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col justify-center overflow-y-auto px-1 py-1">
         {hostGone && snap.phase === 'connected' && (
           <div data-guest-host-left="" className="mb-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
             <p className="text-sm font-semibold">The host has left</p>
@@ -635,8 +791,6 @@ function GuestCall({ session, title, onNow, hostGone, notesBase, cameraWaits }: 
             {n}
           </p>
         ))}
-        {/* The call's own words since they came in, never the members' summary (src/lib/team-calls/live-notes.ts). */}
-        {notesBase && onNow.notes && snap.phase === 'connected' && <GuestCallNotes base={notesBase} />}
         {snap.needsAudioStart && (
           <button
             type="button"
@@ -647,6 +801,9 @@ function GuestCall({ session, title, onNow, hostGone, notesBase, cameraWaits }: 
             Your browser paused the sound. Click to hear the call.
           </button>
         )}
+      </div>
+          {showNotes && notesBase && <GuestCallNotes base={notesBase} pad className={cn('lg:w-[340px] lg:shrink-0', MEETING_GLASS)} />}
+        </div>
       </div>
       <footer className="flex shrink-0 justify-center px-4 pb-6 pt-3">
         {/* The controls' dock: one glass bar on the sky. */}

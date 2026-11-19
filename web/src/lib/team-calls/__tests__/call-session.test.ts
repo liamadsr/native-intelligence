@@ -108,6 +108,16 @@ describe('TeamCallSession', () => {
     expect(rooms[0].connected?.token).toBe('t1')
   })
 
+  it('joins muted when asked to (a guest who muted before joining), and unmutes on their word', async () => {
+    const { sdk } = fakeSdk()
+    const s = session(sdk)
+    await s.connect(JOIN, { startMuted: true })
+    expect(s.getSnapshot().phase).toBe('connected')
+    expect(s.getSnapshot().mic).toBe('off')
+    await s.toggleMic()
+    expect(s.getSnapshot().mic).toBe('on')
+  })
+
   it('a refused microphone joins listening only, and says it is blocked', async () => {
     const denied = Object.assign(new Error('Permission denied'), { name: 'NotAllowedError' })
     const { sdk } = fakeSdk({ micError: denied })

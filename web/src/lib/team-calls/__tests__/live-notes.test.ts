@@ -11,7 +11,10 @@ import {
   CALL_NOTES_FINISHING_FOR_MS,
   callNotesFinishing,
   feedHealthLine,
+  GUEST_SUMMARY_MAX_BLOCKS,
   guestLinesOf,
+  guestSummaryBlocksOf,
+  guestSummaryOf,
   hasLiveNotes,
   liveNotesOf,
   liveNotesStateOf,
@@ -123,5 +126,22 @@ describe('a guest’s lines', () => {
     ])
     for (const l of lines) expect(Object.keys(l).sort()).toEqual(['at', 'speaker', 'text'])
     expect(guestLinesOf(null)).toEqual([])
+  })
+
+  it('a guest’s notes are the summary’s plain words, bounded, and nothing else of a block', () => {
+    const blocks = guestSummaryOf('## Next steps\n- [ ] Send [the model](https://example.com/x) <!-- proposal:p1 -->\n' + Array.from({ length: 200 }, (_, i) => `- item ${i}`).join('\n'))
+    expect(blocks.slice(0, 2)).toEqual([
+      { kind: 'heading', text: 'Next steps' },
+      { kind: 'bullet', text: 'Send the model' },
+    ])
+    expect(blocks).toHaveLength(GUEST_SUMMARY_MAX_BLOCKS)
+    expect(guestSummaryOf(null)).toEqual([])
+    const odd = guestSummaryOf(
+      ['See https://example.com/a?x=1 now', 'Auto <https://auto.example> link', '[1]: https://ref.example', 'A <a href="https://h.example">tag</a>', 'Split <!-- proposal:', 'p9 --> anchor', '![shot](https://img.example/x.png) seen', 'Open <!-- never closed'].join('\n'),
+    )
+    expect(odd.map((b) => b.text)).toEqual(['See now', 'Auto link', 'A tag', 'Split anchor', 'shot seen', 'Open'])
+    expect(JSON.stringify(odd)).not.toMatch(/example|proposal|p9|href|closed/)
+    expect(guestSummaryBlocksOf([{ kind: 'bullet', text: 'Kept', id: 'p1' }, { kind: 'script', text: 'x' }, { kind: 'text', text: '' }, null, 'x'])).toEqual([{ kind: 'bullet', text: 'Kept' }])
+    expect(guestSummaryBlocksOf({})).toEqual([])
   })
 })
