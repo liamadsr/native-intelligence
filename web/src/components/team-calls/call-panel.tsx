@@ -333,7 +333,7 @@ function CallWindow({
         )}
       </header>
 
-      <div className={cn('min-h-0 flex-1 overflow-y-auto px-3 pb-2 pt-0.5', sheet && 'mx-auto w-full max-w-5xl')}>
+      <div className={cn('min-h-0 flex-1 overflow-y-auto px-3 pb-2 pt-1', sheet && 'mx-auto w-full max-w-5xl')}>
         {snap.micHeld && snap.phase !== 'error' && <JoinNotice call={call} onJoin={() => void call.session.releaseMic()} onLeave={onLeave} />}
         {call.channelKind === 'meeting' && <Lobby guests={call.guests ?? []} canAdmit={snap.phase === 'connected'} />}
         {snap.phase === 'error' && (

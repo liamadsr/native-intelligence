@@ -8,16 +8,23 @@
  *     which carries the whole transcript and changes with every batch of
  *     words. The row is read only by who may read the capture (its policy
  *     asks the capture, under 566's conversation fence).
- *   - A meeting guest reads only the call's own words (657: the lines heard
- *     since they were let in, while they are in the room). Never the
- *     summary: even fenced (src/lib/live-agent/call-capture-fence.ts), the
- *     agent that writes it is the owner's, and its wording can carry the
- *     workspace's names (its members, labels, workflow states), so nothing
- *     in it can be promised to come from this call alone.
+ *   - A meeting guest reads the call's own words (657: the lines heard
+ *     since they were let in, while they are in the room) and, since
+ *     2026-11-18 (the owner's decision), the agent's notes of the call as
+ *     plain blocks of text (guestSummaryOf below). The agent that writes
+ *     them is fenced on a call's capture
+ *     (src/lib/live-agent/call-capture-fence.ts): it holds no private read,
+ *     only the workspace's structure (its members, labels, workflow states),
+ *     so those names can turn up in what a guest reads. The notes are of the
+ *     whole call: unlike the lines, they can say what was said before the
+ *     guest was let in. A guest gets the words alone: no markdown, no link
+ *     address, no proposal anchor, no state, and none while they are out of
+ *     the room (the lines keep 657's 30 seconds of grace for a reconnect;
+ *     the notes do not).
  *   - When the call's words are not being written (668: the recorder says so
  *     with its heartbeat, the sweeper when the recorder went quiet), members
  *     read one plain line saying why, on the same row, until it recovers. A
- *     guest never does (they never read this row).
+ *     guest never does (of this row they are given the summary's words only).
  */
 
 export type LiveNotesPhase = 'working' | 'ready' | 'failed' | 'stopped'
@@ -193,6 +200,40 @@ export function hasLiveNotes(notes: LiveNotes | null, now: number = Date.now()):
   if (notes.feed) return true
   if (summaryBlocks(notes.summary).length > 0) return true
   return liveNotesWriting(notes.state, now) || notes.state?.phase === 'failed' || (notes.state?.phase === 'stopped' && notes.state.reason !== 'call_ended')
+}
+
+/** The most blocks of the agent's notes one guest read carries, and the longest one. */
+export const GUEST_SUMMARY_MAX_BLOCKS = 80
+export const GUEST_SUMMARY_MAX_BLOCK_CHARS = 600
+
+/**
+ * The agent's notes as a meeting guest reads them: the summary's headings,
+ * bullets and lines as plain words (summaryBlocks drops the markdown, the
+ * links' addresses and the proposal anchors), bounded. Made on the server, so
+ * the raw summary never leaves it for a guest.
+ */
+export function guestSummaryOf(markdown: string | null | undefined): SummaryBlock[] {
+  // Stricter than the members' panel, before the lines are split: comments (an anchor can run over
+  // lines), images, links' and reference definitions' addresses, tags and autolinks, bare addresses.
+  const cleaned = (markdown ?? '')
+    .replace(/<!--[\s\S]*?(?:-->|$)/g, '')
+    .replace(/!\[([^\]]*)\]\([^)\n]*\)/g, '$1')
+    .replace(/\[([^\]\n]+)\]\([^)\n]*\)/g, '$1')
+    .replace(/^\s*\[[^\]\n]+\]:.*$/gm, '')
+    .replace(/<[^>\n]*>/g, '')
+    .replace(/\b(?:[a-z][a-z0-9+.-]*:\/\/|www\.)\S+/gi, '')
+  return summaryBlocks(cleaned)
+    .slice(0, GUEST_SUMMARY_MAX_BLOCKS)
+    .map((b) => ({ kind: b.kind, text: b.text.slice(0, GUEST_SUMMARY_MAX_BLOCK_CHARS) }))
+}
+
+/** A guest's notes from the route's answer: only the two fields a block may carry. */
+export function guestSummaryBlocksOf(raw: unknown): SummaryBlock[] {
+  if (!Array.isArray(raw)) return []
+  return raw.flatMap((b) => {
+    const r = (b ?? {}) as { kind?: unknown; text?: unknown }
+    return (r.kind === 'heading' || r.kind === 'bullet' || r.kind === 'text') && typeof r.text === 'string' && r.text ? [{ kind: r.kind, text: r.text }] : []
+  })
 }
 
 /** A line a guest sees: who said it, and what. */
