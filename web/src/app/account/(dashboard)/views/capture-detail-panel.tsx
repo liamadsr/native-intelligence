@@ -56,6 +56,7 @@ import {
   Package,
   History,
   Info,
+  Bot,
 } from 'lucide-react'
 import { EntityTitleInput } from '@/components/views/entity-title-input'
 import { ProjectPanelField, type ProjectOption as PickerProjectOption } from '@/components/views/properties'
@@ -122,9 +123,8 @@ import { DEFAULT_TRUST_POLICY } from '@/lib/proposed-changes/trust-policy'
 import { ProposalNodeExtension } from '@/components/capture/proposal-node-extension'
 import { ProposalNodeProvider, type ProposalNodeContextValue } from '@/components/capture/proposal-node-context'
 import type { ProposalChangeRef } from './note-editor'
-import { CaptureControlsBar } from './capture-controls-bar'
 import { CaptureLiveChatSection, useCaptureLiveChat } from './capture-live-chat-section'
-import { LiveCapturePills } from './live-capture-pills'
+import { TranscriptsSection, TranscriptsTabLabel, ToolsSection, ToolsTabLabel } from './capture-live-sections'
 import { useLiveAgentStatus, useRecordingContext } from '@/hooks/recording-context'
 import { useCurrentMemberId, useCurrentMemberProfile, useWorkspaceEdition, useWorkspaces } from '@/app/account/workspace-switcher'
 import { editionDefaultAgentSlug } from '@/lib/editions'
@@ -478,9 +478,19 @@ function LiveAgentStatusDot({ isPaused }: { isPaused: boolean }) {
   )
 }
 
-const CAPTURE_SECTIONS = ['overview', 'agents', 'live-chat'] as const
+// Transcripts and Tools are tabs (Liam, 11-20): they were pills in a row at
+// the foot of the card, with the agent picker and Packages, which are
+// properties now. Nothing floats at the bottom of a capture's page any more
+// (capture-live-sections.tsx). Tools only while the capture records.
+const CAPTURE_SECTIONS = ['overview', 'transcripts', 'tools', 'agents', 'live-chat'] as const
 type CaptureSection = (typeof CAPTURE_SECTIONS)[number]
-const CAPTURE_SECTION_LABELS: Record<CaptureSection, string> = { overview: 'Overview', agents: 'Agents', 'live-chat': 'Live chat' }
+const CAPTURE_SECTION_LABELS: Record<CaptureSection, string> = {
+  overview: 'Overview',
+  transcripts: 'Transcripts',
+  tools: 'Tools',
+  agents: 'Agents',
+  'live-chat': 'Live chat',
+}
 
 // The Agents tab (plan row 10), loaded when opened.
 const EntityActivitySection = dynamic(
@@ -807,8 +817,12 @@ export function CaptureDetailPanel({
   // The call's thread with its live agent, read-only, once the call is over
   // (capture-live-chat-section.tsx): a section only when there's a thread.
   const liveChatConversationId = useCaptureLiveChat(captureId, isActiveRecording)
-  // A Live chat section restored with no thread to show is the overview.
-  const activeSection: CaptureSection = pickedSection === 'live-chat' && !liveChatConversationId ? 'overview' : pickedSection
+  // The tabs this capture has now: Live chat only with a thread, Tools only
+  // while it records (the live agent's calls exist only then).
+  const sectionShown = (tab: CaptureSection) =>
+    tab === 'live-chat' ? !!liveChatConversationId : tab === 'tools' ? isActiveRecording : true
+  // A section restored (or left open) with nothing to show is the overview.
+  const activeSection: CaptureSection = sectionShown(pickedSection) ? pickedSection : 'overview'
   // During a live capture Voice ID is in the live agent's HUD (the desktop's
   // window, or the web's floating panel), not on this card
   // (voice-id-hud-publisher.tsx useLiveHudUp). It's back here once the
@@ -2891,7 +2905,7 @@ export function CaptureDetailPanel({
   // NOTE: the live transcript array is NOT read here anymore. It updates ~6-7×/s
   // during a recording, and reading it in this ~3.3k-line panel re-rendered the
   // whole thing on every flush (the dominant remaining typing-lag source). It's
-  // now consumed at the LEAVES — <LiveVoiceIdRow> and <LiveTranscriptsPill>
+  // now consumed at the LEAVES — <LiveVoiceIdRow> and the Transcripts tab
   // below subscribe to it via useTranscriptSegments() (useSyncExternalStore), so
   // only those small subtrees repaint per flush. The panel's merge logic moved
   // into them too (useCaptureTranscript).
@@ -2994,11 +3008,15 @@ export function CaptureDetailPanel({
 
       {/* Header */}
       <div className="flex h-10 shrink-0 items-center gap-2 px-5">
-        <div className="flex shrink-0 items-center gap-1">
-          {CAPTURE_SECTIONS.filter((tab) => tab !== 'live-chat' || liveChatConversationId).map((tab) => (
+        {/* The tabs. On a narrow card (the live capture's notepad, the
+            desktop's capture window) they scroll sideways rather than wrap. */}
+        <div data-capture-tabs="" className="-my-1 flex min-w-0 items-center gap-1 overflow-x-auto py-1 [scrollbar-width:none]">
+          {CAPTURE_SECTIONS.filter(sectionShown).map((tab) => (
             <button
               key={tab}
               type="button"
+              data-capture-tab={tab}
+              aria-pressed={activeSection === tab}
               onClick={() => setActiveSection(tab)}
               className={cn(
                 'inline-flex shrink-0 items-center px-3 py-1 text-xs rounded-full border transition-colors whitespace-nowrap',
@@ -3007,7 +3025,24 @@ export function CaptureDetailPanel({
                   : 'bg-background text-muted-foreground border-border hover:bg-muted hover:text-foreground',
               )}
             >
-              {CAPTURE_SECTION_LABELS[tab]}
+              {tab === 'transcripts' ? (
+                // A leaf: it counts the final lines from the recording
+                // stores, so a flush never re-renders this page.
+                <TranscriptsTabLabel
+                  isActiveRecording={isActiveRecording}
+                  persistedTranscript={capture?.transcript ?? null}
+                  holdsLiveSegments={holdsLiveSegments}
+                  alert={
+                    isActiveRecording &&
+                    isDesktopApp() &&
+                    systemAudioNeedsAttention(recording.systemAudioStatus)
+                  }
+                />
+              ) : tab === 'tools' ? (
+                <ToolsTabLabel />
+              ) : (
+                CAPTURE_SECTION_LABELS[tab]
+              )}
             </button>
           ))}
         </div>
@@ -3491,6 +3526,152 @@ export function CaptureDetailPanel({
                               </PopoverContent>
                             </Popover>
 
+                            {/* Agent — which agent runs this capture: the live agent
+                                while it records, the one Reprocess runs after. A
+                                property row like Set project (Liam, 11-20: it was a
+                                floating picker at the card's foot), opening the same
+                                list. A null agentId is the built-in "Assistant"
+                                (resolved server-side). Locked to the live persona (the
+                                Interactive Assistant or the edition's) while a capture
+                                records: no chevron, the one choice already chosen. */}
+                            <div className="flex items-center">
+                              <Select
+                                value={recording.agentId || ASSISTANT_SENTINEL}
+                                onValueChange={(v) =>
+                                  recording.setAgentId(v === ASSISTANT_SENTINEL ? null : v)
+                                }
+                                disabled={liveLocked && !!liveLockAgent}
+                              >
+                                {/* Dot + label inside ONE wrapper span: the
+                                    SelectTrigger base applies [&>span]:line-clamp-1
+                                    to DIRECT child spans, which collapses a bare dot
+                                    span to nothing. */}
+                                <SelectTrigger
+                                  data-capture-agent-row=""
+                                  aria-label="Agent for this capture"
+                                  hideChevron
+                                  className="h-8 min-w-0 flex-1 justify-start gap-2 rounded-md border-0 bg-transparent px-3 py-0 text-sm text-foreground/80 shadow-none transition-colors hover:bg-muted/50 focus:ring-0 focus-visible:ring-1 data-[state=open]:bg-muted/50 disabled:cursor-default disabled:opacity-100 disabled:hover:bg-transparent"
+                                >
+                                  <span className="inline-flex min-w-0 flex-1 items-center gap-2">
+                                    <Bot className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                    <span className="min-w-0 truncate">
+                                      {agents.find((r) => r.id === recording.agentId)?.name || 'Assistant'}
+                                      {!(liveLocked && liveLockAgent) && (
+                                        <span className="text-muted-foreground"> agent</span>
+                                      )}
+                                    </span>
+                                    {isActiveRecording && (
+                                      <LiveAgentStatusDot isPaused={recording.isPaused} />
+                                    )}
+                                  </span>
+                                </SelectTrigger>
+                                <SelectContent align="start" side="left">
+                                  {liveLocked && liveLockAgent ? (
+                                    <SelectItem value={liveLockAgent.id}>{liveLockAgent.name}</SelectItem>
+                                  ) : (
+                                    <>
+                                      <SelectItem value={ASSISTANT_SENTINEL}>Assistant</SelectItem>
+                                      {agents.map((recipe) => (
+                                        <SelectItem key={recipe.id} value={recipe.id}>
+                                          {recipe.name}
+                                        </SelectItem>
+                                      ))}
+                                    </>
+                                  )}
+                                </SelectContent>
+                              </Select>
+                              {/* ASSIST-ONLY agents write nothing during the call —
+                                  a PAIRED note-taker (the edition's post-call agent)
+                                  writes the notes live beside them, then finalizes
+                                  them when the call ends. Without a word here the
+                                  row reads as one agent doing two jobs: an ⓘ. */}
+                              {liveAgentAssistOnly && (
+                                <TooltipProvider delayDuration={200}>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <button
+                                        type="button"
+                                        className="mr-1.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-muted/50 hover:text-foreground/80"
+                                        aria-label="Real-time help only — how this agent works during the call"
+                                      >
+                                        <Info className="h-3.5 w-3.5" />
+                                      </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="left" className="max-w-xs">
+                                      Real-time help only — {liveNotesAgentName ?? 'a paired note-taker'} takes the notes live and finalizes them when the call ends.
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
+                              )}
+                            </div>
+
+                            {/* Packages — context packages attached to this call
+                                (mig 239), a row opening the checklist (it was a
+                                dashed chip at the card's foot). The live agent is
+                                primed to pull them via get_package. LIVE MODE ONLY:
+                                the batch path just extracts after the fact, so
+                                without the live agent there is nothing for them to
+                                do. Shown before and during the call, not on a
+                                capture that has ended (resuming one shows it again). */}
+                            {recording.liveModeEnabled && (isActiveRecording || !capture?.ended_at) && (
+                              <Popover
+                                onOpenChange={(open) => {
+                                  if (open) void fetchAttachablePackages()
+                                }}
+                              >
+                                <PopoverTrigger asChild>
+                                  <button
+                                    data-capture-packages-row=""
+                                    className="flex h-8 w-full min-w-0 items-center gap-2 overflow-hidden rounded-md px-3 text-sm transition-colors hover:bg-muted/50"
+                                    aria-label="Attach context packages for the live agent"
+                                  >
+                                    <Package className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                    {capturePackageIds.length === 0 ? (
+                                      <span className="text-muted-foreground">Add packages</span>
+                                    ) : (
+                                      <span className="min-w-0 truncate text-left text-foreground/80">
+                                        {capturePackageIds.length === 1
+                                          ? (attachablePackages.find((p) => p.id === capturePackageIds[0])?.name ??
+                                            '1 package')
+                                          : `${capturePackageIds.length} packages`}
+                                      </span>
+                                    )}
+                                  </button>
+                                </PopoverTrigger>
+                                <PopoverContent side="left" align="start" className="w-64 p-2">
+                                  <div className="px-1 pb-1.5 text-[11px] font-medium text-muted-foreground">
+                                    Context packages for this call
+                                  </div>
+                                  {attachablePackages.length === 0 ? (
+                                    <div className="px-1 py-2 text-xs text-muted-foreground">
+                                      No packages yet — create one from Knowledge → Library
+                                      (Promote), then attach it here.
+                                    </div>
+                                  ) : (
+                                    <div className="max-h-56 overflow-y-auto">
+                                      {attachablePackages.map((p) => (
+                                        <label
+                                          key={p.id}
+                                          className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1.5 text-xs hover:bg-muted"
+                                        >
+                                          <Checkbox
+                                            checked={capturePackageIds.includes(p.id)}
+                                            onCheckedChange={() => toggleAttachedPackage(p.id)}
+                                          />
+                                          <span className="min-w-0 flex-1 truncate">{p.name}</span>
+                                        </label>
+                                      ))}
+                                    </div>
+                                  )}
+                                  {capturePackageIds.length >= 5 && (
+                                    <div className="px-1 pt-1.5 text-[11px] text-muted-foreground">
+                                      Up to 5 packages per call.
+                                    </div>
+                                  )}
+                                </PopoverContent>
+                              </Popover>
+                            )}
+
                             {/* Participants */}
                             <div>
                               <div className="flex items-center">
@@ -3805,261 +3986,6 @@ export function CaptureDetailPanel({
                     </WindowProperties>
           </div>
 
-          {/* The capture's controls, at the foot of its card (one-chat
-              Slice 3; see CaptureControlsBar): the live agent picker, the
-              Packages chip, Transcripts and Tools, and Voice ID
-              above them. Built OUTSIDE the sidebar on purpose: they remain
-              available when properties are closed. They used to portal into
-              the chat composer; the composer is the main agent's now. While a
-              live capture records, Voice ID is in the live agent's HUD
-              instead. After the recording only Transcripts remains of the
-              pills — Tools would open onto nothing (LiveCapturePills).
-              Background-processing state lives on the Reprocess button in the
-              top toolbar; Pause/Stop and the elapsed timer live in the live
-              agent's HUD header while it's up, else the top bar's Capture
-              button (lib/live-agent/hud-recording.ts). Overview only: the other sections have their own foot. */}
-          <CaptureControlsBar
-            className={cn(activeSection !== 'overview' && 'hidden')}
-            voiceId={
-              // Voice ID — the speakers heard so far, centred above the top
-              // row; a carousel with arrows once they overflow. The detected
-              // speakers and who's talking are read INSIDE this leaf from the
-              // ref-backed stores — never passed down — so a speech-cadence
-              // update never re-renders the panel. Not while it's in the HUD.
-              voiceIdInHud && isActiveRecording ? null : <LiveVoiceIdRow
-                className="mx-auto max-w-[85%]"
-                speakerNames={recording.speakerNames}
-                demotedSelfLabels={recording.selfDemotedLabels}
-                speakerContacts={recording.speakerContacts}
-                assignContact={recording.assignContact}
-                acceptSuggestion={recording.acceptSuggestion}
-                dismissSuggestion={recording.dismissSuggestion}
-                unlinkSpeaker={recording.unlinkSpeaker}
-                postSessionReview={recording.postSessionReview}
-                confirmPostSessionSpeaker={recording.confirmPostSessionSpeaker}
-                reassignPostSessionSpeaker={recording.reassignPostSessionSpeaker}
-                selfSuggestion={recording.selfSuggestion}
-                confirmSelf={recording.confirmSelf}
-                dismissSelf={recording.dismissSelf}
-                isActiveRecording={isActiveRecording}
-                resumedPriorTranscript={resumedPriorTranscript}
-                persistedTranscript={capture?.transcript ?? null}
-                holdsLiveSegments={holdsLiveSegments}
-              />
-            }
-            controls={
-              <>
-                {/* Left: the agent and how it runs. Shrinks (the agent's name
-                    truncates) before it crowds Transcripts, Tools and
-                    Capture; clipped sideways only, so focus rings still show
-                    above and below. */}
-                <div className="-ml-1 flex min-w-0 flex-1 items-center gap-1.5 overflow-x-clip pl-1">
-                    {/* Agent selector. A null agentId = the built-in
-                       "Assistant" (general-purpose default, resolved
-                       server-side). Shown both while recording (drives
-                       the live agent) and after it stops (drives which
-                       agent Reprocess runs). Outline pill with the
-                       status dot tucked inside. */}
-                    <Select
-                      value={recording.agentId || ASSISTANT_SENTINEL}
-                      onValueChange={(v) =>
-                        recording.setAgentId(v === ASSISTANT_SENTINEL ? null : v)
-                      }
-                      // Locked to the live persona (the Interactive
-                      // Assistant or the edition's) while a capture
-                      // records. The trigger is disabled so the only
-                      // option is the one already selected.
-                      disabled={liveLocked && !!liveLockAgent}
-                    >
-                      {/* Dot + label live inside ONE wrapper span. The
-                          SelectTrigger base applies [&>span]:line-clamp-1
-                          to DIRECT child spans, which collapses a bare dot
-                          span to nothing — nesting it one level down keeps
-                          the dot visible (this is why the status dot kept
-                          disappearing). */}
-                      <SelectTrigger
-                        // Locked = no chevron (it's not interactive)
-                        // and the trigger can shrink so the long
-                        // "Interactive Assistant" label ellipses instead
-                        // of starving the Packages chip.
-                        hideChevron={liveLocked && !!liveLockAgent}
-                        // A pill like the rest of the composer's row — "All
-                        // skills", Transcripts, Tools, Capture: 36px, the
-                        // app's own background, the hairline ring and small
-                        // shadow; `-my-0.5` overhangs the row's py-0.5 so the
-                        // row stays 36px. Open, it reads pressed, as "All
-                        // skills" does.
-                        className="-my-0.5 h-9 min-w-0 w-auto justify-start gap-1.5 rounded-full border border-border bg-background px-3 text-[12px] text-sidebar-foreground/70 shadow-sm hover:bg-muted hover:text-sidebar-foreground data-[state=open]:border-foreground/15 data-[state=open]:bg-muted data-[state=open]:text-foreground disabled:opacity-100 disabled:cursor-default dark:shadow-none"
-                      >
-                        <span className="inline-flex min-w-0 items-center gap-1.5">
-                          {isActiveRecording && (
-                            <LiveAgentStatusDot isPaused={recording.isPaused} />
-                          )}
-                          <span className="truncate">
-                            {agents.find(r => r.id === recording.agentId)?.name || 'Assistant'}
-                          </span>
-                          {/* Suffix so it reads "<Name> agent". Dropped
-                              when locked to live — "Interactive Assistant"
-                              alone is clear and saves width — and on a
-                              narrow window. */}
-                          {!(liveLocked && liveLockAgent) && (
-                            <span className="shrink-0 text-muted-foreground max-sm:hidden">&nbsp;agent</span>
-                          )}
-                        </span>
-                      </SelectTrigger>
-                      <SelectContent>
-                        {liveLocked && liveLockAgent ? (
-                          // Live mode: the Interactive Assistant is the
-                          // only choice (the trigger is also disabled).
-                          <SelectItem value={liveLockAgent.id}>
-                            {liveLockAgent.name}
-                          </SelectItem>
-                        ) : (
-                          <>
-                            <SelectItem value={ASSISTANT_SENTINEL}>Assistant</SelectItem>
-                            {agents.map((recipe) => (
-                              <SelectItem key={recipe.id} value={recipe.id}>
-                                {recipe.name}
-                              </SelectItem>
-                            ))}
-                          </>
-                        )}
-                      </SelectContent>
-                    </Select>
-                    {/* ASSIST-ONLY agents write nothing during the call —
-                        they help the user in the moment, and a PAIRED
-                        note-taker (the edition's post-call agent) writes
-                        the notes live beside them, then finalizes them
-                        when the call ends. Without a word here, the picker
-                        reads as one agent doing two jobs. Only when it's
-                        true: an ⓘ beside the agent it explains. */}
-                    {liveAgentAssistOnly && (
-                      <TooltipProvider delayDuration={200}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              type="button"
-                              className="flex h-7 w-5 shrink-0 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
-                              aria-label="Real-time help only — how this agent works during the call"
-                            >
-                              <Info className="h-3.5 w-3.5" />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent side="top" className="max-w-xs">
-                            Real-time help only — {liveNotesAgentName ?? 'a paired note-taker'} takes the notes live and finalizes them when the call ends.
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    )}
-                    {/* "+ Packages" — attach context packages to this
-                        call. The live agent is primed to pull them via
-                        get_package. Works on every platform but LIVE
-                        MODE ONLY: the
-                        batch path just extracts action items after the
-                        fact — packages exist to guide the call in real
-                        time, so without the live agent there is
-                        nothing for them to do. Every capture is live,
-                        so: shown before and during the call, not on a
-                        capture that has ended (resuming one shows it
-                        again). */}
-                    {recording.liveModeEnabled && (isActiveRecording || !capture?.ended_at) && (
-                    <Popover
-                      onOpenChange={(open) => {
-                        if (open) void fetchAttachablePackages()
-                      }}
-                    >
-                      <PopoverTrigger asChild>
-                        <button
-                          className={cn(
-                            'flex h-7 min-w-7 max-w-[110px] shrink items-center gap-1.5 overflow-hidden rounded-full border px-2.5 text-[12px]',
-                            capturePackageIds.length > 0
-                              ? 'border-border text-foreground hover:bg-muted'
-                              : 'border-dashed border-border text-muted-foreground hover:bg-muted hover:text-foreground',
-                          )}
-                          aria-label="Attach context packages for the live agent"
-                        >
-                          <Package className="h-3 w-3 shrink-0" />
-                          <span className="min-w-0 flex-1 truncate max-sm:hidden">
-                            {capturePackageIds.length === 0
-                              ? 'Packages'
-                              : capturePackageIds.length === 1
-                                ? (attachablePackages.find((p) => p.id === capturePackageIds[0])?.name ??
-                                  '1 package')
-                                : `${capturePackageIds.length} packages`}
-                          </span>
-                        </button>
-                      </PopoverTrigger>
-                      {/* Above the chip, over the card. */}
-                      <PopoverContent side="top" align="start" className="w-64 p-2">
-                        <div className="px-1 pb-1.5 text-[11px] font-medium text-muted-foreground">
-                          Context packages for this call
-                        </div>
-                        {attachablePackages.length === 0 ? (
-                          <div className="px-1 py-2 text-xs text-muted-foreground">
-                            No packages yet — create one from Knowledge → Library
-                            (Promote), then attach it here.
-                          </div>
-                        ) : (
-                          <div className="max-h-56 overflow-y-auto">
-                            {attachablePackages.map((p) => (
-                              <label
-                                key={p.id}
-                                className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1.5 text-xs hover:bg-muted"
-                              >
-                                <Checkbox
-                                  checked={capturePackageIds.includes(p.id)}
-                                  onCheckedChange={() => toggleAttachedPackage(p.id)}
-                                />
-                                <span className="min-w-0 flex-1 truncate">{p.name}</span>
-                              </label>
-                            ))}
-                          </div>
-                        )}
-                        {capturePackageIds.length >= 5 && (
-                          <div className="px-1 pt-1.5 text-[11px] text-muted-foreground">
-                            Up to 5 packages per call.
-                          </div>
-                        )}
-                      </PopoverContent>
-                    </Popover>
-                    )}
-                  {/* No Live switch: every capture runs with the live agent
-                      (recording-context's availability note). */}
-                </div>
-              </>
-            }
-            pills={
-              // At the row's end: the transcript and the live agent's tool
-              // calls, each a pill whose card rises out of it (hover to peek,
-              // click to keep it open). The system-audio notice heads the
-              // transcript's card — it's about who's in that transcript — and
-              // a desktop capture that has lost the other side flags it on the
-              // pill. Both pills are leaves: the transcript's flushes and the
-              // agent's calls re-render only them. Tools only while recording.
-              <LiveCapturePills
-                isActiveRecording={isActiveRecording}
-                resumedPriorTranscript={resumedPriorTranscript}
-                persistedTranscript={capture?.transcript ?? null}
-                holdsLiveSegments={holdsLiveSegments}
-                speakerNames={recording.speakerNames}
-                demotedSelfLabels={recording.selfDemotedLabels}
-                notice={
-                  isActiveRecording ? (
-                    <SystemAudioWarning
-                      status={recording.systemAudioStatus}
-                      platform={isDesktopApp() ? 'desktop' : 'web'}
-                    />
-                  ) : null
-                }
-                alert={
-                  isActiveRecording &&
-                  isDesktopApp() &&
-                  systemAudioNeedsAttention(recording.systemAudioStatus)
-                }
-              />
-            }
-          />
-
           {/* Comment entry only once the workspace-cache identity resolves.
               The guest arm here means "identity still loading" (or the cache
               fetch failed) — NOT a share-page visitor — and SelectionPopover's
@@ -4072,6 +3998,55 @@ export function CaptureDetailPanel({
           <InlineCommentPopover />
           <AttributionTooltip containerRef={editorContainerRef} />
       </InlineCommentProvider>
+
+      {/* Transcripts: always mounted (hidden on the other tabs) so the
+          system-audio notice's grant flow and Voice ID keep their state; its
+          lines mount only while it shows (capture-live-sections.tsx). Voice
+          ID's home now: the speakers heard, above who said what. Not while it
+          is in the live agent's HUD. */}
+      <TranscriptsSection
+        active={activeSection === 'transcripts'}
+        isActiveRecording={isActiveRecording}
+        resumedPriorTranscript={resumedPriorTranscript}
+        persistedTranscript={capture?.transcript ?? null}
+        holdsLiveSegments={holdsLiveSegments}
+        speakerNames={recording.speakerNames}
+        demotedSelfLabels={recording.selfDemotedLabels}
+        notice={
+          isActiveRecording ? (
+            <SystemAudioWarning
+              status={recording.systemAudioStatus}
+              platform={isDesktopApp() ? 'desktop' : 'web'}
+            />
+          ) : null
+        }
+        voiceId={
+          // The detected speakers and who's talking are read INSIDE this
+          // leaf from the ref-backed stores — never passed down — so a
+          // speech-cadence update never re-renders the panel.
+          voiceIdInHud && isActiveRecording ? null : <LiveVoiceIdRow
+            speakerNames={recording.speakerNames}
+            demotedSelfLabels={recording.selfDemotedLabels}
+            speakerContacts={recording.speakerContacts}
+            assignContact={recording.assignContact}
+            acceptSuggestion={recording.acceptSuggestion}
+            dismissSuggestion={recording.dismissSuggestion}
+            unlinkSpeaker={recording.unlinkSpeaker}
+            postSessionReview={recording.postSessionReview}
+            confirmPostSessionSpeaker={recording.confirmPostSessionSpeaker}
+            reassignPostSessionSpeaker={recording.reassignPostSessionSpeaker}
+            selfSuggestion={recording.selfSuggestion}
+            confirmSelf={recording.confirmSelf}
+            dismissSelf={recording.dismissSelf}
+            isActiveRecording={isActiveRecording}
+            resumedPriorTranscript={resumedPriorTranscript}
+            persistedTranscript={capture?.transcript ?? null}
+            holdsLiveSegments={holdsLiveSegments}
+          />
+        }
+      />
+
+      {activeSection === 'tools' && <ToolsSection />}
 
       {activeSection === 'live-chat' && liveChatConversationId && (
         <div className="min-h-0 flex-1 overflow-y-auto">
