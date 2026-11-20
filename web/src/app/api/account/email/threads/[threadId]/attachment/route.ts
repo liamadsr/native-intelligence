@@ -11,9 +11,19 @@ import type { NextRequest } from 'next/server'
 import { requireWorkspace } from '@/lib/api-auth'
 import { badRequest, notFound, serverError } from '@/lib/api-errors'
 import { readEmailAttachment } from '@/lib/email/email-read-service'
-import { contentDisposition } from '@/lib/email-share/http'
 
 export const maxDuration = 30
+
+/**
+ * `attachment; filename="…"; filename*=UTF-8''…`, the plain name stripped to
+ * safe ASCII. Its own copy: only the share routes may import the share module
+ * (src/lib/email-share/__tests__/agent-fence.test.ts).
+ */
+function contentDisposition(name: string): string {
+  const plain = name.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_').slice(0, 200) || 'attachment'
+  const encoded = encodeURIComponent(name.slice(0, 200)).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
+  return `attachment; filename="${plain}"; filename*=UTF-8''${encoded}`
+}
 
 export async function GET(request: NextRequest) {
   const auth = await requireWorkspace()
