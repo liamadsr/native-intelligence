@@ -2524,6 +2524,7 @@ var ClaudeStream = class {
   }
   onInit(m) {
     if (typeof m.session_id === "string" && m.session_id !== this.sessionId) this.ev.log(`[worker] ${this.ctx.label} reports session ${m.session_id.slice(0, 80)}, not ${this.sessionId}`);
+    if (typeof m.model === "string" && m.model) this.ev.model({ model: m.model });
     if (this.mcpReported) return;
     const servers = Array.isArray(m.mcp_servers) ? m.mcp_servers.map(obj) : [];
     const ours = servers.find((s) => s.name === this.mcpName);
@@ -2975,14 +2976,20 @@ var CodexAppServer = class {
     const id = obj(res.thread).id;
     if (!isSessionId(id)) throw new SentenceError(`${this.ctx.label} answered with a session id this app can't keep`);
     this.threadId = id;
+    this.sayModel(res);
     return id;
+  }
+  /** The thread's model and reasoning effort, as `thread/start` and `thread/resume` answer them (Codex's own settings). */
+  sayModel(res) {
+    if (typeof res.model !== "string" || !res.model) return;
+    this.ev.model({ model: res.model, effort: typeof res.reasoningEffort === "string" ? res.reasoningEffort : null });
   }
   async resume(sessionId, p) {
     this.mcpName = p.mcp.name;
     await this.checkLogin();
     this.threadId = sessionId;
     try {
-      await this.conn().request("thread/resume", { threadId: sessionId, ...threadParams(p), excludeTurns: true });
+      this.sayModel(obj(await this.conn().request("thread/resume", { threadId: sessionId, ...threadParams(p), excludeTurns: true })));
     } catch (err) {
       this.threadId = null;
       throw err;
@@ -3127,13 +3134,13 @@ var annotations = { readOnlyHint: true, openWorldHint: false };
 var MANAGER_TOOLS = [
   {
     name: "report",
-    description: "Report progress on the request: what you looked at, what you found, what you are about to do. Call it as you go, in a sentence or two. The person and the Native Intelligence agent see it.",
+    description: "Report progress on the request: what you looked at, what you found, what you are about to do. Call it as you go, in a sentence or two. The person sees it (and the Native Intelligence agent, when it is your manager).",
     inputSchema: object({ text: str("The progress note.", 4e3) }, ["text"]),
     annotations
   },
   {
     name: "ask_manager",
-    description: "Ask the Native Intelligence agent (your manager) one question when you are blocked and cannot find the answer in the folder. Then end your turn and wait: the answer arrives as your next message.",
+    description: "Ask your manager one question when you are blocked and cannot find the answer in the folder: the Native Intelligence agent, or the person when they started this job themselves from their chat (the request says so; they answer in this job\u2019s own chat). Then end your turn without calling finish, and wait: the answer arrives as your next message.",
     inputSchema: object({ question: str("One clear question.", 2e3) }, ["question"]),
     annotations
   },
@@ -3142,7 +3149,7 @@ var MANAGER_TOOLS = [
     description: "Finish the request: give a summary of what you found or did, including anything that was blocked. Call it once the request is done, then end your turn. In a job that may change files, add pull_request only when the person or the request asked for a pull request: a title, and a description of what changed and why. The person is asked on their Mac before anything is pushed.",
     inputSchema: object(
       {
-        summary: str("What you found or did, for the person and the Native Intelligence agent. In a job that changes files, its first line becomes the commit message.", 8e3),
+        summary: str("What you found or did, for the person (and the Native Intelligence agent, when it is your manager). In a job that changes files, its first line becomes the commit message.", 8e3),
         pull_request: {
           type: "object",
           description: "Only when a pull request was asked for, and only in a job that may change files.",
@@ -3163,7 +3170,7 @@ var FIELD = { report: "text", ask_manager: "question", finish: "summary" };
 var LIMIT = { report: 4e3, ask_manager: 2e3, finish: 8e3 };
 var REPLY = {
   report: "Reported.",
-  ask_manager: "Question sent. End your turn now; the answer will arrive as your next message.",
+  ask_manager: "Question sent. End your turn now without calling finish; the answer will arrive as your next message.",
   finish: "Finished. End your turn now."
 };
 var FINISH_WITH_PR = {
@@ -3206,7 +3213,7 @@ function createManagerTools(emit, mode = "read") {
 // agents/local-agent/workers/lib/instructions.ts
 var WORKER_INSTRUCTIONS = `# Working for Native Intelligence
 
-You work for the Native Intelligence agent in one folder on the person's Mac. The Native Intelligence agent (your manager, in the cloud) gives you a request in words; you do the work in the folder and report back.
+You work in one folder on the person's Mac for your manager: the Native Intelligence agent (in the cloud), or the person themselves when they started this job from their chat's Code tab (the request then says so, and nobody else is on the other end). Your manager gives you a request in words; you do the work in the folder and report back.
 
 ## The folder
 
@@ -3223,7 +3230,7 @@ You work for the Native Intelligence agent in one folder on the person's Mac. Th
 ## Reporting (the \`${MANAGER_SERVER}\` tools)
 
 - Use \`report\` for progress the person should see: what you looked at, what you found, what you are about to do. Short, and as you go.
-- Use \`ask_manager\` when you are blocked and need a decision or information you cannot find in the folder. Ask one clear question, then end your turn: the answer arrives as your next message.
+- Use \`ask_manager\` when you are blocked and need a decision or information you cannot find in the folder. Ask one clear question, then end your turn without calling \`finish\`, and wait: the answer arrives as your next message. When the person is your manager, they are the one who answers, in this job's own chat; never write that you asked, or are waiting on, anyone else.
 - When you start a server (a dev server, a test server, a database), bind it to \`127.0.0.1\` or \`localhost\` unless the task truly needs otherwise: one bound to all addresses can be reached by other machines on the network.
 - Before you call \`finish\`, stop everything you started that is still running (servers, watchers, background commands): the app commits your changes as soon as \`finish\` arrives, and anything still writing then can leave half a change.
 - When the request is done, call \`finish\` with a summary of what you found or did, then end your turn. Always call \`finish\` before you stop; if a later message asks for more, do it and call \`finish\` again.`;
@@ -3476,6 +3483,7 @@ var WorkerDriver = class {
       error: (message2) => {
         if (!this.stopping) this.emit({ kind: "error", message: truncateText(message2) });
       },
+      model: (info) => this.onModel(info.model, info.effort),
       log: io.log
     };
     const make = deps.link ?? LINKS[opts.entry.driver];
@@ -3507,6 +3515,8 @@ var WorkerDriver = class {
   stopping = false;
   dead = false;
   lastStatus = null;
+  /** The model and effort last shown (onModel). */
+  modelSaid = null;
   message = "";
   messageId = null;
   /** Tool calls by id: shown once, with one result. */
@@ -3551,6 +3561,18 @@ var WorkerDriver = class {
   }
   status(status) {
     this.emit({ kind: "status", status });
+  }
+  /** The agent named its model (and effort): one `model` event per launch, and another only when it names a different one. */
+  onModel(model, effort) {
+    const name = (v, max) => typeof v === "string" ? v.replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, max) : "";
+    const m = name(model, 80);
+    if (!m || this.stopping) return;
+    const e = name(effort, 24);
+    const said = `${m}
+${e}`;
+    if (said === this.modelSaid) return;
+    this.modelSaid = said;
+    this.emit(e ? { kind: "model", model: m, effort: e } : { kind: "model", model: m });
   }
   /** The link's setup: the CLI's version (for `ready`). Throws a sentence. */
   async initialize() {

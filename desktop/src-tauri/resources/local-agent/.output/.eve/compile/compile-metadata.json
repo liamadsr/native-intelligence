@@ -2,7 +2,7 @@
   "compile": {
     "manifest": {
       "path": ".output/.eve/compile/compiled-agent-manifest.json",
-      "sha256": "cf0f4f50a12ad9a1982c595be3108119ab0c5a98cf14c8079cd6fcd4f3583b44"
+      "sha256": "ed1fb1f3786491714362816a90489b8d6daa4866f8f1c6a51ed4e49c0947aed0"
     },
     "moduleMap": {
       "path": ".output/.eve/compile/module-map.mjs",
@@ -16,9 +16,9 @@
     },
     "manifest": {
       "path": ".output/.eve/discovery/agent-discovery-manifest.json",
-      "sha256": "7dce6333c4d6598975df2a72b86825b615bb5da1496f8fd25a02bb3424cc67af"
+      "sha256": "78b96a87ec3c8c909d84d2ffa1e79c03972cb75775ee905366f4a2b3c622aa94"
     },
-    "sourceGraphHash": "a88e1e36851366acdfbc6b5deddc375c80d2e9aa5d1f79ebdb22859259c955f2",
+    "sourceGraphHash": "5a5d2a5cda511dc6db611536989a0e4fd9f3e331db89ce5852719fa9dfc9c6d9",
     "summary": {
       "errors": 0,
       "warnings": 0

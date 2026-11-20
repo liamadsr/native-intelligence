@@ -9,7 +9,7 @@ const _assets = { ["eve-skill-index:skills.json"]: {
 	meta: {
 		"type": "application/json",
 		"etag": "\"19-rMkh6NjlVvfDxnRkVcdY8U+y7sM\"",
-		"mtime": "2026-11-14T22:17:14.481Z"
+		"mtime": "2026-11-20T01:19:34.134Z"
 	}
 } };
 const normalizeKey = function normalizeKey(key) {
