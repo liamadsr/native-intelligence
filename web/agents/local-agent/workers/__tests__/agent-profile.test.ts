@@ -464,11 +464,14 @@ describe('the private home', () => {
     execFileSync('/usr/bin/mkfifo', [join(dir, 'fifo')])
     expect(() => moveLoginFile(join(dir, 'fifo'), join(dir, 'to.json'), false)).toThrow(/is not a regular file/) // never blocks
     writeFileSync(join(dir, 'from.json'), 'saved')
-    execFileSync('/usr/bin/chflags', ['uchg', join(dir, 'to.json')])
-    try {
-      expect(() => moveLoginFile(join(dir, 'from.json'), join(dir, 'to.json'), false)).toThrow(/is locked or not writable/)
-    } finally {
-      execFileSync('/usr/bin/chflags', ['nouchg', join(dir, 'to.json')])
+    // The locked target needs chflags, which only macOS has (the local agent's only platform).
+    if (process.platform === 'darwin') {
+      execFileSync('/usr/bin/chflags', ['uchg', join(dir, 'to.json')])
+      try {
+        expect(() => moveLoginFile(join(dir, 'from.json'), join(dir, 'to.json'), false)).toThrow(/is locked or not writable/)
+      } finally {
+        execFileSync('/usr/bin/chflags', ['nouchg', join(dir, 'to.json')])
+      }
     }
     expect(readdirSync(dir).sort()).toEqual(['fifo', 'from.json', 'to.json'])
     expect(readFileSync(join(dir, 'to.json'), 'utf8')).toBe('saved')

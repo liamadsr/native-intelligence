@@ -145,8 +145,11 @@ export async function screenPostSources(
   supabase: SupabaseClient,
   workspaceId: string,
   sources: readonly CanonSource[],
-  /** The person whose recent calls' names are kept out too (P9). */
-  opts: { userId?: string | null } = {},
+  /**
+   * userId: the person whose recent calls' names are kept out too (P9).
+   * now: the clock their recent calls are counted back from (tests); the real one by default.
+   */
+  opts: { userId?: string | null; now?: Date } = {},
 ): Promise<PostSourceScreen> {
   const problems: PublicSafeFinding[] = []
   const seen = new Set<string>()
@@ -231,7 +234,7 @@ export async function screenPostSources(
   } catch {
     problems.push({ reason: 'Its sources could not be read to screen them; check it again.', quote: 'sources' })
   }
-  if (opts.userId) for (const p of await recentCallNames(supabase, { workspaceId, userId: opts.userId })) phrases.add(p)
+  if (opts.userId) for (const p of await recentCallNames(supabase, { workspaceId, userId: opts.userId, now: opts.now })) phrases.add(p)
 
   const crm = await crmNames(supabase, workspaceId)
   if (crm.failed) problems.push({ reason: "The CRM's names could not be read to screen it; check it again.", quote: 'CRM' })
