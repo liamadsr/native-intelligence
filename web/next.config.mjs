@@ -331,15 +331,26 @@ const sentryWrapped = withSentry(withMDX(nextConfig))
 // there instead of into the agent's own directory (vercel/eve#472). Roots under
 // agents/<name> hit the flat-agent-root branch instead and build into their own
 // directory, where deploy/app/build-agents.sh expects each one.
-export default withEve(sentryWrapped, {
-  agents: {
-    'onboarding-researcher': './agents/onboarding-researcher',
-    'skill-runner': './agents/skill-runner',
-    'coding-agent': './agents/coding-agent',
-    'work-agent': './agents/work-agent',
-    'chat-agent': './agents/chat-agent',
-    utility: './agents/utility',
-    'live-agent': './agents/live-agent',
-    'web-research': './agents/web-research',
-  },
-})
+const EVE_AGENTS = {
+  'onboarding-researcher': './agents/onboarding-researcher',
+  'skill-runner': './agents/skill-runner',
+  'coding-agent': './agents/coding-agent',
+  'work-agent': './agents/work-agent',
+  'chat-agent': './agents/chat-agent',
+  utility: './agents/utility',
+  'live-agent': './agents/live-agent',
+  'web-research': './agents/web-research',
+}
+
+// Local dev on a small machine: EVE_DEV_AGENTS=chat-agent,utility boots only those agents'
+// dev servers (each takes ~1.3 GB idle). Ignored in production.
+const devAgents =
+  process.env.NODE_ENV !== 'production' && process.env.EVE_DEV_AGENTS
+    ? Object.fromEntries(
+        Object.entries(EVE_AGENTS).filter(([name]) =>
+          process.env.EVE_DEV_AGENTS.split(',').map((s) => s.trim()).includes(name),
+        ),
+      )
+    : null
+
+export default withEve(sentryWrapped, { agents: devAgents ?? EVE_AGENTS })
