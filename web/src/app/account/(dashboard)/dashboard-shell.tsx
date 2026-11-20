@@ -44,6 +44,8 @@ import { AppUpdater } from '@/components/desktop/app-updater'
 import { CoreAudioHealthToast } from '@/components/desktop/core-audio-health-toast'
 import { MicModeToast } from '@/components/desktop/mic-mode-toast'
 import { CreateDialog } from '@/components/create-dialog'
+import { GlobalShortcuts } from './shortcuts/global-shortcuts'
+import { ShortcutsSheet } from './shortcuts/shortcuts-sheet'
 import { UsageLimitDialog } from '@/components/usage-limit-dialog'
 import { CaptureRecoveryPrompt } from '@/components/capture/capture-recovery-prompt'
 import { SettingsOverlayProvider } from './settings-overlay'
@@ -673,6 +675,9 @@ export function DashboardShell({
       <CoreAudioHealthToast />
       <MicModeToast />
       <CreateDialog />
+      {/* G then a letter opens a page, ? the shortcuts sheet (lib/shortcuts.ts). */}
+      <GlobalShortcuts />
+      <ShortcutsSheet />
       <UsageLimitDialog />
       <CaptureRecoveryPrompt />
       <InAppMessageToaster />

@@ -26,6 +26,7 @@ import {
   ChevronDown,
   ChevronRight,
   ExternalLink,
+  Keyboard,
   Layers,
   LayoutGrid,
   LogOut,
@@ -34,6 +35,7 @@ import {
   Users,
 } from 'lucide-react'
 import { CreateWorkspaceWizard } from './create-workspace-wizard'
+import { openShortcutsSheet } from './(dashboard)/shortcuts/open-shortcuts-sheet'
 import { openWorkspacesVeil } from './workspaces-veil-events'
 import {
   applyAccountWorkspaceSpan,
@@ -841,6 +843,10 @@ export function WorkspaceSwitcher({
     onOpenInNewWindow: openInNewWindow,
     onSettings: () => openSettings(),
     onMembers: () => openSettings('workspace'),
+    onShortcuts: () => {
+      setOpen(false)
+      openShortcutsSheet()
+    },
     onCreate: () => {
       setOpen(false)
       setCreating(true)
@@ -1171,6 +1177,7 @@ function WorkspacePanelContent({
   onOpenInNewWindow,
   onSettings,
   onMembers,
+  onShortcuts,
   onCreate,
   onViewAll,
 }: {
@@ -1181,6 +1188,7 @@ function WorkspacePanelContent({
   onOpenInNewWindow: (ws: WorkspaceItem) => void
   onSettings: () => void
   onMembers: () => void
+  onShortcuts: () => void
   onCreate: () => void
   onViewAll: () => void
 }) {
@@ -1306,6 +1314,8 @@ function WorkspacePanelContent({
       {/* Actions */}
       <PanelAction icon={<Settings className="h-4 w-4" />} label="Settings" shortcut={settingsKey} onClick={onSettings} />
       <PanelAction icon={<Users className="h-4 w-4" />} label="Invite and manage members" onClick={onMembers} />
+      {/* The shortcuts sheet, as `?` opens it (lib/shortcuts.ts). */}
+      <PanelAction icon={<Keyboard className="h-4 w-4" />} label="Keyboard shortcuts" shortcut="?" onClick={onShortcuts} />
       <a
         role="menuitem"
         href="/sign-out"
