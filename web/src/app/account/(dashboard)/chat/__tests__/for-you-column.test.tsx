@@ -25,7 +25,9 @@
  *     session replay (`ph-no-capture`);
  *   • a card's impression goes once per card per session, once it's in view;
  *   • its bot's count leaves out a review whose read failed;
- *   • its bottom fade follows a card growing.
+ *   • its bottom fade follows a card growing;
+ *   • a coding agent's work (a job on the Mac, the cloud coding agent's run)
+ *     is the Code view's own For you, never the agent's (Liam, 11-20).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, createElement as h } from 'react'
@@ -117,7 +119,7 @@ vi.mock('@/components/capture/action-target-picker', () => ({
 }))
 
 import { countByOwner } from '@/lib/work/agent-work-lanes'
-import { forYouColumnEntries, uniqueColumnEntries, type ColumnEntry } from '@/lib/bots/for-you-column'
+import { forYouColumnEntries, isCodingEntry, splitCodingEntries, uniqueColumnEntries, type ColumnEntry } from '@/lib/bots/for-you-column'
 import { columnTag } from '@/components/attention/column-compact-card'
 import { splitCardsByPlace } from '@/lib/attention/chat-asks'
 import { botOwners, withBotOwners, withCardOwners } from '@/lib/work/bot-owner'
@@ -126,7 +128,7 @@ import { __resetColumnImpressionsForTests } from '@/components/attention/attenti
 import { ForYou, forYouItems } from '@/components/bots/bot-page/for-you'
 import { useBotPageOpen } from '@/components/bots/bot-page/use-bot-page-open'
 import { BotPageNavContext } from '@/components/bots/bot-page/bot-page-nav'
-import { ForYouView, useForYouEntries } from '../for-you-column'
+import { ForYouView, useCodeForYouEntries, useForYouEntries } from '../for-you-column'
 import { useOptionalAgentWorkShared } from '@/components/work/agent-work-provider'
 
 /** A row as the shell's light read gives it (LIGHT_WORK_ITEM_SELECT): its title and step, no result or deliverables. */
@@ -495,6 +497,44 @@ describe('uniqueColumnEntries', () => {
       ['c1', 'writer'],
       ['t1', 'triage'],
     ])
+  })
+})
+
+describe('a coding agent’s work: the Code view’s For you, never the agent’s (Liam, 11-20)', () => {
+  const roster = [{ id: 'writer', name: 'Writer', bot_character: 'writer', reachable: true }]
+  const entriesOf = (rows: Array<WorkItem | LightWorkRow>) => forYouColumnEntries({ roster, counts: countByOwner(rows, []), rows, cards: [] })
+
+  it('a review of a job on the Mac (local_agent) or the cloud coding agent’s run (coding_run) is coding work; any other review, card or draft is not', () => {
+    const entries = entriesOf([light('mac', { kind: 'local_agent' }), light('cloud', { kind: 'coding_run' }), light('brief', { kind: 'work_run' }), light('loop', { kind: 'flow_run' })])
+    expect(Object.fromEntries(entries.map((e) => [e.id, isCodingEntry(e)]))).toEqual({ mac: true, cloud: true, brief: false, loop: false })
+    const post = { kind: 'card', id: 'p', at: '', card: {}, source: { teammateId: 'writer', name: 'Writer' } } as unknown as ColumnEntry
+    const draft = { kind: 'draft', id: 'd', at: '', draft: {}, source: { teammateId: 'writer', name: 'Writer' } } as unknown as ColumnEntry
+    expect([isCodingEntry(post), isCodingEntry(draft)]).toEqual([false, false])
+  })
+
+  it('splits the entries by view, each in the order given', () => {
+    const entries = entriesOf([
+      light('a', { kind: 'work_run', created_at: '2026-10-03T11:00:00.000Z' }),
+      light('b', { kind: 'local_agent', created_at: '2026-10-03T10:00:00.000Z' }),
+      light('c', { kind: 'work_run', created_at: '2026-10-03T09:00:00.000Z' }),
+      light('d', { kind: 'coding_run', created_at: '2026-10-03T08:00:00.000Z' }),
+    ])
+    const { agent, coding } = splitCodingEntries(entries)
+    expect(agent.map((e) => e.id)).toEqual(['a', 'c'])
+    expect(coding.map((e) => e.id)).toEqual(['b', 'd'])
+  })
+
+  it('the agent’s For you (and its button’s count) leaves it out; the Code view’s lists only it', async () => {
+    hold([light('brief', { kind: 'work_run' }), light('mac', { kind: 'local_agent' }), light('cloud', { kind: 'coding_run' })])
+    function Probe() {
+      const agent = useForYouEntries().map((e) => e.id)
+      const code = useCodeForYouEntries().map((e) => e.id)
+      return h('output', { 'data-agent': agent.join(','), 'data-code': [...code].sort().join(',') })
+    }
+    await act(async () => root.render(h(Probe)))
+    const out = container.querySelector('output')!
+    expect(out.getAttribute('data-agent')).toBe('brief')
+    expect(out.getAttribute('data-code')).toBe('cloud,mac')
   })
 })
 

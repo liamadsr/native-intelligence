@@ -14,6 +14,10 @@
  *            Only while it has cards: the panel saved on For you with none
  *            is off screen (side-panel-store.ts rightShown), the chat with
  *            its room back, and comes back on For you with the next card.
+ *            A coding agent's work is never here (Liam, 11-20): on Code the
+ *            panel's two views are the Code view's own For you (only that
+ *            work, opened by the For you button there) and the selected
+ *            coding chat's details (code-chat-sections.tsx).
  *
  *   One way in   two buttons side by side in the top bar's right header
  *                (side-panel-toggles.tsx), one per view: each opens the
@@ -89,7 +93,7 @@ import { useConnections } from '@/lib/integrations/use-connections'
 import { FLOATING_CARD_CLASS } from '@/components/attention/card-skin'
 import { CodeChatSections } from './code-chat-sections'
 import { useOptionalAgentWorkShared } from '@/components/work/agent-work-provider'
-import { ForYouView, useForYouEntries } from '../chat/for-you-column'
+import { ForYouView, useCodeForYouEntries, useForYouEntries } from '../chat/for-you-column'
 import { CardHeading, type SummaryTone } from './card-heading'
 import { AgentsSection, PlanSection, planHeaderCount, useAgentsSummary } from '../chat/chat-widgets'
 import { useChatFeed } from './chat-feed'
@@ -110,6 +114,8 @@ import {
   restoreChatAnchor,
   rightShown,
   setCodeDetailsOpen,
+  setCodeForYouContent,
+  setCodeForYouOpen,
   setConnectionsAttention,
   setForYouContent,
   setRightPanelOpen,
@@ -153,7 +159,7 @@ export function useSidePanelState(): SidePanelState {
 export function planFor(
   width: number,
   state: Pick<SidePanelState, 'rightOpen' | 'view' | 'forYouContent' | 'captureDock'> &
-    Partial<Pick<SidePanelState, 'pagePanel' | 'pagePanelOpen' | 'pagePanelFloatOk' | 'pagePanelPage' | 'codeView' | 'codeChat' | 'codeDetailsOpen'>>,
+    Partial<Pick<SidePanelState, 'pagePanel' | 'pagePanelOpen' | 'pagePanelFloatOk' | 'pagePanelPage' | 'codeView' | 'codeChat' | 'codeDetailsOpen' | 'codeForYou' | 'codeForYouContent'>>,
   { content, was = null }: { content?: number; was?: SpacePlan | null } = {},
 ): SpacePlan {
   const left = !!state.pagePanel && state.pagePanelOpen !== false && !state.captureDock
@@ -301,6 +307,7 @@ export function RightSidePanel({ mode }: { mode: PanelMode }) {
   if (open && !mounted) setMounted(true)
 
   // For you's cards: the panel says whether there are any (with none, its view is never on screen).
+  // The agent's For you leaves a coding agent's work to the Code view's own (Liam, 11-20).
   const shared = useOptionalAgentWorkShared()
   const entries = useForYouEntries()
   const hasForYou = shared !== null && entries.length > 0
@@ -308,15 +315,24 @@ export function RightSidePanel({ mode }: { mode: PanelMode }) {
     setForYouContent(hasForYou)
   }, [hasForYou])
   useEffect(() => () => setForYouContent(false), [])
+  const codeEntries = useCodeForYouEntries()
+  const hasCodeForYou = shared !== null && codeEntries.length > 0
+  useEffect(() => {
+    setCodeForYouContent(hasCodeForYou)
+  }, [hasCodeForYou])
+  useEffect(() => () => setCodeForYouContent(false), [])
 
   // Which view is on screen: one at a time, the other hidden and inert.
-  // On Code the panel holds the selected coding chat's details instead (code-chat-sections.tsx).
-  const codeOn = open && !!state.codeView
+  // On Code the panel holds the Code view's own For you, or the selected coding chat's details (code-chat-sections.tsx).
+  const shown = shownView(state)
+  const codeDetailsOn = open && !!state.codeView && shown === 'panel'
+  const codeForYouOn = open && !!state.codeView && shown === 'forYou'
   const sectionsOn = open && !state.codeView && state.view === 'panel'
   const forYouOn = open && !state.codeView && state.view === 'forYou' && hasForYou
   // Each view mounted on its first showing, then kept.
-  const [seen, setSeen] = useState({ panel: sectionsOn, forYou: forYouOn })
-  if ((sectionsOn && !seen.panel) || (forYouOn && !seen.forYou)) setSeen({ panel: seen.panel || sectionsOn, forYou: seen.forYou || forYouOn })
+  const [seen, setSeen] = useState({ panel: sectionsOn, forYou: forYouOn, codeForYou: codeForYouOn })
+  if ((sectionsOn && !seen.panel) || (forYouOn && !seen.forYou) || (codeForYouOn && !seen.codeForYou))
+    setSeen({ panel: seen.panel || sectionsOn, forYou: seen.forYou || forYouOn, codeForYou: seen.codeForYou || codeForYouOn })
 
   // ⌘\ anywhere (the composer too: it's a chord, never typed text).
   useHotkeys([{ key: '\\', mod: true, allowInInput: true, handler: () => toggleRightPanel() }])
@@ -338,9 +354,11 @@ export function RightSidePanel({ mode }: { mode: PanelMode }) {
     e.preventDefault()
     // The focus goes back to the button of the view that showed.
     const view = shownView(getSidePanelState()) ?? 'panel'
-    // On Code it is the coding chat's details that close: the agent's own panel stays as it was.
-    if (getSidePanelState().codeView) setCodeDetailsOpen(false)
-    else setRightPanelOpen(false)
+    // On Code it is the Code view's For you (the details back if open) or the coding chat's details that close: the agent's own panel stays as it was.
+    if (getSidePanelState().codeView) {
+      if (view === 'forYou') setCodeForYouOpen(false)
+      else setCodeDetailsOpen(false)
+    } else setRightPanelOpen(false)
     ;(document.querySelector<HTMLElement>(VIEW_TOGGLE_SELECTOR[view]) ?? document.querySelector<HTMLElement>(VIEW_TOGGLE_SELECTOR.panel))?.focus()
   }
 
@@ -360,16 +378,22 @@ export function RightSidePanel({ mode }: { mode: PanelMode }) {
       className={cn(
         'pointer-events-none absolute z-[25] flex flex-col focus-visible:outline-none',
         // Over the shell's blur while a card waits as the chat's Reply chip: the card in hand shows where it came from (CARD_REPLY_FOCUS_ATTR).
-        state.view === 'forYou' && '[html[data-card-reply-focus]_&]:z-[46]',
+        (state.codeView ? state.codeForYou : state.view === 'forYou') && '[html[data-card-reply-focus]_&]:z-[46]',
         SLIDE_CLASS,
         open ? 'visible translate-x-0' : 'invisible translate-x-[calc(100%+1rem)]',
       )}
       style={{ ...SLIDE_STYLE, top: PANEL_TOP, right: TOP_BAR_RIGHT_INSET_PX, bottom, width: RIGHT_PANEL_WIDTH_PX }}
     >
       {/* The Code view: the selected coding chat's details, in the sections' place. */}
-      {codeOn && (
+      {codeDetailsOn && (
         <div data-side-panel-code="" className="pointer-events-none -mx-1 flex min-h-0 flex-col overflow-y-auto overscroll-contain px-1 pb-1 scrollbar-hide-deep">
           <CodeChatSections />
+        </div>
+      )}
+      {/* The Code view's own For you: a coding agent's work waiting on you, as For you's cards (Liam, 11-20). */}
+      {seen.codeForYou && shared && (
+        <div data-side-panel-code-for-you="" hidden={!codeForYouOn} inert={!codeForYouOn} className="pointer-events-none relative min-h-0 flex-1">
+          <ForYouView entries={codeEntries} shared={shared} />
         </div>
       )}
       {/* The sections: as tall as their cards (down to the panel's bottom, then they scroll), a hair of room round them for their lift and focus rings. */}

@@ -6,7 +6,9 @@
  *   ComposerTabs      under the box, first: the agent's name (the chat) and Code. The repo's
  *                     ToggleGroup (Radix, type single): one radio group with
  *                     roving focus, so the arrow keys move between the two and
- *                     the one in front is announced as checked.
+ *                     the one in front is announced as checked. Code wears an
+ *                     orange dot while a coding agent's work waits on your
+ *                     review (Liam, 11-20), the Code view's own For you.
  *   CodeAgentPicker   in the box's controls row, before the mic (Code only):
  *                     who you work with. Native Intelligence, then "Your
  *                     agents" (what the chat's Mac offers), then "Needs
@@ -43,6 +45,7 @@ import { codingAgentConnectHint } from '@/lib/environments/types'
 import type { ComposerTab } from '@/lib/local-agent/code-tab'
 import { useAssistantName } from '@/lib/voice/assistant-name-store'
 import type { ComposerCode } from './composer-code'
+import { useCodeForYouEntries } from './for-you-column'
 
 const stop = (e: SyntheticEvent) => e.stopPropagation()
 
@@ -65,6 +68,8 @@ const ROW =
 
 export function ComposerTabs({ tab, onTab }: { tab: ComposerTab; onTab: (tab: ComposerTab) => void }) {
   const { name: agentName } = useAssistantName()
+  // A coding agent's work waiting on your review: the Code tab's orange dot (Liam, 11-20), listed in the Code view's own For you.
+  const waiting = useCodeForYouEntries().length
   return (
     <ToggleGroup
       type="single"
@@ -83,8 +88,18 @@ export function ComposerTabs({ tab, onTab }: { tab: ComposerTab; onTab: (tab: Co
       <ToggleGroupItem value="chat" data-composer-tab="chat" className={TAB} title={`Chat with ${agentName}`} aria-label={`Chat with ${agentName}`}>
         <span className="max-w-[9rem] truncate">{agentName}</span>
       </ToggleGroupItem>
-      <ToggleGroupItem value="code" data-composer-tab="code" className={TAB} title="Work with a coding agent directly, in a folder on your Mac">
+      <ToggleGroupItem
+        value="code"
+        data-composer-tab="code"
+        className={cn(TAB, waiting > 0 && 'gap-1.5')}
+        title={waiting > 0 ? `Code: ${waiting} waiting on your review` : 'Work with a coding agent directly, in a folder on your Mac'}
+      >
         Code
+        {waiting > 0 && (
+          <span data-composer-tab-attention="" className="size-1.5 shrink-0 rounded-full bg-orange-500">
+            <span className="sr-only">, {waiting} waiting on your review</span>
+          </span>
+        )}
       </ToggleGroupItem>
     </ToggleGroup>
   )
