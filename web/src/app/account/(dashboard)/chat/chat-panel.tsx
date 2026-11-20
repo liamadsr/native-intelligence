@@ -63,6 +63,7 @@ import { useFloatingChatCollapse, useFloatingChatExpanded, useFloatingChatForceE
 import { useChatAutoSave } from './use-chat-auto-save'
 import { useLiveConversation } from './use-live-conversation'
 import { QueuedTurnRow } from './queued-turn-row'
+import { CodeHeldRow } from './composer-code-controls'
 import {
   canSteer,
   composerTextWithQueued,
@@ -3118,6 +3119,13 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
     restoreToComposer(waiting)
   }, [setQueuedTurn, restoreToComposer, transport, chatSessionId])
 
+  /** "Edit" on a Code message held while its chat works (composer-code.tsx): its words back into the box. */
+  const takeCodeHeld = composerCode.takeHeld
+  const returnCodeHeld = useCallback(() => {
+    const text = takeCodeHeld()
+    if (text) setInput((current) => composerTextWithQueued(text, current))
+  }, [takeCodeHeld])
+
   /** "Edit" on the message waiting behind a steer. */
   const returnFollowUpTurn = useCallback(() => {
     const waiting = followUpTurnRef.current
@@ -3824,6 +3832,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
         <div className="chat-reading-col w-full px-2.5 py-2" {...{ [EMPTY_PRESS_ZONE_ATTR]: '' }}>
           <QueuedTurnRow turn={queuedTurn} onSendNow={sendQueuedTurnNow} onEdit={returnQueuedTurn} />
           <QueuedTurnRow turn={followUpTurn} onEdit={returnFollowUpTurn} after />
+          {composerCode.active && composerCode.held && <CodeHeldRow held={composerCode.held} onSendNow={composerCode.sendHeldNow} onEdit={returnCodeHeld} />}
           {replyCard && <CardReplyChip card={replyCard} onRemove={clearReplyCard} note={replyCardHeld ? CARD_REPLY_HELD_NOTE : null} />}
           {replyMessage && <MessageReplyChip reply={replyMessage} body={replyMessageBody} shape={replyMessageShape} />}
           {inputControlsMounted ? (
