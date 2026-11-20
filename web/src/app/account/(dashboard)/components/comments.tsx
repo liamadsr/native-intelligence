@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useEntityListSync } from '@/hooks/use-entity-sync'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
@@ -20,11 +20,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { MoreHorizontal, Pencil, Trash2, Reply, X, ArrowUp, ChevronDown, ChevronRight } from 'lucide-react'
+import { MoreHorizontal, Pencil, Trash2, Reply, X, ChevronDown, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { cachedJson } from '@/lib/cached-fetch'
 import { useWorkspaceId } from '@/app/account/workspace-switcher'
 import { Linkify } from '@/components/ui/linkify'
+import { ChatInput, type ChatInputUnavailable, type ChatInputVoice } from '@/app/account/(dashboard)/chat/chat-input'
+import type { ComposerMentionList, ComposerMentionOption } from '@/app/account/(dashboard)/chat/command-menu-model'
+import { useVoiceAvailability } from '@/hooks/use-voice-availability'
+import { useOptionalRecordingStable } from '@/hooks/recording-context'
+import { memberName, type Member } from '../views/team-chat-message-parts'
 
 type CommentableType = 'action' | 'capture' | 'document' | 'project' | 'contact'
 
@@ -51,6 +56,15 @@ interface CommentsProps {
    * request in the app once per step.
    */
   currentMemberId?: string | null
+}
+
+const NO_NOTES: never[] = []
+const NO_FILES: never[] = []
+const noop = () => {}
+
+/** A comment is words only: the + menu says so, and a drop or a paste is refused. */
+const COMMENT_UNAVAILABLE: ChatInputUnavailable = {
+  files: { label: 'Files and photos', reason: 'Comments take text only' },
 }
 
 const ROUTE_MAP: Record<CommentableType, string> = {
@@ -242,7 +256,8 @@ export function Comments({
   const [comments, setComments] = useState<Comment[]>([])
   const [loading, setLoading] = useState(true)
   const [body, setBody] = useState('')
-  const [submitting, setSubmitting] = useState(false)
+  // A post on its way: a second Enter meanwhile (before a render) posts nothing.
+  const submittingRef = useRef(false)
   const [replyingTo, setReplyingTo] = useState<Comment | null>(null)
   const [editing, setEditing] = useState<Comment | null>(null)
   const [editBody, setEditBody] = useState('')
@@ -251,7 +266,9 @@ export function Comments({
   const [repliesVersion, setRepliesVersion] = useState(0)
   const [fetchedMemberId, setFetchedMemberId] = useState<string | null>(null)
   const workspaceId = useWorkspaceId()
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  // The composer (the main chat's ChatInput) owns its field; this is its box, to reach the field for focus.
+  const composerRef = useRef<HTMLDivElement>(null)
+  const [members, setMembers] = useState<Member[]>([])
 
   const currentMemberId = currentMemberIdProp ?? fetchedMemberId
   const routeBase = ROUTE_MAP[commentableType]
@@ -269,6 +286,40 @@ export function Comments({
       .catch(() => {})
     return () => { cancelled = true }
   }, [currentMemberIdProp, workspaceId])
+
+  // The workspace's members, for `@` in the box (team chat's list, shared through cachedJson).
+  useEffect(() => {
+    if (!workspaceId) return
+    let cancelled = false
+    cachedJson<{ members?: Member[] }>('/api/account/workspace/members', { scope: workspaceId })
+      .then((data) => {
+        if (!cancelled) setMembers(Array.isArray(data?.members) ? data.members : [])
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [workspaceId])
+
+  // Dictation into the box, as in the main chat and team chat (the desktop
+  // app). Dictation only: no voice mode, which is a conversation with the agent.
+  const recording = useOptionalRecordingStable()
+  const availability = useVoiceAvailability({ recording: !!(recording?.isRecording || recording?.isStarting) })
+  const voice = useMemo<ChatInputVoice | undefined>(
+    () => (availability.dictation ? { availability: { ...availability, conversation: false, visible: true } } : undefined),
+    [availability],
+  )
+
+  // `@` lists the teammates (not the viewer): a pick puts "@Name" in the
+  // words. A comment is text, so nothing else rides with it, and no record
+  // search runs.
+  const mentionList = useMemo<ComposerMentionList>(
+    () => ({
+      options: members
+        .filter((m) => m.id !== currentMemberId)
+        .map<ComposerMentionOption>((m) => ({ id: m.id, label: memberName(m) })),
+      onPick: noop,
+    }),
+    [members, currentMemberId],
+  )
 
   const fetchComments = useCallback(async () => {
     const res = await fetch(`/api/account/${routeBase}/${commentableId}/comments`)
@@ -313,9 +364,9 @@ export function Comments({
 
   const handleSubmit = async () => {
     const text = body.trim()
-    if (!text || submitting) return
+    if (!text || submittingRef.current) return
 
-    setSubmitting(true)
+    submittingRef.current = true
     const payload: { body: string; parent_id?: string } = { body: text }
     if (replyingTo) payload.parent_id = replyingTo.id
 
@@ -331,7 +382,7 @@ export function Comments({
       await fetchComments()
       if (payload.parent_id) setRepliesVersion((v) => v + 1)
     }
-    setSubmitting(false)
+    submittingRef.current = false
   }
 
   const handleEdit = async () => {
@@ -372,29 +423,19 @@ export function Comments({
     }
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSubmit()
-    }
-  }
+  // The box is memoized: hand it one stable send that reads the latest draft.
+  const submitRef = useRef(handleSubmit)
+  submitRef.current = handleSubmit
+  const onComposerSubmit = useCallback(() => void submitRef.current(), [])
 
-  /**
-   * Grow the composer with its content, up to the max-height the class sets
-   * (past which it scrolls). Reset to 'auto' first so it shrinks back as text
-   * is deleted, not just grows.
-   */
-  useLayoutEffect(() => {
-    const el = textareaRef.current
-    if (!el) return
-    el.style.height = 'auto'
-    el.style.height = `${el.scrollHeight}px`
-  }, [body])
+  const focusComposer = () => {
+    requestAnimationFrame(() => composerRef.current?.querySelector('textarea')?.focus())
+  }
 
   const startReply = (comment: Comment) => {
     setReplyingTo(comment)
     setEditing(null)
-    textareaRef.current?.focus()
+    focusComposer()
   }
 
   const startEdit = (comment: Comment) => {
@@ -467,61 +508,46 @@ export function Comments({
         </p>
       )}
 
-      {/* Reply context — sits flush on top of the composer, which drops its own
-          top border and top rounding while this shows, so the two read as one
-          box rather than two stacked fields. */}
-      {replyingTo && (
-        <div className="flex items-center gap-2 rounded-t-md border border-b-0 border-input bg-muted/50 px-3 py-1.5">
-          <Reply className="h-3 w-3 text-muted-foreground" />
-          <span className="text-xs text-muted-foreground">
-            Replying to <span className="font-medium text-foreground">{replyingTo.author_name}</span>
-          </span>
-          <button
-            onClick={() => setReplyingTo(null)}
-            className="ml-auto text-muted-foreground hover:text-foreground"
-          >
-            <X className="h-3 w-3" />
-          </button>
-        </div>
-      )}
-
-      {/* Composer.
-          One bordered box containing the textarea and its actions, rather than
-          a field with a button parked outside it: the border is what reads as
-          "the comment box", so the send control belongs within it. The wrapper
-          carries the focus ring and the textarea inside is borderless, so the
-          whole thing lights up as a single control when focused. */}
-      <div
-        data-comment-composer=""
-        className={cn(
-          'rounded-md border border-input bg-background transition-colors focus-within:border-foreground/30',
-          replyingTo && 'rounded-t-none border-t-0',
+      {/* The box: the main chat's composer (ChatInput, not the main one), in
+          team chat's one-row pill ("+", the field, the mic, send). Enter
+          posts, Shift+Enter is a new line. A reply says whom it answers just
+          above the pill. */}
+      <div ref={composerRef} data-comment-composer="" className="pt-2">
+        {replyingTo && (
+          <div data-comment-replying="" className="mb-1 flex items-center gap-2 px-4 text-xs text-muted-foreground">
+            <Reply className="h-3 w-3" />
+            <span>
+              Replying to <span className="font-medium text-foreground">{replyingTo.author_name}</span>
+            </span>
+            <button
+              type="button"
+              aria-label="Cancel reply"
+              onClick={() => setReplyingTo(null)}
+              className="ml-auto hover:text-foreground"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
         )}
-      >
-        <textarea
-          ref={textareaRef}
+        <ChatInput
           value={body}
-          onChange={(e) => setBody(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Leave a comment..."
-          rows={2}
-          className="block max-h-64 min-h-[60px] w-full resize-none overflow-y-auto bg-transparent px-3 pt-2.5 text-sm outline-none placeholder:text-muted-foreground"
+          onChange={setBody}
+          onSubmit={onComposerSubmit}
+          onStop={noop}
+          isLoading={false}
+          attachedNotes={NO_NOTES}
+          onAttachNote={noop}
+          onRemoveNote={noop}
+          attachedFiles={NO_FILES}
+          onAttachFiles={noop}
+          onRemoveFile={noop}
+          unavailable={COMMENT_UNAVAILABLE}
+          placeholder={replyingTo ? `Reply to ${replyingTo.author_name || 'comment'}…` : 'Leave a comment…'}
+          mainComposer={false}
+          mentionList={mentionList}
+          voice={voice}
+          layout="inline"
         />
-        {/* Actions sit on their own row along the bottom edge, right-aligned. */}
-        <div className="flex items-center justify-end gap-1 px-2 pb-2">
-          <Button
-            size="icon"
-            variant="ghost"
-            onClick={handleSubmit}
-            disabled={!body.trim() || submitting}
-            aria-label="Send comment"
-            // Circular and filled, so the primary action reads as a button even
-            // when it sits inside the field rather than beside it.
-            className="h-7 w-7 rounded-full bg-foreground text-background hover:bg-foreground/90 hover:text-background disabled:opacity-40"
-          >
-            <ArrowUp className="h-4 w-4" />
-          </Button>
-        </div>
       </div>
 
       {/* Delete confirmation */}
