@@ -5,7 +5,8 @@ import { PageLayout, type Section } from '@/components/page-layout'
 import { EarlyAccessForm } from '@/components/early-access-form'
 import { useSignupHref } from '@/components/signup-href'
 import { IntegrationsDemo } from '@/components/landing/integrations-demo'
-import { ActionStreamDemo, CaptureDemo, ChatDemo, LiveAgentDemo } from '@/components/landing/lazy-demos'
+import { LiveAgentDemo } from '@/components/landing/lazy-demos'
+import { AppScreen } from '@/components/demo/app-screen'
 import { SlackIcon, JiraIcon, LinearIcon, AsanaIcon } from '@/components/brand-icons'
 import { isDesktopApp } from '@/lib/platform'
 import { clsx } from 'clsx'
@@ -194,17 +195,14 @@ function Hero() {
               </motion.div>
             </div>
 
-            {/* Right: action-stream demo — captured live and stacks in, mirroring
-                the main landing page's hero visual exactly. `isolate` gives it its
-                own stacking context; the compositing-layer promotion lives on the
-                ActionStreamDemo root, not this motion.div. */}
+            {/* Right: the app's own task list (components/demo/app-screen.tsx). */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.5 }}
               className="mt-16 lg:mt-12 flex-1 min-w-0 isolate"
             >
-              <ActionStreamDemo />
+              <AppScreen screen="list" />
             </motion.div>
           </div>
         </div>
@@ -288,7 +286,7 @@ function ProblemSection() {
   )
 }
 
-// Section 3: How It Works — 4-step verb chain, CaptureDemo as the visual
+// Section 3: How It Works — 4-step verb chain, a meeting's notes in the app as the visual
 function HowItWorksSection() {
   return (
     <SectionContainer id="how-it-works">
@@ -332,7 +330,7 @@ function HowItWorksSection() {
           viewport={{ once: true, margin: '-100px' }}
           transition={{ duration: 0.6 }}
         >
-          <CaptureDemo />
+          <AppScreen screen="notes" />
         </motion.div>
       </div>
     </SectionContainer>
@@ -485,7 +483,7 @@ function AgentsSection() {
           className="order-2 lg:order-1 space-y-6"
         >
           <LiveAgentDemo />
-          <ChatDemo />
+          <AppScreen screen="chat" />
         </motion.div>
         <div className="order-1 lg:order-2">
           <SectionHeader

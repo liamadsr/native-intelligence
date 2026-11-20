@@ -16,7 +16,7 @@ import { Footer } from '@/components/footer'
 import { useSignupHref } from '@/components/signup-href'
 import { PageLayout, type Section } from '@/components/page-layout'
 import { EarlyAccessForm } from '@/components/early-access-form'
-import { CaptureDemo, ChatDemo, NotesDocDemo, SpeakerIdDemo } from '@/components/landing/lazy-demos'
+import { AppScreen } from '@/components/demo/app-screen'
 import {
   GoogleCalendarIcon,
   GmailIcon,
@@ -249,24 +249,24 @@ function FeaturesSection() {
         <FeaturePanel
           title="Meticulous, organized notes"
           description="Structured notes a perfectionist would be proud of — written for you automatically the moment the meeting ends."
-          visual={<NotesDocDemo />}
+          visual={<AppScreen screen="notes" />}
         />
         <FeaturePanel
           flip
           title="Turn meetings into action"
           description="Action items are captured, assigned, and tracked after every meeting — and sent to Linear, Jira, or Asana automatically. Nothing you said you’d do gets dropped."
-          visual={<CaptureDemo variant="actions" />}
+          visual={<AppScreen screen="list" />}
         />
         <FeaturePanel
           title="Ask anything, across every meeting"
           description="Ask questions and get answers drawn from every conversation you’ve ever had."
-          visual={<ChatDemo />}
+          visual={<AppScreen screen="chat" />}
         />
         <FeaturePanel
           flip
           title="Accurate, speaker-by-speaker transcription"
           description="Every speaker identified by name — Native Intelligence recognizes voices it has met before. Technical terms handled, recording kept alongside the notes."
-          visual={<SpeakerIdDemo />}
+          visual={<AppScreen screen="transcript" />}
         />
       </div>
     </SectionContainer>
