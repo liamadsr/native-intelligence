@@ -58,7 +58,8 @@ const CloudRunView = dynamic(() => import('./cloud-run-view').then((m) => m.Clou
   ),
 })
 import { canShowCloudRunTab, cloudRunTabMarker } from './cloud-run-gate'
-import { StartAgentWith } from '@/components/environments/start-agent-with'
+import { StartAgentWith, startPlaceLabel, useStartOnMac } from '@/components/environments/start-agent-with'
+import { StartAgentWhere, unlinkedFolderSentence } from '@/components/environments/start-agent-where'
 // Lazy too: the Mac job's panel mounts its transcript stream only when opened.
 const LocalAgentPanel = dynamic(() => import('@/components/local-agent/local-agent-panel').then((m) => m.LocalAgentPanel), {
   ssr: false,
@@ -624,6 +625,11 @@ export function ActionDetailPanel({
   // while there is nothing to choose (the Start then sends none: the Mac's
   // saved choice applies). Never stored on the action: the run records it.
   const [startWorker, setStartWorker] = useState<string | null | undefined>(undefined)
+  // Where this task's Start runs (GET …/start-agent, read once here for the
+  // Start's label, "Run on" and "with"): picked per task, opening where it
+  // last ran, else on the project default, else the cloud.
+  const startPlace = useStartOnMac(action?.id ?? null, !!action?.assignee_ai_member_id, `${action?.assignee_ai_member_id ?? ''}:${action?.project_id ?? ''}`)
+  const startLabel = startPlaceLabel(startPlace, startWorker)
   // The person's own job for this action on their Mac, when a Start put one there.
   const [macJob, setMacJob] = useState<ActionMacJob | null>(null)
   // Detail panel view switcher. 'cloud' shows the run surface (coding logs or a
@@ -1464,8 +1470,18 @@ export function ActionDetailPanel({
     try {
       const res = await fetch(`/api/account/actions/${actionId}/start-agent`, {
         method: 'POST',
-        // Who does the work on the person's Mac, when they chose (StartAgentWith); none: the Mac's saved choice.
-        ...(startWorker !== undefined ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ worker: startWorker }) } : {}),
+        // A coding Start goes where "Run on" shows (this task's pick: a Mac, or
+        // null for the cloud), with who "with" shows on a Mac; anything else
+        // sends nothing, as before.
+        ...(startPlace.coding || startWorker !== undefined
+          ? {
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                ...(startPlace.coding ? { environmentId: startPlace.macId } : {}),
+                ...(startWorker !== undefined ? { worker: startWorker } : {}),
+              }),
+            }
+          : {}),
       })
       if (!res.ok) {
         const error = ((await res.json().catch(() => ({}))) as { error?: string })?.error
@@ -1743,9 +1759,14 @@ export function ActionDetailPanel({
           {/* Agent run control — only when this action is assigned to an agent.
                     Idle/failed = launch button; working/PR-opened = status icon. */}
           {/* Who does the work when Start runs on the person's Mac as a coding job (the route's own rule); nothing to choose: nothing shown, and Start sends no choice. */}
+          {/* Where this task runs (a coding Start, when the person has a Mac): picked per task; the project's "Run my work here" is its default. */}
+          {action?.assignee_ai_member_id && action.agent_run_status !== 'working' && action.agent_run_status !== 'pr_open' && (
+            <StartAgentWhere place={startPlace} enabled disabled={startingAgent} />
+          )}
           {action?.assignee_ai_member_id && action.agent_run_status !== 'working' && action.agent_run_status !== 'pr_open' && (
             <StartAgentWith
-              actionId={action.id}
+              mac={startPlace.mac}
+              remembered={startPlace.lastWorker}
               enabled
               value={startWorker}
               onChange={setStartWorker}
@@ -1776,13 +1797,14 @@ export function ActionDetailPanel({
                     </PreferenceActionButton>
                   ) : (
                     <PreferenceActionButton
-                      label="Run agent in cloud"
+                      label={startLabel}
+                      data-start-agent-place={startPlace.macId ? 'mac' : 'cloud'}
                       variant="ghost"
                       size="sm"
                       className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
                       onClick={() => handleStartAgent()}
                       disabled={startingAgent}
-                      aria-label={`Launch ${action.assignee_ai_member_name || 'agent'} to work on this task`}
+                      aria-label={`${startLabel}: launch ${action.assignee_ai_member_name || 'the agent'} to work on this task`}
                     >
                       {startingAgent ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1801,9 +1823,13 @@ export function ActionDetailPanel({
                     ? `${action.assignee_ai_member_name || 'Agent'} is working — click to view or stop the run`
                     : action.agent_run_status === 'pr_open'
                       ? `PR opened by ${action.assignee_ai_member_name || 'agent'}`
-                      : action.agent_run_status === 'failed'
-                        ? `Retry — launch ${action.assignee_ai_member_name || 'the agent'} to work on this task`
-                        : `Launch ${action.assignee_ai_member_name || 'the agent'} to start working on this task`}
+                      : [
+                          `${startLabel}: ${action.agent_run_status === 'failed' ? 'retry, launching' : 'launch'} ${action.assignee_ai_member_name || 'the agent'} to work on this task.`,
+                          // The Start would be refused for it: say so before the press.
+                          unlinkedFolderSentence(startPlace.mac, startPlace.coding?.repo),
+                        ]
+                          .filter(Boolean)
+                          .join(' ')}
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
