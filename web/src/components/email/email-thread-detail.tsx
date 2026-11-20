@@ -756,6 +756,14 @@ export function EmailThreadDetail({
               scheduledAt={message.isDraft ? scheduledAt : null}
               onDiscard={message.isDraft ? () => handleDiscardDraft(message.id) : undefined}
               discarding={discardingDraftId === message.id}
+              ownAddresses={ownAddressSet}
+              // The person's own mailbox: each file downloads through the thread's attachment route.
+              attachmentHref={
+                message.isDraft
+                  ? undefined
+                  : (file) =>
+                      `/api/account/email/threads/${encodeURIComponent(threadId)}/attachment?message=${encodeURIComponent(message.id)}&name=${encodeURIComponent(file.name)}`
+              }
             />
             </div>
           ))}

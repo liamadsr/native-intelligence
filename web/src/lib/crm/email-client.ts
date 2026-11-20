@@ -1,3 +1,4 @@
+import { parseCalendarInvite, type CalendarInvite } from '@/lib/email/calendar-invite'
 import { getValidToken, getValidTokenForAccount } from '@/lib/oauth/token-manager'
 import { isDemoWorkspace } from '@/lib/demo/demo-mode'
 import { draftRowsFor, markHoldsSending, releaseDraftRows, restoreHolds, touchHold } from '@/lib/email/hold'
@@ -44,6 +45,8 @@ export interface FullEmailMessage {
   draftStale?: boolean
   hasAttachments: boolean
   attachments: EmailAttachment[]
+  /** The calendar invitation this message carries (its text/calendar part), read for the invitation card. */
+  invite?: CalendarInvite
 }
 
 export interface FullEmailThread {
@@ -291,8 +294,19 @@ async function fetchGmailThreadFull(
       isDraft: ((msg.labelIds as string[]) || []).includes('DRAFT'),
       hasAttachments: hasGmailAttachments(payload),
       attachments: extractGmailAttachmentMetadata(payload),
+      ...gmailInvite(payload),
     }
   })
+}
+
+/**
+ * The invitation a Gmail message carries inline (its `text/calendar` part,
+ * which the thread read already holds): parsed for the card, nothing more
+ * fetched. One that only comes as an attached file is left to its chip.
+ */
+function gmailInvite(payload: Record<string, unknown>): { invite?: CalendarInvite } {
+  const invite = parseCalendarInvite(extractGmailBody(payload, 'text/calendar') ?? extractGmailBody(payload, 'application/ics'))
+  return invite ? { invite } : {}
 }
 
 function extractGmailBody(payload: Record<string, unknown>, mimeType: string): string | null {
