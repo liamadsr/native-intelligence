@@ -3542,17 +3542,17 @@ export function CaptureDetailPanel({
                                 }
                                 disabled={liveLocked && !!liveLockAgent}
                               >
-                                {/* Dot + label inside ONE wrapper span: the
-                                    SelectTrigger base applies [&>span]:line-clamp-1
-                                    to DIRECT child spans, which collapses a bare dot
-                                    span to nothing. */}
+                                {/* A div, not a span, around the icon, name and dot:
+                                    the SelectTrigger base applies [&>span]:line-clamp-1
+                                    to DIRECT child spans, which makes a span wrapper a
+                                    clamped box and breaks the row onto two lines. */}
                                 <SelectTrigger
                                   data-capture-agent-row=""
                                   aria-label="Agent for this capture"
                                   hideChevron
                                   className="h-8 min-w-0 flex-1 justify-start gap-2 rounded-md border-0 bg-transparent px-3 py-0 text-sm text-foreground/80 shadow-none transition-colors hover:bg-muted/50 focus:ring-0 focus-visible:ring-1 data-[state=open]:bg-muted/50 disabled:cursor-default disabled:opacity-100 disabled:hover:bg-transparent"
                                 >
-                                  <span className="inline-flex min-w-0 flex-1 items-center gap-2">
+                                  <div className="flex min-w-0 flex-1 items-center gap-2 text-left">
                                     <Bot className="h-4 w-4 shrink-0 text-muted-foreground" />
                                     <span className="min-w-0 truncate">
                                       {agents.find((r) => r.id === recording.agentId)?.name || 'Assistant'}
@@ -3563,9 +3563,10 @@ export function CaptureDetailPanel({
                                     {isActiveRecording && (
                                       <LiveAgentStatusDot isPaused={recording.isPaused} />
                                     )}
-                                  </span>
+                                  </div>
                                 </SelectTrigger>
-                                <SelectContent align="start" side="left">
+                                {/* Below the row: to its left would leave a narrow window (the capture window, the notepad). */}
+                                <SelectContent align="start" side="bottom" className="max-h-72">
                                   {liveLocked && liveLockAgent ? (
                                     <SelectItem value={liveLockAgent.id}>{liveLockAgent.name}</SelectItem>
                                   ) : (
@@ -3638,7 +3639,7 @@ export function CaptureDetailPanel({
                                     )}
                                   </button>
                                 </PopoverTrigger>
-                                <PopoverContent side="left" align="start" className="w-64 p-2">
+                                <PopoverContent side="bottom" align="start" className="w-64 p-2">
                                   <div className="px-1 pb-1.5 text-[11px] font-medium text-muted-foreground">
                                     Context packages for this call
                                   </div>
