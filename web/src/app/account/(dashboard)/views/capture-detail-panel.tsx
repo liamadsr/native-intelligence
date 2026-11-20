@@ -62,6 +62,8 @@ import { EntityTitleInput } from '@/components/views/entity-title-input'
 import { ProjectPanelField, type ProjectOption as PickerProjectOption } from '@/components/views/properties'
 import { usePropertiesVisible } from '@/components/views/use-properties-visible'
 import { WindowProperties, WindowActions } from '@/components/views/window-properties'
+import { PropertyGroup } from '@/components/views/property-group'
+import { OptionalProperty, PropertyRow, PropertyRows } from '@/components/views/property-layout'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
@@ -594,6 +596,8 @@ export function CaptureDetailPanel({
   const [isDragging, setIsDragging] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [attachmentRefreshKey, setAttachmentRefreshKey] = useState(0)
+  // How many files are attached, once the row knows: a row when there are some, an "Attach file" chip when none.
+  const [attachmentCount, setAttachmentCount] = useState(0)
   const dragCounterRef = useRef(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -3224,7 +3228,6 @@ export function CaptureDetailPanel({
               </Tooltip>
             </TooltipProvider>
           )}
-          <EntityActionsMenu entity={{ type: 'capture', id: captureId, label: capture?.title ?? '' }} state={{ archived: capture ? capture.status === 'archived' : null, status: capture?.status ?? null }} omit={PANEL_OMIT} />
           <CopyTranscriptButton
             isActiveRecording={isActiveRecording}
             liveIsThisCapture={holdsLiveSegments}
@@ -3234,33 +3237,27 @@ export function CaptureDetailPanel({
             demotedSelfLabels={recording.selfDemotedLabels}
           />
           <ShareDialog shareableType="capture" shareableId={captureId} />
-          {currentWorkspaceId && allWorkspaces.length > 1 && (
-            <PreferenceActionButton
-              label="Move capture to another workspace"
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 text-muted-foreground hover:text-foreground"
-              onClick={() => {
-                setMoveError(null)
-                setMoveTargetWorkspaceId(null)
-                setMoveOpen(true)
-              }}
-              title="Move to workspace…"
-              aria-label="Move capture to another workspace"
-            >
-              <ArrowRightLeft className="h-3.5 w-3.5" />
-            </PreferenceActionButton>
-          )}
-          <PreferenceActionButton
-            label="Delete capture"
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 text-muted-foreground hover:text-destructive"
-            onClick={() => setDeleteConfirm(true)}
-            title="Delete capture"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </PreferenceActionButton>
+          {/* More, last (docs/plans/properties-panels.md): the kind's menu, then
+              Move to workspace (two or more workspaces) and Delete, which were
+              a button each. */}
+          <EntityActionsMenu
+            entity={{ type: 'capture', id: captureId, label: capture?.title ?? '' }}
+            state={{ archived: capture ? capture.status === 'archived' : null, status: capture?.status ?? null }}
+            omit={PANEL_OMIT}
+            extra={[
+              !!currentWorkspaceId && allWorkspaces.length > 1 && {
+                id: 'move_to_workspace',
+                label: 'Move to workspace…',
+                icon: ArrowRightLeft,
+                onSelect: () => {
+                  setMoveError(null)
+                  setMoveTargetWorkspaceId(null)
+                  setMoveOpen(true)
+                },
+              },
+              { id: 'delete', label: 'Delete capture', icon: Trash2, danger: true, onSelect: () => setDeleteConfirm(true) },
+            ]}
+          />
         </WindowActions>
       </div>
 
@@ -3376,30 +3373,45 @@ export function CaptureDetailPanel({
                           </div>
                         )}
                         {/* Properties group */}
-                        <div className="rounded-lg overflow-hidden">
-                          <div data-properties-heading="" className="px-3 py-2 text-sm font-medium text-muted-foreground">Properties</div>
-                          <div className="overflow-hidden pb-2">
+                        {/* The shared frame (docs/plans/properties-panels.md,
+                            components/views/property-layout.tsx): the core rows
+                            (when it was, its recording, its agent, who was in
+                            it), then the optional properties that are set, then
+                            the add strip for the ones that aren't, then Activity.
+                            CSS `order` places them, so the source order below is
+                            not the order on screen. */}
+                        <PropertyGroup>
+                          <PropertyRows inset="px-3">
                             {/* Date */}
+                            <PropertyRow>
                             <div className="flex h-8 items-center gap-2 px-3 text-sm text-muted-foreground">
                               <Clock className="h-4 w-4 shrink-0" />
                               <span>{formatDate(dateStr)}</span>
                             </div>
+                            </PropertyRow>
 
                             {/* Duration */}
                             {capture.duration_seconds && capture.duration_seconds > 0 && (
+                              <PropertyRow>
                               <div className="flex h-8 items-center gap-2 px-3 text-sm text-muted-foreground">
                                 <Video className="h-4 w-4 shrink-0" />
                                 <span>{formatDuration(capture.duration_seconds)}</span>
                               </div>
+                              </PropertyRow>
                             )}
 
                             {/* A team call's notes: the call's recording, when one was saved */}
+                            <PropertyRow>
                             <CallRecordingRow metadata={capture.metadata} />
+                            </PropertyRow>
 
                             {/* A call heard by the call recorder: its audio, kept 30 days */}
+                            <PropertyRow>
                             <CallAudioRow captureId={captureId} metadata={capture.metadata} />
+                            </PropertyRow>
 
                             {/* Project */}
+                            <OptionalProperty set={!!capture.project_id}>
                             <ProjectPanelField
                               value={capture.project_id}
                               projects={projectOptions}
@@ -3408,8 +3420,10 @@ export function CaptureDetailPanel({
                               padding="px-3"
                               onOpen={onOpenEntity && ((id, name, e) => onOpenEntity('project', id, name, e))}
                             />
+                            </OptionalProperty>
 
                             {/* Event link */}
+                            <OptionalProperty set={!!capture.calendar_event_id}>
                             <Popover open={eventSearchOpen} onOpenChange={(open) => {
                               setEventSearchOpen(open)
                               if (open) {
@@ -3525,6 +3539,7 @@ export function CaptureDetailPanel({
                                 </ScrollArea>
                               </PopoverContent>
                             </Popover>
+                            </OptionalProperty>
 
                             {/* Agent — which agent runs this capture: the live agent
                                 while it records, the one Reprocess runs after. A
@@ -3534,6 +3549,7 @@ export function CaptureDetailPanel({
                                 (resolved server-side). Locked to the live persona (the
                                 Interactive Assistant or the edition's) while a capture
                                 records: no chevron, the one choice already chosen. */}
+                            <PropertyRow>
                             <div className="flex items-center">
                               <Select
                                 value={recording.agentId || ASSISTANT_SENTINEL}
@@ -3605,6 +3621,7 @@ export function CaptureDetailPanel({
                                 </TooltipProvider>
                               )}
                             </div>
+                            </PropertyRow>
 
                             {/* Packages — context packages attached to this call
                                 (mig 239), a row opening the checklist (it was a
@@ -3615,6 +3632,7 @@ export function CaptureDetailPanel({
                                 do. Shown before and during the call, not on a
                                 capture that has ended (resuming one shows it again). */}
                             {recording.liveModeEnabled && (isActiveRecording || !capture?.ended_at) && (
+                              <OptionalProperty set={capturePackageIds.length > 0}>
                               <Popover
                                 onOpenChange={(open) => {
                                   if (open) void fetchAttachablePackages()
@@ -3671,9 +3689,11 @@ export function CaptureDetailPanel({
                                   )}
                                 </PopoverContent>
                               </Popover>
+                              </OptionalProperty>
                             )}
 
                             {/* Participants */}
+                            <PropertyRow>
                             <div>
                               <div className="flex items-center">
                                 <button
@@ -3873,9 +3893,13 @@ export function CaptureDetailPanel({
                                 </div>
                               )}
                             </div>
+                            </PropertyRow>
 
-                            {/* Labels — part of Properties rather than its own group */}
+                            {/* Labels — part of Properties rather than its own group:
+                                the attached ones a row, "Add label" always a chip
+                                in the add strip. */}
                             {(capture.labels?.length ?? 0) > 0 && (
+                              <PropertyRow className="order-2">
                               <div className="space-y-1 px-3 py-1">
                                 {(capture.labels ?? []).map((l) => (
                                   <div key={l.id} className="flex items-center gap-2 text-sm">
@@ -3894,7 +3918,9 @@ export function CaptureDetailPanel({
                                   </div>
                                 ))}
                               </div>
+                              </PropertyRow>
                             )}
+                            <OptionalProperty set={false}>
                             <Popover>
                               <PopoverTrigger asChild>
                                 <button className="flex h-8 w-full items-center gap-2 rounded-md px-3 text-sm text-muted-foreground transition-colors hover:bg-muted/50">
@@ -3910,26 +3936,34 @@ export function CaptureDetailPanel({
                                 />
                               </PopoverContent>
                             </Popover>
+                            </OptionalProperty>
 
-                            {/* Attachments — a property row, like Participants */}
+                            {/* Attachments — a property row, like Participants; with
+                                none attached, an "Attach file" chip that opens the picker. */}
+                            <OptionalProperty set={attachmentCount > 0}>
                             <AttachmentsCarousel
                               variant="row"
+                              emptyAs="add"
+                              onCountChange={setAttachmentCount}
                               padding="px-3"
                               captureId={captureId}
                               refreshKey={attachmentRefreshKey}
                               onAddClick={handleAddAttachment}
                               uploading={uploading}
                             />
+                            </OptionalProperty>
 
                             {/* Activity — a property row rather than its own card */}
+                            <PropertyRow className="order-4">
                             <ActivityRow
                               createdAt={capture.created_at}
                               updatedAt={capture.updated_at}
                               formatRelativeTime={formatRelativeTime}
                               padding="px-3"
                             />
-                          </div>
-                        </div>
+                            </PropertyRow>
+                          </PropertyRows>
+                        </PropertyGroup>
 
                         {/* Transcription connection warning — shown during active recording when Deepgram is unstable */}
                         {isActiveRecording && recording.transcriptionStatus !== 'connected' && (

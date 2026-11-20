@@ -71,6 +71,8 @@ import { usePropertiesVisible } from '@/components/views/use-properties-visible'
 import { WindowProperties, WindowActions } from '@/components/views/window-properties'
 import { UnifiedViewLayout } from '@/components/views/unified-view-layout'
 import { PropertyGroup } from '@/components/views/property-group'
+import { OptionalProperty, PropertyRow, PropertyRows } from '@/components/views/property-layout'
+import { OptionalTextProperty } from '@/components/views/properties/optional-text-property'
 import { TextPropertyRow } from '@/components/views/properties/text-property-row'
 import { CopyValueButton } from '@/components/views/copy-value-button'
 import {
@@ -309,6 +311,8 @@ export function ContactDetailPanel({
   // Related data for pickers
   const [companies, setCompanies] = useState<CompanyOption[]>([])
   const [newSecondaryEmail, setNewSecondaryEmail] = useState('')
+  // The "Add email" chip was clicked: its input is showing.
+  const [addingEmail, setAddingEmail] = useState(false)
   /**
    * "Find email" is in flight — the chat strip is working on it.
    *
@@ -694,20 +698,6 @@ export function ContactDetailPanel({
           {/* Enrich from web — fills empty fields from public sources and files
                     the provenance under Enrichment in the properties sidebar. */}
           {contact && <EnrichButton onClick={enrich} busy={enriching} />}
-          {contact && <EntityActionsMenu entity={{ type: 'contact', id: contactId, label: contact.full_name }} omit={PANEL_OMIT} />}
-          {/* Find & merge duplicates */}
-          {contact && (
-            <PreferenceActionButton
-              label="Find duplicates"
-              variant="ghost"
-              size="sm"
-              className="h-7 w-7 p-0 text-muted-foreground"
-              onClick={() => setDuplicatesOpen(true)}
-              title="Find duplicates"
-            >
-              <Users className="h-3.5 w-3.5" />
-            </PreferenceActionButton>
-          )}
           {/* Share */}
           {contact && (
             <ContactShareDialog
@@ -730,16 +720,27 @@ export function ContactDetailPanel({
               }
             />
           )}
-          {/* Delete */}
-          <PreferenceActionButton
-            label="Delete contact"
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0 text-muted-foreground hover:text-red-500"
-            onClick={() => setDeleteConfirm(true)}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </PreferenceActionButton>
+          {/* Find & merge duplicates */}
+          {contact && (
+            <PreferenceActionButton
+              label="Find duplicates"
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 p-0 text-muted-foreground"
+              onClick={() => setDuplicatesOpen(true)}
+              title="Find duplicates"
+            >
+              <Users className="h-3.5 w-3.5" />
+            </PreferenceActionButton>
+          )}
+          {/* More, last (docs/plans/properties-panels.md): the kind's menu, then Delete. */}
+          {contact && (
+            <EntityActionsMenu
+              entity={{ type: 'contact', id: contactId, label: contact.full_name }}
+              omit={PANEL_OMIT}
+              extra={[{ id: 'delete', label: 'Delete contact', icon: Trash2, danger: true, onSelect: () => setDeleteConfirm(true) }]}
+            />
+          )}
         </WindowActions>
       </div>
 
@@ -979,8 +980,14 @@ export function ContactDetailPanel({
                     <div className="p-4 space-y-4">
                       {/* One Properties group — relationship, details, company
                           and follow-up were each their own titled card. */}
-                      <PropertyGroup title="Properties">
+                      {/* The shared frame (docs/plans/properties-panels.md): the core
+                          rows (type, strength, and the email with its Find email
+                          button), then the optional properties that are set, then
+                          the add strip for the ones that aren't. */}
+                      <PropertyGroup>
+                        <PropertyRows>
                         {/* Type */}
+                        <PropertyRow>
                         <EnumPanelField
                           value={contact.relationship_type}
                           options={Object.entries(TYPE_CONFIG).map(([value, label]) => ({ value, label }))}
@@ -988,40 +995,22 @@ export function ContactDetailPanel({
                           placeholder="Set type"
                           icon={<User className="h-4 w-4 shrink-0 text-muted-foreground" />}
                         />
+                        </PropertyRow>
 
                         {/* Strength */}
+                        <PropertyRow>
                         <EnumPanelField
                           value={contact.relationship_strength}
                           options={Object.entries(STRENGTH_CONFIG).map(([value, cfg]) => ({ value, label: cfg.label, dot: cfg.dot }))}
                           onChange={(v) => patchContact({ relationship_strength: v })}
                           placeholder="Set strength"
                         />
-                        {/* Text rows share TextPropertyRow: icon, inline
-                            input, hover copy button, enrichment mark. */}
-                        <TextPropertyRow
-                          icon={<MapPin className="h-4 w-4 shrink-0 text-muted-foreground" />}
-                          value={contact.job_title}
-                          onChange={(v) => setContact({ ...contact, job_title: v })}
-                          onCommit={(v) => patchContact({ job_title: v || null })}
-                          placeholder="Job title"
-                          adornment={
-                            <EnrichedFieldMark enrichment={contact.metadata?.enrichment} field="job_title" />
-                          }
-                        />
-                        <TextPropertyRow
-                          icon={<Building2 className="h-4 w-4 shrink-0 text-muted-foreground" />}
-                          value={contact.department}
-                          onChange={(v) => setContact({ ...contact, department: v })}
-                          onCommit={(v) => patchContact({ department: v || null })}
-                          placeholder="Department"
-                          adornment={
-                            <EnrichedFieldMark enrichment={contact.metadata?.enrichment} field="department" />
-                          }
-                        />
+                        </PropertyRow>
                         {/* The email row carries the one affordance the other
                             rows don't: when it's EMPTY, a "Find email" button
                             that hands the contact to the find-email skill in
                             the chat strip. */}
+                        <PropertyRow>
                         <TextPropertyRow
                           icon={<Mail className="h-4 w-4 shrink-0 text-muted-foreground" />}
                           value={contact.email}
@@ -1034,10 +1023,11 @@ export function ContactDetailPanel({
                             )
                           }
                         />
+                        </PropertyRow>
 
                         {/* Secondary Emails */}
                         {contact.secondary_emails.map((se, i) => (
-                          <div key={i} className="group/row flex h-8 items-center gap-2 px-2">
+                          <div key={i} className="group/row order-1 flex h-8 w-full min-w-0 items-center gap-2 px-2">
                             <Mail className="h-4 w-4 shrink-0 text-muted-foreground/50" />
                             <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">{se}</span>
                             <CopyValueButton value={se} label="Email" />
@@ -1053,12 +1043,40 @@ export function ContactDetailPanel({
                             </button>
                           </div>
                         ))}
+                        {/* Text rows share TextPropertyRow: icon, inline
+                            input, hover copy button, enrichment mark. */}
+                        <OptionalTextProperty
+                          icon={<MapPin className="h-4 w-4 shrink-0 text-muted-foreground" />}
+                          value={contact.job_title}
+                          onChange={(v) => setContact({ ...contact, job_title: v })}
+                          onCommit={(v) => patchContact({ job_title: v || null })}
+                          placeholder="Job title"
+                          adornment={
+                            <EnrichedFieldMark enrichment={contact.metadata?.enrichment} field="job_title" />
+                          }
+                        />
+                        <OptionalTextProperty
+                          icon={<Building2 className="h-4 w-4 shrink-0 text-muted-foreground" />}
+                          value={contact.department}
+                          onChange={(v) => setContact({ ...contact, department: v })}
+                          onCommit={(v) => patchContact({ department: v || null })}
+                          placeholder="Department"
+                          adornment={
+                            <EnrichedFieldMark enrichment={contact.metadata?.enrichment} field="department" />
+                          }
+                        />
+                        {/* Another address: a chip in the add strip that opens the
+                            input (Enter adds it). */}
+                        <OptionalProperty set={addingEmail || !!newSecondaryEmail}>
+                        {addingEmail || newSecondaryEmail ? (
                         <div className="flex h-8 items-center gap-2 px-2">
                           <Plus className="h-4 w-4 shrink-0 text-muted-foreground/50" />
                           <input
+                            autoFocus
                             className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
                             value={newSecondaryEmail}
                             onChange={(e) => setNewSecondaryEmail(e.target.value)}
+                            onBlur={() => setAddingEmail(false)}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter' && newSecondaryEmail.trim()) {
                                 const updated = [...contact.secondary_emails, newSecondaryEmail.trim().toLowerCase()]
@@ -1070,15 +1088,26 @@ export function ContactDetailPanel({
                             placeholder="Add email..."
                           />
                         </div>
+                        ) : (
+                        <button
+                          type="button"
+                          onClick={() => setAddingEmail(true)}
+                          className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm text-muted-foreground transition-colors hover:bg-muted/50"
+                        >
+                          <Plus className="h-4 w-4 shrink-0" />
+                          <span>Add email</span>
+                        </button>
+                        )}
+                        </OptionalProperty>
 
-                        <TextPropertyRow
+                        <OptionalTextProperty
                           icon={<Phone className="h-4 w-4 shrink-0 text-muted-foreground" />}
                           value={contact.phone}
                           onChange={(v) => setContact({ ...contact, phone: v })}
                           onCommit={(v) => patchContact({ phone: v || null })}
                           placeholder="Phone"
                         />
-                        <TextPropertyRow
+                        <OptionalTextProperty
                           icon={<ExternalLink className="h-4 w-4 shrink-0 text-muted-foreground" />}
                           value={contact.linkedin_url}
                           onChange={(v) => setContact({ ...contact, linkedin_url: v })}
@@ -1088,6 +1117,7 @@ export function ContactDetailPanel({
                             <EnrichedFieldMark enrichment={contact.metadata?.enrichment} field="linkedin_url" />
                           }
                         />
+                        <OptionalProperty set={!!contact.company?.id}>
                         <CompanyPanelField
                           value={contact.company?.id ?? null}
                           companies={companyOptions}
@@ -1103,6 +1133,8 @@ export function ContactDetailPanel({
                           }}
                           placeholder="Set company"
                         />
+                        </OptionalProperty>
+                        <OptionalProperty set={!!followupDate}>
                         <Popover>
                           <PopoverTrigger asChild>
                             <button className={cn(
@@ -1124,12 +1156,14 @@ export function ContactDetailPanel({
                             )}
                           </PopoverContent>
                         </Popover>
+                        </OptionalProperty>
 
                         {/* Free-text tags used to be edited here. The UI is gone
                             pending CRM moving onto the shared Labels system; the
                             `tags` column, its API, filtering and AI tools all
                             stay, so the existing values are preserved for that
                             migration. */}
+                        </PropertyRows>
                       </PropertyGroup>
 
                       {/* Enrichment status + a pointer to the Details tab,
