@@ -11,7 +11,6 @@ import { useState, type ReactNode } from 'react'
 import { Check, ChevronsUpDown } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
-import { cn } from '@/lib/utils'
 import { CREATE_TYPE_GROUPS, type CreateTypeDef, type CreateTypeId } from '@/lib/create/create-types'
 
 export interface CreateTypeOption extends CreateTypeDef {
@@ -64,7 +63,8 @@ export function CreateTypePicker({
                     <span className="flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground">{opt.icon}</span>
                     <span className="min-w-0 flex-1 truncate text-sm">{opt.label}</span>
                     {opt.opensPage && <span className="shrink-0 text-[10px] text-muted-foreground">Opens page</span>}
-                    <Check className={cn('h-3.5 w-3.5 shrink-0', value === opt.id ? 'opacity-100' : 'opacity-0')} />
+                    {/* Only the current type (the item's own svg style would show a hidden one). */}
+                    {value === opt.id ? <Check className="h-3.5 w-3.5 shrink-0" /> : <span aria-hidden className="h-3.5 w-3.5 shrink-0" />}
                   </CommandItem>
                 ))}
               </CommandGroup>
