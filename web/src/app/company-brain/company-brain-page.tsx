@@ -202,7 +202,7 @@ function Hero() {
               transition={{ duration: 0.6, delay: 0.5 }}
               className="mt-16 lg:mt-12 flex-1 min-w-0 isolate"
             >
-              <AppScreen screen="list" />
+              <AppScreen screen="list" cut />
             </motion.div>
           </div>
         </div>
@@ -330,7 +330,7 @@ function HowItWorksSection() {
           viewport={{ once: true, margin: '-100px' }}
           transition={{ duration: 0.6 }}
         >
-          <AppScreen screen="notes" />
+          <AppScreen screen="notes" cut />
         </motion.div>
       </div>
     </SectionContainer>
@@ -483,7 +483,7 @@ function AgentsSection() {
           className="order-2 lg:order-1 space-y-6"
         >
           <LiveAgentDemo />
-          <AppScreen screen="chat" />
+          <AppScreen screen="chat" cut />
         </motion.div>
         <div className="order-1 lg:order-2">
           <SectionHeader

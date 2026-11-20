@@ -55,6 +55,13 @@ interface Screen {
    * (components/demo/demo-shell.tsx), so they are saved with the recording.
    */
   then?: string[]
+  /**
+   * Take the picture from the demo itself (/demo/app, once the recording is written), not from
+   * the signed-in app. For the home chat: beside it the demo draws the Recent panel, which the
+   * signed-in app at that moment did not, and the conversation sits further right for it. The
+   * picture stands in for the demo, so it has to be of the same layout.
+   */
+  picture?: 'demo'
   /** The window the screen is drawn in, where a slot narrower than the hero's wants one (default 1440 x 900). */
   window?: { width: number; height: number }
 }
@@ -68,7 +75,7 @@ const SCREENS: Record<string, Screen> = {
   knowledge: { steps: [{ search: 'Knowledge' }], target: { type: 'page', slug: 'knowledge' } },
   contact: { steps: [{ search: 'Maya Okafor' }], target: { type: 'contact', title: 'Maya Okafor' }, window: WINDOW },
   // The same app in the narrower window, for the pages whose demos sit in a column.
-  chat: { steps: [], chat: 'memory', window: WINDOW },
+  chat: { steps: [], chat: 'memory', window: WINDOW, picture: 'demo' },
   // The list's columns need the room: a wider window than the other column screens.
   list: { steps: [{ click: 'My Actions' }], window: { width: 1280, height: 800 } },
   notes: { steps: [{ search: 'Kickoff: Larkspur' }], target: { type: 'capture', title: MEETING }, window: WINDOW },
@@ -220,7 +227,7 @@ async function main() {
   mkdirSync(OUT, { recursive: true })
   const only = process.argv.slice(2).filter((a) => !a.startsWith('--'))
 
-  for (const [name, { steps, target: wanted, chat, then, window: size }] of Object.entries(SCREENS)) {
+  for (const [name, { steps, target: wanted, chat, then, window: size, picture }] of Object.entries(SCREENS)) {
     keepChat = Boolean(chat)
     if (only.length && !only.includes(name)) continue
     const { data, error } = await admin.auth.admin.generateLink({ type: 'magiclink', email: DEMO_USER_EMAIL })
@@ -307,6 +314,17 @@ async function main() {
     const out = JSON.stringify({ open, target, ...(then?.length ? { then } : {}), answers })
     assertMadeUp(name, out)
     writeFileSync(`${OUT}/${name}.json`, out)
+    if (picture === 'demo') {
+      // Signed out, in a context of its own: the demo as a visitor's frame draws it.
+      const demo = await browser.newContext({ viewport: size ?? { width: 1440, height: 900 }, deviceScaleFactor: 2, colorScheme: 'dark', timezoneId: 'America/Los_Angeles' })
+      const view = await demo.newPage()
+      await view.goto(`${ORIGIN}/demo/app?screen=${name}`, { waitUntil: 'load', timeout: 180_000 })
+      await view.waitForTimeout(20_000)
+      const drawn = await view.screenshot({ type: 'png' })
+      await sharp(drawn).webp({ quality: 82 }).toFile(`${POSTERS}/${name}.webp`)
+      if (SHOTS) writeFileSync(`${SHOTS}/demo-rec-${name}.png`, drawn)
+      await demo.close()
+    }
     console.log(`${name}: ${Object.keys(answers).length} answers, ${out.length} bytes, ${open ? 'open request saved' : target ? 'target saved' : chat ? 'the home chat' : 'NOTHING TO OPEN IT WITH'}`)
   }
   await browser.close()
