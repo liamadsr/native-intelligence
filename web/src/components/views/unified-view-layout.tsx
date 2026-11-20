@@ -9,6 +9,7 @@ import { ENTITY_PLURAL } from './view-tabs'
 import { ViewList } from './view-list'
 import { ViewBoard } from './view-board'
 import { CardHeaderSlot } from '@/components/chat-cards/card-header-slot'
+import { isLazyGroup } from '@/lib/views/lazy-done-groups'
 import { defaultConfig, spansWorkspaces, useView, useViewConfig, useViewResults, type CardConfigSource, type ViewConfig } from './hooks/use-view'
 import { CARD_SEARCHABLE_ENTITIES } from '@/lib/chat-cards/kinds'
 import { useShowAllWorkspaces } from '@/lib/workspace-span'
@@ -670,7 +671,7 @@ export function UnifiedViewLayout({
   // A background tab's list holds its query until the tab is activated (perf
   // plan 2.2); cached rows still render meanwhile. Tab-active, NOT drawn:
   // tucking the windows must not delay a first load.
-  const { data, loading, loadingMore, totalCount, hasMore, loadMore, refetch, updateItem, moveItemBetweenGroups, removeItem } = useViewResults(activeViewId, config, effectiveEntityType, teamId, queryFilters, activeSearch, !isGraph)
+  const { data, loading, loadingMore, totalCount, hasMore, loadMore, refetch, updateItem, moveItemBetweenGroups, removeItem, loadGroup, lazyGroupState } = useViewResults(activeViewId, config, effectiveEntityType, teamId, queryFilters, activeSearch, !isGraph)
 
   /**
    * The filters the graph draws — the same merged set the row query would have
@@ -951,7 +952,10 @@ export function UnifiedViewLayout({
         } else if (groupField === 'status_id') {
           // Prefer the server-injected group metadata (works for empty
           // columns); fall back to sampling an existing item's workflow_state.
+          // A finished group not loaded (lib/views/lazy-done-groups.ts) names
+          // every member state, so a card from any team finds its column there.
           const metaMatch = groups.find(g => g.metadata?.status_id === newValue)
+            ?? groups.find(g => isLazyGroup(g) && (g.metadata?.status_ids as string[] | undefined)?.includes(newValue as string))
           if (metaMatch) {
             toKey = metaMatch.key
           } else {
@@ -2077,6 +2081,8 @@ export function UnifiedViewLayout({
             flowStatusIds={flowStatusIds}
             treeEnabled={treeEnabled}
             getChildren={getChildren}
+            onLoadGroup={loadGroup}
+            groupLoadState={lazyGroupState}
           />
         ) : (
           <ViewBoard
@@ -2098,6 +2104,8 @@ export function UnifiedViewLayout({
             checkedIds={bulkSelection.selectedIds}
             onToggleCheck={bulkSelection.toggle}
             flowStatusIds={flowStatusIds}
+            onLoadGroup={loadGroup}
+            groupLoadState={lazyGroupState}
           />
         )}
       </div>

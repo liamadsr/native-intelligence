@@ -1,6 +1,7 @@
 'use client'
 
 import { DEFAULT_ACTION_COMPLETED_FILTER, completedFilterOfView, type CompletedFilter } from '@/lib/views/completed-window'
+import { LAZY_GROUP_PAGE_SIZE, carryLazyItems, isLazyGroup, mergeGroupPage, wantsLazyDoneGroups, withCountDelta } from '@/lib/views/lazy-done-groups'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useWorkspaceId } from '@/app/account/workspace-switcher'
 import type {
@@ -1279,6 +1280,14 @@ export function useViewResults(
     capture_scope: activeViewId ? null : (config.capture_scope === 'mine' || config.capture_scope === 'shared' ? config.capture_scope : null),
     // Free-text search term — forwarded to the server query engine
     search: search || undefined,
+    // Finished status groups as counts, rows loaded when opened
+    // (lib/views/lazy-done-groups.ts). Omitted for every other list, so its
+    // body is unchanged byte for byte.
+    lazy_done_groups: wantsLazyDoneGroups({
+      entity_type: entityType,
+      grouping: config.grouping,
+      sub_grouping: config.layout === 'board' ? null : config.sub_grouping,
+    }) || undefined,
   }), [activeViewId, entityType, teamId, mergedFilters, config.ordering,
        config.grouping, config.sub_grouping, config.layout, config.show_completed,
        config.completed_filter, config.action_scope, config.crm_scope, config.capture_scope,
@@ -1300,6 +1309,17 @@ export function useViewResults(
   const [totalCount, setTotalCount] = useState(cached?.totalCount ?? 0)
   const pageRef = useRef(1)
   const hasMoreRef = useRef(true)
+  // The rows the list holds now, for the finished groups' loads (read in callbacks).
+  const dataRef = useRef(data)
+  dataRef.current = data
+  // Per finished group (lib/views/lazy-done-groups.ts): the pages loaded, whether
+  // more remain, and a token so a superseded load never writes. Belongs to one
+  // query: cleared when the query changes (lazyKeyRef).
+  const lazyGroupsRef = useRef(new Map<string, { page: number; hasMore: boolean; loading: boolean; token: number }>())
+  const lazyKeyRef = useRef<string | null>(null)
+  // Set below, once fetchGroupRows exists: doFetch reads it after a refetch.
+  const reloadOpenedGroupsRef = useRef<(groups: GroupedResults[]) => void>(() => {})
+  const [lazyGroupState, setLazyGroupState] = useState<Record<string, { loading: boolean; hasMore: boolean; loaded: boolean }>>({})
 
   // Page-1 request lease (was a per-instance AbortController) + generation
   // counter — guarantees only the latest fetch ever writes to state,
@@ -1370,7 +1390,14 @@ export function useViewResults(
             })
           })
         } else if (body.grouping) {
-          setData(newItems)
+          if (body.lazy_done_groups && lazyKeyRef.current === cacheKey) {
+            // A refetch of the same list: the finished groups the person
+            // opened keep their rows until their own reload (below) lands.
+            setData(prev => carryLazyItems(prev as GroupedResults[], newItems as unknown as GroupedResults[]))
+            reloadOpenedGroupsRef.current(newItems as unknown as GroupedResults[])
+          } else {
+            setData(newItems)
+          }
           // Write to cache after successful page-1 fetch
           if (!append) writeViewCache(cacheKey, newItems, json.total ?? 0)
         } else {
@@ -1426,6 +1453,14 @@ export function useViewResults(
     hasMoreRef.current = true
     genRef.current += 1
 
+    // A different query: the finished groups opened on the last one are not
+    // this one's.
+    if (lazyKeyRef.current !== key) {
+      lazyKeyRef.current = key
+      lazyGroupsRef.current = new Map()
+      setLazyGroupState({})
+    }
+
     // When queryKey changes (e.g. switching views), seed from cache or clear
     if (prevQueryKeyRef.current !== key) {
       prevQueryKeyRef.current = key
@@ -1470,6 +1505,83 @@ export function useViewResults(
     pageRef.current = nextPage
     doFetch(queryBodyRef.current, nextPage, true, genRef.current, queryKeyRef.current, true)
   }, [doFetch, loadingMore])
+
+  const publishLazyState = useCallback(() => {
+    const next: Record<string, { loading: boolean; hasMore: boolean; loaded: boolean }> = {}
+    for (const [k, v] of lazyGroupsRef.current) next[k] = { loading: v.loading, hasMore: v.hasMore, loaded: v.page > 0 }
+    setLazyGroupState(next)
+  }, [])
+
+  /**
+   * A finished group's rows: its next page (`reload: false`), or every page
+   * it had again (`reload: true`, after a refetch). The same query as the
+   * list, narrowed to the group's states, flat, so the rows are exactly the
+   * ones the group's count counted. Never touches another group.
+   */
+  const fetchGroupRows = useCallback(async (key: string, opts: { reload: boolean; groups?: GroupedResults[] }) => {
+    const groups = (opts.groups ?? dataRef.current) as GroupedResults[]
+    const group = Array.isArray(groups) ? groups.find(g => g.key === key) : undefined
+    if (!group || !isLazyGroup(group)) return
+    const statusIds = group.metadata?.status_ids as string[] | undefined
+    if (!statusIds?.length) return
+    const prev = lazyGroupsRef.current.get(key) ?? { page: 0, hasMore: true, loading: false, token: 0 }
+    if (!opts.reload && (prev.loading || !prev.hasMore)) return
+    if (opts.reload && prev.page === 0) return
+    const token = prev.token + 1
+    // A reload asks for everything it had at once (up to the route's flat cap).
+    const perPageNow = opts.reload ? Math.min(200, prev.page * LAZY_GROUP_PAGE_SIZE) : LAZY_GROUP_PAGE_SIZE
+    const pageNow = opts.reload ? 1 : prev.page + 1
+    const forKey = queryKeyRef.current
+    lazyGroupsRef.current.set(key, { ...prev, loading: true, token })
+    publishLazyState()
+    const body = {
+      ...queryBodyRef.current,
+      grouping: null,
+      sub_grouping: null,
+      lazy_done_groups: undefined,
+      status_ids: statusIds,
+      page: pageNow,
+      per_page: perPageNow,
+    }
+    let rows: Record<string, unknown>[] | null = null
+    try {
+      const json = await postViewQuery(JSON.stringify(body))
+      rows = json ? ((json.data || []) as Record<string, unknown>[]) : null
+    } catch {
+      rows = null
+    }
+    const current = lazyGroupsRef.current.get(key)
+    // Superseded (a newer load of this group, or another query now): drop it.
+    if (forKey !== queryKeyRef.current || !current || current.token !== token) return
+    if (!rows) {
+      lazyGroupsRef.current.set(key, { ...current, loading: false })
+      publishLazyState()
+      return
+    }
+    const loaded = rows
+    setData(d => mergeGroupPage(d as GroupedResults[], key, loaded, { replace: opts.reload }))
+    lazyGroupsRef.current.set(key, {
+      page: opts.reload ? prev.page : pageNow,
+      hasMore: loaded.length >= perPageNow,
+      loading: false,
+      token,
+    })
+    publishLazyState()
+  }, [publishLazyState])
+
+  /** Open a finished group: its first page, or the next one. */
+  const loadGroup = useCallback((key: string) => {
+    void fetchGroupRows(key, { reload: false })
+  }, [fetchGroupRows])
+
+  // After a refetch, every finished group the person opened is read again
+  // (the refetch sent it without rows). Through a ref: doFetch is declared
+  // above fetchGroupRows.
+  reloadOpenedGroupsRef.current = (groups: GroupedResults[]) => {
+    for (const [key, st] of lazyGroupsRef.current) {
+      if (st.page > 0) void fetchGroupRows(key, { reload: true, groups })
+    }
+  }
 
   const updateItem = useCallback((id: string, fields: Record<string, unknown>) => {
     setData(prev => {
@@ -1537,12 +1649,13 @@ export function useViewResults(
       const denormalized = deriveDenormalizedFields(groups, toGroupKey, groupField, fields)
       const updatedItem = { ...movedItem, ...fields, ...denormalized }
 
+      // A finished group's count moves with the card (its rows may not be loaded).
       const next = groups.map(group => {
         if (group.key === actualFromKey) {
-          return { ...group, items: group.items.filter(it => it.id !== id) }
+          return withCountDelta({ ...group, items: group.items.filter(it => it.id !== id) }, -1)
         }
         if (group.key === toGroupKey) {
-          return { ...group, items: [...group.items, updatedItem] }
+          return withCountDelta({ ...group, items: [...group.items, updatedItem] }, 1)
         }
         return group
       })
@@ -1572,10 +1685,10 @@ export function useViewResults(
   const removeItem = useCallback((id: string) => {
     setData(prev => {
       if (config.grouping) {
-        return (prev as GroupedResults[]).map(group => ({
-          ...group,
-          items: group.items.filter(item => item.id !== id),
-        }))
+        return (prev as GroupedResults[]).map(group => {
+          if (!group.items.some(item => item.id === id)) return group
+          return withCountDelta({ ...group, items: group.items.filter(item => item.id !== id) }, -1)
+        })
       }
       return (prev as Record<string, unknown>[]).filter(item => item.id !== id)
     })
@@ -1614,6 +1727,10 @@ export function useViewResults(
     updateItem,
     moveItemBetweenGroups,
     removeItem,
+    /** Finished groups (lib/views/lazy-done-groups.ts): open one, or load its next page. */
+    loadGroup,
+    /** Per finished group: loading, more to load, loaded at all. */
+    lazyGroupState,
   }
 }
 

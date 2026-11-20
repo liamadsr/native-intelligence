@@ -45,6 +45,7 @@ import { DEFAULT_CURRENCY, type CustomFieldType } from '@/lib/crm/custom-field-t
 // components can import it without pulling in this server-side module.
 import { applyVisibilityFence, companyNeedsFenceEmbed, COMPANY_FENCE_SELECT, type VisibilityFence } from './visibility-fence'
 import { flowRowForViewer } from '@/lib/flows/types'
+import type { DoneState } from './lazy-done-groups'
 import { completedFilterOfView, completedWindowStart, normalizeCompletedFilter } from './completed-window'
 export { NO_MATCH_FILTER_VALUE } from './types'
 
@@ -398,6 +399,12 @@ export interface QueryOptions {
    * client, where RLS already does this.
    */
   visibility?: VisibilityFence
+  /**
+   * Count only (`head`): the same filters, no rows. Honoured for `action`,
+   * where the views route counts a status group it does not load (the
+   * finished groups, loaded only when opened: lazyDoneGroups).
+   */
+  countOnly?: boolean
 }
 
 export function buildEntityQuery(
@@ -443,7 +450,7 @@ function buildUnfencedEntityQuery(
 
       const q = supabase
         .from('actions')
-        .select(ACTION_VIEW_SELECT, { count: 'exact' })
+        .select(ACTION_VIEW_SELECT, { count: 'exact', ...(options?.countOnly ? { head: true } : {}) })
       if (personal) q.in('workspace_id', personal.workspaceIds)
       else q.eq('workspace_id', workspaceId)
       q.is('parent_id', null) // top-level actions only by default
@@ -1910,6 +1917,31 @@ export async function doneStateIds(supabase: SupabaseClient, workspaceId: Worksp
   return (doneStates || [])
     .filter((s) => inScope.has((s.team as unknown as { workspace_id: string })?.workspace_id))
     .map((s) => s.id)
+}
+
+/**
+ * The completed and canceled states in scope, with what a status grouping keys
+ * them by (lazy-done-groups.ts). Fenced like scopedWorkflowStates; narrowed to
+ * one team when the list is a team's.
+ */
+export async function doneStatesInScope(
+  supabase: SupabaseClient,
+  workspaceId: WorkspaceScopeIds,
+  teamId?: string | null,
+): Promise<DoneState[]> {
+  const base = supabase
+    .from('workflow_state')
+    .select('id, name, category, sort_order, team_id, team:team!team_id!inner(workspace_id)')
+  const fenced = typeof workspaceId === 'string'
+    ? base.eq('team.workspace_id', workspaceId)
+    : base.in('team.workspace_id', [...workspaceId])
+  const scoped = teamId ? fenced.eq('team_id', teamId) : fenced
+  const { data, error } = await scoped.in('category', DONE_CATEGORIES)
+  if (error) throw error
+  const inScope = scopeIdSet(workspaceId)
+  return ((data || []) as unknown as Array<DoneState & { team: { workspace_id: string } | null }>)
+    .filter((s) => inScope.has(s.team?.workspace_id ?? ''))
+    .map(({ id, name, category, sort_order, team_id }) => ({ id, name, category, sort_order, team_id }))
 }
 
 /** The workflow categories a finished action is in. */

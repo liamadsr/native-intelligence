@@ -13,6 +13,7 @@ import type { PickerContext } from './properties'
 import { FlowIndicator } from './flow-indicator'
 import { flowsForStatusIds, type FlowStatusMap, type FlowRef } from './hooks/use-flow-status-ids'
 import { statusIdsForGroup } from './group-status-ids'
+import { groupCount, isLazyGroup, type GroupLoadState } from '@/lib/views/lazy-done-groups'
 
 /** Enabled flows attached to a status group (only when grouping by status). */
 function flowsForGroup(group: GroupedResults, flowStatusIds?: FlowStatusMap): FlowRef[] {
@@ -52,7 +53,15 @@ interface ViewListProps {
   treeEnabled?: boolean
   /** Fetcher for a parent's children. Called once per expand; results are cached. */
   getChildren?: (parentId: string) => Promise<Record<string, unknown>[]>
+  /**
+   * A finished group's rows (lib/views/lazy-done-groups.ts): such a group
+   * starts collapsed with its count, and its first page loads when expanded,
+   * the next ones as its tail scrolls in.
+   */
+  onLoadGroup?: (groupKey: string) => void
+  groupLoadState?: Record<string, GroupLoadState>
 }
+
 
 export function ViewList({
   entityType, data, loading, loadingMore, hasMore, onLoadMore,
@@ -61,6 +70,7 @@ export function ViewList({
   onPatch, pickerContext, canEdit,
   flowStatusIds,
   treeEnabled, getChildren,
+  onLoadGroup, groupLoadState,
 }: ViewListProps) {
   // Only show ⚡ when the list is grouped by workflow_state status; for any
   // other grouping field a status flow has no relationship to the group.
@@ -110,6 +120,8 @@ export function ViewList({
             canEdit={canEdit}
             onComposeChange={onGroupedComposeChange}
             flows={showFlowIndicators ? flowsForGroup(group, flowStatusIds) : undefined}
+            onLoadGroup={onLoadGroup}
+            loadState={groupLoadState?.[group.key]}
           />
         ))}
         {(data as GroupedResults[]).length === 0 && <EmptyState />}
@@ -432,6 +444,7 @@ function GroupSection({
   group, entityType, displayProperties, selectedItemId, onItemSelect,
   selectionActive, checkedIds, onToggleCheck,
   onPatch, pickerContext, canEdit, onComposeChange, flows,
+  onLoadGroup, loadState,
 }: {
   group: GroupedResults
   entityType: ViewEntityType
@@ -452,16 +465,30 @@ function GroupSection({
    */
   onComposeChange?: (itemId: string, composing: boolean) => void
   flows?: FlowRef[]
+  onLoadGroup?: (groupKey: string) => void
+  loadState?: GroupLoadState
 }) {
-  const [collapsed, setCollapsed] = React.useState(false)
+  // A finished group whose rows are not loaded starts collapsed, with its
+  // count: opening it is what loads it (lib/views/lazy-done-groups.ts).
+  const lazy = isLazyGroup(group) && !!onLoadGroup
+  const [collapsed, setCollapsed] = React.useState(lazy)
+  const toggle = () => setCollapsed(!collapsed)
+  // Open and not loaded: load it. On expand, and again when the list's query
+  // changes under an open group (a new filter starts its pages over).
+  const needsLoad = lazy && !collapsed && !loadState?.loaded && !loadState?.loading
+  React.useEffect(() => {
+    if (needsLoad) onLoadGroup!(group.key)
+  }, [needsLoad, onLoadGroup, group.key])
 
   return (
     <div>
       {/* Its chevron in the rows' checkbox gutter, its label on the rows' line (entity-row.tsx ROW_GUTTER_PX). */}
       <div className="flex items-center w-full pl-[18px] pr-4 py-2 hover:bg-muted/30 transition-colors group">
         <button
-          onClick={() => setCollapsed(!collapsed)}
+          onClick={toggle}
           className="flex items-center gap-2 text-left"
+          aria-expanded={!collapsed}
+          data-lazy-group={lazy ? group.key : undefined}
         >
           <ChevronRight className={cn(
             'h-3.5 w-3.5 text-muted-foreground transition-transform duration-150',
@@ -469,7 +496,7 @@ function GroupSection({
           )} />
           <span className="text-sm font-medium">{group.label}</span>
           <span className="text-xs text-muted-foreground ml-1">
-            {group.items?.length ?? 0}
+            {groupCount(group)}
           </span>
         </button>
         {flows && flows.length > 0 && <FlowIndicator flows={flows} className="ml-2" />}
@@ -512,10 +539,60 @@ function GroupSection({
               onComposeChange={onComposeChange}
             />
           )}
+          {lazy && (
+            <LazyGroupTail
+              groupKey={group.key}
+              count={groupCount(group)}
+              shown={group.items?.length ?? 0}
+              loadState={loadState}
+              onLoadGroup={onLoadGroup!}
+            />
+          )}
         </div>
       )}
     </div>
   )
+}
+
+/**
+ * The end of an opened finished group: loading, or the next page as the tail
+ * scrolls in (with a button for when it does not scroll).
+ */
+function LazyGroupTail({ groupKey, count, shown, loadState, onLoadGroup }: {
+  groupKey: string
+  count: number
+  shown: number
+  loadState?: GroupLoadState
+  onLoadGroup: (groupKey: string) => void
+}) {
+  const sentinelRef = React.useRef<HTMLDivElement>(null)
+  const more = !!loadState?.loaded && loadState.hasMore && !loadState.loading
+  React.useEffect(() => {
+    if (!more) return
+    const el = sentinelRef.current
+    if (!el || typeof IntersectionObserver === 'undefined') return
+    const io = new IntersectionObserver(
+      entries => { if (entries.some(e => e.isIntersecting)) onLoadGroup(groupKey) },
+      { rootMargin: '400px 0px' },
+    )
+    io.observe(el)
+    return () => io.disconnect()
+  }, [more, groupKey, onLoadGroup])
+
+  if (loadState?.loading || !loadState?.loaded) {
+    return <div className="py-2 pl-[30px] text-xs text-muted-foreground" data-lazy-group-loading="">Loading…</div>
+  }
+  if (more) {
+    return (
+      <div ref={sentinelRef} className="py-1.5 pl-[30px]">
+        <button type="button" onClick={() => onLoadGroup(groupKey)} className="text-xs text-muted-foreground hover:text-foreground">
+          Show more ({Math.max(0, count - shown)})
+        </button>
+      </div>
+    )
+  }
+  if (shown === 0) return <div className="py-2 pl-[30px] text-xs text-muted-foreground">No items</div>
+  return null
 }
 
 // ── Group items (progressive rendering) ────────────────────
