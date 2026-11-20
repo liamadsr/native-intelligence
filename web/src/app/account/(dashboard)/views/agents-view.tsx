@@ -45,6 +45,7 @@ import {
   type EditorForm,
 } from './agents/item-dialogs'
 import { AgentEditorDialog } from '@/components/agents/agent-editor'
+import { usePageCreate } from '@/lib/create/page-create'
 import { parseSkillMd } from '@/lib/library/skill-md'
 import {
   TYPE_FRAMING,
@@ -233,6 +234,20 @@ export function AgentsView({
     setShowAdvanced(false)
     setShowCreateDialog(true)
   }, [activeType])
+
+  // The Create dialog's Agent and Skill (Liam, 11-20): this page, on its own
+  // editors, on that tab (lib/create/page-create.ts).
+  usePageCreate('agent', () => {
+    setTypePersisted('agent')
+    setAgentEditor({ create: true })
+  })
+  usePageCreate('skill', () => {
+    setTypePersisted('skill')
+    setEditingItem(null)
+    setForm(defaultForm('skill'))
+    setShowAdvanced(false)
+    setShowCreateDialog(true)
+  })
 
   // SKILL.md import (skills only). Read the picked file, parse the standard
   // frontmatter + body, and open the create dialog PRE-FILLED. An empty parsed
