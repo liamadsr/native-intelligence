@@ -428,8 +428,11 @@ describe('ActionDetailPanel — the property lens', () => {
     installFetch({ linkedProviders: ['jira'] })
     await mountPanel()
 
-    const titles = groupTitles()
-    expect(titles).toContain('Properties')
+    // The main group has no "Properties" heading any more (the shared frame,
+    // docs/plans/properties-panels.md): it is the panel's rows.
+    expect(groupTitles()).not.toContain('Properties')
+    const rows = container.querySelector('[data-property-rows]')!
+    expect(rows).toBeTruthy()
     // The sidebar's other groups have all become rows INSIDE Properties, so
     // the containment claim is now about the controls, not group titles: a
     // lens that swallowed them would take Native Intelligence's own editing with it.
@@ -440,7 +443,10 @@ describe('ActionDetailPanel — the property lens', () => {
     expect(container.textContent).toContain('Link pull request')
     // And the lens is INSIDE the Properties group, not loose in the column.
     const lens = container.querySelector('[data-lens-surface="stack"]')!
-    expect(lens.closest('div')).toBeTruthy()
+    expect(rows.contains(lens)).toBe(true)
+    // …beside the controls the lens leaves alone, which are in the same rows.
+    expect(rows.textContent).toContain('Add label')
+    expect(rows.textContent).toContain('Link pull request')
     expect(container.querySelector('[data-lens-field="project"]')!.textContent).toContain('Kanban')
   })
 

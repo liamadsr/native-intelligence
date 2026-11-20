@@ -113,6 +113,92 @@ describe('EntityActionsMenu', () => {
   })
 })
 
+describe("EntityActionsMenu with a page's own verbs (extra)", () => {
+  const Trash = () => <svg data-icon="trash" />
+  const Move = () => <svg data-icon="move" />
+  async function open() {
+    const trigger = container.querySelector('[data-entity-actions-trigger]') as HTMLElement
+    await act(async () => {
+      trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    })
+  }
+  const extras = () => [...document.querySelectorAll('[data-entity-extra-action]')].map((el) => el.getAttribute('data-entity-extra-action'))
+
+  it("lists them under the kind's actions, the destructive one last, and runs a pick", async () => {
+    const onDelete = vi.fn()
+    const onMove = vi.fn()
+    await act(async () =>
+      root.render(
+        <EntityActionsMenu
+          entity={{ type: 'company', id: 'd-1', label: 'Fernhill renewal' }}
+          omit={PANEL_OMIT}
+          extra={[
+            { id: 'delete', label: 'Delete company', icon: Trash, danger: true, onSelect: onDelete },
+            null,
+            false,
+            { id: 'move_to_workspace', label: 'Move to workspace…', icon: Move, onSelect: onMove },
+          ]}
+        />,
+      ),
+    )
+    await open()
+    // The kind's own items are still there, first.
+    expect(shown()).toEqual(['open', 'copy_link', 'copy_id', 'share', 'make_task'].filter((a) => !PANEL_OMIT.includes(a as EntityActionId)))
+    expect(extras()).toEqual(['move_to_workspace', 'delete'])
+    const all = [...document.querySelectorAll('[role="menuitem"]')]
+    expect(all[all.length - 1].textContent).toBe('Delete company')
+    expect(all[all.length - 1].className).toContain('text-destructive')
+
+    vi.useFakeTimers()
+    try {
+      await act(async () => (document.querySelector('[data-entity-extra-action="delete"]') as HTMLElement).click())
+      // After the menu has closed, so a dialog it opens keeps its focus.
+      expect(onDelete).not.toHaveBeenCalled()
+      await act(async () => {
+        vi.runAllTimers()
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+    expect(onDelete).toHaveBeenCalledTimes(1)
+    expect(onMove).not.toHaveBeenCalled()
+  })
+
+  it('still draws the menu for a kind with no actions of its own when the page has verbs', async () => {
+    await act(async () =>
+      root.render(
+        <EntityActionsMenu
+          entity={{ type: 'comment', id: 'c-1', label: 'Looks good' }}
+          omit={['copy_id']}
+          extra={[{ id: 'delete', label: 'Delete', icon: Trash, danger: true, onSelect: () => {} }]}
+        />,
+      ),
+    )
+    expect(container.querySelector('[data-entity-actions-trigger]')).not.toBeNull()
+    await open()
+    expect(extras()).toEqual(['delete'])
+    // No separator above a lone group.
+    expect(document.querySelectorAll('[role="separator"]').length).toBe(0)
+  })
+
+  it('shows a disabled verb as disabled, with its reason', async () => {
+    const onSelect = vi.fn()
+    await act(async () =>
+      root.render(
+        <EntityActionsMenu
+          entity={{ type: 'company', id: 'd-1', label: 'Fernhill renewal' }}
+          omit={PANEL_OMIT}
+          extra={[{ id: 'relations', label: 'Relations', icon: Move, disabled: true, title: 'Not available yet', onSelect }]}
+        />,
+      ),
+    )
+    await open()
+    const item = document.querySelector('[data-entity-extra-action="relations"]') as HTMLElement
+    expect(item.getAttribute('data-disabled')).not.toBeNull()
+    expect(item.getAttribute('title')).toBe('Not available yet')
+  })
+})
+
 describe('EntityContextMenu', () => {
   const chip = (i: number) => (
     <EntityContextMenu key={i} entity={{ type: 'document', id: `doc-${i}`, label: `Fernhill plan ${i}` }}>

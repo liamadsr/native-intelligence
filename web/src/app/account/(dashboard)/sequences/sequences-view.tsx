@@ -24,6 +24,7 @@ import { useEntityListSync } from '@/hooks/use-entity-sync'
 import { useOptionalSettingsOverlay } from '../settings-overlay'
 import { ViewHeader } from '../views/view-header'
 import { SequenceBuilder } from './sequence-builder'
+import { usePageCreate } from '@/lib/create/page-create'
 import { SequenceDetail } from './sequence-detail'
 import { fetchEmailAccounts } from './api'
 
@@ -48,6 +49,12 @@ export function SequencesView({
   const [hasMailbox, setHasMailbox] = useState<boolean | null>(null)
   const [creating, setCreating] = useState(false)
   const settingsOverlay = useOptionalSettingsOverlay()
+
+  // The Create dialog's Sequence (Liam, 11-20): this page's builder, from the list.
+  usePageCreate('sequence', () => {
+    if (sequenceId) onCloseDetail()
+    setCreating(true)
+  })
 
   useEffect(() => {
     let cancelled = false

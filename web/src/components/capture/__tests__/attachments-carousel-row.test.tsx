@@ -174,4 +174,34 @@ describe('AttachmentsCarousel — card variant (unchanged default)', () => {
     expect(container.textContent).toContain('Attachments')
     expect(container.textContent).toContain('notes.pdf')
   })
+
+  // The properties panel's add strip (components/views/property-layout.tsx):
+  // an empty property is a chip, not a row.
+  describe('emptyAs="add"', () => {
+    const none = () =>
+      vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ attachments: [] }) })) as unknown as typeof fetch)
+
+    it('is one "Attach file" button that opens the picker when nothing is attached', async () => {
+      none()
+      const onAddClick = vi.fn()
+      await mount(<AttachmentsCarousel variant="row" emptyAs="add" captureId="c1" onAddClick={onAddClick} />)
+      expect(buttons().length).toBe(1)
+      expect(buttons()[0].textContent).toBe('Attach file')
+      expect(container.textContent).not.toContain('No attachments')
+      await click(buttons()[0])
+      expect(onAddClick).toHaveBeenCalledTimes(1)
+    })
+
+    it('is the usual row once something is attached', async () => {
+      await mount(<AttachmentsCarousel variant="row" emptyAs="add" captureId="c1" onAddClick={() => {}} />)
+      expect(container.textContent).toContain('2 attachments')
+      expect(buttons().length).toBe(2)
+    })
+
+    it('reports the count once known, so the panel can place it', async () => {
+      const onCountChange = vi.fn()
+      await mount(<AttachmentsCarousel variant="row" emptyAs="add" captureId="c1" onAddClick={() => {}} onCountChange={onCountChange} />)
+      expect(onCountChange).toHaveBeenLastCalledWith(2)
+    })
+  })
 })

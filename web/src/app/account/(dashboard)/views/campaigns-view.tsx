@@ -52,6 +52,7 @@ import {
   type CampaignStatus,
 } from '@/lib/campaigns/shape'
 import { ViewHeader } from './view-header'
+import { usePageCreate } from '@/lib/create/page-create'
 
 const NEW_CAMPAIGN_LABEL = 'New campaign'
 
@@ -75,6 +76,8 @@ export function CampaignsView({ onCount }: { onCount?: (count: number) => void }
   const [error, setError] = useState<string | null>(null)
   // The campaign the editor is on: a row to edit, '__new__' to create, or null.
   const [editing, setEditing] = useState<Campaign | '__new__' | null>(null)
+  // The Create dialog's Campaign (Liam, 11-20): this page's own editor, on a new one.
+  usePageCreate('campaign', () => setEditing('__new__'))
 
   const load = useCallback(async () => {
     try {

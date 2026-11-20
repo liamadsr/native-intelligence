@@ -29,7 +29,7 @@ export function CalendarTimeline({ firstVisibleHour, lastVisibleHour, columnCoun
   };
 
   const formatCurrentTime = () => {
-    return format(currentTime, "h:mm a");
+    return format(currentTime, "h:mm");
   };
 
   const currentHour = currentTime.getHours();
@@ -43,12 +43,19 @@ export function CalendarTimeline({ firstVisibleHour, lastVisibleHour, columnCoun
     todayColumnIndex = idx;
   }
 
-  const dotLeftPercent = (todayColumnIndex / columnCount) * 100;
+  const columnWidthPercent = 100 / columnCount;
+  const todayLeftPercent = todayColumnIndex * columnWidthPercent;
 
+  // A hairline across the whole grid at now, strong over today's column, where
+  // a dot marks its start; the time sits in the hour gutter.
   return (
-    <div data-calendar-timeline className="pointer-events-none absolute inset-x-0 z-10 border-t border-primary" style={{ top: `${getCurrentTimePosition()}%` }}>
-      <div className="absolute top-0 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary" style={{ left: `${dotLeftPercent}%` }}></div>
-      <div className="absolute -left-18 flex w-16 -translate-y-1/2 justify-end bg-background pr-1 text-xs font-medium text-primary">{formatCurrentTime()}</div>
+    <div data-calendar-timeline className="pointer-events-none absolute inset-x-0 z-10 h-0" style={{ top: `${getCurrentTimePosition()}%` }}>
+      <div className="absolute inset-x-0 top-0 -translate-y-1/2 border-t border-red-500/25"></div>
+      <div className="absolute top-0 h-0.5 -translate-y-1/2 rounded-full bg-red-500" style={{ left: `${todayLeftPercent}%`, width: `${columnWidthPercent}%` }}></div>
+      <div className="absolute top-0 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-red-500" style={{ left: `${todayLeftPercent}%` }}></div>
+      <div className="absolute -left-18 top-0 flex w-18 -translate-y-1/2 justify-end pr-1.5">
+        <span className="rounded bg-red-500 px-1 py-px text-[10px] font-semibold tabular-nums leading-tight text-white">{formatCurrentTime()}</span>
+      </div>
     </div>
   );
 }

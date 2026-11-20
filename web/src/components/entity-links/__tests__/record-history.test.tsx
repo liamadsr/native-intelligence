@@ -100,6 +100,14 @@ describe('RecordHistory', () => {
       },
     }
     await render()
+    // Closed, it is one row: "History", the latest event and when; no list yet.
+    const toggle = container.querySelector('[data-record-history-toggle]') as HTMLButtonElement
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(toggle.textContent).toContain('History')
+    expect(toggle.textContent).toContain('Mentioned in Q4 renewals plan')
+    expect(container.querySelector('[data-record-history]')).toBeNull()
+    await act(async () => toggle.click())
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
     const rows = [...container.querySelectorAll('[data-history-action]')]
     expect(rows.map((r) => r.getAttribute('data-history-action'))).toEqual(['mentioned', 'status_changed', 'assigned'])
     expect(rows[0].textContent).toContain('Mentioned in Q4 renewals plan')

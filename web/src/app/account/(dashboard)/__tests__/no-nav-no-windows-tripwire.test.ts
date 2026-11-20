@@ -7,6 +7,10 @@
  *   • their modules are deleted, and nothing in src/ imports them;
  *   • the only global hotkeys the shell registers are ⌘, (settings) and ⌘N (a
  *     capture) — no bare-letter page keys (t, m, d, p, b, w), no ⌘K;
+ *     (the owner, 11-20, brought page keys back as Linear's two-key
+ *     sequences, G then a letter, opening each page as the rail does:
+ *     lib/shortcuts.ts, shortcuts/global-shortcuts.tsx. Still never a bare
+ *     letter, and the top bar still registers only these two);
  *   • the tabs are gone too: no tab strip, no chat history, no chat titles.
  */
 import { describe, it, expect } from 'vitest'

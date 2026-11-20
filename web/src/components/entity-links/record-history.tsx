@@ -8,6 +8,12 @@
  * Nothing to show (none yet, still loading, or the read failed): it renders
  * nothing.
  *
+ * CLOSED, IT IS ONE ROW (docs/plans/properties-panels.md): "History", the
+ * latest event and when, and a chevron; a click opens the list under it. The
+ * same shape as the Attachments and Activity rows, so a panel's foot is a line,
+ * not a list that grows with every edit, and the latest event is still read at
+ * a glance.
+ *
  * Reads the cross-kind feed for this one record (GET /api/account/feed
  * ?entity=type:id&group=none): the activity log, every row fenced for the
  * viewer (a mention from a document they can't read never arrives). It reads
@@ -15,13 +21,16 @@
  * record itself has stopped changing for a few seconds (an autosave burst is
  * one read, not one per keystroke).
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { formatDistanceToNow } from 'date-fns'
 import {
   Archive,
   ArchiveRestore,
   AtSign,
+  ChevronDown,
+  ChevronRight,
   CircleDot,
+  History,
   Link2,
   MessageSquare,
   PenLine,
@@ -107,11 +116,32 @@ export function RecordHistory({ entityType, entityId }: { entityType: string; en
 }
 
 /** The section itself, for the events in hand (the panels, and screenshots). */
-export function RecordHistoryList({ events }: { events: readonly FeedRecordEvent[] }) {
+export function RecordHistoryList({ events, defaultOpen = false }: { events: readonly FeedRecordEvent[]; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen)
+  const listId = useId()
   if (events.length === 0) return null
+  const latest = events[0]
   return (
-    <PropertyGroup title="History">
-      <ul className="space-y-0.5 px-1" data-record-history="">
+    <PropertyGroup>
+      <button
+        type="button"
+        data-record-history-toggle=""
+        aria-expanded={open}
+        aria-controls={listId}
+        onClick={() => setOpen((v) => !v)}
+        className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/50"
+      >
+        <History className="h-4 w-4 shrink-0" />
+        <span className="shrink-0">History</span>
+        {!open && (
+          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground/70">
+            {describeFeedEvent(latest)} · {formatDistanceToNow(new Date(latest.at), { addSuffix: true })}
+          </span>
+        )}
+        {open ? <ChevronDown className="ml-auto h-3 w-3 shrink-0" /> : <ChevronRight className="ml-auto h-3 w-3 shrink-0" />}
+      </button>
+      {open && (
+      <ul id={listId} className="space-y-0.5 px-1" data-record-history="">
         {events.map((e) => {
           const Icon = ICONS[e.action] ?? CircleDot
           const who = feedActorLabel(e.actor)
@@ -145,6 +175,7 @@ export function RecordHistoryList({ events }: { events: readonly FeedRecordEvent
           )
         })}
       </ul>
+      )}
     </PropertyGroup>
   )
 }

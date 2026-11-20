@@ -1188,3 +1188,32 @@ body:has([data-marketing-sky]) #nd-sidebar[data-collapsed='false'] {
     field-sizing: fixed;
   }
 }
+
+/*
+ * Calendar event colours (src/calendar/event-colors.ts). One hue per calendar,
+ * as a soft opaque fill with dark ink in both themes: opaque, because events
+ * are layered over each other when they overlap. `--cal-k` scales the colour
+ * (0 for gray).
+ */
+.cal-blue { --cal-h: 252; }
+.cal-green { --cal-h: 155; }
+.cal-purple { --cal-h: 300; }
+.cal-teal { --cal-h: 200; }
+.cal-orange { --cal-h: 55; }
+.cal-pink { --cal-h: 355; }
+.cal-yellow { --cal-h: 92; }
+.cal-red { --cal-h: 25; }
+.cal-gray { --cal-h: 260; --cal-k: 0.12; }
+.cal-fill {
+  background-color: oklch(0.9 calc(0.055 * var(--cal-k, 1)) var(--cal-h, 252));
+  color: oklch(0.29 calc(0.075 * var(--cal-k, 1)) var(--cal-h, 252));
+  /* A hairline in the page's colour: what separates a block from the one under it. */
+  box-shadow: 0 0 0 1px hsl(var(--background) / 0.85);
+  transition: filter 120ms;
+}
+.cal-fill:hover { filter: brightness(0.96); }
+.dark .cal-fill {
+  background-color: oklch(0.7 calc(0.07 * var(--cal-k, 1)) var(--cal-h, 252));
+  color: oklch(0.17 calc(0.035 * var(--cal-k, 1)) var(--cal-h, 252));
+}
+.cal-dot { fill: oklch(0.62 calc(0.15 * var(--cal-k, 1)) var(--cal-h, 252)); background-color: oklch(0.62 calc(0.15 * var(--cal-k, 1)) var(--cal-h, 252)); }

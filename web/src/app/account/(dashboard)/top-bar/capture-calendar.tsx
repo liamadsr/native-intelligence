@@ -2,15 +2,17 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ThinkingOrb } from 'thinking-orbs'
-import { areIntervalsOverlapping, format, isSameDay, parseISO } from 'date-fns'
+import { format, isSameDay, parseISO } from 'date-fns'
 import { CalendarX2 } from 'lucide-react'
 
 import { useCalendarEvents } from '@/calendar/hooks/use-calendar-events'
 import { CalendarProvider } from '@/calendar/contexts/calendar-context'
 import { EventBlock } from '@/calendar/components/week-and-day-view/event-block'
+import { EVENT_SLOT_CLASS } from '@/calendar/components/week-and-day-view/calendar-week-view'
 import { CalendarTimeline } from '@/calendar/components/week-and-day-view/calendar-time-line'
-import { getEventBlockStyle, getVisibleHours, groupEvents } from '@/calendar/helpers'
+import { getVisibleHours, positionDayEvents } from '@/calendar/helpers'
 import type { IEvent } from '@/calendar/interfaces'
+import { withCalendarColors } from '@/calendar/event-colors'
 
 /** Pixels per hour — matches the calendar day view (96px/hour) so a 3h meeting
  *  renders 3× taller than a 1h one. */
@@ -56,7 +58,7 @@ function endOfDayLocal(d: Date) {
  * shares).
  *
  * Reuses the calendar day-view's positioning math and components (getVisibleHours,
- * groupEvents, getEventBlockStyle, EventBlock, CalendarTimeline) so events are
+ * positionDayEvents, EventBlock, CalendarTimeline) so events are
  * sized by duration and the "now" line shows how far you are into a meeting.
  * The grid auto-scrolls so the current time is centred on open.
  *
@@ -75,7 +77,9 @@ export function CaptureCalendar({
   /** Shown at the right of the header row — the Capture button's own hint. */
   hint?: ReactNode
 }) {
-  const { events, loading, error } = useCalendarEvents()
+  const { events: fetched, loading, error } = useCalendarEvents()
+  // One colour per calendar, as on the Calendar page.
+  const events = useMemo(() => withCalendarColors(fetched), [fetched])
   const today = useToday()
 
   // Today's calendar events (no actions). Split all-day vs timed.
@@ -181,27 +185,7 @@ function CompactDayGrid({ date, events }: { date: Date; events: IEvent[] }) {
   // (events, day) instead of on every render.
   const { hours, earliestEventHour, latestEventHour, positionedEvents } = useMemo(() => {
     const visible = getVisibleHours({ from: 0, to: 24 }, events)
-    const groupedEvents = groupEvents(events)
-    const positioned = groupedEvents.flatMap((group, groupIndex) =>
-      group.map((event) => {
-        let style = getEventBlockStyle(event, date, groupIndex, groupedEvents.length, {
-          from: visible.earliestEventHour,
-          to: visible.latestEventHour,
-        })
-        const hasOverlap = groupedEvents.some(
-          (otherGroup, otherIndex) =>
-            otherIndex !== groupIndex &&
-            otherGroup.some((otherEvent) =>
-              areIntervalsOverlapping(
-                { start: parseISO(event.startDate), end: parseISO(event.endDate) },
-                { start: parseISO(otherEvent.startDate), end: parseISO(otherEvent.endDate) },
-              ),
-            ),
-        )
-        if (!hasOverlap) style = { ...style, width: '100%', left: '0%' }
-        return { event, style }
-      }),
-    )
+    const positioned = positionDayEvents(events, date, { from: visible.earliestEventHour, to: visible.latestEventHour })
     return { ...visible, positionedEvents: positioned }
   }, [events, date])
 
@@ -255,7 +239,7 @@ function CompactDayGrid({ date, events }: { date: Date; events: IEvent[] }) {
           {/* Event blocks — positioned + sized by time. A click starts the
               meeting's capture. */}
           {positionedEvents.map(({ event, style }) => (
-            <div key={`${event.id}-${event.startDate}`} className="absolute p-0.5" style={style}>
+            <div key={`${event.id}-${event.startDate}`} className={EVENT_SLOT_CLASS} style={style}>
               <EventBlock event={event} readOnly startOnClick />
             </div>
           ))}

@@ -82,7 +82,7 @@ const items = () => Array.from(container.querySelectorAll<HTMLElement>('[data-ap
 const lit = () => Array.from(container.querySelectorAll<HTMLElement>('[aria-current="page"]')).map((el) => el.dataset.appRailItem)
 
 describe('the app rail', () => {
-  it('draws the header (the workspace’s thumbnail, Search), then Home, every page that is on, and no New', async () => {
+  it('draws the header (the workspace’s thumbnail, Search), then Create, Home and every page that is on', async () => {
     await render()
     const header = container.querySelector<HTMLElement>('[data-app-rail-header]')!
     // In order: the workspace's thumbnail at the far left, then Search (Liam, 11-09).
@@ -94,7 +94,8 @@ describe('the app rail', () => {
     expect(header.querySelector('[data-app-rail-item="workspace"] [data-variant="header"]')).not.toBeNull()
     const nav = container.querySelector<HTMLElement>('[data-app-rail-nav]')!
     expect(Array.from(nav.querySelectorAll<HTMLElement>('[data-app-rail-item]')).map((el) => el.dataset.appRailItem)).toEqual([
-      // Home first (Liam, 11-11), fixed.
+      // Create first (Liam, 11-20: the +, above Home), then Home (Liam, 11-11), both fixed.
+      'create',
       'home',
       // Drive: Docs, Knowledge, Files · Calendar: Captures (Liam, 11-11): one icon each.
       // Projects and Initiatives nest under Tasks (Liam, 11-11): no icons of their own.
@@ -132,9 +133,10 @@ describe('the app rail', () => {
     expect(pills.map((p) => p.dataset.appRailPill)).toEqual(['pages'])
     expect(Array.from(pills[0].querySelectorAll<HTMLElement>('[data-app-rail-group]')).map((g) => g.dataset.appRailGroup)).toEqual(['work', 'customers', 'agents'])
     expect(pills[0].querySelectorAll('[data-app-rail-group-line]')).toHaveLength(2)
-    // Home at the top (Liam, 11-11: "add a homepage icon on the navside"), the bar's hairline after it.
+    // Create at the top (Liam, 11-20), then Home (Liam, 11-11: "add a homepage icon on the navside"), the bar's hairline after it.
     const home = item('home')!
-    expect(pills[0].firstElementChild).toBe(home)
+    expect(pills[0].firstElementChild).toBe(item('create'))
+    expect(item('create')!.nextElementSibling).toBe(home)
     expect(home.nextElementSibling?.hasAttribute('data-app-rail-home-line')).toBe(true)
     expect(home.getAttribute('aria-label')).toBe('Home')
     expect(home.querySelector('svg.lucide-house')).not.toBeNull()
@@ -143,7 +145,7 @@ describe('the app rail', () => {
     expect(home.hasAttribute('data-app-rail-page')).toBe(false)
     // At the top, not centred (Liam, 11-09: "top align it so it's not center").
     expect(pills[0].parentElement!.className).not.toContain('my-auto')
-    // Still no New button (Liam, 11-09: "we don't need this button").
+    // One + (Liam, 11-20: "please don't add anything else to the side panel other than the + button"), no other New.
     expect(item('new')).toBeNull()
     for (const pill of [...pills, container.querySelector<HTMLElement>('[data-app-rail-header]')!]) {
       // Capsules: their ends follow the round buttons inside (Liam, 11-09).
@@ -157,6 +159,24 @@ describe('the app rail', () => {
     expect(item('mail')!.className.split(' ')).toContain('rounded-full')
     expect(item('search')!.className.split(' ')).toContain('rounded-full')
     expect(pills[0].querySelector('[data-app-rail-item="outreach"]')).not.toBeNull()
+  })
+
+  it('opens the Create dialog from its + (Liam, 11-20), labelled with its key, fixed: never a page, never in Customize bar', async () => {
+    await render()
+    const create = item('create')!
+    expect(create.getAttribute('aria-label')).toBe('Create')
+    expect(create.getAttribute('aria-keyshortcuts')).toBe('C')
+    expect(create.querySelector('svg.lucide-plus')).not.toBeNull()
+    expect(create.className.split(' ')).toContain('rounded-full')
+    expect(create.hasAttribute('data-app-rail-page')).toBe(false)
+    const asked = vi.fn()
+    document.addEventListener('open-create', asked)
+    act(() => create.click())
+    document.removeEventListener('open-create', asked)
+    expect(asked).toHaveBeenCalledTimes(1)
+    await act(async () => item('customize')!.click())
+    const panel = document.querySelector<HTMLElement>('[data-app-rail-customize]')!
+    expect(panel.querySelector('[data-app-rail-customize-row="create"]')).toBeNull()
   })
 
   it('tells the top bar and the full-screen layer where the header ends (on <html>)', async () => {
@@ -461,12 +481,12 @@ describe('the person’s bar', () => {
     expect(rows).not.toContain('teams')
   })
 
-  it('shows just Home and Customize bar when every page is hidden', async () => {
+  it('shows just Create, Home and Customize bar when every page is hidden', async () => {
     // A group hidden: every one of its members (Calendar and Contacts are members of their own groups).
     localStorage.setItem(RAIL_PAGES_STORAGE_KEY, JSON.stringify({ order: [], hidden: [...DEFAULT_BAR, 'availability', 'captures', 'companies', 'deals', 'flows', 'evals', 'seo-audit', 'seo-keywords', 'seo-rankings', 'seo-search', 'seo-competitors', 'seo-backlinks', 'seo-ai-visibility', 'seo-local'] }))
     await render()
     const nav = container.querySelector<HTMLElement>('[data-app-rail-nav]')!
-    expect(Array.from(nav.querySelectorAll<HTMLElement>('[data-app-rail-item]')).map((el) => el.dataset.appRailItem)).toEqual(['home', 'customize'])
+    expect(Array.from(nav.querySelectorAll<HTMLElement>('[data-app-rail-item]')).map((el) => el.dataset.appRailItem)).toEqual(['create', 'home', 'customize'])
     // One hairline, Home's.
     expect(container.querySelector('[data-app-rail-customize-line]')).toBeNull()
     expect(container.querySelectorAll('[data-app-rail-home-line]')).toHaveLength(1)
