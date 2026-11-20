@@ -36,12 +36,13 @@ export async function linkHarness(fixture: 'fake-claude.mjs' | 'fake-codex.mjs',
   }
   const calls: NormalizedEvent[] = []
   const mcp = await startManagerMcp(createManagerTools((e) => calls.push(e), 'read').call)
-  const seen = { text: [] as [string, string | null][], toolStarts: [] as ToolStart[], toolEnds: [] as ToolEnd[], errors: [] as string[], logs: [] as string[] }
+  const seen = { text: [] as [string, string | null][], toolStarts: [] as ToolStart[], toolEnds: [] as ToolEnd[], errors: [] as string[], models: [] as { model: string; effort?: string | null }[], logs: [] as string[] }
   const events: LinkEvents = {
     text: (d, id) => seen.text.push([d, id]),
     toolStart: (t) => seen.toolStarts.push(t),
     toolEnd: (t) => seen.toolEnds.push(t),
     error: (m) => seen.errors.push(m),
+    model: (m) => seen.models.push(m),
     log: (l) => seen.logs.push(l),
   }
   const params = { cwd, instructions: '# Working for Native Intelligence\n\nBe brief.', mcp: { name: 'ni', url: mcp.url, token: mcp.token } }

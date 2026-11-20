@@ -115,14 +115,16 @@ export async function fetchEventsBefore(
 /** What a read says of a session that is gone (a 404): the one failure that is not worth another try. */
 export const SESSION_GONE_MESSAGE = 'This local agent is no longer available.'
 
-/** One page of the session's events after `afterId`. */
+/** One page of the session's events after `afterId`. `withModel`: the session says its coding agent's model too. */
 export async function fetchSessionPage(
   sessionId: string,
   afterId: number,
   fetchImpl: FetchLike = fetch,
+  withModel = false,
 ): Promise<ApiResult<SessionPage>> {
   try {
-    const qs = afterId > 0 ? `?afterId=${Math.floor(afterId)}` : ''
+    const query = [afterId > 0 ? `afterId=${Math.floor(afterId)}` : '', withModel ? 'model=1' : ''].filter(Boolean).join('&')
+    const qs = query ? `?${query}` : ''
     const res = await fetchImpl(sessionUrl(sessionId, qs), { cache: 'no-store' })
     if (!res.ok) {
       // Gone is said in our own words whatever the server's are: callers tell it from a failed read by this line.
@@ -154,18 +156,22 @@ export async function fetchSessionSince(
   sessionId: string,
   afterId: number,
   fetchImpl: FetchLike = fetch,
+  withModel = false,
 ): Promise<ApiResult<SessionPage>> {
   let cursor = afterId
   let session: PanelSession | null = null
+  // The first page's answer: later pages don't ask again.
+  let model: Pick<PanelSession, 'model' | 'effort'> | null = null
   const events: StoredEventLike[] = []
   for (let page = 0; page < SESSION_PAGES_MAX; page++) {
-    const res = await fetchSessionPage(sessionId, cursor, fetchImpl)
+    const res = await fetchSessionPage(sessionId, cursor, fetchImpl, withModel && page === 0)
     if (!res.ok) {
       // A later page failing keeps what the earlier ones read; the next catch-up continues.
       if (!session) return res
       break
     }
     session = res.value.session
+    if (withModel && page === 0) model = { model: session.model ?? null, effort: session.effort ?? null }
     events.push(...res.value.events)
     const next = res.value.lastId
     if (res.value.events.length < SESSION_PAGE_MAX || !(next > cursor)) {
@@ -174,7 +180,7 @@ export async function fetchSessionSince(
     }
     cursor = next
   }
-  return { ok: true, value: { session: session!, events, lastId: cursor } }
+  return { ok: true, value: { session: model ? { ...session!, ...model } : session!, events, lastId: cursor } }
 }
 
 /** The person's message (Steer or Queue). `requestId`: one per submit; a retry with it sends once. */

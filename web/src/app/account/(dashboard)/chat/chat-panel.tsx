@@ -3557,7 +3557,12 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
              (tailwind.css; Liam, 11-11). */
           <div data-chat-thread-stage="" className="relative flex min-h-0 flex-1 flex-col">
           {/* The Code view's middle: the selected coding chat's conversation in the thread's place (code-chat-stage.tsx; Liam, 11-16). The main chat's only. */}
-          {composerCode.available && <CodeChatStage />}
+          {composerCode.available && (
+            // Its messages carry the chat's Read aloud (transcript-rows.tsx RowActions): the same reader as the thread's.
+            <ReadAloudContext.Provider value={readAloud}>
+              <CodeChatStage />
+            </ReadAloudContext.Provider>
+          )}
           {/* Clear of the top bar and the composer, which float over the
               messages: a browser card's full screen fills what's between. */}
           <div

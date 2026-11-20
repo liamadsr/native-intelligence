@@ -125,7 +125,7 @@ async function handle(msg) {
       threadId = randomUUID()
       writeFileSync(`${threads}/${threadId}`, '')
       setThread(p)
-      reply({ thread: { id: threadId, cwd: p.cwd }, model: 'fake', approvalPolicy: p.approvalPolicy, sandbox: p.sandbox })
+      reply({ thread: { id: threadId, cwd: p.cwd }, model: 'fake', reasoningEffort: 'high', approvalPolicy: p.approvalPolicy, sandbox: p.sandbox })
       notify('thread/started', { thread: { id: threadId } })
       return connectMcp()
     }
@@ -133,7 +133,7 @@ async function handle(msg) {
       if (!existsSync(`${threads}/${p.threadId}`)) return fail(-32600, `no rollout found for thread id ${p.threadId}`)
       threadId = p.threadId
       setThread(p)
-      reply({ thread: { id: threadId, turns: [] } })
+      reply({ thread: { id: threadId, turns: [] }, model: 'fake-resumed', reasoningEffort: null })
       return connectMcp()
     }
     case 'turn/start': {

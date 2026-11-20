@@ -34,6 +34,8 @@ export type NormalizedEvent =
   | { kind: 'ask'; question: string }
   | { kind: 'finish'; summary: string }
   | { kind: 'error'; message: string }
+  /** A worker's own: the model its agent says the session runs on, and its reasoning effort when it says one (the launcher never sends it). */
+  | { kind: 'model'; model: string; effort?: string }
 
 export type InboundMessage =
   | { type: 'start'; request: string }

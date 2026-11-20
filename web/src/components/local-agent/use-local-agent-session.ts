@@ -7,7 +7,9 @@
  *
  * - First, the newest page of its events (EVENTS_PAGE, read with the browser
  *   client under owner RLS), then GET /api/local-agent/sessions/[id] after
- *   it: the session row (reaped) and anything newer. Older pages come on
+ *   it: the session row (reaped) and anything newer. That first read also
+ *   asks which model its coding agent runs on (`model=1`); a `model` event
+ *   seen later (a new launch) replaces it. Older pages come on
  *   demand (`loadEarlier`, "Show earlier"), stitched in front.
  * - Then realtime: INSERTs on local_agent_event (`session_id=eq.<id>`) and
  *   UPDATEs on local_agent_session (`id=eq.<id>`), each one filtered channel
@@ -24,7 +26,7 @@
  *   unseen id below the newest) reads the session again from its newest
  *   page, in the server's order. No requestIdleCallback (a WebKit idle trap).
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRowChanges } from '@/hooks/use-row-changes'
 import { createClient } from '@/lib/supabase/client'
 import type { LocalAgentPolicy } from '@/lib/tauri-bridge'
@@ -33,6 +35,8 @@ import {
   applyStoredEvents,
   emptySessionTranscript,
   isSessionEnded,
+  latestAgentModel,
+  MODEL_EVENT_KIND,
   prependStoredEvents,
   type SessionTranscript,
   type StoredEventLike,
@@ -101,6 +105,12 @@ export function useLocalAgentSession(sessionId: string): LocalAgentSessionState 
   const [loadingEarlier, setLoadingEarlier] = useState(false)
   // Bumped to read the session again (a late commit).
   const [reloads, setReloads] = useState(0)
+  // The model its coding agent says it runs on: the first read's, then the newest `model` event seen.
+  const [agentModel, setAgentModel] = useState<{ id: number; model: string; effort: string | null } | null>(null)
+  const noteModel = useCallback((events: readonly StoredEventLike[]) => {
+    const seen = latestAgentModel(events)
+    if (seen) setAgentModel((held) => (held && held.id >= seen.id ? held : seen))
+  }, [])
 
   const held = transcript.sessionId === sessionId
   const lastIdRef = useRef(0)
@@ -151,6 +161,7 @@ export function useLocalAgentSession(sessionId: string): LocalAgentSessionState 
         if (!liveRef.current) return
         if (!res.ok) break
         setSession((s) => newer(s, res.value.session))
+        noteModel(res.value.events)
         pendingRef.current.push(...res.value.events)
         flush()
       } while (againRef.current && liveRef.current)
@@ -159,7 +170,7 @@ export function useLocalAgentSession(sessionId: string): LocalAgentSessionState 
     })
     catchingUpRef.current = run
     return run
-  }, [sessionId, flush])
+  }, [sessionId, flush, noteModel])
 
   // The read: the newest page, then the route after it. A reload (a late
   // commit) keeps showing what's held until the new read replaces it.
@@ -174,6 +185,7 @@ export function useLocalAgentSession(sessionId: string): LocalAgentSessionState 
       setSession(null)
       setStopAsked(false)
       setHasEarlier(false)
+      setAgentModel(null)
       setTranscript(emptySessionTranscript(sessionId))
     }
     void (async () => {
@@ -182,7 +194,7 @@ export function useLocalAgentSession(sessionId: string): LocalAgentSessionState 
       const page = newest.ok ? newest.value.events : []
       // Without the page read, the route from the start (the whole session, forward).
       const after = newest.ok && page.length > 0 ? page[page.length - 1].id : 0
-      const res = await fetchSessionSince(sessionId, after)
+      const res = await fetchSessionSince(sessionId, after, fetch, true)
       if (!liveRef.current) return
       loadingRef.current = false
       setLoading(false)
@@ -193,6 +205,10 @@ export function useLocalAgentSession(sessionId: string): LocalAgentSessionState 
       setSession((s) => newer(s, res.value.session))
       setHasEarlier(newest.ok ? newest.value.more : false)
       const all = [...page, ...res.value.events, ...pendingRef.current.splice(0)]
+      // What the server read (id 0: any event seen says it newer), then what these pages hold.
+      const read = res.value.session
+      if (read.model) setAgentModel((held) => held ?? { id: 0, model: read.model!, effort: read.effort ?? null })
+      noteModel(all)
       setTranscript(applyStoredEvents(emptySessionTranscript(sessionId), all))
     })()
     return () => {
@@ -203,7 +219,7 @@ export function useLocalAgentSession(sessionId: string): LocalAgentSessionState 
       rafRef.current = null
       flushTimerRef.current = null
     }
-  }, [sessionId, reloads])
+  }, [sessionId, reloads, noteModel])
 
   // A late commit landed: read it again in the server's order.
   const stale = held && transcript.stale
@@ -237,6 +253,7 @@ export function useLocalAgentSession(sessionId: string): LocalAgentSessionState 
       const event = eventFromRow(row, sessionId)
       if (!event) return
       lastHeardRef.current = Date.now()
+      if (event.kind === MODEL_EVENT_KIND) noteModel([event])
       pendingRef.current.push(event)
       scheduleFlush()
     },
@@ -294,8 +311,14 @@ export function useLocalAgentSession(sessionId: string): LocalAgentSessionState 
     return { ok: true }
   }, [sessionId, catchUp])
 
+  // The session as held, saying its agent's model (a read of the row never does).
+  const shown = useMemo(
+    () => (session && agentModel ? { ...session, model: agentModel.model, effort: agentModel.effort } : session),
+    [session, agentModel],
+  )
+
   return {
-    session,
+    session: shown,
     transcript,
     loading,
     error,

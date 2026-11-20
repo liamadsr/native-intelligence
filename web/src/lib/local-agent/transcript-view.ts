@@ -586,6 +586,46 @@ export function prependStoredEvents(t: SessionTranscript, page: readonly StoredE
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
+/** The model a coding agent says it runs on, and its reasoning effort when it says one. */
+export interface AgentModel {
+  model: string
+  effort: string | null
+}
+
+/** The device event a coding agent's adapter writes when its session opens (workers/lib/driver.ts). */
+export const MODEL_EVENT_KIND = 'model'
+
+/** A name as it is shown: printable, one line, short. */
+function shownName(v: unknown, max: number): string {
+  return typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max) : ''
+}
+
+/** A `model` event's payload as the model and effort to show, or null without a model's name. Pure. */
+export function agentModelOf(payload: Record<string, unknown> | null | undefined): AgentModel | null {
+  const model = shownName(payload?.model, 80)
+  if (!model) return null
+  return { model, effort: shownName(payload?.effort, 24) || null }
+}
+
+/** The newest `model` event among `events` (by id), read; null with none. Pure. */
+export function latestAgentModel(events: readonly StoredEventLike[]): (AgentModel & { id: number }) | null {
+  let best: (AgentModel & { id: number }) | null = null
+  for (const e of events) {
+    // The Mac's own word: never a server row's.
+    if (e.kind !== MODEL_EVENT_KIND || e.source === 'server' || (best && e.id <= best.id)) continue
+    const read = agentModelOf(e.payload)
+    if (read) best = { ...read, id: e.id }
+  }
+  return best
+}
+
+const EFFORT_LABELS: Readonly<Record<string, string>> = { none: 'None', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' }
+
+/** A reasoning effort as it is shown ("high" → "High"); one this build doesn't know, as the agent wrote it. */
+export function effortLabel(effort: string): string {
+  return EFFORT_LABELS[effort.toLowerCase()] ?? effort
+}
+
 /** At most `max` characters, with an ellipsis when cut. */
 export function truncate(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, Math.max(0, max - 1))}…`
@@ -680,14 +720,26 @@ function parsedInput(input: string): Record<string, unknown> | null {
   }
 }
 
+/** A command without the login shell a coding agent wraps it in (`/bin/zsh -lc "git status"` → `git status`). */
+export function unwrapShell(command: string): string {
+  const m = /^(?:\/(?:usr\/)?bin\/)?(?:zsh|bash|sh) -l?c (["'])([\s\S]*)\1$/.exec(command.trim())
+  if (!m) return command
+  return m[1] === '"' ? m[2].replace(/\\(["\\$`])/g, '$1') : m[2]
+}
+
+/** An MCP tool's own name (`mcp__ni__get_action` → `get_action`), or null for any other tool. */
+export function mcpToolName(name: string): string | null {
+  return /^mcp__[^_](?:.*?[^_])?__(.+)$/.exec(name)?.[1] ?? null
+}
+
 /** A tool call in one line: "Reading src/app/page.tsx", "Running git status", or its name. */
 export function toolLine(name: string, input: string): string {
   const args = parsedInput(input)
   let arg = ''
-  for (const key of ['path', 'file', 'filePath', 'command', 'cmd', 'pattern', 'query']) {
+  for (const key of ['path', 'file', 'filePath', 'file_path', 'command', 'cmd', 'pattern', 'query']) {
     const v = args?.[key]
     if (typeof v === 'string' && v.trim()) {
-      arg = v.trim().replace(/\s+/g, ' ')
+      arg = (key === 'command' || key === 'cmd' ? unwrapShell(v) : v).trim().replace(/\s+/g, ' ')
       break
     }
   }
@@ -702,5 +754,11 @@ export function toolLine(name: string, input: string): string {
           ? 'Running'
           : null
   if (verb) return truncate(arg ? `${verb} ${arg}` : verb, 120)
-  return truncate(arg ? `${name || 'Tool'} ${arg}` : name || 'Tool', 120)
+  // An MCP tool reads as its own name in words (`mcp__ni__get_action` → "Get action"); a tool called through
+  // `call_tool`, as the tool it called.
+  const mcp = mcpToolName(name)
+  const called = mcp === 'call_tool' && typeof args?.name === 'string' && /^[a-z0-9_]{1,60}$/i.test(args.name) ? args.name : mcp
+  const words = called ? called.replace(/^ni_/, '').replace(/_+/g, ' ').trim() : ''
+  const shown = words ? words[0].toUpperCase() + words.slice(1) : name || 'Tool'
+  return truncate(arg ? `${shown} ${arg}` : shown, 120)
 }

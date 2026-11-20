@@ -16,6 +16,7 @@
  *               migration 658) when it does the work, its
  *               folder, whether it may edit, its status, its pull request, Stop
  *   transcript  the request, then everything since (transcript-rows.tsx),
+ *               tool calls in a row folded into one line (drawnRows),
  *               scrolling with the stream while you're at the bottom. Only
  *               the newest RENDER_WINDOW items are drawn; "Show earlier"
  *               draws more, and reads an older page once all held are
@@ -31,7 +32,7 @@
  *               it too), and, once its turn ended with no pull request,
  *               "Open pull request", which sends the job the follow-up that
  *               asks for one (the agent writes it; the Mac still asks before
- *               anything is pushed). From any device; hidden when the job
+ *               anything is pushed). Never for a branch with nothing on it. From any device; hidden when the job
  *               can't take a message
  *   composer    Steer / Queue, as you (local-agent-composer.tsx); an ended
  *               session says how to get a new one instead
@@ -55,12 +56,13 @@ import {
   canStopSession,
   isPromptOpen,
   isSessionEnded,
+  effortLabel,
   sessionEndedText,
   sessionStatusText,
   type TranscriptItem,
 } from '@/lib/local-agent/transcript-view'
 import { useLocalAgentSession } from './use-local-agent-session'
-import { InboundBubble, TranscriptRow } from './transcript-rows'
+import { InboundBubble, ToolRun, TranscriptRow } from './transcript-rows'
 import { LocalAgentComposer } from './local-agent-composer'
 import { BranchCardActions } from './branch-card'
 import { ChangesView } from './changes-view'
@@ -76,9 +78,51 @@ function isWorking(status: PanelSession['status']): boolean {
   return status === 'queued' || status === 'starting' || status === 'running'
 }
 
+type ToolItem = Extract<TranscriptItem, { type: 'tool' }>
+/** What the conversation draws: an item, or tool calls in a row as one folded line. */
+export type DrawnRow = { key: string; item: TranscriptItem; tools?: undefined } | { key: string; tools: ToolItem[]; item?: undefined }
+
+/**
+ * The items as rows: two or more tool calls in a row fold into one line
+ * (ToolRun), keyed by its first call so it stays the same row as it grows. A
+ * status with nothing to say between two calls (the fold keeps the working
+ * ones, which draw nothing) does not break a run. Pure.
+ */
+export function drawnRows(items: readonly TranscriptItem[]): DrawnRow[] {
+  const rows: DrawnRow[] = []
+  let run: ToolItem[] = []
+  const close = () => {
+    if (run.length === 1) rows.push({ key: run[0].key, item: run[0] })
+    else if (run.length > 1) rows.push({ key: `run-${run[0].key}`, tools: run })
+    run = []
+  }
+  for (const item of items) {
+    if (item.type === 'tool') {
+      run.push(item)
+      continue
+    }
+    // Drawn as nothing (transcript-rows.tsx statusLine): the calls on each side of it are one run.
+    if (item.type === 'status' && !item.reason && (item.status === 'starting' || item.status === 'running' || item.status === 'waiting')) {
+      if (run.length === 0) rows.push({ key: item.key, item })
+      continue
+    }
+    close()
+    rows.push({ key: item.key, item })
+  }
+  close()
+  return rows
+}
+
+/** The agent's model and effort in a line ("gpt-5.3-codex · High"), or null when it never said. */
+export function modelLine(session: Pick<PanelSession, 'model' | 'effort'>): string | null {
+  if (!session.model) return null
+  return session.effort ? `${session.model} · ${effortLabel(session.effort)}` : session.model
+}
+
 /** Only tools and streaming text read `live`: other rows never re-render when it flips. */
-function liveFor(item: TranscriptItem, live: boolean): boolean {
-  return live && (item.type === 'tool' || item.type === 'assistant')
+function liveFor(item: TranscriptItem, live: boolean, last: TranscriptItem | undefined): boolean {
+  // Text streams only at the conversation's end: anything after it means it is whole (its Copy and Read aloud show).
+  return live && (item.type === 'tool' || (item.type === 'assistant' && item === last))
 }
 
 export function LocalAgentHeader({
@@ -97,6 +141,7 @@ export function LocalAgentHeader({
   const teammate = worker ? `${workerLabel(worker)} on ${session.deviceName || 'your Mac'}` : macTeammateName(session.deviceName)
   const prUrl = isGithubPullRequestUrl(session.prUrl) ? session.prUrl : null
   const prNumber = prUrl ? (/\/pull\/(\d+)$/.exec(prUrl)?.[1] ?? null) : null
+  const model = modelLine(session)
   return (
     <div data-local-agent-header="" className="flex min-w-0 shrink-0 items-start gap-2">
       <AgentIcon className="mt-0.5 h-4 w-4" />
@@ -124,6 +169,12 @@ export function LocalAgentHeader({
             <span className="max-w-[10rem] truncate">{session.folderLabel || 'a folder'}</span>
             <span aria-hidden>·</span>
           </span>
+          {model && (
+            <span data-local-agent-model="" className="flex min-w-0 shrink items-center gap-1" title="The model it runs on, and its reasoning effort">
+              <span className="truncate">{model}</span>
+              <span aria-hidden>·</span>
+            </span>
+          )}
           {working && <Loader2 aria-hidden className="h-3 w-3 shrink-0 animate-spin motion-reduce:animate-none" />}
           <span data-local-agent-status-line="" className={cn('truncate', session.status === 'failed' && 'text-destructive')}>
             {stopping
@@ -173,9 +224,12 @@ export function LocalAgentPanel({
   composer = true,
   onLive,
   onError,
+  hideScrollbar = false,
 }: {
   sessionId: string
   className?: string
+  /** No scrollbar on the conversation, as the main chat has none (the Code view, which stands in its place). It scrolls the same. */
+  hideScrollbar?: boolean
   /** Draw its own box to message it. A host whose own composer messages it (the Code view) leaves it out. */
   composer?: boolean
   /** What it holds, for a host that shows it elsewhere too (the Code view's right panel and composer): the session as read, its send and Stop. Null until read, and when it goes. */
@@ -202,6 +256,7 @@ export function LocalAgentPanel({
   const [drawn, setDrawn] = useState(RENDER_WINDOW)
   const shown = useMemo(() => (items.length > drawn ? items.slice(items.length - drawn) : items), [items, drawn])
   const hidden = items.length - shown.length
+  const rows = useMemo(() => drawnRows(shown), [shown])
 
   // Follow the stream while the reader is at the bottom; keep the place when earlier items come in above.
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -288,7 +343,10 @@ export function LocalAgentPanel({
   const canMessage = canMessageSession(session.status)
   const hasResults = resultsOn
   const showChanges = hasResults && view === 'changes'
-  const offerPr = canMessage && offersPullRequest(session, { promptOpen: waitingOnMac })
+  // Its branch as last committed holds no change (the app commits at every finish, a job that changed nothing too).
+  const lastBranch = items.findLast((it): it is Extract<TranscriptItem, { type: 'branch' }> => it.type === 'branch')
+  const noChanges = !!lastBranch && lastBranch.name === session.branch && lastBranch.filesChanged === 0
+  const offerPr = canMessage && offersPullRequest(session, { promptOpen: waitingOnMac, noChanges })
   // The person's own request: one they started here, or a card's Start they pressed. The chat agent's: its own.
   const requestAuthor = session.startedBy === 'person' || session.requestedByPerson === true ? 'person' : 'agent'
 
@@ -318,7 +376,7 @@ export function LocalAgentPanel({
       )}
 
       {showChanges && (
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto pr-1">
+        <div className={cn('flex min-h-0 flex-1 flex-col overflow-y-auto', hideScrollbar ? 'scrollbar-hide' : 'pr-1')}>
           <ChangesView
             sessionId={session.id}
             deviceId={session.deviceId}
@@ -343,7 +401,7 @@ export function LocalAgentPanel({
           const el = e.currentTarget
           stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_PX
         }}
-        className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1"
+        className={cn('flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto', hideScrollbar ? 'scrollbar-hide' : 'pr-1')}
       >
         {(hidden > 0 || hasEarlier) && (
           <button
@@ -358,9 +416,9 @@ export function LocalAgentPanel({
         )}
         {/* The request opens the conversation: drawn once its start is. */}
         {hidden === 0 && !hasEarlier && <InboundBubble author={requestAuthor} text={session.request} request />}
-        {shown.map((item) => (
-          <TranscriptRow key={item.key} item={item} live={liveFor(item, live)} />
-        ))}
+        {rows.map((row) =>
+          row.tools ? <ToolRun key={row.key} items={row.tools} live={live} /> : <TranscriptRow key={row.key} item={row.item} live={liveFor(row.item, live, shown[shown.length - 1])} />,
+        )}
         {session.status === 'queued' && items.length === 0 && (
           <p className="text-center text-[11px] text-muted-foreground">
             It starts when your Mac picks it up (the Native Intelligence app open and signed in).

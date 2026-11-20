@@ -110,6 +110,14 @@ export interface SessionRow {
   /** Migration 418: its latest launch ran on a model on the Mac (C1 narrows the tools by it). */
   localModel?: boolean
   /**
+   * The model its coding agent says it runs on, and its reasoning effort when
+   * it says one: read from the session's newest `model` event (the adapter's,
+   * on the Mac), by the reads that say so (transcript.ts readEvents). Not a
+   * column: absent from every other read.
+   */
+  model?: string | null
+  effort?: string | null
+  /**
    * It acts for the person (isAttendedSession): they started it, or the cloud
    * agent did from their typed turn. False for a loop's job and anything
    * else with no positive marker.
