@@ -266,7 +266,7 @@ export function ProductShowcase() {
               liveScreen ? 'opacity-100' : 'pointer-events-none opacity-0',
             )}
           >
-            <DemoFrame screen={liveScreen ?? lastLive} label={SCREENS[active].alt} height={934} />
+            <DemoFrame screen={liveScreen ?? lastLive} label={SCREENS[active].alt} height={934} wanted={Boolean(liveScreen)} />
           </div>
         </motion.div>
       </div>

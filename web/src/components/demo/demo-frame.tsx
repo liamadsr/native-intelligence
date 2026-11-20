@@ -17,6 +17,7 @@ export function DemoFrame({
   screen,
   label,
   height = 900,
+  wanted = true,
   className,
 }: {
   /** The screen to show. Changing it asks the loaded app to switch; it does not load the app again. */
@@ -24,6 +25,8 @@ export function DemoFrame({
   label: string
   /** The app's window height before scaling, for a slot of another shape (its width is always 1440). */
   height?: number
+  /** False holds the load back (it is about 2.4 MB of the app's own code) until the screen is first asked for. */
+  wanted?: boolean
   className?: string
 }) {
   const ref = useRef<HTMLDivElement>(null)
@@ -32,6 +35,10 @@ export function DemoFrame({
   const [first] = useState(screen)
   const [scale, setScale] = useState(0)
   const [near, setNear] = useState(false)
+  const [everWanted, setEverWanted] = useState(wanted)
+  useEffect(() => {
+    if (wanted) setEverWanted(true)
+  }, [wanted])
 
   useLayoutEffect(() => {
     const el = ref.current
@@ -62,7 +69,7 @@ export function DemoFrame({
 
   return (
     <div ref={ref} role="img" aria-label={label} className={className} style={{ position: 'relative', width: '100%', aspectRatio: `${WIDTH} / ${height}`, overflow: 'hidden' }}>
-      {near && scale > 0 && (
+      {near && everWanted && scale > 0 && (
         <iframe
           ref={frameRef}
           src={`/demo/app?screen=${first}`}
