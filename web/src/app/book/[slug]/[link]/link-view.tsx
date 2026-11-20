@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import { MobileInput } from '@/components/scheduling/mobile-input'
-import { SchedulingMeta, SchedulingNotice, SchedulingShell, TimeButton } from '@/components/scheduling/scheduling-shell'
+import { PICKED, QUIET_EDGE, SchedulingMeta, SchedulingNotice, SchedulingShell, TimeButton } from '@/components/scheduling/scheduling-shell'
 import { useGuestTimeZone } from '@/components/scheduling/use-guest-time-zone'
 import { hostsLine, hostsNote, linkBookFailure, slotsByDay, stripCount, stripDays, stripHeading, STRIP_DAYS, todayKey, type TimedSlot } from '@/lib/booking-links/page'
 import { ANSWER_MAX, LINK_NOTE_MAX, type PublicLinkBooked, type PublicLinkData, type PublicLinkTimes } from '@/lib/booking-links/types'
@@ -52,14 +52,14 @@ function DayStrip({ days, times, selected, onSelect }: { days: ReturnType<typeof
             data-day={d.key}
             data-empty={empty ? '' : undefined}
             className={cn(
-              'flex flex-col items-center rounded-md border py-1.5 text-center transition-colors disabled:cursor-default',
-              on ? 'border-foreground bg-foreground text-background' : empty ? 'border-transparent text-muted-foreground/60' : 'hover:bg-muted',
+              'flex flex-col items-center rounded-xl border py-2 text-center transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-default motion-reduce:transition-none',
+              on ? PICKED : empty ? 'border-transparent text-muted-foreground/60 hover:bg-foreground/[0.04]' : `${QUIET_EDGE} hover:bg-foreground/[0.06]`,
               d.outside && 'opacity-40',
             )}
           >
-            <span className={cn('text-[11px] uppercase tracking-wide', on ? 'text-background/80' : 'text-muted-foreground')}>{d.weekday}</span>
+            <span className={cn('text-[11px] uppercase tracking-wide', on ? 'text-primary-foreground/80' : 'text-muted-foreground')}>{d.weekday}</span>
             <span className={cn('text-base tabular-nums', empty && !on ? 'font-normal' : 'font-medium')}>{d.date}</span>
-            <span aria-hidden className={cn('mt-0.5 size-1 rounded-full', count ? (on ? 'bg-background' : 'bg-foreground') : 'bg-transparent')} />
+            <span aria-hidden className={cn('mt-0.5 size-1 rounded-full', count ? (on ? 'bg-primary-foreground' : 'bg-foreground/70') : 'bg-transparent')} />
           </button>
         )
       })}
@@ -313,10 +313,10 @@ export function LinkView({ profile, slug, load }: { profile: string; slug: strin
               {stripHeading(days)}
             </p>
             <div className="flex items-center gap-1">
-              <Button type="button" variant="ghost" size="icon" className="size-8" aria-label="Earlier days" disabled={page === 0} onClick={() => turn(-1)}>
+              <Button type="button" variant="ghost" size="icon" className="size-8 rounded-full" aria-label="Earlier days" disabled={page === 0} onClick={() => turn(-1)}>
                 <ChevronLeft className="size-4" />
               </Button>
-              <Button type="button" variant="ghost" size="icon" className="size-8" aria-label="Later days" disabled={page >= pages - 1} onClick={() => turn(1)}>
+              <Button type="button" variant="ghost" size="icon" className="size-8 rounded-full" aria-label="Later days" disabled={page >= pages - 1} onClick={() => turn(1)}>
                 <ChevronRight className="size-4" />
               </Button>
             </div>
@@ -336,7 +336,7 @@ export function LinkView({ profile, slug, load }: { profile: string; slug: strin
           {times.kind === 'loading' ? (
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-4" aria-label="Loading times">
               {[0, 1, 2, 3, 4, 5].map((i) => (
-                <Skeleton key={i} className="h-8" />
+                <Skeleton key={i} className="h-9 rounded-full" />
               ))}
             </div>
           ) : times.kind === 'unavailable' || times.kind === 'error' ? (
@@ -349,7 +349,7 @@ export function LinkView({ profile, slug, load }: { profile: string; slug: strin
               </Button>
             </div>
           ) : dayTimes.length === 0 ? (
-            <p className="rounded-lg border border-dashed px-4 py-3 text-sm text-muted-foreground" data-link-empty="">
+            <p className={cn('rounded-xl border border-dashed px-4 py-3 text-sm text-muted-foreground', QUIET_EDGE)} data-link-empty="">
               {firstWithTimes ? 'No open times this day. Pick another.' : page < pages - 1 ? 'No open times these days. Try the next ones.' : 'No open times left in this window.'}
             </p>
           ) : (
@@ -367,7 +367,7 @@ export function LinkView({ profile, slug, load }: { profile: string; slug: strin
         </div>
 
         {picked && (
-          <form onSubmit={submit} className="space-y-4 border-t pt-6" data-link-form noValidate>
+          <form onSubmit={submit} className={cn('space-y-4 border-t pt-6', QUIET_EDGE)} data-link-form noValidate>
             <p className="text-sm">
               {link.title} on{' '}
               <strong>
