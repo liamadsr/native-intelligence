@@ -1,9 +1,11 @@
+import type { CompletedFilter } from '@/lib/views/completed-window'
 import { requireWorkspaceMember, requireWorkspaceFeature } from '@/lib/api-auth'
 import { badRequest, serverError } from '@/lib/api-errors'
 import {
   buildEntityQuery,
   applyFilters,
   applyCompletedFilter,
+  doneStatesInScope,
   applyEntityDefaults,
   applyTeamScope,
   applyOrdering,
@@ -29,6 +31,14 @@ import { countEntriesByList, emptyEntryCounts } from '@/lib/prospecting/lists'
 import { fetchAllRows, inChunks } from '@/lib/supabase/paging'
 import { flowRowForViewer } from '@/lib/flows/types'
 import { NextResponse, type NextRequest } from 'next/server'
+import { normalizeCompletedFilter } from '@/lib/views/completed-window'
+import {
+  MAX_GROUP_STATUS_IDS,
+  isLazyGroup,
+  lazyMetadata,
+  planLazyDoneGroups,
+  wantsLazyDoneGroups,
+} from '@/lib/views/lazy-done-groups'
 
 /**
  * POST /api/account/views/query
@@ -70,6 +80,8 @@ export async function POST(request: NextRequest) {
     capture_scope = null,
     workspace_scope = null,
     search = null,
+    lazy_done_groups = false,
+    status_ids = null,
   } = body as {
     entity_type: ViewEntityType
     filters?: ViewFilter[]
@@ -82,12 +94,16 @@ export async function POST(request: NextRequest) {
     page?: number
     per_page?: number
     show_completed?: boolean
-    completed_filter?: 'all' | 'recent' | 'none'
+    completed_filter?: CompletedFilter
     action_scope?: 'assigned' | 'created' | 'all' | null
     crm_scope?: 'internal' | 'external' | null
     capture_scope?: 'mine' | 'shared' | null
     workspace_scope?: WorkspaceScope | null
     search?: string | null
+    /** Send the finished status groups as counts, their rows left out (lazy-done-groups.ts). */
+    lazy_done_groups?: boolean
+    /** One finished group's page: only these workflow states' actions. */
+    status_ids?: unknown
   }
 
   if (!entity_type) {
@@ -158,13 +174,88 @@ export async function POST(request: NextRequest) {
     // Minimal query logging
     console.log('[views/query]', { entity_type, filterCount: filters.length, grouping: !!grouping })
 
-    // Build base query — skip actionScope if filters already handle scoping
-    const query = buildEntityQuery(supabase, entity_type, workspaceId, user.id, {
-      memberId,
-      actionScope: effectiveScope,
-      workspaceScope,
-      personalScope,
-    })
+    // The custom fields' types, so each is read in its own form (a multi-select's list, a currency's amount).
+    // A table's rows: that table's, read by its columns' types.
+    const tableId = entity_type === 'data_row' ? table_id : null
+    const fieldTypes = await customFieldTypesFor(supabase, workspaceId, entity_type, viewFieldsOf(filters, ordering), tableId)
+
+    // Finished groups loaded only when opened (lib/views/lazy-done-groups.ts):
+    // the page leaves the completed and canceled states' rows out, and each
+    // such group comes back with its count. Only when the request asks
+    // (`lazy_done_groups`), so every other caller's page is unchanged.
+    const lazyDone = lazy_done_groups === true && wantsLazyDoneGroups({ entity_type, grouping, sub_grouping })
+    // A finished group's own page (`status_ids`): the same query, narrowed to
+    // the group's states. Validated: they go into the query.
+    const groupStatusIds = Array.isArray(status_ids) && entity_type === 'action'
+      ? status_ids.filter((v): v is string => typeof v === 'string' && UUID_RE.test(v)).slice(0, MAX_GROUP_STATUS_IDS)
+      : null
+    if (Array.isArray(status_ids) && (!groupStatusIds || groupStatusIds.length === 0)) {
+      return badRequest('status_ids must be workflow state ids')
+    }
+
+    // The query every part of this page is read with: the rows, and (for the
+    // finished groups) their counts. One builder, so a count can never be
+    // taken over different filters than the rows it stands for. A filter that
+    // provably matches nothing throws NoMatchSignal (below).
+    const buildQuery = async (opts: { countOnly?: boolean } = {}) => {
+      // Build base query — skip actionScope if filters already handle scoping
+      const query = buildEntityQuery(supabase, entity_type, workspaceId, user.id, {
+        memberId,
+        actionScope: effectiveScope,
+        workspaceScope,
+        personalScope,
+        countOnly: opts.countOnly,
+      })
+      if (tableId) query.eq('table_id', tableId)
+      if (filters.length > 0) {
+        await applyFilters(query, entity_type, filters, supabase, scopeWorkspaceIds, {
+          memberId,
+          userId: user.id,
+        }, { fieldTypes })
+      }
+
+      // Filter-dependent per-entity defaults. MUST run after applyFilters and
+      // OUTSIDE the `filters.length > 0` guard above: an unfiltered prospect-list
+      // index is exactly the case that still has to hide archived lists.
+      applyEntityDefaults(query, entity_type, filters)
+
+      // Full-text search (name/email for contacts, name for companies, title elsewhere)
+      if (search) {
+        applySearch(query, entity_type, search)
+      }
+
+      // CRM internal/external scope — filter contacts by member_id presence
+      if (entity_type === 'contact' && crm_scope === 'internal') {
+        query.not('member_id', 'is', null)
+      } else if (entity_type === 'contact' && crm_scope === 'external') {
+        query.is('member_id', null)
+      }
+
+      // Capture mine/shared scope — user_id is the capture's OWNER (an auth
+      // user id, not a member id). RLS already hides other members' private
+      // captures, so 'mine' (my captures, both visibilities) and 'shared'
+      // (teammates' workspace-visible captures) partition the visible set.
+      if (entity_type === 'capture' && capture_scope === 'mine') {
+        query.eq('user_id', user.id)
+      } else if (entity_type === 'capture' && capture_scope === 'shared') {
+        query.eq('visibility', 'workspace').neq('user_id', user.id)
+      }
+
+      // Action-specific completed filter
+      if (entity_type === 'action') {
+        await applyCompletedFilter(supabase, query, completed_filter, show_completed, scopeWorkspaceIds)
+      }
+
+      // Team scope
+      if (team_id) {
+        applyTeamScope(query, entity_type, team_id)
+      }
+
+      if (groupStatusIds) query.in('status_id', groupStatusIds)
+      // Wrapped: the builder is a thenable, and an async function returning it
+      // bare would RUN it (await unwraps thenables) instead of handing it back.
+      return { query }
+    }
 
     // Apply filters. A filter that provably matches nothing (e.g. a contact
     // with zero captures sending a `{ field: 'id', value: '__no_match__' }`
@@ -174,69 +265,43 @@ export async function POST(request: NextRequest) {
     // and raising a 22P02 uuid-cast error. Grouping an empty array flows through
     // groupResults naturally; the empty-column injection (which needs the DB) is
     // intentionally skipped since there's nothing to place.
-    // The custom fields' types, so each is read in its own form (a multi-select's list, a currency's amount).
-    // A table's rows: that table's, read by its columns' types.
-    const tableId = entity_type === 'data_row' ? table_id : null
-    if (tableId) query.eq('table_id', tableId)
-    const fieldTypes = await customFieldTypesFor(supabase, workspaceId, entity_type, viewFieldsOf(filters, ordering), tableId)
-    if (filters.length > 0) {
-      try {
-        await applyFilters(query, entity_type, filters, supabase, scopeWorkspaceIds, {
-          memberId,
-          userId: user.id,
-        }, { fieldTypes })
-      } catch (err) {
-        if (err instanceof NoMatchSignal) {
-          const validSubGrouping = sub_grouping && sub_grouping.field ? sub_grouping : null
-          const emptyGrouped = grouping ? groupResults([], grouping, validSubGrouping, crossTeam) : null
-          return NextResponse.json({
-            data: emptyGrouped || [],
-            total: 0,
-            page,
-            per_page: perPage,
-            display_properties: DEFAULT_DISPLAY_PROPERTIES[entity_type],
-          })
-        }
-        throw err
+    let query: Awaited<ReturnType<typeof buildQuery>>['query']
+    try {
+      ;({ query } = await buildQuery())
+    } catch (err) {
+      if (err instanceof NoMatchSignal) {
+        const validSubGrouping = sub_grouping && sub_grouping.field ? sub_grouping : null
+        const emptyGrouped = grouping ? groupResults([], grouping, validSubGrouping, crossTeam) : null
+        return NextResponse.json({
+          data: emptyGrouped || [],
+          total: 0,
+          page,
+          per_page: perPage,
+          display_properties: DEFAULT_DISPLAY_PROPERTIES[entity_type],
+        })
       }
+      throw err
     }
 
-    // Filter-dependent per-entity defaults. MUST run after applyFilters and
-    // OUTSIDE the `filters.length > 0` guard above: an unfiltered prospect-list
-    // index is exactly the case that still has to hide archived lists.
-    applyEntityDefaults(query, entity_type, filters)
-
-    // Full-text search (name/email for contacts, name for companies, title elsewhere)
-    if (search) {
-      applySearch(query, entity_type, search)
+    // The finished groups: their states, left out of this page, and each
+    // group's count, read in parallel with the page. Skipped when the view
+    // hides finished actions anyway (completed 'none' / Show completed off):
+    // there is nothing to count, and the empty columns come from the
+    // injection below as before.
+    const hidesFinished = !show_completed || normalizeCompletedFilter(completed_filter) === 'none'
+    const lazyPlans = lazyDone && !hidesFinished
+      ? planLazyDoneGroups(await doneStatesInScope(supabase, scopeWorkspaceIds, crossTeam ? null : team_id), crossTeam, CATEGORY_LABELS)
+      : []
+    if (lazyPlans.length > 0) {
+      query.not('status_id', 'in', `(${lazyPlans.flatMap(p => p.statusIds).join(',')})`)
     }
-
-    // CRM internal/external scope — filter contacts by member_id presence
-    if (entity_type === 'contact' && crm_scope === 'internal') {
-      query.not('member_id', 'is', null)
-    } else if (entity_type === 'contact' && crm_scope === 'external') {
-      query.is('member_id', null)
-    }
-
-    // Capture mine/shared scope — user_id is the capture's OWNER (an auth
-    // user id, not a member id). RLS already hides other members' private
-    // captures, so 'mine' (my captures, both visibilities) and 'shared'
-    // (teammates' workspace-visible captures) partition the visible set.
-    if (entity_type === 'capture' && capture_scope === 'mine') {
-      query.eq('user_id', user.id)
-    } else if (entity_type === 'capture' && capture_scope === 'shared') {
-      query.eq('visibility', 'workspace').neq('user_id', user.id)
-    }
-
-    // Action-specific completed filter
-    if (entity_type === 'action') {
-      await applyCompletedFilter(supabase, query, completed_filter, show_completed, scopeWorkspaceIds)
-    }
-
-    // Team scope
-    if (team_id) {
-      applyTeamScope(query, entity_type, team_id)
-    }
+    const lazyCountsPromise = Promise.all(lazyPlans.map(async (plan) => {
+      const { query: countQuery } = await buildQuery({ countOnly: true })
+      countQuery.in('status_id', plan.statusIds)
+      const { count, error } = await countQuery
+      if (error) throw error
+      return count ?? 0
+    }))
 
     // Ordering. Personal scope adds a total-order tie-break: `identifier` is
     // only unique per workspace, so two workspaces' ENG-1 rows would otherwise
@@ -246,7 +311,7 @@ export async function POST(request: NextRequest) {
     // Pagination
     applyPagination(query, page, perPage)
 
-    const { data, count, error } = await query
+    const [{ data, count, error }, lazyCounts] = await Promise.all([query, lazyCountsPromise])
 
     if (error) throw error
 
@@ -542,6 +607,14 @@ export async function POST(request: NextRequest) {
       // `crossTeam` is resolved above — personal scope forces it on.
       grouped = groupResults(items, grouping, validSubGrouping, crossTeam)
 
+      // The finished groups, rows not loaded: their counts, and every member
+      // state (the count's and the group's pages' narrowing, and where a card
+      // dropped on the group goes). Their rows were left out of `items`, so
+      // groupResults made none of them; they are ordered with the rest below.
+      lazyPlans.forEach((plan, i) => {
+        grouped!.push({ key: plan.key, label: plan.label, items: [], metadata: { ...lazyMetadata(plan, lazyCounts[i]) } })
+      })
+
       // A custom select field (`custom_fields.<key>`): a column per option,
       // in the field's own order, empty ones included, so a card can be
       // dragged to an option no record has yet. One definition read.
@@ -629,6 +702,10 @@ export async function POST(request: NextRequest) {
             // boards, reorder columns) as a unit. Also set a single status_id
             // (first member) for backward compatibility with scalar consumers.
             for (const group of grouped) {
+              // A finished group not loaded carries its own ids already, over
+              // every team in scope (planLazyDoneGroups), not only the teams
+              // this page's rows came from.
+              if (isLazyGroup(group)) continue
               const ids = stateIdsByKey.get(group.key)
               if (ids) {
                 group.metadata = {
@@ -734,7 +811,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       data: grouped || items,
-      total: count ?? 0,
+      // Every row the view holds, the finished groups' too: they are left out
+      // of this page, not out of the view.
+      total: (count ?? 0) + lazyCounts.reduce((a, b) => a + b, 0),
       page,
       per_page: perPage,
       display_properties: DEFAULT_DISPLAY_PROPERTIES[entity_type],

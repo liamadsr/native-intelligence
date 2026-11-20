@@ -17,6 +17,7 @@ import {
   type ViewEntityType, type ViewLayout,
 } from '@/lib/views/types'
 import type { ViewConfig } from './hooks/use-view'
+import { COMPLETED_FILTER_LABELS, COMPLETED_FILTER_OPTIONS, type CompletedFilter } from '@/lib/views/completed-window'
 import { customFieldDisplayProperties, customFieldFilterFields } from '@/lib/views/custom-field-columns'
 import { useCustomFieldDefinitions } from './hooks/use-custom-field-definitions'
 
@@ -282,13 +283,17 @@ export function ViewSettingsPopover({ config, entityType, onChange, lockedScopeF
               <SettingsRow label="Completed issues">
                 <Select
                   value={config.completed_filter || 'all'}
-                  onValueChange={v => onChange({ completed_filter: v as 'all' | 'recent' | 'none' })}
+                  onValueChange={v => onChange({ completed_filter: v as CompletedFilter })}
                 >
-                  <SelectTrigger className="h-7 w-24 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="h-7 w-28 text-xs" aria-label="Completed issues"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All</SelectItem>
-                    <SelectItem value="recent">Recent</SelectItem>
-                    <SelectItem value="none">None</SelectItem>
+                    {COMPLETED_FILTER_OPTIONS.map(o => (
+                      <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                    ))}
+                    {/* The older setting, shown only on a view that still holds it. */}
+                    {config.completed_filter === 'recent' && (
+                      <SelectItem value="recent">{COMPLETED_FILTER_LABELS.recent}</SelectItem>
+                    )}
                   </SelectContent>
                 </Select>
               </SettingsRow>

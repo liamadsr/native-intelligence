@@ -13,6 +13,7 @@ import { prefetchDetailOnHover } from './detail-prefetch'
 import { FlowIndicator } from './flow-indicator'
 import { flowsForStatusIds, type FlowStatusMap, type FlowRef } from './hooks/use-flow-status-ids'
 import { statusIdsForGroup } from './group-status-ids'
+import { groupCount, isLazyGroup, type GroupLoadState } from '@/lib/views/lazy-done-groups'
 import { ActionPlatformCell } from '@/components/tasks/action-platform-cell'
 import { requestActionCompose } from '@/lib/tasks/compose-request-events'
 import { RowWorkspaceBadge } from './workspace-badge'
@@ -47,6 +48,13 @@ interface ViewBoardProps {
   onToggleCheck?: (id: string) => void
   /** workflow_state id → enabled flows that fire on entry (⚡ column badge). */
   flowStatusIds?: FlowStatusMap
+  /**
+   * A finished column's rows (lib/views/lazy-done-groups.ts): its header shows
+   * the count, its first page loads when the column scrolls into view, the
+   * next ones as it is scrolled.
+   */
+  onLoadGroup?: (groupKey: string) => void
+  groupLoadState?: Record<string, GroupLoadState>
 }
 
 /** Carries the dragged card's ID plus all IDs that should move together (multi-select). */
@@ -57,7 +65,7 @@ export function ViewBoard({
   entityType, data, loading, config, selectedItemId, onItemSelect, onMoveItem,
   onReorderColumns,
   selectionActive, checkedIds, onToggleCheck,
-  flowStatusIds,
+  flowStatusIds, onLoadGroup, groupLoadState,
 }: ViewBoardProps) {
   if (loading) {
     return (
@@ -93,6 +101,8 @@ export function ViewBoard({
         checkedIds={checkedIds}
         onToggleCheck={onToggleCheck}
         flowStatusIds={flowStatusIds}
+        onLoadGroup={onLoadGroup}
+        groupLoadState={groupLoadState}
       />
     </DndProvider>
   )
@@ -110,6 +120,8 @@ function BoardInner({
   checkedIds,
   onToggleCheck,
   flowStatusIds,
+  onLoadGroup,
+  groupLoadState,
 }: {
   groups: GroupedResults[]
   entityType: ViewEntityType
@@ -121,6 +133,8 @@ function BoardInner({
   checkedIds?: Set<string>
   onToggleCheck?: (id: string) => void
   flowStatusIds?: FlowStatusMap
+  onLoadGroup?: (groupKey: string) => void
+  groupLoadState?: Record<string, GroupLoadState>
 }) {
   // Track column order locally for optimistic reordering.
   // Only reset when the set of group keys changes (columns added / removed).
@@ -242,6 +256,8 @@ function BoardInner({
           checkedIds={checkedIds}
           onToggleCheck={onToggleCheck}
           flows={flowsForGroup(group, flowStatusIds)}
+          onLoadGroup={onLoadGroup}
+          loadState={groupLoadState?.[group.key]}
         />
       ))}
     </div>
@@ -251,6 +267,7 @@ function BoardInner({
 function BoardColumn({
   group, entityType, selectedItemId, onItemSelect, onMoveItem, onMoveColumn,
   selectionActive, checkedIds, onToggleCheck, flows,
+  onLoadGroup, loadState,
 }: {
   group: GroupedResults
   entityType: ViewEntityType
@@ -262,7 +279,11 @@ function BoardColumn({
   checkedIds?: Set<string>
   onToggleCheck?: (id: string) => void
   flows?: FlowRef[]
+  onLoadGroup?: (groupKey: string) => void
+  loadState?: GroupLoadState
 }) {
+  // A finished column whose rows are not loaded (lib/views/lazy-done-groups.ts).
+  const lazy = isLazyGroup(group) && !!onLoadGroup
   // The card area is both the react-dnd card drop target AND the column's own
   // vertical scroll container. We keep our own ref so the progressive-reveal
   // sentinel can observe intersections against it, then merge react-dnd's drop
@@ -337,7 +358,7 @@ function BoardColumn({
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium">{group.label}</span>
           <span className="text-xs text-muted-foreground bg-muted rounded-full px-1.5 py-0.5">
-            {group.items?.length ?? 0}
+            {groupCount(group)}
           </span>
           {flows && flows.length > 0 && <FlowIndicator flows={flows} />}
         </div>
@@ -364,10 +385,63 @@ function BoardColumn({
           onToggleCheck={onToggleCheck}
           scrollRootRef={cardAreaRef}
         />
-        {(!group.items || group.items.length === 0) && (
+        {lazy ? (
+          <LazyColumnTail
+            groupKey={group.key}
+            count={groupCount(group)}
+            shown={group.items?.length ?? 0}
+            loadState={loadState}
+            onLoadGroup={onLoadGroup!}
+            scrollRootRef={cardAreaRef}
+          />
+        ) : (!group.items || group.items.length === 0) && (
           <div className="py-8 text-center text-xs text-muted-foreground">No items</div>
         )}
       </div>
+    </div>
+  )
+}
+
+/**
+ * A finished column's loading: its first page once the column is on screen
+ * (a column scrolled out of view to the right costs nothing until it is
+ * scrolled to), the next page as its own tail scrolls in.
+ */
+function LazyColumnTail({ groupKey, count, shown, loadState, onLoadGroup, scrollRootRef }: {
+  groupKey: string
+  count: number
+  shown: number
+  loadState?: GroupLoadState
+  onLoadGroup: (groupKey: string) => void
+  scrollRootRef: React.RefObject<HTMLDivElement | null>
+}) {
+  const ref = React.useRef<HTMLDivElement>(null)
+  const loading = !!loadState?.loading
+  const loaded = !!loadState?.loaded
+  // First page: the column in the viewport. Next pages: the tail in the column.
+  const wants = !loading && count > 0 && (!loaded || (loadState!.hasMore && shown < count))
+  React.useEffect(() => {
+    if (!wants) return
+    const el = ref.current
+    if (!el || typeof IntersectionObserver === 'undefined') return
+    const io = new IntersectionObserver(
+      entries => { if (entries.some(e => e.isIntersecting)) onLoadGroup(groupKey) },
+      loaded ? { root: scrollRootRef.current, rootMargin: '400px 0px' } : { rootMargin: '0px 200px' },
+    )
+    io.observe(el)
+    return () => io.disconnect()
+  }, [wants, loaded, groupKey, onLoadGroup, scrollRootRef])
+
+  if (count === 0 && shown === 0) {
+    return <div className="py-8 text-center text-xs text-muted-foreground">No items</div>
+  }
+  return (
+    <div ref={ref} data-lazy-column-tail={groupKey} className="py-2 text-center text-xs text-muted-foreground">
+      {loading || !loaded ? 'Loading…' : wants ? (
+        <button type="button" onClick={() => onLoadGroup(groupKey)} className="hover:text-foreground">
+          Show more ({Math.max(0, count - shown)})
+        </button>
+      ) : null}
     </div>
   )
 }
