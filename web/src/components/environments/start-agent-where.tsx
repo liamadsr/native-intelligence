@@ -14,9 +14,8 @@
  * Shown only for a coding run (GET …/start-agent's `coding`: a repo, a
  * developer agent or one with no role) when the person has a Mac: a work run
  * always runs in the cloud. With a Mac picked and no folder on it linked to
- * the project's repo, it says so in one sentence and offers that Mac's Edit
- * environment to link one (the Start would be refused with the same reason,
- * never moved to the cloud).
+ * the project's repo, it says so in one sentence and offers that Mac's git
+ * folders to link one (StartFolderChoice), right here, not in Settings.
  */
 import { useState } from 'react'
 import { Check, ChevronDown } from 'lucide-react'
@@ -26,9 +25,9 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { cn } from '@/lib/utils'
 import type { MacEnvironmentItem } from '@/lib/local-agent/environment-client'
 import { setProjectMacDefault } from './api'
-import { EditEnvironmentDialog } from './edit-environment-dialog'
 import { EnvironmentKindIcon } from './environment-meta'
 import { macLinksRepo } from './project-environment-field'
+import { StartFolderAnchor, StartFolderChoice } from './start-folder-choice'
 import type { StartPlace } from './start-agent-with'
 
 /** The cloud's segment value: never an environment id (those are uuids). */
@@ -49,7 +48,7 @@ export interface StartAgentWhereProps {
 
 export function StartAgentWhere({ place, enabled, disabled = false }: StartAgentWhereProps) {
   const [saving, setSaving] = useState(false)
-  const [linking, setLinking] = useState<MacEnvironmentItem | null>(null)
+  const [choosing, setChoosing] = useState(false)
   const coding = enabled && place.loaded ? place.coding : null
   const macs = place.macs
   if (!coding || macs.length === 0) return null
@@ -65,7 +64,7 @@ export function StartAgentWhere({ place, enabled, disabled = false }: StartAgent
     place.pick(next)
     const mac = next ? (macs.find((m) => m.id === next) ?? null) : null
     const missing = unlinkedFolderSentence(mac, coding.repo)
-    if (mac && missing) toast(missing, { description: 'Link one so the agent can work in it.', action: { label: 'Link a folder', onClick: () => setLinking(mac) } })
+    if (mac && missing) toast(missing, { description: 'Link one so the agent can work in it.', action: { label: 'Choose a folder', onClick: () => setChoosing(true) } })
   }
 
   async function makeDefault() {
@@ -98,7 +97,9 @@ export function StartAgentWhere({ place, enabled, disabled = false }: StartAgent
     [id === place.defaultMacId ? 'project default' : null, online ? null : 'offline'].filter(Boolean).join(' · ') || undefined
 
   return (
-    <>
+    <StartFolderChoice open={choosing} onOpenChange={setChoosing} mac={current} repo={coding.repo} mode="link">
+      <StartFolderAnchor asChild>
+      <span className="inline-flex">
       <DropdownMenu modal={false}>
         <DropdownMenuTrigger asChild disabled={disabled || saving}>
           <button
@@ -129,8 +130,8 @@ export function StartAgentWhere({ place, enabled, disabled = false }: StartAgent
               <p data-start-agent-where-unlinked-note="" className="px-2 pb-1 pt-1 text-xs text-muted-foreground">
                 {unlinked}
               </p>
-              <DropdownMenuItem data-start-agent-where-link="" onSelect={() => setLinking(current)} className="rounded-2xl px-2 py-2 text-sm">
-                Link a folder…
+              <DropdownMenuItem data-start-agent-where-link="" onSelect={() => setChoosing(true)} className="rounded-2xl px-2 py-2 text-sm">
+                Choose a folder…
               </DropdownMenuItem>
             </>
           )}
@@ -148,15 +149,8 @@ export function StartAgentWhere({ place, enabled, disabled = false }: StartAgent
           )}
         </DropdownMenuContent>
       </DropdownMenu>
-      {linking && (
-        <EditEnvironmentDialog
-          open
-          onOpenChange={(open) => {
-            if (!open) setLinking(null)
-          }}
-          environment={linking}
-        />
-      )}
-    </>
+      </span>
+      </StartFolderAnchor>
+    </StartFolderChoice>
   )
 }

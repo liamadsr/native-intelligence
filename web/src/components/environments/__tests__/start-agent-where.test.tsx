@@ -25,9 +25,6 @@ import { createRoot, type Root } from 'react-dom/client'
 const toast = vi.hoisted(() => Object.assign(vi.fn(), { error: vi.fn(), success: vi.fn() }))
 vi.mock('sonner', () => ({ toast }))
 vi.mock('@/lib/local-agent/relay-core', () => ({ refreshLocalAgentDevice: vi.fn(async () => null) }))
-vi.mock('../edit-environment-dialog', () => ({
-  EditEnvironmentDialog: ({ environment }: { environment: { id: string } }) => h('div', { 'data-edit-environment': environment.id }),
-}))
 
 import { StartAgentWhere, unlinkedFolderSentence } from '../start-agent-where'
 import { useStartOnMac } from '../start-agent-with'
@@ -180,19 +177,21 @@ describe('where this task runs, picked at its Start', () => {
     expect(q('[data-start-agent-where-make-default]')).toBeNull()
   })
 
-  it('a Mac with no folder linked to the repo: one sentence, and Link a folder opens that Mac', async () => {
+  it('a Mac with no folder linked to the repo: one sentence, and Choose a folder offers its folders right here', async () => {
     const unlinked = STUDIO({ folders: [{ id: 'f-9', label: 'notes', mode: 'read', isGit: false, baseBranch: null, repoFullName: null }] })
     await mount({ coding: true, onMac: null, envs: [unlinked, cloud()] })
     await open()
     await act(async () => q('[data-start-agent-where-option="env-mac"]')!.click())
     await flush()
-    expect(toast).toHaveBeenCalledWith(`No folder on Studio Mac is linked to ${REPO}.`, expect.objectContaining({ action: expect.objectContaining({ label: 'Link a folder' }) }))
+    expect(toast).toHaveBeenCalledWith(`No folder on Studio Mac is linked to ${REPO}.`, expect.objectContaining({ action: expect.objectContaining({ label: 'Choose a folder' }) }))
     expect(q('[data-start-agent-where]')!.hasAttribute('data-start-agent-where-unlinked')).toBe(true)
     await open()
     expect(q('[data-start-agent-where-unlinked-note]')!.textContent).toBe(`No folder on Studio Mac is linked to ${REPO}.`)
     await act(async () => q('[data-start-agent-where-link]')!.click())
     await flush()
-    expect(q('[data-edit-environment]')!.getAttribute('data-edit-environment')).toBe('env-mac')
+    // The Mac's folders, right here (not Settings): the git one, not picked for the person.
+    expect(q('[data-start-folder-choice]')!.textContent).toContain(`Which folder on Studio Mac holds ${REPO}?`)
+    expect(q('[data-start-folder-choice-none]')).not.toBeNull()
   })
 
   it('a refused default: the server’s sentence shows, and the task keeps its pick', async () => {

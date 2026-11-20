@@ -365,6 +365,15 @@ describe('start-agent: the place picked on the action for this Start (environmen
 
   it('not an id: a 400', async () => {
     expect((await start(ME, { environmentId: 'my-mac' })).status).toBe(400)
+    expect((await start(ME, { environmentId: MAC_ENV, folderId: 'core' })).status).toBe(400)
+  })
+
+  it('a folder picked at the Start goes to the Mac start (which links it only on that Mac); none named, none sent', async () => {
+    const FOLDER = '88888888-8888-4888-8888-888888888881'
+    await start(ME, { environmentId: MAC_ENV, folderId: FOLDER })
+    expect((hoisted.onMac.mock.calls[0][1] as { folderId?: string }).folderId).toBe(FOLDER)
+    await start(ME, { environmentId: MAC_ENV })
+    expect('folderId' in (hoisted.onMac.mock.calls[1][1] as object)).toBe(false)
   })
 })
 

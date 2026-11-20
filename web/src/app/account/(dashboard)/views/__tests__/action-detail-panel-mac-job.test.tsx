@@ -64,6 +64,7 @@ vi.mock('@/lib/cached-fetch', () => ({
 }))
 
 import { ActionDetailPanel, parseActionMacJob } from '../action-detail-panel'
+import { resetEnvironmentStore } from '@/lib/local-agent/environment-client'
 
 const DETAIL_URL = '/api/account/actions/act-1'
 const SID = '5e1c2a3b-4d5e-4f60-8a71-92b3c4d5e6f7'
@@ -126,6 +127,8 @@ beforeEach(() => {
   startAnswer = {}
   placeAnswer = { onMac: null, coding: null }
   environments = []
+  // Each test reads its own Macs (the store caches the list).
+  resetEnvironmentStore()
   installFetch()
   container = document.createElement('div')
   document.body.appendChild(container)
@@ -216,11 +219,11 @@ describe('ActionDetailPanel — the job on the person’s Mac', () => {
     const where = q('[data-start-agent-where]')!
     expect(where.textContent).toContain('on Studio Mac')
     expect(where.getAttribute('title')).toBe('No folder on Studio Mac is linked to acme/core.')
-    // The Start sends where it shows: this task's place.
+    // No git folder on that Mac at all: the Start says to add one, and sends nothing.
     await act(async () => play.click())
     for (let i = 0; i < 3; i++) await act(async () => { await vi.advanceTimersByTimeAsync(50) })
-    const post = calls.find((c) => c.url === `${DETAIL_URL}/start-agent` && c.init?.method === 'POST')!
-    expect(JSON.parse(String(post.init?.body))).toEqual({ environmentId: 'env-mac' })
+    expect(document.querySelector('[data-start-folder-choice-none]')!.textContent).toContain('Add the folder in the Native Intelligence app on your Mac')
+    expect(calls.some((c) => c.url === `${DETAIL_URL}/start-agent` && c.init?.method === 'POST')).toBe(false)
   })
 
   it('a task that last ran in the cloud opens there, over the project default, and its Start sends the cloud', async () => {
@@ -233,5 +236,33 @@ describe('ActionDetailPanel — the job on the person’s Mac', () => {
     for (let i = 0; i < 3; i++) await act(async () => { await vi.advanceTimersByTimeAsync(50) })
     const post = calls.find((c) => c.url === `${DETAIL_URL}/start-agent` && c.init?.method === 'POST')!
     expect(JSON.parse(String(post.init?.body))).toEqual({ environmentId: null })
+  })
+
+  it('a picked Mac with no folder holding the repo: Start asks which folder, and the pick goes with the Start', async () => {
+    runStatus = 'idle'
+    environments = [
+      {
+        kind: 'mac', id: 'env-mac', name: 'Studio Mac', deviceId: 'dev-1', deviceName: 'Studio Mac', appVersion: '0.3.0',
+        lastSeenAt: '2026-10-22T10:00:00Z', online: true, supportsBaseBranch: true,
+        folders: [{ id: 'f-core', label: 'core', mode: 'edit', isGit: true, baseBranch: 'main', repoFullName: null }],
+        createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z',
+      },
+    ]
+    placeAnswer = { onMac: { environmentId: 'env-mac' }, coding: { projectId: 'proj-1', repo: 'acme/core' }, last: null }
+    startAnswer = { mode: 'mac', worker: 'local_agent', sessionId: SID, mac: 'Studio Mac', folder: 'core', agent: null }
+    await render()
+    const play = container.querySelector('[data-start-agent-place]') as HTMLButtonElement
+    await act(async () => play.click())
+    await act(async () => { await vi.advanceTimersByTimeAsync(50) })
+    // Asked, not refused: nothing was sent yet.
+    expect(calls.some((c) => c.url === `${DETAIL_URL}/start-agent` && c.init?.method === 'POST')).toBe(false)
+    const choice = document.querySelector('[data-start-folder-choice]') as HTMLElement
+    expect(choice.textContent).toContain('Which folder on Studio Mac holds acme/core?')
+    // `core` matches the repo's name: preselected, but only the person's press starts it.
+    expect(document.querySelector('[data-start-folder-option="f-core"]')!.getAttribute('aria-checked')).toBe('true')
+    await act(async () => (document.querySelector('[data-start-folder-confirm]') as HTMLButtonElement).click())
+    for (let i = 0; i < 3; i++) await act(async () => { await vi.advanceTimersByTimeAsync(50) })
+    const post = calls.find((c) => c.url === `${DETAIL_URL}/start-agent` && c.init?.method === 'POST')!
+    expect(JSON.parse(String(post.init?.body))).toEqual({ environmentId: 'env-mac', folderId: 'f-core' })
   })
 })

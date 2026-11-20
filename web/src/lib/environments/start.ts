@@ -30,8 +30,8 @@ import { fenceUntrustedValue } from '@/lib/ai/agent-run-context'
 import { LOCAL_AGENT_MESSAGE_MAX_BYTES, LOCAL_AGENT_REQUEST_MAX_BYTES, createSession, listFolders, type SessionRow } from '@/lib/local-agent/store'
 import { ACTION_REQUEST_PREFIX, nextActionStartId, startActionMacJob, type PersonAgentChoice, type StartUnattendedResult, type UnattendedDeps } from '@/lib/local-agent/unattended'
 import { runEnvironmentIdFor, runEnvironmentShared, runEnvironmentUsable } from './resolve'
-import { assertMacOffers, getEnvironment } from './store'
-import { EnvironmentError, RUN_ENVIRONMENT_UNUSABLE_CODE, isRepoFullName, type MacEnvironment, type MacFolder } from './types'
+import { assertMacOffers, getEnvironment, setFolderSetting } from './store'
+import { EnvironmentError, RUN_ENVIRONMENT_UNUSABLE_CODE, editsNotAllowedReason, isRepoFullName, type MacEnvironment, type MacFolder } from './types'
 
 type Svc = SupabaseClient
 
@@ -378,6 +378,10 @@ export function folderForRepo(mac: Pick<MacEnvironment, 'folders'>, repo: string
   return linked.find((f) => f.mode === 'edit') ?? linked[0] ?? null
 }
 
+function editsNotAllowed(folder: Pick<MacFolder, 'label'>, env: Pick<MacEnvironment, 'name'>): ActionOnMacResult {
+  return { status: 'refused', code: 'EDITS_NOT_ALLOWED', reason: editsNotAllowedReason(folder, env.name), httpStatus: 403 }
+}
+
 /**
  * Run an action's coding work on the starter's own Mac (their "Run my work
  * here" for its project, `environmentId`, from getDefault with the project:
@@ -399,6 +403,14 @@ export async function startActionOnMac(
      * own agent.
      */
     agent?: PersonAgentChoice
+    /**
+     * A folder on this Mac the person picked at the Start to hold the repo,
+     * when none is linked to it yet: it is linked (the same write Edit
+     * environment makes) and the job starts there. Only a git folder of this
+     * Mac (so only their own), with edits allowed. Ignored when a folder is
+     * already linked: the question never comes back.
+     */
+    folderId?: string
     deps?: UnattendedDeps
   },
 ): Promise<ActionOnMacResult> {
@@ -420,18 +432,28 @@ export async function startActionOnMac(
       httpStatus: 409,
     }
   }
-  const folder = folderForRepo(env, input.repo)
+  let folder = folderForRepo(env, input.repo)
+  if (!folder && input.folderId) {
+    // Picked at the Start: a folder of THIS Mac (env lists only the caller's own Mac's live folders).
+    const picked = env.folders.find((f) => f.id === input.folderId) ?? null
+    if (!picked || !picked.isGit) {
+      return {
+        status: 'refused',
+        code: 'FOLDER_NOT_USABLE',
+        reason: picked
+          ? `${picked.label} on ${env.name} isn’t a git folder, so it can’t hold ${input.repo}. Pick another folder.`
+          : `That folder isn’t shared from ${env.name} any more. Pick another folder.`,
+        httpStatus: 409,
+      }
+    }
+    if (picked.mode !== 'edit') return editsNotAllowed(picked, env)
+    await setFolderSetting(svc, { userId: input.userId, deviceFolderId: picked.id, repoFullName: input.repo.trim() })
+    folder = { ...picked, repoFullName: input.repo.trim() }
+  }
   if (!folder) {
     return { status: 'refused', code: 'NO_LINKED_FOLDER', reason: `Link a folder on ${env.name} to ${input.repo} first, in its environment.`, httpStatus: 409 }
   }
-  if (folder.mode !== 'edit') {
-    return {
-      status: 'refused',
-      code: 'EDITS_NOT_ALLOWED',
-      reason: `${folder.label} on ${env.name} is read-only. Allow edits for it on your Mac, then press Start again.`,
-      httpStatus: 403,
-    }
-  }
+  if (folder.mode !== 'edit') return editsNotAllowed(folder, env)
   // A coding agent picked for this card: only one the Mac last said it
   // offers (it would refuse anything else on its own, later).
   if (input.agent && input.agent.worker !== null) {
