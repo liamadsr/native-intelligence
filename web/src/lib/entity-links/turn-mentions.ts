@@ -15,7 +15,7 @@
  * fenced before anything is written. Never throws.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { MENTION_RECORD_KEYS, MENTION_RECORD_KINDS } from '@/lib/search/menu-search'
+import { MENTIONED_RECORDS_CONTEXT_KEY, MENTION_RECORD_KEYS, MENTION_RECORD_KINDS, UNKEYED_MENTION_TYPES } from '@/lib/search/menu-search'
 import { isMentionableType, tidyMentionRefs, type MentionRef } from './mentionable'
 import { syncMentions } from './mentions'
 
@@ -33,6 +33,14 @@ export function turnMentionRefs(systemContext: Record<string, unknown> | null | 
   for (const [key, type] of Object.entries(OTHER_KEYS)) add(type, systemContext[key])
   // A deal is its pipeline's row (Tables, phase 7): its edge names the row.
   for (const kind of MENTION_RECORD_KINDS) add(kind === 'deal' ? 'data_row' : kind, systemContext[MENTION_RECORD_KEYS[kind].context])
+  // The kinds with no id key of their own (a campaign, a table, a row, a channel, a decision, a Studio project).
+  const refs = systemContext[MENTIONED_RECORDS_CONTEXT_KEY]
+  if (Array.isArray(refs)) {
+    for (const r of refs) {
+      const { type, id } = (r ?? {}) as { type?: unknown; id?: unknown }
+      if (typeof type === 'string' && (UNKEYED_MENTION_TYPES as readonly string[]).includes(type)) raw.push({ type, id })
+    }
+  }
   return tidyMentionRefs(raw)
 }
 

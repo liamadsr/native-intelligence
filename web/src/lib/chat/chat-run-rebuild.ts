@@ -119,11 +119,13 @@ import {
 import { gatewayTelemetryValues, type GatewayTelemetryValues } from '@/lib/ai/gateway-telemetry'
 import { ALL_TOOL_NAMES, getToolDefinition } from '@/lib/ai/tool-registry'
 import { MENTION_RECORD_KEYS, MENTION_RECORD_KINDS } from '@/lib/search/menu-search'
+import { mentionedRefsOf } from '@/lib/ai/mentioned-records'
 import {
   CORE_TOOL_NAMES,
   PERSON_MENTION_TOOL_NAMES,
   COMPANY_MENTION_TOOL_NAMES,
   RECORD_MENTION_TOOL_NAMES,
+  REF_MENTION_TOOL_NAMES,
   LIVE_MEETING_TOOL_NAMES,
   BROWSER_TOOL_NAMES,
   CHAT_FILE_TOOL_NAMES,
@@ -1067,6 +1069,8 @@ export async function rebuildChatSpec(
       const ids = (turn.systemContext as Record<string, unknown> | undefined)?.[MENTION_RECORD_KEYS[kind].context]
       return Array.isArray(ids) && ids.length ? RECORD_MENTION_TOOL_NAMES[kind] : []
     }),
+    // The mentioned records that travel as refs (a campaign, a table, a row, a decision…).
+    ...[...new Set(mentionedRefsOf(turn.systemContext as Record<string, unknown> | undefined).map((r) => r.type))].flatMap((type) => REF_MENTION_TOOL_NAMES[type] ?? []),
     // The agent's browser runs in the cloud, so its tools ride every surface;
     // the edition ceiling still gates whether they exist (a no-op seed on a
     // non-browser workspace), and the caller-class policy still applies.

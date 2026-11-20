@@ -410,12 +410,35 @@ export const MENTION_RECORD_KEYS: Record<MentionRecordKind, { context: string; r
 ) as Record<MentionRecordKind, { context: string; run: string }>
 
 /**
- * A task, doc, project, initiative, deal, flow, file, event or Studio video
- * mentioned in the message being written. A deal's id is its pipeline row's
- * (Tables, phase 7).
+ * Every record kind a composer attaches as a chip: the pickers' kinds, less
+ * the three with chips of their own (captures, people, companies).
+ */
+export type ComposerRecordKind = Exclude<MentionPickerKind, 'capture' | 'contact' | 'company'>
+export const COMPOSER_RECORD_KINDS = MENTION_PICKER_KINDS.filter(
+  (k): k is ComposerRecordKind => k !== 'capture' && k !== 'contact' && k !== 'company',
+)
+
+/**
+ * The system-context key for the mentioned records that have no id key of
+ * their own (MENTION_RECORD_KEYS): `[{ type, id, label }]`, the one mention
+ * format (src/lib/entity-links/mentionable.ts LabeledMentionRef). A campaign,
+ * a table, a row, a channel, a decision, a Studio project.
+ */
+export const MENTIONED_RECORDS_CONTEXT_KEY = 'mentionedRecords'
+
+/** The stored kinds that travel under MENTIONED_RECORDS_CONTEXT_KEY (the pickers' kinds with no id key). */
+export const UNKEYED_MENTION_TYPES: readonly MentionableType[] = [
+  ...new Set(COMPOSER_RECORD_KINDS.filter((k) => !('turnKeys' in FINDABLE[k])).map((k) => FINDABLE[k].mention as MentionableType)),
+]
+
+/**
+ * A record mentioned in the message being written: a task, doc, project,
+ * initiative, deal, flow, file, event, Studio video or Studio project, a
+ * campaign, a table or its row, a channel, a decision. A deal's id is its
+ * pipeline row's (Tables, phase 7).
  */
 export interface MentionRecord {
-  kind: MentionRecordKind
+  kind: ComposerRecordKind
   id: string
   title: string
   identifier?: string | null
@@ -428,21 +451,10 @@ export function mentionRecordLabel(record: MentionRecord): string {
 
 /** The mention a search row makes, or null for a kind mentioned another way. */
 export function toMentionRecord(row: MenuSearchRow): MentionRecord | null {
-  switch (row.kind) {
-    case 'action':
-      return { kind: 'action', id: row.id, title: row.title, identifier: row.identifier }
-    case 'document':
-    case 'project':
-    case 'initiative':
-    case 'deal':
-    case 'flow':
-    case 'attachment':
-    case 'calendar_event':
-    case 'studio_video':
-      return { kind: row.kind, id: row.id, title: row.title }
-    default:
-      return null
-  }
+  if (row.kind === 'capture' || row.kind === 'contact' || row.kind === 'company') return null
+  if (!(COMPOSER_RECORD_KINDS as readonly string[]).includes(row.kind)) return null
+  const kind = row.kind as ComposerRecordKind
+  return row.kind === 'action' ? { kind, id: row.id, title: row.title, identifier: row.identifier } : { kind, id: row.id, title: row.title }
 }
 
 /** A row's record as a mention: its kind and id, and the words its `@…` shows. */

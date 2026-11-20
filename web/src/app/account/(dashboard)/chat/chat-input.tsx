@@ -2,7 +2,8 @@
 
 import { createContext, memo, useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { flushSync } from 'react-dom'
-import { AlertCircle, ArrowUp, AudioLines, Building2, CalendarDays, CircleCheck, FileText, Film, FolderKanban, FolderOpen, ImageIcon, Lock, MousePointerClick, Paperclip, Plus, Target, User, Workflow, Handshake, X, type LucideIcon } from 'lucide-react'
+import { AlertCircle, ArrowUp, AudioLines, Building2, FileText, FolderOpen, ImageIcon, Lock, MousePointerClick, Paperclip, Plus, User, X, type LucideIcon } from 'lucide-react'
+import { RECORD_ICONS } from './feed-icons'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { registerReloadBlocker } from '@/lib/deploy-reload'
@@ -32,12 +33,12 @@ import { SEARCH_FLIGHT_KEY, flightWaiting } from '@/lib/chat/card-reply-flight'
 import { OPEN_SEARCH_EVENT, flySearchBack, launchSearchFlight, searchButton } from '@/lib/chat/open-search'
 import {
   MENTION_PICKER_KINDS,
-  MENTION_RECORD_KINDS,
+  COMPOSER_RECORD_KINDS,
   menuRowMention,
   mentionRecordLabel,
   toMentionRecord,
   type MentionRecord,
-  type MentionRecordKind,
+  type ComposerRecordKind,
   type MenuSearchKind,
   type MenuSearchRow,
 } from '@/lib/search/menu-search'
@@ -138,17 +139,8 @@ const TYPE_OUT_MAX_MS = 1200
 const TYPE_OUT_BEAT_MS = 200
 
 /** A mentioned record's chip glyph. */
-const RECORD_CHIP_ICONS: Record<MentionRecordKind, LucideIcon> = {
-  action: CircleCheck,
-  document: FileText,
-  project: FolderKanban,
-  initiative: Target,
-  deal: Handshake,
-  flow: Workflow,
-  attachment: Paperclip,
-  calendar_event: CalendarDays,
-  studio_video: Film,
-}
+/** A record chip's glyph: its kind's, as the menu draws it (feed-icons.ts). */
+const recordChipIcon = (kind: ComposerRecordKind): LucideIcon => RECORD_ICONS[kind] ?? FileText
 
 /**
  * May `/` here open the palette? Only from outside a text field, a menu or a
@@ -1013,7 +1005,7 @@ export const ChatInput = memo(function ChatInput({
         ? !!onAttachContact
         : kind === 'company'
           ? !!onAttachCompany
-          : !!onAttachRecord && (MENTION_RECORD_KINDS as readonly string[]).includes(kind),
+          : !!onAttachRecord,
   )
   const recordIdsOf = (kind: MenuSearchKind) => attachedRecords.filter((r) => r.kind === kind).map((r) => r.id)
   const menuPicks = {
@@ -1027,7 +1019,7 @@ export const ChatInput = memo(function ChatInput({
       capture: attachedNotes.map((n) => n.id),
       contact: attachedContacts.map((c) => c.id),
       company: attachedCompanies.map((c) => c.id),
-      ...Object.fromEntries(MENTION_RECORD_KINDS.map((kind) => [kind, recordIdsOf(kind)])),
+      ...Object.fromEntries(COMPOSER_RECORD_KINDS.map((kind) => [kind, recordIdsOf(kind)])),
     },
   }
 
@@ -1408,7 +1400,7 @@ export const ChatInput = memo(function ChatInput({
               </Badge>
             ))}
             {attachedRecords.map((record) => {
-              const Icon = RECORD_CHIP_ICONS[record.kind]
+              const Icon = recordChipIcon(record.kind)
               const label = mentionRecordLabel(record)
               return (
                 <Badge key={record.id} variant="secondary" className="gap-1 pl-2 pr-1" data-record-chip={`${record.kind}:${record.id}`}>

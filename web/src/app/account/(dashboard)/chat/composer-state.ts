@@ -47,7 +47,8 @@ import { validateChatUpload } from '@/lib/chat/upload-allowlist'
 import { uploadChatFile, ChatUploadError } from '@/lib/chat/upload-client'
 import type { CaptureListItem } from '../views/capture-utils'
 import type { MentionCompany, MentionContact } from './mention-picker'
-import { MENTION_RECORD_KEYS, MENTION_RECORD_KINDS, type MentionRecord } from '@/lib/search/menu-search'
+import { MENTIONED_RECORDS_CONTEXT_KEY, MENTION_RECORD_KEYS, MENTION_RECORD_KINDS, mentionRecordLabel, type MentionRecord } from '@/lib/search/menu-search'
+import { FINDABLE } from '@/lib/search/findable-registry'
 import type { ChatFileAttachment } from './chat-panel'
 
 // ── Mentions ────────────────────────────────────────────────────────────────
@@ -374,11 +375,20 @@ const hasMentions = (m: ComposerTurnExtras['mentions']) =>
  * system context's (`attachedActionIds`…) or a run chat's (`actionIds`…), as
  * MENTION_RECORD_KEYS names them.
  */
-export function recordIdsBody(records: readonly MentionRecord[] | undefined, keys: 'context' | 'run'): Record<string, string[]> {
-  const out: Record<string, string[]> = {}
+export function recordIdsBody(records: readonly MentionRecord[] | undefined, keys: 'context' | 'run'): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
   for (const kind of MENTION_RECORD_KINDS) {
     const ids = (records ?? []).filter((r) => r.kind === kind).map((r) => r.id)
     if (ids.length) out[MENTION_RECORD_KEYS[kind][keys]] = ids
+  }
+  // The kinds with no id key of their own travel as the one mention format
+  // (`{ type, id, label }`), in the system context only: a run chat reads ids.
+  if (keys === 'context') {
+    const keyed = new Set<string>(MENTION_RECORD_KINDS)
+    const refs = (records ?? [])
+      .filter((r) => !keyed.has(r.kind))
+      .map((r) => ({ type: FINDABLE[r.kind].mention, id: r.id, label: mentionRecordLabel(r) }))
+    if (refs.length) out[MENTIONED_RECORDS_CONTEXT_KEY] = refs
   }
   return out
 }
