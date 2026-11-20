@@ -138,6 +138,8 @@ export interface SyncMentionsResult {
   mentioned: MentionRef[]
   added: number
   removed: number
+  /** The targets this call newly mentioned (an edge it wrote): who a surface tells, once. */
+  fresh?: MentionRef[]
   error?: string
 }
 
@@ -198,7 +200,7 @@ export async function syncMentions(supabase: SupabaseClient, input: SyncMentions
       )
       if (error) return { mentioned, added: 0, removed: stale.length, error: error.message }
     }
-    return { mentioned, added: fresh.length, removed: stale.length }
+    return { mentioned, added: fresh.length, removed: stale.length, fresh }
   } catch (err) {
     return { mentioned: [], added: 0, removed: 0, error: err instanceof Error ? err.message : 'unknown' }
   }

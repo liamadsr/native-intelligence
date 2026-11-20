@@ -279,12 +279,16 @@ Built on `claude/mentions-everywhere` (merged nowhere, rolled out nowhere):
 - **Team chat's agent.** A message that calls the agent hands over the records it mentions:
   each read again for that person, named by its own label, with the tool that reads it.
 
+- **Documents.** The editor's `@` offers every mentionable kind (it reads the registry). A
+  teammate newly mentioned in a published document gets one `mentioned` notification
+  (`web/src/lib/documents/mention-notifications.ts`); a private document tells no one who
+  cannot open it.
+
 Needs migration 671 on a database before this code runs against it (the owner's call for
 production; not applied to the dev database either, so comments were checked by tests only).
 
 Still to do, in order: mail and agent chats (search, mention, the share a mention makes);
-team chat on the unified list (teammates through the registry) and its edit box; documents and the `NoteEditor` descriptions
-(teammates, every kind, the `mentioned` notification); `MentionTextarea` for the remaining
+team chat on the unified list (teammates through the registry) and its edit box; the `NoteEditor` descriptions and notes (no `@` there yet); `MentionTextarea` for the remaining
 textareas; the one `EntityChip` with live status for every kind; grouped search tabs;
 sequences, prospect lists, teams and packages as mentionable (they are not graph endpoints
 yet); run chats carrying the kinds that have no id key.
