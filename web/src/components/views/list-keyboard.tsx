@@ -43,6 +43,12 @@ export const LIST_FOCUS_RING = 'ring-1 ring-inset ring-foreground/25 bg-muted/40
 
 const CONTROLS = 'button, a[href], input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="button"], [role="tab"], [role="checkbox"], [role="switch"], [role="option"], [role="menuitem"], [role="textbox"], [role="combobox"]'
 
+/** Where a key is typing, never a shortcut (useHotkeys skips most of these already). */
+const TEXT_ENTRY = 'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="combobox"]'
+
+/** Keys a focused control answers itself. */
+const CONTROL_KEYS = new Set(['Enter', ' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End'])
+
 /** Is the element shown (laid out, not under an inert or hidden ancestor)? */
 function shown(el: Element): boolean {
   return el.getClientRects().length > 0 && !el.closest('[inert], [hidden], [aria-hidden="true"]')
@@ -50,7 +56,7 @@ function shown(el: Element): boolean {
 
 /**
  * Is this key press for the region at `root` (a list, a task's panel): typed
- * inside it (not on one of its controls), or typed on the page itself (the
+ * inside it (on one of its controls, a letter only), or typed on the page itself (the
  * body, or the full-screen page's own frame) while the region is in the page
  * in front, or is the only one of its kind (`kind`, a selector) on screen?
  */
@@ -59,8 +65,16 @@ export function regionOwnsKeys(root: HTMLElement | null, e: KeyboardEvent, kind:
   const t = e.target
   if (!(t instanceof Element)) return false
   if (root.contains(t)) {
+    // On one of its controls (a picker's button the focus came back to, a
+    // checkbox): letters are still the region's, but Enter, Space and the
+    // arrows are the control's own (they press it, move in it).
     const control = t.closest(CONTROLS)
-    return !control || !root.contains(control)
+    if (!control || !root.contains(control)) return true
+    if (t.closest(TEXT_ENTRY)) return false
+    // A row's own control (its picker's button, the focus back on it once the
+    // picker closed): Enter opens the row, as Linear's does; Space still presses it.
+    if (e.key === 'Enter' && control.closest(`[${LIST_ROW_ATTR}]`)) return true
+    return !CONTROL_KEYS.has(e.key)
   }
   const front = root.closest('[data-chat-card-fullscreen]')
   if (t === document.body || t === document.documentElement) {
@@ -68,8 +82,10 @@ export function regionOwnsKeys(root: HTMLElement | null, e: KeyboardEvent, kind:
     if (front) return true
     return !document.querySelector('[data-chat-card-fullscreen]') && Array.from(document.querySelectorAll(kind)).filter(shown).length === 1
   }
-  // The full-screen page's frame (it takes the focus when it opens).
-  return !!front && t === front
+  // The full-screen page's frame (it takes the focus when it opens), or a
+  // frame inside it that wraps the region (a card's content, focused when a
+  // record opens over its list).
+  return !!front && (t === front || (front.contains(t) && t.contains(root)))
 }
 
 /** Is this key press for the list at `root` (regionOwnsKeys, among lists)? */

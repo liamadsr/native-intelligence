@@ -47,14 +47,28 @@ describe('stepListFocus', () => {
 })
 
 describe('listOwnsKeys', () => {
-  it('takes a key typed inside the list, not one typed on its controls', () => {
+  it('takes a key typed inside the list; on its controls, letters only', () => {
     layOut()
     const root = list()
     const row = document.createElement('div')
     const button = document.createElement('button')
     root.append(row, button)
     expect(listOwnsKeys(root, keyOn(row))).toBe(true)
-    expect(listOwnsKeys(root, keyOn(button))).toBe(false)
+    // A row's button the focus came back to (a picker closed): letters still the list's, Enter the button's.
+    expect(listOwnsKeys(root, keyOn(button, 'x'))).toBe(true)
+    expect(listOwnsKeys(root, keyOn(button, 'Enter'))).toBe(false)
+    expect(listOwnsKeys(root, keyOn(button, 'ArrowDown'))).toBe(false)
+    // …but a row's own button: Enter opens the row.
+    const rowEl = document.createElement('div')
+    rowEl.setAttribute('data-list-row-id', 'r1')
+    const picker = document.createElement('button')
+    rowEl.appendChild(picker)
+    root.appendChild(rowEl)
+    expect(listOwnsKeys(root, keyOn(picker, 'Enter'))).toBe(true)
+    expect(listOwnsKeys(root, keyOn(picker, ' '))).toBe(false)
+    const input = document.createElement('input')
+    root.appendChild(input)
+    expect(listOwnsKeys(root, keyOn(input, 'x'))).toBe(false)
   })
 
   it('takes a key on the page itself only while the list is in the page in front, or the only one', () => {
@@ -67,6 +81,18 @@ describe('listOwnsKeys', () => {
     expect(listOwnsKeys(inFront, keyOn(document.body))).toBe(true)
     expect(listOwnsKeys(behind, keyOn(document.body))).toBe(false)
     expect(listOwnsKeys(inFront, keyOn(front))).toBe(true)
+    // A frame inside the page that wraps the list (the card's content, focused).
+    expect(listOwnsKeys(inFront, keyOn(front))).toBe(true)
+    const wrapper = document.createElement('div')
+    front.appendChild(wrapper)
+    const wrapped = list(wrapper)
+    expect(listOwnsKeys(wrapped, keyOn(wrapper))).toBe(true)
+    // …but not a sibling of it.
+    const sibling = document.createElement('div')
+    front.appendChild(sibling)
+    expect(listOwnsKeys(wrapped, keyOn(sibling))).toBe(false)
+    wrapper.remove()
+    sibling.remove()
     front.remove()
     // No page in front, one list on screen: that one.
     expect(listOwnsKeys(behind, keyOn(document.body))).toBe(true)

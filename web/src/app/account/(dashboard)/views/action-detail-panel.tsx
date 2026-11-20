@@ -18,7 +18,7 @@ import { useScopedLabels } from '@/lib/labels/use-scoped-labels'
 import { LabelPickerContent, flattenGroups } from '@/components/labels/label-picker-content'
 import { EntityTitleInput } from '@/components/views/entity-title-input'
 import { usePropertiesVisible } from '@/components/views/use-properties-visible'
-import { WindowProperties, WindowActions } from '@/components/views/window-properties'
+import { WindowProperties, WindowActions, useShowWindowProperties } from '@/components/views/window-properties'
 import { SubActionComposer, type SubActionDraft } from '@/components/views/sub-action-composer'
 import { PropertyGroup } from '@/components/views/property-group'
 import { OptionalProperty, PropertyRow, PropertyRows } from '@/components/views/property-layout'
@@ -1636,6 +1636,7 @@ export function ActionDetailPanel({
   // property's picker, as a click on it would; I adds you to the assignees.
   // Only the panel the person is working in (its window focused, and typed in
   // it or on the page in front): every panel stays mounted.
+  const showProperties = useShowWindowProperties()
   const taskPanelOwnsKeys = useCallback((e: KeyboardEvent) => regionOwnsKeys(panelBodyRef.current, e, '[data-task-panel]'), [])
   const assignToMe = useCallback(() => {
     if (!action || !currentMemberId) return
@@ -1651,8 +1652,20 @@ export function ActionDetailPanel({
   }, [action, currentMemberId, members])
   const panelTaskKeys = useMemo<HotkeyDefinition[]>(() => {
     const base = { globalGuard: true, when: taskPanelOwnsKeys, disabled: !isWindowFocused || !action }
+    // The fields are portalled into the card's inspector (a column beside a
+    // full-screen card, else the header's Properties popover): shown first
+    // when it is folded away, then the picker opened once it is on screen.
     const open = (field: TaskPropertyField) => () => {
-      openPropertyPicker(panelBodyRef.current, field)
+      const fields = () => document.querySelector(`[data-task-properties="${CSS.escape(actionId)}"]`)
+      const shownNow = fields()?.getClientRects().length
+      if (!shownNow) showProperties()
+      let tries = 0
+      const attempt = () => {
+        const host = fields()
+        if (host?.getClientRects().length && openPropertyPicker(host, field)) return
+        if (++tries < 20) requestAnimationFrame(attempt)
+      }
+      attempt()
     }
     return [
       { ...base, key: 's', handler: open('status') },
@@ -1662,7 +1675,7 @@ export function ActionDetailPanel({
       { ...base, key: 'd', shift: true, handler: open('due_at') },
       { ...base, key: 'i', handler: assignToMe },
     ]
-  }, [taskPanelOwnsKeys, isWindowFocused, action, assignToMe])
+  }, [taskPanelOwnsKeys, isWindowFocused, action, assignToMe, actionId, showProperties])
   useHotkeys(panelTaskKeys)
 
   // Whether the Cloud-run tab is offered at all (see canShowCloudRunTab).
@@ -2302,6 +2315,8 @@ export function ActionDetailPanel({
               // column): its own drop zone, so a file dropped on Attachments
               // lands on this action.
               ref={setPropsEl}
+              // Where a task's keys find its pickers (S, P, A, L, ⇧D).
+              data-task-properties={actionId}
               data-file-drop-zone=""
               className="relative p-4 space-y-4"
             >
