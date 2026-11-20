@@ -258,7 +258,7 @@ export function ManageView({ token, load }: { token: string; load: PageLoad<Publ
         {error && <SchedulingNotice data-manage-error="">{error}</SchedulingNotice>}
 
         {mode === 'view' && !live && (booking.can_reschedule || booking.can_cancel) && (
-          <div className="space-y-2 border-t pt-5">
+          <div className="space-y-2 border-t border-border/60 pt-5 dark:border-white/10">
             <div className="flex flex-wrap gap-2">
               {booking.can_reschedule && (
                 <Button
@@ -300,7 +300,7 @@ export function ManageView({ token, load }: { token: string; load: PageLoad<Publ
         )}
 
         {mode === 'cancel' && (
-          <div className="space-y-3 rounded-lg border p-4" data-manage-confirm-cancel>
+          <div className="space-y-3 rounded-xl border border-border/60 p-4 dark:border-white/10" data-manage-confirm-cancel>
             <p className="text-sm">
               {group
                 ? `Tell ${host} you can't make it? You'll come off the invitation; the meeting stays on for the others.`
@@ -320,7 +320,7 @@ export function ManageView({ token, load }: { token: string; load: PageLoad<Publ
         )}
 
         {mode === 'move' && (
-          <div className="space-y-4 border-t pt-5" data-manage-pick>
+          <div className="space-y-4 border-t border-border/60 pt-5 dark:border-white/10" data-manage-pick>
             <div className="space-y-1">
               <p className="text-sm font-medium">Pick a new time</p>
               <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -333,7 +333,7 @@ export function ManageView({ token, load }: { token: string; load: PageLoad<Publ
                 Finding {host}&apos;s open times…
               </p>
             ) : days.length === 0 ? (
-              <p className="rounded-lg border px-4 py-3 text-sm text-muted-foreground" data-manage-empty>
+              <p className="rounded-xl border border-dashed border-border/60 px-4 py-3 text-sm text-muted-foreground dark:border-white/10" data-manage-empty>
                 No other times are open in the next two weeks. Reach out to {host} to find one.
               </p>
             ) : (
