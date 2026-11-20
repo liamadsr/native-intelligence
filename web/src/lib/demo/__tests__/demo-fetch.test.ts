@@ -18,6 +18,7 @@ describe('isDemoRequest', () => {
 
   it('leaves every other request alone', () => {
     expect(isDemoRequest('/', ORIGIN, '/api/sky?tz=UTC')).toBe(false)
+    expect(isDemoRequest('/demo/app', ORIGIN, '/api/oauth/status')).toBe(true)
     expect(isDemoRequest('/', ORIGIN, '/api/accounting')).toBe(false)
     expect(isDemoRequest('/', ORIGIN, 'https://elsewhere.example/api/account/contacts/1')).toBe(false)
   })
@@ -35,6 +36,18 @@ describe('demoAnswer', () => {
     expect(demoAnswer(snapshots, '/api/account/a?x=1')).toEqual({ found: true, body: 'exact' })
     expect(demoAnswer(snapshots, '/api/account/a?x=2')).toEqual({ found: true, body: 'path' })
     expect(demoAnswer(snapshots, '/api/account/b')).toEqual({ found: false, body: {} })
+  })
+})
+
+describe('demoAnswer for a list the app reads with a POST', () => {
+  const snapshots = [{ 'POST /api/account/views/query#{"a":1}': 'exact', 'POST /api/account/views/query': 'path' }]
+  it('prefers the same request body, then the path', () => {
+    expect(demoAnswer(snapshots, '/api/account/views/query', { body: '{"a":1}' })).toEqual({ found: true, body: 'exact' })
+    expect(demoAnswer(snapshots, '/api/account/views/query', { body: '{"a":2}' })).toEqual({ found: true, body: 'path' })
+    expect(demoAnswer(snapshots, '/api/account/other', { body: '' })).toEqual({ found: false, body: {} })
+  })
+  it('never answers a GET with a POST’s answer', () => {
+    expect(demoAnswer(snapshots, '/api/account/views/query').found).toBe(false)
   })
 })
 
@@ -59,6 +72,10 @@ describe('installDemoFetch', () => {
 
     const write = await fetch(`/api/account/contacts/${DEMO_CONTACT_ID}`, { method: 'DELETE' })
     expect(await write.json()).toEqual({})
+    // A POST nobody recorded changes nothing and is not counted as missing.
+    const post = await fetch('/api/account/contacts', { method: 'POST', body: '{"name":"x"}' })
+    expect(await post.json()).toEqual({})
+    expect(window.__demoMisses).toEqual(['/api/account/not-saved'])
 
     await fetch('/api/sky')
     expect(server).toHaveBeenCalledTimes(1)

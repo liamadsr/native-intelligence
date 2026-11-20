@@ -35,6 +35,8 @@ import {
   type MotionValue,
 } from 'framer-motion'
 import { useEffect, useRef, useState } from 'react'
+import { DemoFrame } from '@/components/demo/demo-frame'
+import type { DemoScreen } from '@/components/demo/demo-app'
 import { IN_CSS, MOVE_CSS } from './motion'
 import { useInView, useReducedMotion } from './use-in-view'
 
@@ -48,13 +50,15 @@ const SCREENS = [
   },
   {
     tab: 'Tasks',
+    live: 'tasks',
     src: '/screens/chat-view-fullscreen.webp',
     alt: 'The same task board opened full screen, with its columns from backlog to done',
     caption:
-      'The same board opened up: backlog to done, each task with its own identifier.',
+      'Your open tasks, each with its identifier, project, priority and due date.',
   },
   {
     tab: 'Meetings',
+    live: 'meeting',
     src: '/screens/meeting-notes.webp',
     alt: 'A finished meeting’s notes: overview, goals and discussion, with the date, length, project and participants beside them',
     caption:
@@ -67,7 +71,10 @@ const SCREENS = [
     caption:
       'What the workspace knows, joined up: clients, people, meetings, docs and tasks.',
   },
-] as const
+] as const satisfies readonly { tab: string; src: string; alt: string; caption: string; live?: DemoScreen }[]
+
+/** The screens drawn by the app itself (components/demo/demo-frame.tsx), not a picture of it. */
+const LIVE = SCREENS.flatMap((screen) => ('live' in screen ? [screen.live] : []))
 
 /**
  * The rest of the product, around the window: where each sits (a share of the
@@ -163,6 +170,14 @@ export function ProductShowcase() {
   })
   const scale = useTransform(scrollYProgress, [0, 0.8], [1, 0.86])
 
+  const shown = SCREENS[active]
+  const liveScreen: DemoScreen | undefined = 'live' in shown ? shown.live : undefined
+  // The frame keeps the last live screen while a picture is showing, so coming back is instant.
+  const [lastLive, setLastLive] = useState<DemoScreen>(LIVE[0])
+  useEffect(() => {
+    if (liveScreen) setLastLive(liveScreen)
+  }, [liveScreen])
+
   useEffect(() => {
     if (!running) return
     const timer = setTimeout(
@@ -243,6 +258,16 @@ export function ProductShowcase() {
               )}
             />
           ))}
+          {/* The app itself, over the picture of it, for the screens it can draw: one frame, kept
+              loaded, told which screen to show. The picture under it holds the slot until it is up. */}
+          <div
+            className={clsx(
+              'ni-screen absolute inset-0 overflow-hidden rounded-[0.9rem]',
+              liveScreen ? 'opacity-100' : 'pointer-events-none opacity-0',
+            )}
+          >
+            <DemoFrame screen={liveScreen ?? lastLive} label={SCREENS[active].alt} height={934} />
+          </div>
         </motion.div>
       </div>
       <p className="text-muted-foreground mx-auto mt-4 max-w-xl text-center text-sm sm:text-base">

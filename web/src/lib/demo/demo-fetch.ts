@@ -9,8 +9,10 @@
  *   - a GET the snapshot knows gets its saved answer;
  *   - a GET it does not know gets `{}` with status 200, and is listed in
  *     `window.__demoMisses` so a missing answer is easy to find;
- *   - anything that would change data (POST, PATCH, PUT, DELETE) is answered
- *     `{}` and does nothing. The demo is also `inert`, so nothing is clicked.
+ *   - a POST the snapshot knows (the app reads some lists with one) gets its
+ *     saved answer, under `POST <path>#<body>` or `POST <path>`;
+ *   - anything else that would change data is answered `{}` and does
+ *     nothing. The demo is also `inert`, so nothing is clicked.
  * Every other request goes through untouched.
  *
  * WHY PATCHING `fetch` IS SAFE HERE. Demos sit on public pages, where a
@@ -34,9 +36,10 @@ const json = (body: unknown) =>
   new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
 
 /** The saved answer for `url`, by its exact path and query first, then its path alone. */
-export function demoAnswer(snapshots: readonly DemoSnapshot[], url: string): { found: boolean; body: unknown } {
+export function demoAnswer(snapshots: readonly DemoSnapshot[], url: string, post?: { body: string }): { found: boolean; body: unknown } {
   const { pathname, search } = new URL(url, 'http://demo.invalid')
-  for (const key of [pathname + search, pathname]) {
+  const keys = post ? [`POST ${pathname}${search}#${post.body}`, `POST ${pathname}${search}`, `POST ${pathname}`] : [pathname + search, pathname]
+  for (const key of keys) {
     for (const snapshot of snapshots) {
       if (Object.prototype.hasOwnProperty.call(snapshot, key)) return { found: true, body: snapshot[key] }
     }
@@ -73,8 +76,10 @@ export function installDemoFetch(snapshot: DemoSnapshot): () => void {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
       if (!isDemoRequest(window.location.pathname, window.location.origin, url)) return original.call(window, input, init)
       const method = (init?.method ?? (typeof input === 'object' && 'method' in input ? input.method : 'GET')).toUpperCase()
-      if (method !== 'GET') return json({})
-      const { found, body } = demoAnswer(active, url)
+      if (method !== 'GET' && method !== 'POST') return json({})
+      const sent = method === 'POST' ? { body: typeof init?.body === 'string' ? init.body : '' } : undefined
+      const { found, body } = demoAnswer(active, url, sent)
+      if (method === 'POST') return json(body)
       if (!found) window.__demoMisses?.push(url)
       return json(body)
     }
