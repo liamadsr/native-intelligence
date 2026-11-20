@@ -57,7 +57,8 @@ import { UnifiedViewLayout, useIsWindowFocused } from '@/components/views/unifie
 import { PropertyGroup } from '@/components/views/property-group'
 import { MemberPanelField, DatePanelField, EnumPanelField, type MemberOption } from '@/components/views/properties'
 import { EntityActionsMenu, PANEL_OMIT } from '@/components/entities/entity-actions-menu'
-import { MoveToWorkspaceButton } from '@/components/move/move-to-workspace-button'
+import { useMoveToWorkspaceItem } from '@/components/move/move-to-workspace-button'
+import { OptionalProperty, PropertyRow, PropertyRows } from '@/components/views/property-layout'
 import { useEntityDetailSync, useEntityListSync } from '@/hooks/use-entity-sync'
 import { emitEntityUpdated } from '@/lib/entity-events'
 import { ReminderPickerPopover } from '@/components/reminders/reminder-picker'
@@ -258,6 +259,16 @@ export function InitiativeDetailPanel({
 
   // Delete
   const [deleteConfirm, setDeleteConfirm] = useState(false)
+  // Move to another workspace: an item in the More menu, and the dialog it opens.
+  const moveToWorkspace = useMoveToWorkspaceItem({
+    entityType: 'initiative',
+    id: initiativeId,
+    entityLabel: initiative?.name || undefined,
+    onMoved: () => {
+      onDeleted?.()
+      onClose()
+    },
+  })
   const [deleting, setDeleting] = useState(false)
 
   const fetchInitiative = useCallback(async (background = false) => {
@@ -521,7 +532,6 @@ export function InitiativeDetailPanel({
         </div>
         <WindowActions reveal={reminderOpen} className="ml-auto flex items-center gap-1">
           {saving && <span className="text-xs text-muted-foreground">Saving...</span>}
-          <EntityActionsMenu entity={{ type: 'initiative', id: initiativeId, label: initiative?.name ?? '' }} state={{ archived: initiative ? initiative.status === 'archived' : null, status: initiative?.status ?? null }} omit={PANEL_OMIT} />
           {/* Remind me — the same picker ⇧H opens, anchored on its own button so
                     the popover has somewhere to point when the hotkey fires. */}
           <ReminderPickerPopover
@@ -541,26 +551,18 @@ export function InitiativeDetailPanel({
               <AlarmClock className="h-3.5 w-3.5 text-muted-foreground" />
             </PreferenceActionButton>
           </ReminderPickerPopover>
-          {/* Move to another workspace — same post-move handling as delete:
-                    the initiative leaves this workspace's lists either way. */}
-          <MoveToWorkspaceButton
-            entityType="initiative"
-            id={initiativeId}
-            entityLabel={initiative.name || undefined}
-            onMoved={() => {
-              onDeleted?.()
-              onClose()
-            }}
+          {/* More, last (docs/plans/properties-panels.md): the kind's menu, then
+                    Move to workspace (same post-move handling as delete: the
+                    initiative leaves this workspace's lists either way) and Delete. */}
+          <EntityActionsMenu
+            entity={{ type: 'initiative', id: initiativeId, label: initiative?.name ?? '' }}
+            state={{ archived: initiative ? initiative.status === 'archived' : null, status: initiative?.status ?? null }}
+            omit={PANEL_OMIT}
+            extra={[
+              moveToWorkspace.item,
+              { id: 'delete', label: 'Delete initiative', icon: Trash2, danger: true, onSelect: () => setDeleteConfirm(true) },
+            ]}
           />
-          <PreferenceActionButton
-            label="Delete initiative"
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0"
-            onClick={() => setDeleteConfirm(true)}
-          >
-            <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
-          </PreferenceActionButton>
         </WindowActions>
       </div>
 
@@ -669,8 +671,12 @@ export function InitiativeDetailPanel({
         <WindowProperties key={initiativeId} title={initiative.name || 'Initiative'} fallbackVisible={propertiesOpen}>
             <div className="p-4 space-y-4">
               {/* Properties */}
-              <PropertyGroup title="Properties">
+              {/* The shared frame (docs/plans/properties-panels.md): core rows,
+                  the optional properties that are set, then the add strip. */}
+              <PropertyGroup>
+                <PropertyRows>
                 {/* Status */}
+                <PropertyRow>
                 <div ref={statusFieldRef}>
                   <EnumPanelField
                     value={initiative.status}
@@ -679,8 +685,10 @@ export function InitiativeDetailPanel({
                     placeholder="Set status"
                   />
                 </div>
+                </PropertyRow>
 
                 {/* Owner */}
+                <PropertyRow>
                 <MemberPanelField
                   value={initiative.owner_id}
                   members={ownerMemberOptions}
@@ -689,18 +697,22 @@ export function InitiativeDetailPanel({
                   emptyLabel="No owner"
                   currentMemberId={currentMemberId}
                 />
+                </PropertyRow>
 
                 {/* Target date */}
                 {/* target_date is a `date` column: read it as local midnight and
                     store the picked LOCAL date (the UTC date is a day off). */}
+                <OptionalProperty set={!!initiative.target_date}>
                 <DatePanelField
                   value={initiative.target_date ? initiative.target_date + 'T00:00:00' : null}
                   onChange={(iso) => patchInitiative({ target_date: iso ? format(new Date(iso), 'yyyy-MM-dd') : null })}
                   granularity="day"
                   placeholder="Target date"
                 />
+                </OptionalProperty>
 
                 {/* Color */}
+                <OptionalProperty set={!!initiative.color}>
                 <Popover>
                   <PopoverTrigger asChild>
                     <button className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm transition-colors hover:bg-muted/50">
@@ -738,8 +750,11 @@ export function InitiativeDetailPanel({
                     </div>
                   </PopoverContent>
                 </Popover>
+                </OptionalProperty>
 
-                {/* Labels — part of Properties rather than its own group */}
+                {/* Labels — part of Properties rather than its own group: the
+                    attached ones a row, "Add label" always a chip in the strip. */}
+                <OptionalProperty set={false}>
                 <Popover open={labelPickerOpen} onOpenChange={setLabelPickerOpen}>
                   <PopoverTrigger asChild>
                     <button className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm transition-colors hover:bg-muted/50">
@@ -756,8 +771,10 @@ export function InitiativeDetailPanel({
                     />
                   </PopoverContent>
                 </Popover>
+                </OptionalProperty>
                 {(initiative.labels?.length ?? 0) > 0 && (
-                  <div className="flex flex-wrap gap-1 px-2">
+                  <PropertyRow className="order-2">
+                  <div className="flex flex-wrap gap-1 px-2 py-1.5">
                     {(initiative.labels ?? []).map((l) => (
                       <Badge
                         key={l.id}
@@ -769,7 +786,9 @@ export function InitiativeDetailPanel({
                       </Badge>
                     ))}
                   </div>
+                  </PropertyRow>
                 )}
+                </PropertyRows>
               </PropertyGroup>
 
               {/* Projects */}
@@ -836,6 +855,7 @@ export function InitiativeDetailPanel({
       </div>
 
       {/* Delete confirmation */}
+      {moveToWorkspace.dialog}
       <AlertDialog open={deleteConfirm} onOpenChange={setDeleteConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>

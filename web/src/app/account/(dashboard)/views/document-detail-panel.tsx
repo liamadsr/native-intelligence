@@ -1,6 +1,5 @@
 'use client'
 
-import { PreferenceActionButton } from '@/components/views/preference-action'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
@@ -63,7 +62,9 @@ import { EntityActionsMenu, PANEL_OMIT } from '@/components/entities/entity-acti
 import { CopyDocumentButton } from '../components/copy-document-button'
 import { ListenTarget } from '@/components/read-aloud/listen-target'
 import { titledMarkdownToSentences } from '@/lib/read-aloud/speech-text'
-import { MoveToWorkspaceButton } from '@/components/move/move-to-workspace-button'
+import { useMoveToWorkspaceItem } from '@/components/move/move-to-workspace-button'
+import { OptionalProperty, PropertyRow, PropertyRows } from '@/components/views/property-layout'
+import { PropertyGroup } from '@/components/views/property-group'
 import { InlineCommentProvider } from '@/components/inline-comments/inline-comment-context'
 import { AnnotatedContent } from '@/components/inline-comments/annotated-content'
 import { SelectionPopover } from '@/components/inline-comments/selection-popover'
@@ -236,6 +237,16 @@ export function DocumentDetailPanel({
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
   const [deleteConfirm, setDeleteConfirm] = useState<'delete' | 'system' | null>(null)
+  // Move to another workspace: an item in the More menu, and the dialog it opens.
+  const moveToWorkspace = useMoveToWorkspaceItem({
+    entityType: 'document',
+    id: documentId,
+    entityLabel: doc?.title || undefined,
+    onMoved: () => {
+      onDeleted?.()
+      onClose()
+    },
+  })
   const [deleting, setDeleting] = useState(false)
   const titleInputRef = useRef<HTMLTextAreaElement>(null)
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout>>(null)
@@ -855,37 +866,30 @@ export function DocumentDetailPanel({
               titledMarkdownToSentences(doc.title || '', latestContentRef.current ?? doc.content ?? '')
             }
           />
+          {!isNowFile && <ShareDialog shareableType="document" shareableId={documentId} />}
           {/* P9 (decision 9): copy the whole text out, e.g. a newsletter into Substack. Hidden when empty. */}
           {(doc.content ?? '').trim() && <CopyDocumentButton getMarkdown={() => latestContentRef.current ?? doc.content ?? ''} />}
-          <EntityActionsMenu entity={{ type: 'document', id: documentId, label: doc.title ?? '' }} state={{ archived: doc.status === 'archived', status: doc.status }} omit={PANEL_OMIT} />
-          {!isNowFile && <ShareDialog shareableType="document" shareableId={documentId} />}
-          {/* Move to another workspace — same post-move handling as delete:
-                      the document leaves this workspace's lists either way.
-                      A Now file is one workspace's own. */}
-          {!isNowFile && (
-            <MoveToWorkspaceButton
-              entityType="document"
-              id={documentId}
-              entityLabel={doc.title || undefined}
-              onMoved={() => {
-                onDeleted?.()
-                onClose()
-              }}
-            />
-          )}
-          {(canDelete || isSystem) && (
-            <PreferenceActionButton
-              label="Delete document"
-              variant="ghost"
-              size="icon"
-              className={cn('h-7 w-7 text-muted-foreground', isSystem ? 'opacity-50' : 'hover:text-destructive')}
-              // A system document says why instead of deleting.
-              onClick={() => setDeleteConfirm(isSystem ? 'system' : 'delete')}
-              title={isSystem ? SYSTEM_DOCUMENT_REFUSAL : 'Delete document'}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </PreferenceActionButton>
-          )}
+          {/* More, last (docs/plans/properties-panels.md): the kind's menu, then
+              Move to workspace (same post-move handling as delete: the document
+              leaves this workspace's lists either way; a Now file is one
+              workspace's own) and Delete (a system document says why instead
+              of deleting). */}
+          <EntityActionsMenu
+            entity={{ type: 'document', id: documentId, label: doc.title ?? '' }}
+            state={{ archived: doc.status === 'archived', status: doc.status }}
+            omit={PANEL_OMIT}
+            extra={[
+              !isNowFile && moveToWorkspace.item,
+              (canDelete || isSystem) && {
+                id: 'delete',
+                label: 'Delete document',
+                icon: Trash2,
+                danger: !isSystem,
+                title: isSystem ? SYSTEM_DOCUMENT_REFUSAL : undefined,
+                onSelect: () => setDeleteConfirm(isSystem ? 'system' : 'delete'),
+              },
+            ]}
+          />
         </WindowActions>
       </div>
 
@@ -968,19 +972,34 @@ export function DocumentDetailPanel({
               <WindowProperties key={documentId} title={doc.title || 'Document'} fallbackVisible={sidebarOpen}>
                       <div className="p-4 space-y-4">
                         {/* Properties group */}
-                        <div className="rounded-lg">
-                          <div data-properties-heading="" className="px-3 py-2 text-sm font-medium text-muted-foreground">Properties</div>
-                          <div className="pb-2">
+                        {/* The shared frame (docs/plans/properties-panels.md): core
+                            rows, the optional properties that are set, then the
+                            add strip. */}
+                        <PropertyGroup>
+                          <PropertyRows>
+                            {/* Created by */}
+                            {doc.created_by_name && (
+                              <PropertyRow>
+                              <div className="flex h-8 items-center gap-2 px-2 text-sm text-muted-foreground">
+                                <User className="h-4 w-4 shrink-0" />
+                                <span className="min-w-0 flex-1 truncate">{doc.created_by_name}</span>
+                              </div>
+                              </PropertyRow>
+                            )}
+
                             {/* Project — shown as text (or nothing) when this person
                                 can't move the document between projects (read-only, or a
                                 member editing a shared page: the server refuses it). */}
                             {!canSetProject ? (
                               doc.project_name && (
-                                <div className="flex h-8 items-center gap-2 px-3 text-sm text-muted-foreground">
+                                <PropertyRow className="order-2">
+                                <div className="flex h-8 items-center gap-2 px-2 text-sm text-muted-foreground">
                                   <span className="min-w-0 flex-1 truncate">{doc.project_name}</span>
                                 </div>
+                                </PropertyRow>
                               )
                             ) : (
+                              <OptionalProperty set={!!doc.project_id}>
                               <ProjectPanelField
                                 value={doc.project_id}
                                 projects={projectOptions}
@@ -990,27 +1009,19 @@ export function DocumentDetailPanel({
                                   saveField({ project_id: projectId }, { patch, before: snapshotKeys(doc, patch) })
                                 }}
                                 placeholder="Set project"
-                                padding="px-3"
                                 onOpen={onOpenEntity && ((id, name, e) => onOpenEntity('project', id, name, e))}
                               />
-                            )}
-
-                            {/* Created by */}
-                            {doc.created_by_name && (
-                              <div className="flex h-8 items-center gap-2 px-3 text-sm text-muted-foreground">
-                                <User className="h-4 w-4 shrink-0" />
-                                <span className="min-w-0 flex-1 truncate">{doc.created_by_name}</span>
-                              </div>
+                              </OptionalProperty>
                             )}
 
                             {/* Linked actions — a property row, like Participants:
                                 a count that expands to the list, plus the picker
                                 as its own row. */}
                             {linkedActions.length > 0 && (
-                              <>
+                              <PropertyRow className="order-2">
                                 <button
                                   onClick={() => setLinkedActionsExpanded((v) => !v)}
-                                  className="flex h-8 w-full items-center gap-2 rounded-md px-3 text-sm text-muted-foreground transition-colors hover:bg-muted/50"
+                                  className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm text-muted-foreground transition-colors hover:bg-muted/50"
                                 >
                                   <CheckSquare className="h-4 w-4 shrink-0" />
                                   <span>
@@ -1046,26 +1057,29 @@ export function DocumentDetailPanel({
                                     ))}
                                   </div>
                                 )}
-                              </>
+                              </PropertyRow>
                             )}
+                            <OptionalProperty set={false}>
                             <ActionSearchPicker
                               open={actionSearchOpen}
                               onOpenChange={setActionSearchOpen}
                               actions={allActions.filter((a) => !linkedActions.some((la) => la.id === a.id))}
                               onSelect={handleLinkAction}
                             />
+                            </OptionalProperty>
 
                             {/* Activity — expands to the created/updated timeline.
                                 Replaces the standalone Activity card AND the
                                 bare "Updated" row, which said the same thing. */}
+                            <PropertyRow className="order-4">
                             <ActivityRow
                               createdAt={doc.created_at}
                               updatedAt={doc.updated_at}
                               formatRelativeTime={formatRelativeTime}
-                              padding="px-3"
                             />
-                          </div>
-                        </div>
+                            </PropertyRow>
+                          </PropertyRows>
+                        </PropertyGroup>
 
                         {/* The workspace's own fields on this kind (hidden while it has none). */}
                         <CustomFieldsGroup entityType="document" recordId={documentId} />
@@ -1147,6 +1161,7 @@ export function DocumentDetailPanel({
         </div>
       )}
 
+      {moveToWorkspace.dialog}
       <AlertDialog open={deleteConfirm === 'system'} onOpenChange={(open) => !open && setDeleteConfirm(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>

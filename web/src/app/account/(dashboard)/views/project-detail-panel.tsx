@@ -96,7 +96,8 @@ import { ContentTransition } from './transitions'
 import { NoteEditor } from './note-editor-lazy'
 import { Comments } from '../components/comments'
 import { EntityActionsMenu, PANEL_OMIT } from '@/components/entities/entity-actions-menu'
-import { MoveToWorkspaceButton } from '@/components/move/move-to-workspace-button'
+import { useMoveToWorkspaceItem } from '@/components/move/move-to-workspace-button'
+import { OptionalProperty, PropertyRow, PropertyRows } from '@/components/views/property-layout'
 import { EmojiIconPicker } from '@/components/ui/emoji-icon-picker'
 import { Markdown } from '@/components/ui/markdown'
 import { useEntityDetailSync, useEntityListSync } from '@/hooks/use-entity-sync'
@@ -246,6 +247,16 @@ export function ProjectDetailPanel({
   const panelBodyRef = useRef<HTMLDivElement>(null)
   const propertiesOpen = usePropertiesVisible(panelBodyRef)
   const [deleteConfirm, setDeleteConfirm] = useState(false)
+  // Move to another workspace: an item in the More menu, and the dialog it opens.
+  const moveToWorkspace = useMoveToWorkspaceItem({
+    entityType: 'project',
+    id: projectId,
+    entityLabel: project?.name || undefined,
+    onMoved: () => {
+      onDeleted?.()
+      onClose()
+    },
+  })
   const [deleting, setDeleting] = useState(false)
   const currentMemberId = useCurrentMemberId()
   const workspaceId = useWorkspaceId()
@@ -611,7 +622,6 @@ export function ProjectDetailPanel({
         </div>
         <WindowActions reveal={reminderOpen} className="ml-auto flex items-center gap-1">
           {saving && <span className="text-xs text-muted-foreground">Saving...</span>}
-          <EntityActionsMenu entity={{ type: 'project', id: projectId, label: project?.name ?? '' }} state={{ archived: project?.is_archived ?? null }} omit={PANEL_OMIT} />
           {/* Remind me — the same picker ⇧H opens, anchored on its own button so
                     the popover has somewhere to point when the hotkey fires. */}
           <ReminderPickerPopover
@@ -631,26 +641,18 @@ export function ProjectDetailPanel({
               <AlarmClock className="h-3.5 w-3.5" />
             </PreferenceActionButton>
           </ReminderPickerPopover>
-          {/* Move to another workspace — same post-move handling as delete:
-                    the project leaves this workspace's lists either way. */}
-          <MoveToWorkspaceButton
-            entityType="project"
-            id={projectId}
-            entityLabel={project?.name || undefined}
-            onMoved={() => {
-              onDeleted?.()
-              onClose()
-            }}
+          {/* More, last (docs/plans/properties-panels.md): the kind's menu, then
+                    Move to workspace (same post-move handling as delete: the
+                    project leaves this workspace's lists either way) and Delete. */}
+          <EntityActionsMenu
+            entity={{ type: 'project', id: projectId, label: project?.name ?? '' }}
+            state={{ archived: project?.is_archived ?? null }}
+            omit={PANEL_OMIT}
+            extra={[
+              moveToWorkspace.item,
+              { id: 'delete', label: 'Delete project', icon: Trash2, danger: true, onSelect: () => setDeleteConfirm(true) },
+            ]}
           />
-          <PreferenceActionButton
-            label="Delete project"
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0 text-muted-foreground hover:text-red-500"
-            onClick={() => setDeleteConfirm(true)}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </PreferenceActionButton>
         </WindowActions>
       </div>
 
@@ -934,8 +936,12 @@ export function ProjectDetailPanel({
             <WindowProperties key={projectId} title={project.name || 'Project'} fallbackVisible={propertiesOpen}>
                     <div className="p-4 space-y-4">
                       {/* Properties group */}
-                      <PropertyGroup title="Properties">
+                      {/* The shared frame (docs/plans/properties-panels.md): core rows,
+                          the optional properties that are set, then the add strip. */}
+                      <PropertyGroup>
+                        <PropertyRows>
                         {/* Status */}
+                        <PropertyRow>
                         <div ref={statusFieldRef}>
                           <EnumPanelField
                             value={project.status}
@@ -944,8 +950,10 @@ export function ProjectDetailPanel({
                             placeholder="Set status"
                           />
                         </div>
+                        </PropertyRow>
 
                         {/* Lead */}
+                        <PropertyRow>
                         <MemberPanelField
                           value={project.lead_id}
                           members={memberOptions}
@@ -953,23 +961,29 @@ export function ProjectDetailPanel({
                           placeholder="Lead"
                           currentMemberId={currentMemberId}
                         />
+                        </PropertyRow>
 
                         {/* Start date */}
+                        <OptionalProperty set={!!project.start_date}>
                         <DatePanelField
                           value={project.start_date ? project.start_date + 'T00:00:00' : null}
                           onChange={(iso) => patchProject({ start_date: iso ? toLocalDateOnly(iso) : null })}
                           granularity="day"
                           placeholder="Start date"
                         />
+                        </OptionalProperty>
 
                         {/* Target date */}
+                        <OptionalProperty set={!!project.target_date}>
                         <DatePanelField
                           value={project.target_date ? project.target_date + 'T00:00:00' : null}
                           onChange={(iso) => patchProject({ target_date: iso ? toLocalDateOnly(iso) : null })}
                           granularity="day"
                           placeholder="Target date"
                         />
+                        </OptionalProperty>
                         {/* Initiative — a property row rather than its own group */}
+                        <OptionalProperty set={!!project.initiative_id}>
                         <InitiativePanelField
                           value={project.initiative_id}
                           initiatives={initiativeOptions}
@@ -977,7 +991,9 @@ export function ProjectDetailPanel({
                           placeholder="Set initiative"
                           onOpen={onOpenEntity && ((id, name, e) => onOpenEntity('initiative', id, name, e))}
                         />
+                        </OptionalProperty>
                         {/* Repository — a property row rather than its own group */}
+                        <OptionalProperty set={!!project.github_repo}>
                         {project.github_repo ? (
                           <div className="flex items-center gap-2 px-2 py-1 group">
                             <SiGithub className="h-4 w-4 shrink-0 text-black dark:text-white" />
@@ -1069,9 +1085,13 @@ export function ProjectDetailPanel({
                             </PopoverContent>
                           </Popover>
                         )}
+                        </OptionalProperty>
 
                         {/* Environment: the project's shared cloud environment, and below it
-                            your own "Run my work here on <your Mac>" (docs/plans/environments.md §6). */}
+                            your own "Run my work here on <your Mac>" (docs/plans/environments.md §6).
+                            Always a row, under the add strip: it carries the Mac
+                            switch and its hints. */}
+                        <PropertyRow className="order-4">
                         <ProjectEnvironmentField
                           projectId={projectId}
                           workspaceId={workspaceId}
@@ -1087,7 +1107,8 @@ export function ProjectDetailPanel({
                             })
                           }
                         />
-
+                        </PropertyRow>
+                        </PropertyRows>
                       </PropertyGroup>
 
                       {/* The workspace's own fields on this kind (hidden while it has none). */}
@@ -1102,6 +1123,7 @@ export function ProjectDetailPanel({
       </ContentTransition>
 
       {/* Delete confirmation */}
+      {moveToWorkspace.dialog}
       <AlertDialog open={deleteConfirm} onOpenChange={setDeleteConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>

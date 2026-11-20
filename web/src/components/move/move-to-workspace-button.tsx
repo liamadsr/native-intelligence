@@ -2,7 +2,7 @@
 
 import { PreferenceActionButton } from '@/components/views/preference-action'
 
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { ArrowRightLeft } from 'lucide-react'
 import {
   Tooltip,
@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/tooltip'
 import { useWorkspaces } from '@/app/account/workspace-switcher'
 import { MoveWorkspaceDialog, type MoveEntityType } from './move-workspace-dialog'
+import type { EntityMenuExtraItem } from '@/components/entities/entity-actions-menu'
 
 interface MoveToWorkspaceButtonProps {
   entityType: MoveEntityType
@@ -67,4 +68,32 @@ export function MoveToWorkspaceButton({
       />
     </>
   )
+}
+
+/**
+ * The same move, as an item for the record's ⋯ menu (EntityActionsMenu's
+ * `extra`) plus the dialog it opens: the detail panels keep Move to workspace
+ * under "More". `item` is null with fewer than two workspaces, as the button
+ * renders nothing; render `dialog` anywhere in the panel.
+ */
+export function useMoveToWorkspaceItem({ entityType, id, entityLabel, onMoved }: MoveToWorkspaceButtonProps): {
+  item: EntityMenuExtraItem | null
+  dialog: ReactNode
+} {
+  const { workspaces } = useWorkspaces()
+  const [open, setOpen] = useState(false)
+  if (workspaces.length < 2) return { item: null, dialog: null }
+  return {
+    item: { id: 'move_to_workspace', label: 'Move to workspace…', icon: ArrowRightLeft, onSelect: () => setOpen(true) },
+    dialog: (
+      <MoveWorkspaceDialog
+        entityType={entityType}
+        entityIds={[id]}
+        entityLabel={entityLabel}
+        open={open}
+        onOpenChange={setOpen}
+        onMoved={() => onMoved?.()}
+      />
+    ),
+  }
 }
