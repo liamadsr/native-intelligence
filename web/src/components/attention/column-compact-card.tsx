@@ -10,8 +10,9 @@
  *
  * A click anywhere else on the card (or Enter / Space on it) opens its focus
  * view (column-focus-view.tsx): the card grows in place with its details
- * under a divider, the rest of the screen blurs, and a menu card below holds
- * its other verbs: Reply (the card into the main chat's composer:
+ * under a divider, the rest of the screen blurs, and a menu card beside it
+ * (on its left, level with its header) holds its other verbs: Reply (the
+ * card into the main chat's composer:
  * lib/chat/card-reply.ts), the verbs its full card offers today, and, where
  * those need the full card's controls (pickers, a target to choose), a row
  * that shows the full card (AttentionCard) in the focus view instead of the
