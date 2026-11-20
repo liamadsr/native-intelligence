@@ -1,5 +1,6 @@
 'use client'
 
+import { messageMentionsMetadata, turnMessageMentions } from '@/lib/chat/message-mentions'
 import { useChat, type UIMessage } from '@ai-sdk/react'
 import { useStickToBottom, type GetTargetScrollTop } from 'use-stick-to-bottom'
 import { isToolUIPart } from 'ai'
@@ -2437,6 +2438,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
         ...(turn.context.replyCard ? cardReplyMetadata(turn.context.replyCard) : {}),
         ...(turn.context.replyTo ? messageReplyMetadata(turn.context.replyTo) : {}),
         ...(turn.reaction ?? {}),
+        // What its words @-mention stays on the message, so they draw as chips once the composer has cleared.
+        ...messageMentionsMetadata(turnMessageMentions(turn)),
       }
       sendMessage(
         {

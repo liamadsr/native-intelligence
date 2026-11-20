@@ -1,5 +1,8 @@
 'use client'
 
+import { MentionText } from '@/components/entity-refs/mention-text'
+import { messageMentionsOfMetadata } from '@/lib/chat/message-mentions'
+import type { LabeledMentionRef } from '@/lib/entity-links/mentionable'
 import { Copy, Check } from 'lucide-react'
 import { copyTextToClipboard } from '@/lib/clipboard'
 import { Fragment, memo, useCallback, useContext, useEffect, useMemo, useRef, useState, type SyntheticEvent } from 'react'
@@ -45,6 +48,9 @@ import { messageBubbles, textPartPieces } from '@/lib/chat/message-bubbles'
 import { ReplyDocument } from './reply-document'
 import { useOnSkyAttr } from '@/components/sky/on-sky'
 import { cn } from '@/lib/utils'
+
+/** A message that mentions nothing (one array, so a memoized bubble stays still). */
+const NO_MENTIONS: LabeledMentionRef[] = []
 
 /**
  * Per-output cache so a completed tool part returns the SAME EntityLink[]
@@ -331,6 +337,8 @@ function ChatMessageImpl({
   const stopped = !isUser && (message.metadata as { stopped?: unknown } | undefined)?.stopped === true
   // The For you card the person replied to with this message (card-reply.ts), shown above their words.
   const repliedCard = isUser ? cardReplyOfMetadata(message.metadata) : null
+  // What the person's words @-mention (message-mentions.ts): each `@label` draws as a chip that opens it.
+  const mentioned = isUser ? messageMentionsOfMetadata(message.metadata) : NO_MENTIONS
   // The person's message from an outside channel, or the reply sent back there
   // (docs/plans/slack-connect.md, docs/plans/text-and-calling.md).
   const channel = messageChannel(message)
@@ -721,7 +729,7 @@ function ChatMessageImpl({
                 'chat-panel-attachment w-fit max-w-full self-start rounded-[22px] border border-border/60 bg-background px-4 py-2.5 shadow-sm shadow-black/[0.03] dark:border-white/10',
           )}
         >
-          {text}
+          {isUser && mentioned.length > 0 ? <MentionText text={text} records={mentioned} from="chat" /> : text}
         </MessageContent>
         {/* The person's reaction on this bubble (message-reactions.ts), tucked under its foot. */}
         {!isUser && <ReactionBadge message={message} bubble={bubble} />}
