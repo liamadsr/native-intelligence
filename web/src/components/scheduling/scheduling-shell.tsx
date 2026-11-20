@@ -17,7 +17,7 @@ import { cn } from '@/lib/utils'
 export function SchedulingShell({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-dvh flex-col items-center justify-center gap-4 p-4 text-foreground sm:p-6 lg:p-8" data-scheduling-shell="">
-      <Card className={cn('w-full max-w-lg rounded-2xl border-border/60', COLUMN_CARD_SKIN)}>{children}</Card>
+      <Card className={cn('w-full max-w-lg rounded-2xl border-border/60', COLUMN_CARD_SKIN, 'dark:shadow-sm')}>{children}</Card>
       {/* On its own glass: the sky behind it can be day or night in either theme. */}
       <p className="rounded-full bg-background/60 px-3 py-1 text-xs text-muted-foreground backdrop-blur-md">Scheduling by Native Intelligence</p>
     </div>
@@ -38,7 +38,7 @@ export function TimeButton({ on, onClick, children, disabled }: { on: boolean; o
       aria-pressed={on}
       disabled={disabled}
       className={cn(
-        'h-9 rounded-full border px-3 text-sm tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 motion-reduce:transition-none',
+        'h-9 rounded-full border px-3 text-sm tabular-nums transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:opacity-50 motion-reduce:transition-none',
         on ? PICKED : `${QUIET_EDGE} hover:bg-foreground/[0.06]`,
       )}
     >

@@ -252,7 +252,7 @@ export function OfferView({ token, load }: { token: string; load: PageLoad<Publi
         </div>
 
         {picked && (
-          <form onSubmit={submit} className="space-y-4 border-t border-border/60 pt-6 dark:border-white/10" data-offer-form>
+          <form onSubmit={submit} className="space-y-4 border-t border-foreground/15 pt-6 dark:border-white/10" data-offer-form>
             <p className="text-sm">
               {offer.title} on{' '}
               <strong>

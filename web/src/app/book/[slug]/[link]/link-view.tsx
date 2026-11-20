@@ -52,7 +52,7 @@ function DayStrip({ days, times, selected, onSelect }: { days: ReturnType<typeof
             data-day={d.key}
             data-empty={empty ? '' : undefined}
             className={cn(
-              'flex flex-col items-center rounded-xl border py-2 text-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default motion-reduce:transition-none',
+              'flex flex-col items-center rounded-xl border py-2 text-center transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-default motion-reduce:transition-none',
               on ? PICKED : empty ? 'border-transparent text-muted-foreground/60 hover:bg-foreground/[0.04]' : `${QUIET_EDGE} hover:bg-foreground/[0.06]`,
               d.outside && 'opacity-40',
             )}

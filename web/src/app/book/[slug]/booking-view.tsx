@@ -109,7 +109,7 @@ export function BookingView({ slug, state }: { slug: string; state: BookingPageS
       </CardHeader>
       <CardContent className="space-y-6">
         {days.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-border/60 px-4 py-3 text-sm text-muted-foreground dark:border-white/10" data-booking-empty>
+          <div className="rounded-xl border border-dashed border-foreground/15 px-4 py-3 text-sm text-muted-foreground dark:border-white/10" data-booking-empty>
             No times are open in the next two weeks.{text ? ` Text us at ${text} and we'll find one.` : ''}
           </div>
         ) : (
@@ -133,7 +133,7 @@ export function BookingView({ slug, state }: { slug: string; state: BookingPageS
         )}
 
         {picked && (
-          <form onSubmit={submit} className="space-y-4 border-t border-border/60 pt-6 dark:border-white/10" data-booking-form>
+          <form onSubmit={submit} className="space-y-4 border-t border-foreground/15 pt-6 dark:border-white/10" data-booking-form>
             <p className="text-sm">
               {capitalized(kind)} on <strong>{picked.label}</strong>
             </p>
