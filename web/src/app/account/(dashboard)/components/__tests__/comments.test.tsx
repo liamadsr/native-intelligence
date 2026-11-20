@@ -25,8 +25,16 @@ const hoisted = vi.hoisted(() => ({
 vi.mock('@/hooks/use-entity-sync', () => ({ useEntityListSync: vi.fn() }))
 vi.mock('@/app/account/workspace-switcher', () => ({
   useWorkspaceId: () => 'ws-1',
+  useWorkspaceEdition: () => null,
 }))
 vi.mock('@/lib/cached-fetch', () => ({ cachedJson: hoisted.cachedJson }))
+// The box is the main chat's composer (ChatInput), real; only the desktop's voice is stubbed (no dictation here).
+vi.mock('@/hooks/recording-context', () => ({ useRecordingStable: () => ({}), useOptionalRecordingStable: () => null }))
+vi.mock('@/hooks/use-voice-availability', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/hooks/use-voice-availability')>()),
+  useVoiceAvailability: () => ({ hasVoice: false, visible: false, dictation: false, conversation: false, blocked: null, status: {} }),
+}))
+vi.mock('@/lib/workspace-fetch', () => ({ getClientWorkspaceId: () => 'ws-1' }))
 
 // UI primitives stubbed to structure — radix portals/popovers are not under
 // test here. The dropdown renders its content inline so the author-only Edit
@@ -40,7 +48,9 @@ vi.mock('@/components/ui/button', () => ({
   Button: ({ children, ...props }: { children?: ReactNode }) =>
     h('button', { type: 'button', ...props }, children),
 }))
-vi.mock('@/components/ui/dropdown-menu', () => ({
+vi.mock('@/components/ui/dropdown-menu', async (importOriginal) => ({
+  // The composer's own menus use the rest, unstubbed.
+  ...(await importOriginal<typeof import('@/components/ui/dropdown-menu')>()),
   DropdownMenu: ({ children }: { children?: ReactNode }) => h('div', {}, children),
   DropdownMenuTrigger: ({ children }: { children?: ReactNode }) => h('span', {}, children),
   DropdownMenuContent: ({ children }: { children?: ReactNode }) => h('div', {}, children),
@@ -76,14 +86,20 @@ const COMMENTS = [
 ]
 
 let fetchCalls: string[] = []
+let posts: Array<{ body: string; parent_id?: string }> = []
 
 function installFetch() {
   fetchCalls = []
+  posts = []
   vi.stubGlobal(
     'fetch',
-    vi.fn(async (input: string) => {
+    vi.fn(async (input: string, init?: RequestInit) => {
       const url = String(input)
       fetchCalls.push(url)
+      if (url === '/api/account/actions/act-1/comments' && init?.method === 'POST') {
+        posts.push(JSON.parse(String(init.body)))
+        return { ok: true, status: 200, json: async () => ({}) }
+      }
       if (url === '/api/account/actions/act-1/comments') {
         return { ok: true, status: 200, json: async () => ({ comments: COMMENTS }) }
       }
@@ -111,19 +127,27 @@ async function mount(props: Record<string, unknown>) {
 beforeEach(() => {
   vi.clearAllMocks()
   installFetch()
-  hoisted.cachedJson.mockResolvedValue({ currentMemberId: 'm-1' })
+  // One cached read per URL: the viewer's member id, and the members `@` lists.
+  hoisted.cachedJson.mockImplementation(async (url: string) =>
+    url === '/api/account/workspace/members'
+      ? { members: [{ id: 'm-1', display_name: 'Alice' }, { id: 'm-2', display_name: 'Rosa Lind' }, { id: 'm-3', display_name: 'Ben Ruiz' }] }
+      : { currentMemberId: 'm-1' },
+  )
 })
 
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  vi.unstubAllGlobals()
 })
+
+const workspaceLookups = () => hoisted.cachedJson.mock.calls.filter(([url]) => url === '/api/account/workspace')
 
 describe('Comments — current member id source', () => {
   it('skips the workspace lookup when currentMemberId is supplied', async () => {
     await mount({ currentMemberId: 'm-1' })
 
-    expect(hoisted.cachedJson).not.toHaveBeenCalled()
+    expect(workspaceLookups()).toHaveLength(0)
     expect(fetchCalls).not.toContain('/api/account/workspace')
     // The supplied id actually flows: Alice's own comment offers Edit.
     expect(container.textContent).toContain('Looks good')
@@ -133,7 +157,7 @@ describe('Comments — current member id source', () => {
   it('a non-author viewer gets no Edit affordance', async () => {
     await mount({ currentMemberId: 'm-2' })
 
-    expect(hoisted.cachedJson).not.toHaveBeenCalled()
+    expect(workspaceLookups()).toHaveLength(0)
     expect(container.textContent).toContain('Looks good')
     expect(container.textContent).not.toContain('Edit')
   })
@@ -141,7 +165,7 @@ describe('Comments — current member id source', () => {
   it('falls back to cachedJson with workspace scope when no prop is supplied', async () => {
     await mount({})
 
-    expect(hoisted.cachedJson).toHaveBeenCalledTimes(1)
+    expect(workspaceLookups()).toHaveLength(1)
     expect(hoisted.cachedJson).toHaveBeenCalledWith('/api/account/workspace', { scope: 'ws-1' })
     // Never a raw fetch of the workspace payload.
     expect(fetchCalls).not.toContain('/api/account/workspace')
@@ -151,51 +175,136 @@ describe('Comments — current member id source', () => {
 })
 
 /**
- * The composer's shape.
- *
- * The send control used to sit OUTSIDE the bordered field, which read as a
- * field plus a loose button rather than one comment box. It now lives inside
- * the bordered wrapper, and that containment is the thing worth pinning — it's
- * invisible to any text-content assertion, so a refactor could undo it
- * silently.
+ * The box is the main chat's composer (ChatInput, as team chat uses it): the
+ * one-row pill with "+", the field, the mic and send, not a textarea of its
+ * own. Enter posts the comment, Shift+Enter is a new line, Reply makes the
+ * next post a reply (and says so above the pill), and `@` lists the
+ * teammates, never a record search: a comment is words only.
  */
-describe('Comments — composer layout', () => {
-  const composer = () => {
-    const el = container.querySelector('[data-comment-composer]')
-    if (!el) throw new Error('composer not found')
-    return el
+describe('Comments — the box is the shared composer', () => {
+  // A real width, as a detail panel has: jsdom's is 0, and the field hides its placeholder when too narrow.
+  beforeEach(() => {
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 480 })
+  })
+  afterEach(() => {
+    delete (HTMLElement.prototype as unknown as Record<string, unknown>).clientWidth
+  })
+  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
+  const composer = () => container.querySelector('[data-comment-composer]') as HTMLElement
+  const box = () => composer().querySelector('textarea') as HTMLTextAreaElement
+  const send = () => composer().querySelector<HTMLButtonElement>('button[aria-label="Send message"]')!
+  async function settle() {
+    for (let i = 0; i < 5; i++) await act(async () => new Promise((r) => setTimeout(r, 0)))
+  }
+  function type(text: string) {
+    act(() => box().focus())
+    for (const ch of text) {
+      act(() => {
+        const ta = box()
+        const { selectionStart: s, selectionEnd: e, value } = ta
+        setter.call(ta, value.slice(0, s) + ch + value.slice(e))
+        ta.setSelectionRange(s + 1, s + 1)
+        ta.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+    }
+  }
+  function press(key: string, opts: KeyboardEventInit = {}) {
+    const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...opts })
+    act(() => {
+      box().dispatchEvent(event)
+    })
+    return event
   }
 
-  it('renders the send button inside the bordered box, not beside it', async () => {
+  it('is the inline pill (+, the field, send) with the comment placeholder', async () => {
     await mount({ currentMemberId: 'm-1' })
 
-    const box = composer()
-    expect(box.querySelector('textarea')).toBeTruthy()
-    // The send control is a DESCENDANT of the box — the whole point of the change.
-    const send = box.querySelector('button[aria-label="Send comment"]')
-    expect(send).toBeTruthy()
+    expect(composer().querySelector('[data-composer-layout="inline"]')).toBeTruthy()
+    expect(box().getAttribute('placeholder')).toBe('Leave a comment…')
+    expect(send()).toBeTruthy()
+    // Nothing to send yet.
+    expect(send().disabled).toBe(true)
   })
 
-  it('keeps the border and focus ring on the wrapper, not the textarea', async () => {
+  it('Enter posts the comment and clears the box; Shift+Enter does not post', async () => {
     await mount({ currentMemberId: 'm-1' })
 
-    const box = composer()
-    // The wrapper owns the frame so the whole control lights up as one on focus.
-    expect(box.className).toContain('border')
-    expect(box.className).toContain('focus-within:border-foreground/30')
-    // ...and the textarea inside must not draw a competing second border.
-    const ta = box.querySelector('textarea')!
-    expect(ta.className).not.toContain('border-input')
-    expect(ta.className).toContain('resize-none')
+    type('First line')
+    const shift = press('Enter', { shiftKey: true })
+    expect(shift.defaultPrevented).toBe(false)
+    await settle()
+    expect(posts).toEqual([])
+
+    expect(send().disabled).toBe(false)
+    press('Enter')
+    await settle()
+    expect(posts).toEqual([{ body: 'First line' }])
+    expect(box().value).toBe('')
   })
 
-  it('disables send until there is something to send', async () => {
+  it('the send button posts too, and a blank box posts nothing', async () => {
     await mount({ currentMemberId: 'm-1' })
 
-    const send = composer().querySelector<HTMLButtonElement>(
-      'button[aria-label="Send comment"]',
-    )!
-    // Empty composer: submitting would post an empty comment.
-    expect(send.disabled).toBe(true)
+    type('   ')
+    press('Enter')
+    await settle()
+    expect(posts).toEqual([])
+
+    type('Ship it')
+    act(() => send().click())
+    await settle()
+    expect(posts).toEqual([{ body: 'Ship it' }])
+  })
+
+  it('Reply: says whom it answers, posts with parent_id, and focuses the box', async () => {
+    await mount({ currentMemberId: 'm-2' })
+
+    const reply = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Reply')!
+    await act(async () => reply.click())
+    await act(async () => new Promise((r) => requestAnimationFrame(() => r(null))))
+    expect(composer().querySelector('[data-comment-replying]')?.textContent).toContain('Replying to Alice')
+    expect(box().getAttribute('placeholder')).toBe('Reply to Alice…')
+    expect(document.activeElement).toBe(box())
+
+    type('Agreed')
+    press('Enter')
+    await settle()
+    expect(posts).toEqual([{ body: 'Agreed', parent_id: 'c-1' }])
+    expect(composer().querySelector('[data-comment-replying]')).toBeNull()
+  })
+
+  it('cancelling a reply posts a plain comment', async () => {
+    await mount({ currentMemberId: 'm-2' })
+
+    const reply = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Reply')!
+    await act(async () => reply.click())
+    act(() => composer().querySelector<HTMLButtonElement>('button[aria-label="Cancel reply"]')!.click())
+
+    type('Top level')
+    press('Enter')
+    await settle()
+    expect(posts).toEqual([{ body: 'Top level' }])
+  })
+
+  it('@ lists the teammates but the viewer, runs no record search, and a pick goes in the words', async () => {
+    await mount({ currentMemberId: 'm-1' })
+
+    type('@')
+    await settle()
+    const options = [...document.querySelectorAll('[data-mention-option]')].map((r) => r.getAttribute('data-mention-option'))
+    expect(options).toEqual(['m-2', 'm-3'])
+    expect(fetchCalls.some((u) => u.startsWith('/api/account/search'))).toBe(false)
+
+    type('ro')
+    await settle()
+    press('Enter')
+    await settle()
+    expect(box().value).toBe('@Rosa Lind ')
+    expect(posts).toEqual([])
+
+    type('take a look?')
+    press('Enter')
+    await settle()
+    expect(posts).toEqual([{ body: '@Rosa Lind take a look?' }])
   })
 })
