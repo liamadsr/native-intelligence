@@ -76,6 +76,18 @@ describe('htmlToPlainText', () => {
 
   it('takes a line break in the HTML source as a space, never as text', () => {
     expect(htmlToPlainText('<p>Hello\nworld</p>\n<p>Next</p>')).toBe('Hello world\n\nNext')
+    expect(htmlToPlainText('<b>Hi</b>\n<i>there</i>')).toBe('Hi there')
+    expect(htmlToPlainText('<div>\n  <div>Indented source</div>\n</div>')).toBe('Indented source')
+  })
+
+  it('keeps a typed no-break space as text', () => {
+    expect(htmlToPlainText(plainTextToHtml('a b'))).toBe('a b')
+  })
+
+  it('stays fast on a huge run of whitespace', () => {
+    const started = performance.now()
+    htmlToPlainText(`<div>a${'\t'.repeat(200_000)}b</div>`)
+    expect(performance.now() - started).toBeLessThan(500)
   })
 
   it('decodes entities once', () => {

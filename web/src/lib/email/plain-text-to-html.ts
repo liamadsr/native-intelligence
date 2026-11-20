@@ -54,16 +54,22 @@ function decodeEntities(text: string): string {
  */
 export function htmlToPlainText(html: string): string {
   const text = html
-    // Line breaks between tags are layout; inside text they are a space.
-    .replace(/>\s*[\r\n]\s*</g, '><')
-    .replace(/\s*[\r\n]+\s*/g, ' ')
+    // Whitespace in the source, a line break included, is one space (HTML's
+    // own whitespace only: a typed no-break space is text).
+    .replace(/[ \t\r\n\f]+/g, ' ')
     // A blank line: a block holding only a <br>.
-    .replace(/<(div|p)\b[^>]*>\s*<br\s*\/?>\s*<\/\1>/gi, '\n')
-    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<(div|p)\b[^>]*> ?<br ?\/?> ?<\/\1>/gi, '\n')
+    .replace(/<br ?\/?>/gi, '\n')
     .replace(/<\/p>/gi, '\n\n')
     .replace(/<\/(div|li|tr|h[1-6]|blockquote|pre)>/gi, '\n')
     .replace(/<[^>]+>/g, '')
+    // The space a source line break left at either end of a line is layout
+    // (typed indentation is still &nbsp; here, so it stays).
+    .split('\n')
+    .map((line) => line.replace(/^ | $/g, ''))
+    .join('\n')
   return decodeEntities(text)
     .replace(/\n{3,}/g, '\n\n')
-    .replace(/^\n+|\s+$/g, '')
+    .replace(/^\n+/, '')
+    .trimEnd()
 }
