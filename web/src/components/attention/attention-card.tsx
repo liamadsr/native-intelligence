@@ -76,7 +76,7 @@ import { WorkPlacePicker, runInOf, useWorkPlace } from './work-place-picker'
 /**
  * A single attention-rail card (loop-closure Phase 2, Workstream D).
  *
- * The landing card's glass skin (action-stream-demo.tsx) wearing ProposalCard's
+ * A glass card wearing ProposalCard's
  * interaction model (proposal-card.tsx). It carries the full property model —
  * project, priority, due date, human OR agent assignee — editable inline before
  * accepting, and the "assign to an agent and send it off" flow: pick an agent,

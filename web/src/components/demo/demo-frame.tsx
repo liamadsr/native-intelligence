@@ -26,7 +26,7 @@ import { DEMO_READY_MESSAGE, DEMO_SCREEN_MESSAGE, DEMO_WINDOWS, type DemoScreen 
 
 /** How close the slot comes before the app is loaded, and how far it goes before the app is let go. */
 const NEAR = '600px 0px'
-const FAR = '2400px 0px'
+const FAR = '1200px 0px'
 
 /** Below this the app is not loaded: a phone gets the picture. */
 const MIN_WIDTH = 1024

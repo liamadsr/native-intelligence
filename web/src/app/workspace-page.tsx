@@ -523,7 +523,7 @@ function MemorySection() {
       <div className="mt-20 space-y-28 lg:space-y-36">
         <FeatureStage
           title="Search and ask"
-          description="Ask what you agreed with a customer about March. The answer names the call and the email it came from."
+          description="Ask what you agreed with a customer. The answer says who said it, and names the call it was said on."
           visual={<AppScreen screen="chat" />}
           links={[{ label: 'Learn about agents', href: '/features/agents' }]}
         />

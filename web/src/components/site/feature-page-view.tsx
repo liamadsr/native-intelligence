@@ -44,8 +44,6 @@ function Demo({ name }: { name: FeatureDemoKey }) {
       return <IntelligenceLoopDemo />
     case 'capture':
       return <AppScreen screen="notes" />
-    case 'notes-doc':
-      return <AppScreen screen="notes" />
     case 'speaker-id':
       return <AppScreen screen="transcript" />
     case 'hud-tips':

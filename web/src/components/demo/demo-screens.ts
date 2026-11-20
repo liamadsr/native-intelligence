@@ -25,7 +25,8 @@ export const DEMO_WINDOWS: Record<DemoScreen, { width: number; height: number }>
   knowledge: HERO_WINDOW,
   contact: COLUMN_WINDOW,
   chat: COLUMN_WINDOW,
-  list: COLUMN_WINDOW,
+  // Its columns need the room.
+  list: { width: 1280, height: 800 },
   notes: COLUMN_WINDOW,
   transcript: COLUMN_WINDOW,
 }
