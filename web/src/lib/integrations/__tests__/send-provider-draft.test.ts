@@ -377,7 +377,8 @@ describe('sendProviderDraft — Gmail, edited before sending', () => {
     ]) {
       expect(raw).toContain(`${line}\r\n`)
     }
-    expect(raw).toContain('Hi Simon,\n\nTuesday at 2 pm works <3.')
+    // Quoted-printable, its line breaks CRLF (the text is plain ASCII, so it reads as typed).
+    expect(raw).toContain('Hi Simon,\r\n\r\nTuesday at 2 pm works <3.')
     expect(raw).toContain('Tuesday at 2 pm works &lt;3.')
   })
 

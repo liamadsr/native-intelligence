@@ -132,7 +132,7 @@ describe('generateOutreachDraft — happy path', () => {
     expect(hoisted.generateText).toHaveBeenCalledTimes(1)
     const row = fake._tables.email_draft[0]
     expect(row.body_text).toContain('Circling back on the deal.')
-    expect(row.body_html).toContain('<p>Hi Sam,</p>')
+    expect(row.body_html).toContain('<div>Hi Sam,</div>')
     expect(row.status).toBe('pending_review') // never flips toward send
   })
 
