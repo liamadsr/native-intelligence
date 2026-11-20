@@ -45,6 +45,7 @@ import { EmailMessage, type EmailMessageData } from './email-message'
 import { EmailShareDialog, copyEmailShareLink } from './email-share-dialog'
 import { EmailShareChips } from './email-share-chips'
 import { EmailThreadTags } from './email-thread-tags'
+import { requestEmailReply } from '@/lib/email/reply-in-chat'
 
 interface EmailLabel {
   id: string
@@ -115,6 +116,32 @@ interface EmailThreadDetailProps {
    * and ringed for a moment, so the person lands on it, not the thread's top.
    */
   focusDraftId?: string | null
+  /**
+   * Filled with what Mail's keys do to this thread (E, R, A:
+   * email-layout.tsx, docs/plans/keyboard-shortcuts.md), so the layout, which
+   * decides whose key it is, can call them.
+   */
+  keyActionsRef?: React.MutableRefObject<ThreadKeyActions | null>
+}
+
+/** What Mail's keys do to the open thread. */
+export interface ThreadKeyActions {
+  archive: () => void
+  reply: () => void
+  replyAll: () => void
+}
+
+/**
+ * The message R replies to: the newest one someone else sent (not a draft,
+ * not from one of `own`), else the newest that isn't a draft. Null: none.
+ */
+export function replyTargetOf(messages: readonly EmailMessageData[], own: ReadonlySet<string>): EmailMessageData | null {
+  const sent = messages.filter((m) => !m.isDraft)
+  for (let i = sent.length - 1; i >= 0; i--) {
+    const address = sent[i].from.email?.trim().toLowerCase() ?? ''
+    if (address && !own.has(address)) return sent[i]
+  }
+  return sent[sent.length - 1] ?? null
 }
 
 /**
@@ -153,6 +180,7 @@ export function EmailThreadDetail({
   onDraftDiscarded,
   ownAddresses,
   focusDraftId = null,
+  keyActionsRef,
 }: EmailThreadDetailProps) {
   const [thread, setThread] = useState<FullEmailThread | null>(null)
   const [loading, setLoading] = useState(true)
@@ -298,6 +326,32 @@ export function EmailThreadDetail({
     }).then((res) => res.ok, () => false)
     if (!ok) toast.error('Could not archive the email')
   }, [threadId, onClose, onThreadUpdate])
+
+  // Mail's keys (email-layout.tsx): E archives; R and A hand the thread to the
+  // chat to draft a reply, as Reply and Reply All do (lib/email/reply-in-chat.ts).
+  const replyHandoff = useCallback((request: EmailReplyRequest) => {
+    if (onReplyRequest) onReplyRequest(request)
+    else requestEmailReply(request)
+  }, [onReplyRequest])
+  const threadRef = useRef(thread)
+  threadRef.current = thread
+  const ownRef = useRef(ownAddresses)
+  ownRef.current = ownAddresses
+  useEffect(() => {
+    if (!keyActionsRef) return
+    keyActionsRef.current = {
+      archive: () => void handleArchive(),
+      reply: () => {
+        const target = replyTargetOf(threadRef.current?.messages ?? [], new Set(ownRef.current ?? []))
+        const fromEmail = target?.from.email?.trim()
+        replyHandoff(target && fromEmail ? { threadId, message: { id: target.id, fromEmail } } : { threadId })
+      },
+      replyAll: () => replyHandoff({ threadId }),
+    }
+    return () => {
+      keyActionsRef.current = null
+    }
+  }, [keyActionsRef, handleArchive, replyHandoff, threadId])
 
   const handleTrash = useCallback(async () => {
     onThreadUpdate?.({ type: 'remove', threadId })

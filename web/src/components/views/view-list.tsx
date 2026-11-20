@@ -1,5 +1,6 @@
 'use client'
 
+import { useListFocusedId } from './list-keyboard'
 import * as React from 'react'
 import { ThinkingOrb } from 'thinking-orbs'
 import { useVirtualizer } from '@tanstack/react-virtual'
@@ -373,6 +374,15 @@ function FlatList({
   React.useEffect(() => {
     virtualizer.measure()
   }, [composingRowId, virtualizer])
+
+  // The row the keyboard moved to (J/K: list-keyboard.tsx), scrolled into
+  // view: it may not be drawn yet, so through the virtualizer.
+  const listFocusedId = useListFocusedId()
+  React.useEffect(() => {
+    if (!listFocusedId) return
+    const at = visualRows.findIndex((r) => r.item.id === listFocusedId)
+    if (at >= 0) virtualizer.scrollToIndex(at, { align: 'auto' })
+  }, [listFocusedId, visualRows, virtualizer])
 
   // Infinite scroll: load more when scrolling near the bottom
   const handleScroll = React.useCallback(() => {

@@ -18,7 +18,7 @@ import { useScopedLabels } from '@/lib/labels/use-scoped-labels'
 import { LabelPickerContent, flattenGroups } from '@/components/labels/label-picker-content'
 import { EntityTitleInput } from '@/components/views/entity-title-input'
 import { usePropertiesVisible } from '@/components/views/use-properties-visible'
-import { WindowProperties, WindowActions } from '@/components/views/window-properties'
+import { WindowProperties, WindowActions, useShowWindowProperties } from '@/components/views/window-properties'
 import { SubActionComposer, type SubActionDraft } from '@/components/views/sub-action-composer'
 import { PropertyGroup } from '@/components/views/property-group'
 import { OptionalProperty, PropertyRow, PropertyRows } from '@/components/views/property-layout'
@@ -35,7 +35,8 @@ import { ReminderPickerPopover } from '@/components/reminders/reminder-picker'
 import { DocumentSearchPicker, type DocumentOption } from '@/components/documents/document-search-picker'
 import { fetchReminder, onReminderChanged } from '@/lib/reminders/client'
 import type { Reminder } from '@/lib/reminders/types'
-import { useHotkeys } from '@/lib/hotkeys'
+import { useHotkeys, type HotkeyDefinition } from '@/lib/hotkeys'
+import { openPropertyPicker, regionOwnsKeys, type TaskPropertyField } from '@/components/views/list-keyboard'
 import { useIsWindowFocused } from '@/components/views/unified-view-layout'
 import { useRowChanges } from '@/hooks/use-row-changes'
 import { ActionJobPlan } from '@/components/work/action-job-plan'
@@ -1630,6 +1631,53 @@ export function ActionDetailPanel({
     return list
   }, [projects, action?.project_id, action?.project_name])
 
+  // ── A task's keys in its panel (docs/plans/keyboard-shortcuts.md) ──
+  // S status, P priority, A assignees, L labels, ⇧D due date open that
+  // property's picker, as a click on it would; I adds you to the assignees.
+  // Only the panel the person is working in (its window focused, and typed in
+  // it or on the page in front): every panel stays mounted.
+  const showProperties = useShowWindowProperties()
+  const taskPanelOwnsKeys = useCallback((e: KeyboardEvent) => regionOwnsKeys(panelBodyRef.current, e, '[data-task-panel]'), [])
+  const assignToMe = useCallback(() => {
+    if (!action || !currentMemberId) return
+    const currentIds = (action.assignees || []).map((a) => a.id)
+    if (currentIds.includes(currentMemberId)) return
+    const newIds = [...currentIds, currentMemberId]
+    const newAssignees = members
+      .filter((m) => newIds.includes(m.id))
+      .map((m) => ({ id: m.id, display_name: m.display_name, avatar_url: m.avatar_url }))
+    setAction((prev) => (prev ? { ...prev, assignees: newAssignees } : prev))
+    patchAction({ assignee_ids: newIds })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [action, currentMemberId, members])
+  const panelTaskKeys = useMemo<HotkeyDefinition[]>(() => {
+    const base = { globalGuard: true, when: taskPanelOwnsKeys, disabled: !isWindowFocused || !action }
+    // The fields are portalled into the card's inspector (a column beside a
+    // full-screen card, else the header's Properties popover): shown first
+    // when it is folded away, then the picker opened once it is on screen.
+    const open = (field: TaskPropertyField) => () => {
+      const fields = () => document.querySelector(`[data-task-properties="${CSS.escape(actionId)}"]`)
+      const shownNow = fields()?.getClientRects().length
+      if (!shownNow) showProperties()
+      let tries = 0
+      const attempt = () => {
+        const host = fields()
+        if (host?.getClientRects().length && openPropertyPicker(host, field)) return
+        if (++tries < 20) requestAnimationFrame(attempt)
+      }
+      attempt()
+    }
+    return [
+      { ...base, key: 's', handler: open('status') },
+      { ...base, key: 'p', handler: open('priority') },
+      { ...base, key: 'a', handler: open('assignee') },
+      { ...base, key: 'l', handler: open('labels') },
+      { ...base, key: 'd', shift: true, handler: open('due_at') },
+      { ...base, key: 'i', handler: assignToMe },
+    ]
+  }, [taskPanelOwnsKeys, isWindowFocused, action, assignToMe, actionId, showProperties])
+  useHotkeys(panelTaskKeys)
+
   // Whether the Cloud-run tab is offered at all (see canShowCloudRunTab).
   const canShowCloudTab =
     !!action &&
@@ -2010,7 +2058,7 @@ export function ActionDetailPanel({
         />
       ) : (
       // Properties float at page level; the reading column stays centered.
-      <div ref={panelBodyRef} className="flex flex-1 min-h-0 justify-center">
+      <div ref={panelBodyRef} data-task-panel="" className="flex flex-1 min-h-0 justify-center">
         {/* Centered reading column; properties do not consume window width. */}
         <div className="w-full max-w-[736px] min-w-0 mx-auto">
         <ScrollArea className="h-full">
@@ -2267,6 +2315,8 @@ export function ActionDetailPanel({
               // column): its own drop zone, so a file dropped on Attachments
               // lands on this action.
               ref={setPropsEl}
+              // Where a task's keys find its pickers (S, P, A, L, ⇧D).
+              data-task-properties={actionId}
               data-file-drop-zone=""
               className="relative p-4 space-y-4"
             >
@@ -2321,7 +2371,7 @@ export function ActionDetailPanel({
                 <>
                 {/* Status */}
                 <PropertyRow>
-                <div ref={statusFieldRef}>
+                <div ref={statusFieldRef} data-property-field="status">
                   <StatusPanelField
                     value={action.status_id}
                     workflowStates={statusOptions}
@@ -2332,17 +2382,19 @@ export function ActionDetailPanel({
 
                 {/* Priority */}
                 <PropertyRow>
+                <div data-property-field="priority" className="contents">
                 <PriorityPanelField
                   value={action.priority}
                   onChange={(v) => patchAction({ priority: v })}
                 />
+                </div>
                 </PropertyRow>
 
                 {/* Assignees (multi-select) */}
                 <PropertyRow>
                 <Popover>
                   <PopoverTrigger asChild>
-                    <button className="flex h-8 w-full items-center gap-2 rounded-md border-none bg-transparent px-2 text-sm hover:bg-muted/50 text-left">
+                    <button data-property-field="assignee" className="flex h-8 w-full items-center gap-2 rounded-md border-none bg-transparent px-2 text-sm hover:bg-muted/50 text-left">
                       {/* The delegate model (decision 9): the people responsible
                           lead, and the agent working it as the delegate follows
                           as a chip. An agent with nobody responsible stands alone. */}
@@ -2492,12 +2544,14 @@ export function ActionDetailPanel({
 
                 {/* Due date */}
                 <OptionalProperty set={!!action.due_at}>
+                <div data-property-field="due_at" className="contents">
                 <DatePanelField
                   value={action.due_at}
                   onChange={(iso) => patchAction({ due_at: iso })}
                   placeholder="Due date"
                   overdueSensitive={action.status_category !== 'completed'}
                 />
+                </div>
                 </OptionalProperty>
 
                 {/* Estimate */}
@@ -2587,7 +2641,7 @@ export function ActionDetailPanel({
                 <OptionalProperty set={false}>
                 <Popover>
                   <PopoverTrigger asChild>
-                    <button className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm text-muted-foreground transition-colors hover:bg-muted/50">
+                    <button data-property-field="labels" className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm text-muted-foreground transition-colors hover:bg-muted/50">
                       <Tag className="h-4 w-4 shrink-0" />
                       <span>Add label</span>
                     </button>

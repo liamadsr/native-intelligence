@@ -1,5 +1,6 @@
 'use client'
 
+import { LIST_FOCUS_RING, LIST_ROW_ATTR, PROPERTY_FIELD_ATTR, useIsListFocused } from '../list-keyboard'
 import * as React from 'react'
 import { format, parseISO, startOfDay } from 'date-fns'
 import { ThinkingOrb } from 'thinking-orbs'
@@ -361,6 +362,7 @@ function EntityRowImpl({
    * their input): it gets the browser's own menu, as its inputs expect.
    */
   const canArmMenu = React.useCallback(() => !composingRef.current, [])
+  const listFocused = useIsListFocused(itemId)
   const { armed: menuArmed, ref: rowElRef, handlers: armHandlers } = useArmedContextMenu<HTMLDivElement>(hasMenu, canArmMenu)
 
   const row = (
@@ -368,6 +370,9 @@ function EntityRowImpl({
       ref={rowElRef}
       // A capture's row, for UI automation (src/lib/automation/README.md).
       {...(entityType === 'capture' ? { 'data-testid': 'capture-row', 'data-capture-id': itemId } : {})}
+      // Where the keyboard finds the row (list-keyboard.tsx).
+      {...{ [LIST_ROW_ATTR]: itemId }}
+      data-list-focused={listFocused || undefined}
       {...armHandlers}
       onClick={onClick}
       onAuxClick={onAuxClick}
@@ -396,6 +401,8 @@ function EntityRowImpl({
         'hover:bg-muted/50',
         isSelected && 'bg-muted',
         isChecked && 'bg-primary/5',
+        // The row the keyboard is on (J/K): a ring, over whatever else it shows.
+        listFocused && LIST_FOCUS_RING,
       )}
     >
       {/* Chevron (tree expand) — always rendered at fixed width so rows align */}
@@ -2715,7 +2722,8 @@ function PropertyCell({ item, property, entityType, onPatch, pickerContext, canE
   if (editable && descriptor && onPatch) {
     const id = item.id as string
     const editCell = renderEditableCell({ item, property, descriptor, id, entityType, onPatch, pickerContext })
-    if (editCell !== undefined) return editCell
+    // Marked for the keyboard (S, P, A, L, ⇧D on the row it is on: list-keyboard.tsx openPropertyPicker).
+    if (editCell !== undefined) return <span {...{ [PROPERTY_FIELD_ATTR]: property }} className="contents">{editCell}</span>
     // Fall through to read-only if descriptor couldn't be rendered (e.g. missing context).
   }
 

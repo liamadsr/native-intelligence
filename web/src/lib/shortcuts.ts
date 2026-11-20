@@ -22,10 +22,10 @@
  */
 
 /** Where a shortcut can fire: anywhere in the app, or only on one page or panel. */
-export type ShortcutScope = 'global' | 'mail' | 'detail-panel' | 'page-card' | 'palette'
+export type ShortcutScope = 'global' | 'mail' | 'list' | 'task' | 'page-card' | 'palette'
 
 /** The sheet's sections, in its order. */
-export type ShortcutSection = 'General' | 'Go to' | 'Mail' | 'Tasks, projects and initiatives'
+export type ShortcutSection = 'General' | 'Go to' | 'Lists' | 'Tasks' | 'Mail'
 
 /**
  * One shortcut's keys, as the sheet writes them: `mod+k` (⌘K on a Mac, Ctrl+K
@@ -119,14 +119,32 @@ export const SHORTCUTS_BESIDES_GO_TO: readonly ShortcutDef[] = [
   { id: 'close-page', keys: ['escape'], label: 'Put away the page in front', section: 'General', scope: 'page-card' },
   { id: 'card-back', keys: ['mod+['], label: 'Back, in the page in front', section: 'General', scope: 'page-card' },
   { id: 'card-forward', keys: ['mod+]'], label: 'Forward, in the page in front', section: 'General', scope: 'page-card' },
-  // Mail
+  { id: 'group-previous', keys: ['['], label: 'Previous page in the group (Drive, Calendar, Contacts…)', section: 'General', scope: 'global' },
+  { id: 'group-next', keys: [']'], label: 'Next page in the group', section: 'General', scope: 'global' },
+  // Lists and boards (components/views/unified-view-layout.tsx)
+  { id: 'list-next', keys: ['j', 'arrowdown'], label: 'Next row', section: 'Lists', scope: 'list' },
+  { id: 'list-previous', keys: ['k', 'arrowup'], label: 'Previous row', section: 'Lists', scope: 'list' },
+  { id: 'list-open', keys: ['enter', 'o'], label: 'Open the row', section: 'Lists', scope: 'list' },
+  { id: 'list-select', keys: ['x'], label: 'Select the row', section: 'Lists', scope: 'list' },
+  { id: 'list-clear', keys: ['escape'], label: 'Clear the selection', section: 'Lists', scope: 'list', overrides: 'close-page' },
+  // A task: the row the keyboard is on, or the task open in its panel
+  { id: 'task-status', keys: ['s'], label: 'Set status', section: 'Tasks', scope: 'task' },
+  { id: 'task-priority', keys: ['p'], label: 'Set priority', section: 'Tasks', scope: 'task' },
+  { id: 'task-assign', keys: ['a'], label: 'Assign', section: 'Tasks', scope: 'task' },
+  { id: 'task-assign-me', keys: ['i'], label: 'Assign to me', section: 'Tasks', scope: 'task' },
+  { id: 'task-labels', keys: ['l'], label: 'Labels', section: 'Tasks', scope: 'task' },
+  { id: 'task-due', keys: ['shift+d'], label: 'Due date', section: 'Tasks', scope: 'task' },
+  { id: 'remind', keys: ['shift+h'], label: 'Remind me', section: 'Tasks', scope: 'task' },
+  // Mail (components/email/email-layout.tsx)
   { id: 'mail-compose', keys: ['c'], label: 'Write an email', section: 'Mail', scope: 'mail', overrides: 'create' },
   { id: 'mail-search', keys: ['/'], label: 'Search mail', section: 'Mail', scope: 'mail', overrides: 'search' },
   { id: 'mail-next', keys: ['j'], label: 'Next thread', section: 'Mail', scope: 'mail' },
   { id: 'mail-previous', keys: ['k'], label: 'Previous thread', section: 'Mail', scope: 'mail' },
   { id: 'mail-close', keys: ['escape'], label: 'Close the thread', section: 'Mail', scope: 'mail', overrides: 'close-page' },
-  // Tasks, projects and initiatives
-  { id: 'remind', keys: ['shift+h'], label: 'Remind me', section: 'Tasks, projects and initiatives', scope: 'detail-panel' },
+  { id: 'mail-archive', keys: ['e'], label: 'Archive', section: 'Mail', scope: 'mail' },
+  { id: 'mail-reply', keys: ['r'], label: 'Reply', section: 'Mail', scope: 'mail' },
+  { id: 'mail-reply-all', keys: ['a'], label: 'Reply all', section: 'Mail', scope: 'mail' },
+  { id: 'mail-unread', keys: ['u'], label: 'Mark unread', section: 'Mail', scope: 'mail' },
 ]
 
 /** Every shortcut: the go-to letters, then the rest. */
@@ -220,9 +238,22 @@ export function goToFor(target: { slug?: string; group?: string; home?: boolean 
 
 // ── Conflicts ──────────────────────────────────────────────
 
-/** Can two scopes fire on the same key press? The app-wide one with any; a page's own with its own. */
+/**
+ * Scopes that are on screen and answer the same key press together besides
+ * the app-wide one: a task's keys act on the row the keyboard is on in a list,
+ * and a list is inside the page in front.
+ */
+const SCOPES_THAT_MEET: ReadonlyArray<readonly [ShortcutScope, ShortcutScope]> = [
+  ['list', 'task'],
+  ['list', 'page-card'],
+  ['task', 'page-card'],
+  ['mail', 'page-card'],
+]
+
+/** Can two scopes fire on the same key press? The app-wide one with any; a page's own with its own, and with those it sits in. */
 function scopesMeet(a: ShortcutScope, b: ShortcutScope): boolean {
-  return a === 'global' || b === 'global' || a === b
+  if (a === 'global' || b === 'global' || a === b) return true
+  return SCOPES_THAT_MEET.some(([x, y]) => (x === a && y === b) || (x === b && y === a))
 }
 
 export interface ShortcutConflict {

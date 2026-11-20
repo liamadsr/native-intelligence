@@ -31,7 +31,7 @@ describe('the shortcut registry', () => {
 
   it('lets two pages use the same key, and a page stand in for an app-wide key only when it says so', () => {
     const mail: ShortcutDef = { id: 'm', keys: ['j'], label: 'M', section: 'Mail', scope: 'mail' }
-    const panel: ShortcutDef = { id: 'p', keys: ['j'], label: 'P', section: 'General', scope: 'detail-panel' }
+    const panel: ShortcutDef = { id: 'p', keys: ['j'], label: 'P', section: 'General', scope: 'palette' }
     expect(findShortcutConflicts([mail, panel], [])).toEqual([])
     const create: ShortcutDef = { id: 'create', keys: ['c'], label: 'Create', section: 'General', scope: 'global' }
     const compose: ShortcutDef = { id: 'compose', keys: ['c'], label: 'Compose', section: 'Mail', scope: 'mail' }
