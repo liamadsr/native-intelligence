@@ -102,6 +102,7 @@ export const ROUTES: Readonly<Record<string, RouteRule>> = {
   book: page('A business\'s public booking page; its form posts to the API of the domain it was loaded from.'),
   'company-brain': page('Marketing page.'),
   contact: page('Marketing page.'),
+  demo: page('The real app on made-up data, which the public site shows in a frame from its own domain.'),
   dev: page('Development previews.'),
   docs: page('The documentation.'),
   f: page('A form\'s own page (/f/<key>), and the embed script a business\'s site loads (/f/embed.js): both post to the API of the domain they were loaded from. A members form\'s sign-in happens on the domain it was opened on.'),

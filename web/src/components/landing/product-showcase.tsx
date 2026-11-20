@@ -1,16 +1,14 @@
 'use client'
 
 /**
- * The real app, on the page: screens of Native Intelligence itself, taken on
- * a made-up studio's workspace (public/screens, the same shots the
- * repository's README shows). A row of tabs names what each one is; the
- * picture changes on its own every few seconds while it is on screen, with
- * the active tab filling as its time runs, and a click picks one and stops
- * the clock.
- *
- * The shots are light on purpose, in both themes: they are photographs of
- * the product, not drawings of it, so they are not re-tinted to match the
- * page.
+ * The real app, on the page. Each tab is a screen of Native Intelligence
+ * itself on a made-up studio's workspace: the app, running in a frame from a
+ * recording (components/demo/demo-frame.tsx), over a picture of that same
+ * screen which the recorder took (public/screens/demo). The picture is what a
+ * phone gets, and what shows until the app is up. A row of tabs names each
+ * screen; it changes on its own every few seconds while it is on screen,
+ * with the active tab filling as its time runs, and a click picks one and
+ * stops the clock.
  *
  * ALL OF IT IN ONE VIEW. The app is not only that window: it is on the phone
  * and the watch, and beside every call on the Mac. As the picture scrolls up
@@ -35,39 +33,48 @@ import {
   type MotionValue,
 } from 'framer-motion'
 import { useEffect, useRef, useState } from 'react'
+import { DemoFrame } from '@/components/demo/demo-frame'
+import type { DemoScreen } from '@/components/demo/demo-screens'
 import { IN_CSS, MOVE_CSS } from './motion'
 import { useInView, useReducedMotion } from './use-in-view'
 
 const SCREENS = [
   {
     tab: 'Ask',
-    src: '/screens/chat-view.webp',
+    live: 'ask',
+    src: '/screens/demo/ask.webp',
     alt: 'Asked for the open tasks on a project, the agent puts the live task board right in the chat and sums up what is left',
     caption:
       'Ask for anything in the workspace and it comes back live, here a project’s task board in the chat.',
   },
   {
     tab: 'Tasks',
-    src: '/screens/chat-view-fullscreen.webp',
-    alt: 'The same task board opened full screen, with its columns from backlog to done',
+    live: 'tasks',
+    src: '/screens/demo/tasks.webp',
+    alt: 'The task list: ten open tasks, each with its identifier, project, priority, due date and status',
     caption:
-      'The same board opened up: backlog to done, each task with its own identifier.',
+      'Your open tasks, each with its identifier, project, priority and due date.',
   },
   {
     tab: 'Meetings',
-    src: '/screens/meeting-notes.webp',
+    live: 'meeting',
+    src: '/screens/demo/meeting.webp',
     alt: 'A finished meeting’s notes: overview, goals and discussion, with the date, length, project and participants beside them',
     caption:
       'A finished call: the overview, goals, discussion and next steps, ready when you hang up.',
   },
   {
     tab: 'Memory',
-    src: '/screens/knowledge-graph.webp',
-    alt: 'The knowledge graph: what the workspace knows, clustered around its clients, people, meetings, documents and tasks',
+    live: 'knowledge',
+    src: '/screens/demo/knowledge.webp',
+    alt: 'The knowledge page: facts, decisions and open questions the workspace has learned, each with how sure it is',
     caption:
-      'What the workspace knows, joined up: clients, people, meetings, docs and tasks.',
+      'What the workspace knows: the facts, decisions and open questions from your calls, mail and docs.',
   },
-] as const
+] as const satisfies readonly { tab: string; src: string; alt: string; caption: string; live?: DemoScreen }[]
+
+/** The screens drawn by the app itself (components/demo/demo-frame.tsx), not a picture of it. */
+const LIVE = SCREENS.flatMap((screen) => ('live' in screen ? [screen.live] : []))
 
 /**
  * The rest of the product, around the window: where each sits (a share of the
@@ -163,6 +170,14 @@ export function ProductShowcase() {
   })
   const scale = useTransform(scrollYProgress, [0, 0.8], [1, 0.86])
 
+  const shown = SCREENS[active]
+  const liveScreen: DemoScreen | undefined = 'live' in shown ? shown.live : undefined
+  // The frame keeps the last live screen while a picture is showing, so coming back is instant.
+  const [lastLive, setLastLive] = useState<DemoScreen>(LIVE[0])
+  useEffect(() => {
+    if (liveScreen) setLastLive(liveScreen)
+  }, [liveScreen])
+
   useEffect(() => {
     if (!running) return
     const timer = setTimeout(
@@ -231,18 +246,28 @@ export function ProductShowcase() {
               src={screen.src}
               alt={i === active ? screen.alt : ''}
               aria-hidden={i === active ? undefined : true}
-              width={1908}
-              height={1237}
+              width={2880}
+              height={1800}
               // The first screen is the page's opening picture; the others wait until wanted.
               loading={i === 0 ? 'eager' : 'lazy'}
               decoding="async"
               className={clsx(
-                'ni-screen h-auto w-full',
+                'ni-screen h-auto w-full rounded-[0.9rem]',
                 i > 0 && 'absolute inset-0',
                 i === active ? 'opacity-100' : 'scale-[0.985] opacity-0',
               )}
             />
           ))}
+          {/* The app itself, over the picture of it, for the screens it can draw: one frame, kept
+              loaded, told which screen to show. The picture under it holds the slot until it is up. */}
+          <div
+            className={clsx(
+              'ni-screen absolute inset-0 overflow-hidden rounded-[0.9rem]',
+              liveScreen ? 'opacity-100' : 'pointer-events-none opacity-0',
+            )}
+          >
+            <DemoFrame screen={liveScreen ?? lastLive} label="" poster={false} wanted={Boolean(liveScreen)} />
+          </div>
         </motion.div>
       </div>
       <p className="text-muted-foreground mx-auto mt-4 max-w-xl text-center text-sm sm:text-base">

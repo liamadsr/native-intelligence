@@ -73,6 +73,15 @@ export async function headers() {
         },
       ],
     },
+    // The app's real screens on made-up data (src/app/demo, components/demo): the public site shows
+    // them in a frame, so our own pages, and only ours, may frame them. Out of the search index.
+    {
+      source: '/demo/:path*',
+      headers: [
+        { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+        { key: 'X-Robots-Tag', value: 'noindex, nofollow' },
+      ],
+    },
     // A meeting link's page and its guest's routes (src/app/m, phase 7): out of the search index, no
     // referrer to anywhere, never cached; the guest's own camera, microphone and screen for the call
     // (the app-wide policy above turns the camera off). Later headers win for the same key.
