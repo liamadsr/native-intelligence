@@ -44,7 +44,8 @@ import {
 } from '@/components/ui/resizable'
 import { EmailThreadList } from './email-thread-list'
 import type { EmailThread } from './email-thread-item'
-import { EmailThreadDetail } from './email-thread-detail'
+import { toast } from 'sonner'
+import { EmailThreadDetail, type ThreadKeyActions } from './email-thread-detail'
 import { AccountFilterDropdown } from '@/components/account-filter-dropdown'
 import { ViewToolbar } from '@/components/views/view-toolbar'
 import { PageTitle } from '@/components/views/page-title'
@@ -778,6 +779,28 @@ export function EmailLayout({ onReplyRequest, card }: EmailLayoutProps) {
     fetchCounts()
   }, [effectiveFolder, handleThreadUpdate, fetchCounts])
 
+  // What E, R and A do to the open thread (the thread pane fills it).
+  const threadKeyActionsRef = useRef<ThreadKeyActions | null>(null)
+
+  // U: the open thread back to unread, and back to the list (Gmail's U).
+  const markOpenThreadUnread = useCallback(() => {
+    const thread = selectedThread
+    if (!thread) return
+    const threadId = thread.provider_thread_id
+    setSelectedThread(null)
+    handleThreadUpdate({ type: 'patch', threadId, data: { is_unread: true } })
+    setCounts((prev) => ({ ...prev, inbox_unread: (prev.inbox_unread || 0) + 1 }))
+    void fetch(`/api/account/email/threads/${encodeURIComponent(threadId)}/mark-read`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_read: false }),
+    })
+      .then((res) => res.ok, () => false)
+      .then((ok) => {
+        if (!ok) toast.error('Could not mark the email unread')
+      })
+  }, [selectedThread, handleThreadUpdate])
+
   // Keyboard shortcuts
   useEffect(() => {
     // Which Mail view a key is for, so it acts exactly once: a card acts on
@@ -827,6 +850,20 @@ export function EmailLayout({ onReplyRequest, card }: EmailLayoutProps) {
         case 'k':
           if (selectedThread && canGoPrev) handlePrevThread()
           break
+        // With a thread open (docs/plans/keyboard-shortcuts.md): E archive,
+        // R reply, A reply all (the chat drafts it), U mark unread.
+        case 'e':
+          if (selectedThread) threadKeyActionsRef.current?.archive()
+          break
+        case 'r':
+          if (selectedThread) threadKeyActionsRef.current?.reply()
+          break
+        case 'a':
+          if (selectedThread) threadKeyActionsRef.current?.replyAll()
+          break
+        case 'u':
+          if (selectedThread) markOpenThreadUnread()
+          break
       }
     }
 
@@ -847,7 +884,7 @@ export function EmailLayout({ onReplyRequest, card }: EmailLayoutProps) {
       document.removeEventListener('keydown', handleSearchShortcut, true)
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [selectedThread, canGoNext, canGoPrev, handleNextThread, handlePrevThread, isCard])
+  }, [selectedThread, canGoNext, canGoPrev, handleNextThread, handlePrevThread, isCard, markOpenThreadUnread])
 
   const accountFilter = (
     <AccountFilterDropdown
@@ -955,6 +992,7 @@ export function EmailLayout({ onReplyRequest, card }: EmailLayoutProps) {
       onDraftSent={handleDraftSent}
       onDraftDiscarded={handleDraftDiscarded}
       ownAddresses={ownAddresses}
+      keyActionsRef={threadKeyActionsRef}
     />
   ) : null
 

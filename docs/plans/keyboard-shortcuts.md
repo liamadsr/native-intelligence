@@ -6,9 +6,11 @@ established, like C for create, use and prioritize those, and come up with new o
 the ones that need one. I think Linear does the G+M kind of thing for 'go to mail'… let's
 do the best practice on that front."
 
-Status: **phase 1 is built** (go-to sequences, the `?` sheet, the registry and its conflict
-test, the hints in the rail's tooltips). **Phase 2 is a proposal** waiting on the owner (the
-contextual keys in lists, the task panel and Mail, and `[` / `]` in a page group).
+Status: **phase 1 is built and merged** (#199: go-to sequences, the `?` sheet, the registry
+and its conflict test, the hints in the rail's tooltips). **Phase 2 is built** on
+`claude/keyboard-shortcuts-2` (the owner's go-ahead, 11-20): the keys in lists, on a task (its
+row or its panel), in Mail, and `[` / `]` in a page group. Mail's F (forward) is left out: the
+app has no forward to call.
 
 ## The rules every shortcut keeps
 
@@ -109,50 +111,54 @@ them, and phase 2's `[` / `]` would too.
 `/` stays the palette (an earlier owner decision). A page with a search field of its own
 (Mail) takes `/` first. ⌘F stays the browser's find: it's reserved.
 
-## Phase 2: contextual keys (a proposal, not built)
+## Phase 2: contextual keys (built)
 
-These are kept to what Linear, Gmail and Superhuman have made habits. They need a keyboard
-focus model in the list and board views first: today there is none, only mouse checkboxes
-(`hooks/use-bulk-selection.ts`). They also need the row and panel pickers (status, priority,
-assignee, labels, due date) to be openable from code, since each keeps its own `open` state
-today.
+Kept to the habits Linear, Gmail and Superhuman made. Each list, task panel and Mail view stays
+mounted (background cards, windows), so each answers only the keys meant for it: a key typed
+inside it, or a key typed on the page itself while it is in the page in front
+(`components/views/list-keyboard.tsx` `regionOwnsKeys`; Mail keeps its own rule). A key typed
+on a control (a button, a tab, a link) is that control's: Enter there presses it.
 
-**In any list or board (tasks, projects, contacts, captures…)**
+**In any list or board** (tasks, projects, contacts, captures…: `unified-view-layout.tsx`).
+The row the keyboard is on wears a ring. It's where J and K start from, and it moves to the
+row last opened.
 | Keys | What |
 |---|---|
-| J / K (and ↓ / ↑) | Move the focused row |
-| Enter or O | Open the focused row |
-| X | Select or unselect the focused row (⇧X: select the range to it) |
-| Esc | Clear the selection, then put the page away |
-| C | Create here, with the list's context filled in (its team, project or status) |
+| J / K (and ↓ / ↑) | Next and previous row (the flat list scrolls its virtualizer to it) |
+| Enter or O | Open the row, as a click does |
+| X | Select or unselect the row (the bulk selection, as its checkbox) |
+| Esc | Clear the selection (with nothing selected, Esc puts the page away as before) |
 
-**On the focused row(s), or the open task panel** (Linear's letters)
+**A task** (the row the keyboard is on in a task list, or the task open in its panel)
 | Keys | What |
 |---|---|
-| S | Set status |
-| P | Set priority |
-| A | Assign |
-| I | Assign to me |
+| S | Status |
+| P | Priority |
+| A | Assignee |
+| I | Assign to me (a row: you are its assignee; the panel: you join its assignees) |
 | L | Labels |
 | ⇧D | Due date |
-| ⇧H | Remind me (exists) |
-| ⌘C | Copy the task's id or link while nothing is selected as text (TBD) |
+| ⇧H | Remind me (already there) |
 
-**Mail** (Gmail's and Superhuman's)
+S, P, A, L and ⇧D open that property's own picker, the one a click on it opens
+(`data-property-field` marks it on the row and in the panel). On a row whose view doesn't show
+that property, a toast says to show it.
+
+**Mail, with a thread open** (`email-layout.tsx`, `email-thread-detail.tsx`)
 | Keys | What |
 |---|---|
-| J / K | Next and previous thread, in the list too (today only with a thread open) |
-| Enter or O | Open the thread |
 | E | Archive |
-| R | Reply |
-| A | Reply all |
-| F | Forward |
-| U | Mark unread |
+| R | Reply: the chat drafts a reply to the newest message someone else sent (`lib/email/reply-in-chat.ts`, as Reply does) |
+| A | Reply all: the chat drafts it to everyone on the thread |
+| U | Mark unread, and back to the list |
+| J / K, `/`, C, Esc | As before |
 
-**In a page group** (Drive, Calendar, Contacts, Outreach, SEO, Agents): `[` and `]` for the
-previous and next page in its sub-nav. This also gives SEO's eight sections a key each way.
+Mail's list has no focused thread yet, so J/K and Enter in the list (with no thread open) are not
+built. F (forward) is not built: the app has no forward to call.
 
-**Buttons:** the button for each of these shows its keys in its tooltip, as the rail does.
+**In a page group** (Drive, Calendar, Contacts, Outreach, SEO, Agents): `[` and `]` open the
+previous and next page in its sub-nav, round from the last to the first. Outside a group page
+they're left alone.
 
 Keys left out on purpose: deleting from the keyboard (# or Delete in Mail, Backspace on a task)
 can't be undone in one key. ⌘F stays the browser's. Bare digits are left free.
@@ -164,4 +170,8 @@ can't be undone in one key. ⌘F stays the browser's. Bare digits are left free.
 - `web/src/app/account/(dashboard)/shortcuts/`: the go-to handler, the sheet and its opener
 - `web/src/app/account/(dashboard)/rail/app-rail.tsx`: the go-to hint in each icon's tooltip
 - `web/src/app/account/workspace-switcher.tsx`: "Keyboard shortcuts" in the workspace menu
-- Tests: `web/src/lib/__tests__/shortcuts-registry.test.ts` and `hotkeys-sequences.test.tsx`
+- `web/src/components/views/list-keyboard.tsx`: a list's keyboard focus, whose key it is, opening a property's picker
+- `web/src/components/views/unified-view-layout.tsx`: the list and task-row keys
+- `web/src/app/account/(dashboard)/views/action-detail-panel.tsx`: the task panel's keys
+- `web/src/components/email/email-layout.tsx`, `email-thread-detail.tsx`: Mail's E, R, A, U
+- Tests: `web/src/lib/__tests__/shortcuts-registry.test.ts`, `hotkeys-sequences.test.tsx`, `components/views/__tests__/list-keyboard.test.tsx`, `components/email/__tests__/reply-target.test.ts`

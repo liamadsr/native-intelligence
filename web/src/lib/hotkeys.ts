@@ -35,6 +35,13 @@ export interface HotkeyDefinition {
    * keep their own behaviour).
    */
   globalGuard?: boolean
+  /**
+   * Whose key this is, asked before the hotkey matches (and before anything
+   * is prevented): false leaves the key to the next definition and to other
+   * listeners. For a page's own keys where several of that page can be
+   * mounted at once (lists: components/views/list-keyboard.tsx).
+   */
+  when?: (e: KeyboardEvent) => boolean
 }
 
 // ── Utilities ──────────────────────────────────────────────
@@ -182,6 +189,7 @@ export function useHotkeys(defs: HotkeyDefinition[]) {
         if (!d.allowInInput && editable) continue
         if (d.globalGuard && (e.defaultPrevented || e.isComposing || anotherLayerOwnsKeys(e))) continue
         if (!matchesHotkey(e, d)) continue
+        if (d.when && !d.when(e)) continue
         if (d.preventDefault !== false) e.preventDefault()
         d.handler(e)
         return // Only fire the first match
