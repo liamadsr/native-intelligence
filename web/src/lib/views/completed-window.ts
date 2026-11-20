@@ -16,18 +16,19 @@
  * SAVED view keeps exactly what it stores: a view saved before this change with
  * the old default `all` still shows all.
  *
- * "Finished" is read from `actions.completed_at` once migration 671 is applied
- * (set by a trigger when the status moves into a completed or canceled
- * category). Before it, it falls back to `updated_at`, which an edit to an old
- * finished action moves: see applyCompletedFilter.
+ * "Finished" is read from `actions.completed_at`, set by migration 671's
+ * trigger when the status moves into a completed or canceled category (it was
+ * `updated_at` before 671, which an edit to an old finished action moved):
+ * see COMPLETED_AT_COLUMN in query-engine.ts.
  *
  * Storage. The view table's CHECK constraint (migration 039,
  * `view_completed_filter_check`) allows only `all`, `recent` and `none` until
  * migration 671 widens it. Until then a window is written as
  * `completed_filter = 'recent'` (the nearest value the old code understands)
  * with the exact window in `metadata.completed_window`, and read back from
- * there (completedFilterOfView). Once 671 is applied the column holds the
- * window itself and the metadata key is only read, for views saved in between.
+ * there (completedFilterOfView). With 671 applied the column holds the window
+ * itself (VIEW_COLUMN_TAKES_COMPLETED_WINDOWS) and the metadata key is only
+ * read, for a view saved in between that 671 did not move.
  */
 
 export const COMPLETED_WINDOWS = ['past_day', 'past_week', 'past_month'] as const
@@ -146,7 +147,9 @@ export function completedFilterForStorage(
 }
 
 /**
- * Whether the view table's column takes the windows. False until migration
- * 671 widens its CHECK; the commit that relies on it flips this.
+ * Whether the view table's column takes the windows: true since migration 671
+ * widened its CHECK (REQUIRES 671 applied: before it, saving a window would
+ * be refused by the constraint). A window saved in metadata before that is
+ * still read (completedFilterOfView), and 671 moved those into the column.
  */
-export const VIEW_COLUMN_TAKES_COMPLETED_WINDOWS = false
+export const VIEW_COLUMN_TAKES_COMPLETED_WINDOWS = true

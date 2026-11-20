@@ -1900,11 +1900,13 @@ export async function applyCompletedFilter(
 }
 
 /**
- * The column a window is measured on. `updated_at` until migration 671 adds
- * `actions.completed_at`: any edit to an old finished action brings it back
- * into the window, which is the known flaw 671 fixes.
+ * The column a window is measured on: when the action was finished, kept by
+ * migration 671's trigger (it moved into a completed or canceled state). It
+ * was `updated_at` before 671, when any edit to an old finished action
+ * brought it back into the window. REQUIRES 671 applied: without the trigger
+ * the column is empty for almost every action and the window shows none.
  */
-export const COMPLETED_AT_COLUMN: 'updated_at' | 'completed_at' = 'updated_at'
+export const COMPLETED_AT_COLUMN: 'updated_at' | 'completed_at' = 'completed_at'
 
 /**
  * Every completed and canceled workflow state in scope, by CATEGORY — see

@@ -13,6 +13,7 @@ import {
   completedFilterOfView,
   completedWindowStart,
   normalizeCompletedFilter,
+  VIEW_COLUMN_TAKES_COMPLETED_WINDOWS,
 } from '@/lib/views/completed-window'
 import { applyCompletedFilter, COMPLETED_AT_COLUMN } from '@/lib/views/query-engine'
 import { defaultConfig } from '@/components/views/hooks/use-view'
@@ -110,6 +111,10 @@ describe('storage', () => {
     })
   })
 
+  it('this build writes the window in the column (migration 671 applied)', () => {
+    expect(VIEW_COLUMN_TAKES_COMPLETED_WINDOWS).toBe(true)
+  })
+
   it('after 671: the window goes in the column', () => {
     expect(completedFilterForStorage('past_month', null, { columnTakesWindows: true })).toEqual({
       completed_filter: 'past_month',
@@ -135,8 +140,12 @@ describe('applyCompletedFilter — the SQL shape', () => {
     await applyCompletedFilter(c.supabase, q.chain as never, 'past_week', true, 'ws-a', { now: NOW })
     expect(q.calls).toEqual([{
       method: 'or',
-      args: [`status_id.not.in.(s-done,s-cancel),and(status_id.in.(s-done,s-cancel),${COMPLETED_AT_COLUMN}.gte.2026-11-13T12:00:00.000Z)`],
+      args: ['status_id.not.in.(s-done,s-cancel),and(status_id.in.(s-done,s-cancel),completed_at.gte.2026-11-13T12:00:00.000Z)'],
     }])
+  })
+
+  it('measures on completed_at (migration 671), not updated_at, which any edit moves', () => {
+    expect(COMPLETED_AT_COLUMN).toBe('completed_at')
   })
 
   it("'recent' still means 14 days", async () => {
