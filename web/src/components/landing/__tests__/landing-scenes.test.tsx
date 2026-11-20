@@ -37,7 +37,11 @@ describe('the real app’s screens', () => {
       expect(src.startsWith('/screens/')).toBe(true)
       expect(existsSync(join(process.cwd(), 'public', src)), src).toBe(true)
     }
-    expect(markup.split('width="1908"').length - 1).toBe(4)
+    // The window's four are the recorder's pictures of the app's own screens (scripts/record-demo-screens.ts),
+    // and the app itself goes over them in a frame that is not in the server's markup.
+    expect(sources.filter((src) => src.startsWith('/screens/demo/'))).toHaveLength(4)
+    expect(markup.split('width="2880"').length - 1).toBe(4)
+    expect(markup).not.toContain('<iframe')
     expect(markup.split('role="tab"').length - 1).toBe(4)
     expect(markup).toContain('alt="Asked for the open tasks')
   })
