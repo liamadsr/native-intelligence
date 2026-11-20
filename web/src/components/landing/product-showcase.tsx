@@ -66,10 +66,11 @@ const SCREENS = [
   },
   {
     tab: 'Memory',
+    live: 'knowledge',
     src: '/screens/knowledge-graph.webp',
     alt: 'The knowledge graph: what the workspace knows, clustered around its clients, people, meetings, documents and tasks',
     caption:
-      'What the workspace knows, joined up: clients, people, meetings, docs and tasks.',
+      'What the workspace knows: the facts, decisions and open questions from your calls, mail and docs.',
   },
 ] as const satisfies readonly { tab: string; src: string; alt: string; caption: string; live?: DemoScreen }[]
 
