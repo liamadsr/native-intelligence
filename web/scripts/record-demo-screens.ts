@@ -9,8 +9,10 @@
  *     under /api/account/ (the app reads some lists with a POST), and
  *   - the app's own request to open that screen (the last `ni:open-card`
  *     window event, lib/chat-cards/open-card.ts), which the demo sends again,
- * to src/lib/demo/snapshots/app/<screen>.json. Run it again after the app's
- * screens or their answers change, and commit what it writes.
+ * to src/lib/demo/snapshots/app/<screen>.json, and a picture of the screen
+ * to public/screens/demo/<screen>.webp (what the frame shows until the app
+ * is up, and on a phone, where the app is not loaded). Run it again after
+ * the app's screens or their answers change, and commit what it writes.
  *
  * DEV OR LOCAL ONLY, like scripts/demo-workspace.ts (the same guard), and
  * only for the demo person. Opening a page leaves an "opened" note in the
@@ -23,6 +25,7 @@
  *   node node_modules/.bin/tsx scripts/record-demo-screens.ts [--port=3002] [--shots=<dir>]
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import sharp from 'sharp'
 import { createClient } from '@supabase/supabase-js'
 import { chromium, type Page } from 'playwright'
 import { DEMO_USER_EMAIL, PROD_SUPABASE_REF, demoSupabaseTarget } from '../src/lib/demo/demo-workspace-guard'
@@ -45,19 +48,22 @@ interface Screen {
    * app draws it, asks for what its board needs, and that is recorded too.
    */
   chat?: boolean
+  /** The window the screen is drawn in, where a slot narrower than the hero's wants one (default 1440 x 900). */
+  window?: { width: number; height: number }
 }
 const SCREENS: Record<string, Screen> = {
   ask: { steps: [], chat: true },
   tasks: { steps: [{ click: 'My Actions' }] },
   meeting: { steps: [{ search: 'Kickoff: Larkspur' }], target: { type: 'capture', title: 'Kickoff: Larkspur Coffee site relaunch' } },
   knowledge: { steps: [{ search: 'Knowledge' }], target: { type: 'page', slug: 'knowledge' } },
-  contact: { steps: [{ search: 'Maya Okafor' }], target: { type: 'contact', title: 'Maya Okafor' } },
+  contact: { steps: [{ search: 'Maya Okafor' }], target: { type: 'contact', title: 'Maya Okafor' }, window: { width: 1080, height: 740 } },
 }
 
 const arg = (name: string) => process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3)
 const ORIGIN = `http://localhost:${arg('port') ?? '3002'}`
 const SHOTS = arg('shots')
 const OUT = 'src/lib/demo/snapshots/app'
+const POSTERS = 'public/screens/demo'
 
 for (const line of readFileSync('.env.local', 'utf8').split('\n')) {
   const m = line.match(/^([A-Z0-9_]+)=(.*)$/)
@@ -143,12 +149,12 @@ async function main() {
   mkdirSync(OUT, { recursive: true })
   const only = process.argv.slice(2).filter((a) => !a.startsWith('--'))
 
-  for (const [name, { steps, target: wanted, chat }] of Object.entries(SCREENS)) {
+  for (const [name, { steps, target: wanted, chat, window: size }] of Object.entries(SCREENS)) {
     keepChat = Boolean(chat)
     if (only.length && !only.includes(name)) continue
     const { data, error } = await admin.auth.admin.generateLink({ type: 'magiclink', email: DEMO_USER_EMAIL })
     if (error || !data.properties?.hashed_token) throw new Error(`generateLink: ${error?.message ?? 'no token'}`)
-    const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'dark', timezoneId: 'America/Los_Angeles' })
+    const context = await browser.newContext({ viewport: size ?? { width: 1440, height: 900 }, deviceScaleFactor: 2, colorScheme: 'dark', timezoneId: 'America/Los_Angeles' })
     const page = await context.newPage()
     if (chat) {
       const project = await admin.from('projects').select('id, name, workspace_id').eq('name', ASK_PROJECT).limit(1).maybeSingle()
@@ -175,8 +181,11 @@ async function main() {
       if (!(res.headers()['content-type'] ?? '').includes('json')) return
       try {
         const body = scrub(u.pathname + u.search, await res.json())
-        if (method === 'GET') answers[u.pathname + u.search] = body
-        else {
+        if (method === 'GET') {
+          answers[u.pathname + u.search] = body
+          // For a request whose query differs by the time a visitor makes it (a `since`, a timezone).
+          if (u.search && !(u.pathname in answers)) answers[u.pathname] = body
+        } else {
           // A list the app reads with a POST: kept under its exact request, and under its path for a near miss.
           answers[`POST ${u.pathname}${u.search}#${res.request().postData() ?? ''}`] = body
           answers[`POST ${u.pathname}`] = body
@@ -188,7 +197,12 @@ async function main() {
     await page.addStyleTag({ content: 'nextjs-portal,[data-sonner-toaster]{display:none}' })
     await run(page, steps)
     const open = chat ? null : await page.evaluate(() => (window as unknown as { __demoOpen?: unknown }).__demoOpen ?? null)
-    if (SHOTS) await page.screenshot({ path: `${SHOTS}/demo-rec-${name}.png` })
+    // The picture the frame shows until the app is up, and wherever the app is not loaded at all.
+    await page.mouse.move(0, 0)
+    const shot = await page.screenshot({ type: 'png' })
+    mkdirSync(POSTERS, { recursive: true })
+    await sharp(shot).webp({ quality: 82 }).toFile(`${POSTERS}/${name}.webp`)
+    if (SHOTS) writeFileSync(`${SHOTS}/demo-rec-${name}.png`, shot)
     await context.close()
     let target: unknown = null
     if (!open && wanted?.type === 'page') target = wanted

@@ -54,15 +54,20 @@ export function demoAnswer(snapshots: readonly DemoSnapshot[], url: string, post
 
 /**
  * Whether a request from a page at `pagePath` for `url` is the demo's to
- * answer: the workspace's own (`/api/account/*`), and the few the whole app
- * makes beside them at startup (its sign-in ping, its connected accounts,
- * the Mac's folders). The public page's own requests (the sky) are not.
+ * answer. On a demo page (`/demo/*`): everything it asks of our own server
+ * but the sky. Elsewhere: the workspace's own (`/api/account/*`) and the few
+ * the app makes beside them at startup.
  */
 const APP_PREFIXES = ['/api/account/', '/api/analytics/', '/api/oauth/', '/api/local-agent/']
 export function isDemoRequest(pagePath: string, pageOrigin: string, url: string): boolean {
   if (pagePath.startsWith('/account') || pagePath.startsWith('/admin')) return false
   const { pathname, origin } = new URL(url, pageOrigin)
-  return origin === pageOrigin && APP_PREFIXES.some((prefix) => pathname.startsWith(prefix))
+  if (origin !== pageOrigin) return false
+  // A demo page (/demo/*) is the app and nothing else, so nothing it asks of
+  // our own server goes out: not presence, not a model call, not an upload's
+  // sign-off. Only the sky, which is the public page's own.
+  if (pagePath.startsWith('/demo/')) return (pathname.startsWith('/api/') || pathname.startsWith('/eve/')) && !pathname.startsWith('/api/sky')
+  return APP_PREFIXES.some((prefix) => pathname.startsWith(prefix))
 }
 
 // The snapshots of the demos on the page now, and the fetch they replaced.
@@ -116,7 +121,7 @@ export function installDemoFetch(snapshot: DemoSnapshot): () => void {
       const sent = method === 'POST' ? { body: typeof init?.body === 'string' ? init.body : '' } : undefined
       const { found, body } = demoAnswer(active, url, sent)
       if (method === 'POST') return json(body)
-      if (!found) window.__demoMisses?.push(url)
+      if (!found && (window.__demoMisses?.length ?? 0) < 50) window.__demoMisses?.push(url)
       return json(body)
     }
   }

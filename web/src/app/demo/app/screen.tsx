@@ -1,7 +1,8 @@
 'use client'
 
 import { useSearchParams } from 'next/navigation'
-import { DemoApp, DEMO_SCREENS, type DemoScreen } from '@/components/demo/demo-app'
+import { DemoApp } from '@/components/demo/demo-app'
+import { DEMO_SCREENS, type DemoScreen } from '@/components/demo/demo-screens'
 
 export default function DemoAppScreen() {
   const asked = useSearchParams().get('screen')

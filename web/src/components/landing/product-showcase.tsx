@@ -1,16 +1,14 @@
 'use client'
 
 /**
- * The real app, on the page: screens of Native Intelligence itself, taken on
- * a made-up studio's workspace (public/screens, the same shots the
- * repository's README shows). A row of tabs names what each one is; the
- * picture changes on its own every few seconds while it is on screen, with
- * the active tab filling as its time runs, and a click picks one and stops
- * the clock.
- *
- * The shots are light on purpose, in both themes: they are photographs of
- * the product, not drawings of it, so they are not re-tinted to match the
- * page.
+ * The real app, on the page. Each tab is a screen of Native Intelligence
+ * itself on a made-up studio's workspace: the app, running in a frame from a
+ * recording (components/demo/demo-frame.tsx), over a picture of that same
+ * screen which the recorder took (public/screens/demo). The picture is what a
+ * phone gets, and what shows until the app is up. A row of tabs names each
+ * screen; it changes on its own every few seconds while it is on screen,
+ * with the active tab filling as its time runs, and a click picks one and
+ * stops the clock.
  *
  * ALL OF IT IN ONE VIEW. The app is not only that window: it is on the phone
  * and the watch, and beside every call on the Mac. As the picture scrolls up
@@ -36,7 +34,7 @@ import {
 } from 'framer-motion'
 import { useEffect, useRef, useState } from 'react'
 import { DemoFrame } from '@/components/demo/demo-frame'
-import type { DemoScreen } from '@/components/demo/demo-app'
+import type { DemoScreen } from '@/components/demo/demo-screens'
 import { IN_CSS, MOVE_CSS } from './motion'
 import { useInView, useReducedMotion } from './use-in-view'
 
@@ -44,7 +42,7 @@ const SCREENS = [
   {
     tab: 'Ask',
     live: 'ask',
-    src: '/screens/chat-view.webp',
+    src: '/screens/demo/ask.webp',
     alt: 'Asked for the open tasks on a project, the agent puts the live task board right in the chat and sums up what is left',
     caption:
       'Ask for anything in the workspace and it comes back live, here a project’s task board in the chat.',
@@ -52,15 +50,15 @@ const SCREENS = [
   {
     tab: 'Tasks',
     live: 'tasks',
-    src: '/screens/chat-view-fullscreen.webp',
-    alt: 'The same task board opened full screen, with its columns from backlog to done',
+    src: '/screens/demo/tasks.webp',
+    alt: 'The task list: ten open tasks, each with its identifier, project, priority, due date and status',
     caption:
       'Your open tasks, each with its identifier, project, priority and due date.',
   },
   {
     tab: 'Meetings',
     live: 'meeting',
-    src: '/screens/meeting-notes.webp',
+    src: '/screens/demo/meeting.webp',
     alt: 'A finished meeting’s notes: overview, goals and discussion, with the date, length, project and participants beside them',
     caption:
       'A finished call: the overview, goals, discussion and next steps, ready when you hang up.',
@@ -68,8 +66,8 @@ const SCREENS = [
   {
     tab: 'Memory',
     live: 'knowledge',
-    src: '/screens/knowledge-graph.webp',
-    alt: 'The knowledge graph: what the workspace knows, clustered around its clients, people, meetings, documents and tasks',
+    src: '/screens/demo/knowledge.webp',
+    alt: 'The knowledge page: facts, decisions and open questions the workspace has learned, each with how sure it is',
     caption:
       'What the workspace knows: the facts, decisions and open questions from your calls, mail and docs.',
   },
@@ -248,13 +246,13 @@ export function ProductShowcase() {
               src={screen.src}
               alt={i === active ? screen.alt : ''}
               aria-hidden={i === active ? undefined : true}
-              width={1908}
-              height={1237}
+              width={2880}
+              height={1800}
               // The first screen is the page's opening picture; the others wait until wanted.
               loading={i === 0 ? 'eager' : 'lazy'}
               decoding="async"
               className={clsx(
-                'ni-screen h-auto w-full',
+                'ni-screen h-auto w-full rounded-[0.9rem]',
                 i > 0 && 'absolute inset-0',
                 i === active ? 'opacity-100' : 'scale-[0.985] opacity-0',
               )}
@@ -268,7 +266,7 @@ export function ProductShowcase() {
               liveScreen ? 'opacity-100' : 'pointer-events-none opacity-0',
             )}
           >
-            <DemoFrame screen={liveScreen ?? lastLive} label={SCREENS[active].alt} height={934} wanted={Boolean(liveScreen)} />
+            <DemoFrame screen={liveScreen ?? lastLive} label="" poster={false} wanted={Boolean(liveScreen)} />
           </div>
         </motion.div>
       </div>
