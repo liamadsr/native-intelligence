@@ -1,5 +1,5 @@
 -- ============================================================
--- 671: when an action was finished (actions.completed_at), kept by the
+-- 672: when an action was finished (actions.completed_at), kept by the
 -- database, and the views' "Completed issues" windows.
 -- ============================================================
 -- Why: an action list shows the finished actions of a time window (past day,
@@ -163,7 +163,7 @@ begin
      and a.completed_at is not null;
   get diagnostics cleared = row_count;
 
-  raise notice '671 completed_at backfill: % from the activity log, % from updated_at, % open actions cleared',
+  raise notice '672 completed_at backfill: % from the activity log, % from updated_at, % open actions cleared',
     from_log, from_updated, cleared;
 end;
 $backfill$;

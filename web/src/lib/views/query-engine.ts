@@ -1901,9 +1901,9 @@ export async function applyCompletedFilter(
 
 /**
  * The column a window is measured on: when the action was finished, kept by
- * migration 671's trigger (it moved into a completed or canceled state). It
- * was `updated_at` before 671, when any edit to an old finished action
- * brought it back into the window. REQUIRES 671 applied: without the trigger
+ * migration 672's trigger (it moved into a completed or canceled state). It
+ * was `updated_at` before 672, when any edit to an old finished action
+ * brought it back into the window. REQUIRES 672 applied: without the trigger
  * the column is empty for almost every action and the window shows none.
  */
 export const COMPLETED_AT_COLUMN: 'updated_at' | 'completed_at' = 'completed_at'

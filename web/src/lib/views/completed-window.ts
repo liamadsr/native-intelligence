@@ -16,19 +16,19 @@
  * SAVED view keeps exactly what it stores: a view saved before this change with
  * the old default `all` still shows all.
  *
- * "Finished" is read from `actions.completed_at`, set by migration 671's
+ * "Finished" is read from `actions.completed_at`, set by migration 672's
  * trigger when the status moves into a completed or canceled category (it was
- * `updated_at` before 671, which an edit to an old finished action moved):
+ * `updated_at` before 672, which an edit to an old finished action moved):
  * see COMPLETED_AT_COLUMN in query-engine.ts.
  *
  * Storage. The view table's CHECK constraint (migration 039,
  * `view_completed_filter_check`) allows only `all`, `recent` and `none` until
- * migration 671 widens it. Until then a window is written as
+ * migration 672 widens it. Until then a window is written as
  * `completed_filter = 'recent'` (the nearest value the old code understands)
  * with the exact window in `metadata.completed_window`, and read back from
- * there (completedFilterOfView). With 671 applied the column holds the window
+ * there (completedFilterOfView). With 672 applied the column holds the window
  * itself (VIEW_COLUMN_TAKES_COMPLETED_WINDOWS) and the metadata key is only
- * read, for a view saved in between that 671 did not move.
+ * read, for a view saved in between that 672 did not move.
  */
 
 export const COMPLETED_WINDOWS = ['past_day', 'past_week', 'past_month'] as const
@@ -37,7 +37,7 @@ export type CompletedWindow = (typeof COMPLETED_WINDOWS)[number]
 export const COMPLETED_FILTERS = [...COMPLETED_WINDOWS, 'all', 'none', 'recent'] as const
 export type CompletedFilter = (typeof COMPLETED_FILTERS)[number]
 
-/** What the view table's CHECK allows before migration 671. */
+/** What the view table's CHECK allows before migration 672. */
 export const LEGACY_STORABLE_COMPLETED_FILTERS = ['all', 'recent', 'none'] as const
 
 /** A new action list's setting. Saved views keep their own. */
@@ -130,7 +130,7 @@ export function completedFilterOfView(view: { completed_filter?: unknown; metada
 /**
  * How a setting is written to the view table: the column value and the
  * metadata to write with it. `columnTakesWindows` is false until migration
- * 671 is applied (see the module comment).
+ * 672 is applied (see the module comment).
  */
 export function completedFilterForStorage(
   filter: unknown,
@@ -147,9 +147,9 @@ export function completedFilterForStorage(
 }
 
 /**
- * Whether the view table's column takes the windows: true since migration 671
- * widened its CHECK (REQUIRES 671 applied: before it, saving a window would
+ * Whether the view table's column takes the windows: true since migration 672
+ * widened its CHECK (REQUIRES 672 applied: before it, saving a window would
  * be refused by the constraint). A window saved in metadata before that is
- * still read (completedFilterOfView), and 671 moved those into the column.
+ * still read (completedFilterOfView), and 672 moved those into the column.
  */
 export const VIEW_COLUMN_TAKES_COMPLETED_WINDOWS = true

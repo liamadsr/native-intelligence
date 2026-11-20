@@ -1037,7 +1037,7 @@ function viewToConfig(view: View): ViewConfig {
     board_group_by: view.board_group_by,
     show_completed: view.show_completed ?? true,
     // Exactly what the view stores (an old `all` stays `all`); a window saved
-    // before migration 671 rides in its metadata (completedFilterOfView).
+    // before migration 672 rides in its metadata (completedFilterOfView).
     completed_filter: completedFilterOfView(view),
     show_sub_items: view.show_sub_items ?? true,
     nested_sub_items: view.nested_sub_items ?? false,

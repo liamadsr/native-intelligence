@@ -83,7 +83,7 @@ describe('a saved view keeps exactly what it stores', () => {
     expect(completedFilterOfView({ completed_filter: null })).toBe('all')
   })
 
-  it('a window saved before migration 671 is read back from metadata', () => {
+  it('a window saved before migration 672 is read back from metadata', () => {
     expect(completedFilterOfView({ completed_filter: 'recent', metadata: { completed_window: 'past_day' } })).toBe('past_day')
   })
 
@@ -91,13 +91,13 @@ describe('a saved view keeps exactly what it stores', () => {
     expect(completedFilterOfView({ completed_filter: 'none', metadata: { completed_window: 'past_day' } })).toBe('none')
   })
 
-  it('a window in the column itself (after 671) reads as is', () => {
+  it('a window in the column itself (after 672) reads as is', () => {
     expect(completedFilterOfView({ completed_filter: 'past_week', metadata: {} })).toBe('past_week')
   })
 })
 
 describe('storage', () => {
-  it("before 671: a window is written as 'recent' with the window in metadata, other keys kept", () => {
+  it("before 672: a window is written as 'recent' with the window in metadata, other keys kept", () => {
     expect(completedFilterForStorage('past_week', { action_scope: 'assigned' }, { columnTakesWindows: false })).toEqual({
       completed_filter: 'recent',
       metadata: { action_scope: 'assigned', completed_window: 'past_week' },
@@ -111,11 +111,11 @@ describe('storage', () => {
     })
   })
 
-  it('this build writes the window in the column (migration 671 applied)', () => {
+  it('this build writes the window in the column (migration 672 applied)', () => {
     expect(VIEW_COLUMN_TAKES_COMPLETED_WINDOWS).toBe(true)
   })
 
-  it('after 671: the window goes in the column', () => {
+  it('after 672: the window goes in the column', () => {
     expect(completedFilterForStorage('past_month', null, { columnTakesWindows: true })).toEqual({
       completed_filter: 'past_month',
       metadata: {},
@@ -144,7 +144,7 @@ describe('applyCompletedFilter — the SQL shape', () => {
     }])
   })
 
-  it('measures on completed_at (migration 671), not updated_at, which any edit moves', () => {
+  it('measures on completed_at (migration 672), not updated_at, which any edit moves', () => {
     expect(COMPLETED_AT_COLUMN).toBe('completed_at')
   })
 

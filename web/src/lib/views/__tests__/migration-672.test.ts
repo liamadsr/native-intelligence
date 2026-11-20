@@ -1,6 +1,6 @@
 /**
- * Migration 671 (actions.completed_at kept by a trigger; the views' completed
- * windows). Its SQL is run by supabase/tests/671_action_completed_at.sql
+ * Migration 672 (actions.completed_at kept by a trigger; the views' completed
+ * windows). Its SQL is run by supabase/tests/672_action_completed_at.sql
  * against a database; this pins the file's text where CI can see it.
  */
 import { readFileSync } from 'node:fs'
@@ -8,7 +8,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { COMPLETED_FILTERS } from '@/lib/views/completed-window'
 
-const SQL = readFileSync(join(process.cwd(), 'supabase/migrations/671_action_completed_at.sql'), 'utf8')
+const SQL = readFileSync(join(process.cwd(), 'supabase/migrations/672_action_completed_at.sql'), 'utf8')
 const BODY = SQL
   .split('\n')
   .filter((l) => !l.trim().startsWith('--'))
@@ -16,7 +16,7 @@ const BODY = SQL
   .replace(/\s+/g, ' ')
   .toLowerCase()
 
-describe('migration 671', () => {
+describe('migration 672', () => {
   it('has no backslash', () => {
     expect(SQL.includes('\\')).toBe(false)
   })
