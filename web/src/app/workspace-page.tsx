@@ -401,7 +401,7 @@ function Hero() {
           className="mt-6 max-w-2xl text-lg text-muted-foreground sm:text-xl text-pretty"
         >
           It can, because Native Intelligence is the app that work lives in: your team’s mail, chat,
-          meetings, docs, tasks and customers. It works day and night, and texts you before it sends anything.
+          meetings, docs, tasks and customers. It works day and night, and nothing is sent until you say yes, in the app or by text.
         </motion.p>
 
         <motion.div
@@ -516,13 +516,14 @@ function AlwaysOnSection() {
 // The calculator's opening selection, as one sentence: what those apps cost a
 // seat, from the same table the calculator reads (lib/marketing/replace-apps.ts).
 const DEFAULT_STACK_PER_SEAT = Math.round(stackCost(new Set(DEFAULT_SELECTION), 1).appsPerSeat)
+const DEFAULT_STACK_COUNT = ['none', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'][DEFAULT_SELECTION.length] ?? String(DEFAULT_SELECTION.length)
 const DEFAULT_STACK_NAMES = `${DEFAULT_SELECTION.slice(0, -1).join(', ')} and ${DEFAULT_SELECTION[DEFAULT_SELECTION.length - 1]}`
 
 function WorkspaceSection() {
   return (
     <SectionContainer id="workspace">
       <SectionIntro
-        title="One subscription instead of eight"
+        title={`One subscription instead of ${DEFAULT_STACK_COUNT}`}
         lead={`${DEFAULT_STACK_NAMES} come to $${DEFAULT_STACK_PER_SEAT} a seat each month. Native Intelligence does those jobs for $${NI_PRICE_PER_SEAT}. Pick the apps you pay for and see your own number.`}
       />
       <div className="mt-14">

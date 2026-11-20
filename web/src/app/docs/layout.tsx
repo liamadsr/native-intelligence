@@ -1,6 +1,6 @@
 import { DocsLayout } from 'fumadocs-ui/layouts/docs';
 import { RootProvider } from 'fumadocs-ui/provider/next';
-import { ArrowRight, History, Home, Map, Newspaper, Tag } from 'lucide-react';
+import { History, Home, Map, Newspaper, Tag } from 'lucide-react';
 import { source } from '@/lib/source';
 import { Logo } from '@/components/logo';
 import type { ReactNode } from 'react';
@@ -26,11 +26,26 @@ export default function Layout({ children }: { children: ReactNode }) {
           { text: 'Blog', url: '/blog', icon: <Newspaper /> },
           { text: 'Roadmap', url: '/roadmap', icon: <Map /> },
           { text: 'Release notes', url: '/release-notes', icon: <History /> },
-          { type: 'button', text: 'Sign in', url: '/login?mode=signin', secondary: true },
-          { type: 'button', text: 'Sign up free', url: '/login?mode=signup', icon: <ArrowRight /> },
         ]}
         sidebar={{
           defaultOpenLevel: 1,
+          // The site's two buttons, as the shell draws them (the links list above only draws rows).
+          footer: (
+            <div className="flex gap-2 pb-1">
+              <a
+                href="/login?mode=signin"
+                className="inline-flex h-9 flex-1 items-center justify-center rounded-full border border-border bg-background/40 px-3 text-sm font-medium whitespace-nowrap text-foreground transition-colors hover:bg-accent"
+              >
+                Sign in
+              </a>
+              <a
+                href="/login?mode=signup"
+                className="inline-flex h-9 flex-1 items-center justify-center rounded-full border border-transparent bg-primary px-3 text-sm font-medium whitespace-nowrap text-primary-foreground shadow-md transition-colors hover:bg-primary/90"
+              >
+                Sign up free
+              </a>
+            </div>
+          ),
         }}
       >
         {children}

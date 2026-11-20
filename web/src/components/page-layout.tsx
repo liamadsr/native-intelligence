@@ -431,9 +431,10 @@ function MobileNavWrapper({ sections }: { sections?: Section[] }) {
 export function PageLayout({ children, sections, brandName }: PageLayoutProps) {
   // Every page but /sms: the same panel, bar and rail as the homepage. The
   // page's own sections become the rail's "On this page" (a section with an
-  // `href` is a link to another page, which the panel already lists).
+  // `href` is a link to another page, which the panel already lists, and
+  // the hero is where the page starts, so neither is in the outline).
   const outline = useMemo(
-    () => (sections ?? []).filter((section) => !section.href).map(({ id, label }) => ({ id, label })),
+    () => (sections ?? []).filter((section) => !section.href && section.id !== 'hero').map(({ id, label }) => ({ id, label })),
     [sections]
   )
   if (!brandName) return <SiteShell outline={outline}>{children}</SiteShell>

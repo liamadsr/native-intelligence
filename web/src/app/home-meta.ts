@@ -7,7 +7,7 @@
 export const HOME_TITLE = 'Native Intelligence — the workspace with an always-on agent'
 
 export const HOME_DESCRIPTION =
-  'Mail, chat, meetings, docs, tasks and CRM in one workspace, with an agent that drafts replies, writes up calls and texts you before it sends anything.'
+  'Mail, chat, meetings, docs, tasks and CRM in one workspace, with an agent that drafts replies, writes up calls and asks before it sends anything.'
 
 /** The share images' tagline (opengraph-image.tsx, twitter-image.tsx). */
 export const HOME_TAGLINE = 'The workspace with an agent that’s always on'
