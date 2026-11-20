@@ -158,6 +158,14 @@ export interface EntityTypeDescriptor {
 
 const str = (v: unknown): string => String(v ?? '').trim()
 
+/** What a meeting guest's message is called wherever a label is read (never its words: migration 670). */
+export const GUEST_MESSAGE_LABEL = 'A meeting guest’s message'
+
+/** A team chat message's label: its words, or, a meeting guest's, never theirs. */
+function teamChatMessageLabel(r: Record<string, unknown>): string {
+  return r.author_kind === 'guest' ? GUEST_MESSAGE_LABEL : str(r.body).slice(0, 140)
+}
+
 /** Join the non-empty pieces of an anchor's embedding text. */
 const compose = (...parts: unknown[]): string =>
   parts
@@ -501,7 +509,10 @@ export const ENTITY_REGISTRY = [
     id: 'team_chat_message',
     table: 'team_chat_message',
     workspaceScoped: { kind: 'column', table: 'team_chat_message' },
-    label: { table: 'team_chat_message', columns: 'body', render: (r) => str(r.body).slice(0, 140) },
+    // A meeting guest's message (migration 670) is never a record (entity-fences.ts leaves it out); where a label is read
+    // anyway, it never carries a guest's words.
+    label: { table: 'team_chat_message', columns: 'body, author_kind', render: teamChatMessageLabel },
+    modelLabel: { table: 'team_chat_message', columns: 'body, author_kind', render: teamChatMessageLabel },
     realtime: false,
     linkable: true,
     activity: true,

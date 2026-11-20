@@ -1,7 +1,7 @@
 /**
  * What the public meeting surface shares (server only): the page
  * (src/app/m/[token]/page.tsx) and the guest's routes beside it
- * (src/app/m/[token]/{join,lobby,token,leave}/route.ts). Nobody here is
+ * (src/app/m/[token]/{join,lobby,token,leave,notes,chat}/route.ts). Nobody here is
  * signed in; what vouches for a caller is the link's token (looked up by its
  * hash) and, for a guest, their signed cookie.
  *
@@ -70,13 +70,13 @@ export const MEETING_BODY_MAX = 4 * 1024
 
 /**
  * A public route's body, read only while it is small (its Content-Length,
- * and what actually arrives, at most MEETING_BODY_MAX). A 413 Response when
- * it is too large; '' when there is none.
+ * and what actually arrives, at most `max`: MEETING_BODY_MAX unless the route
+ * says more). A 413 Response when it is too large; '' when there is none.
  */
-export async function smallBody(request: Request): Promise<string | Response> {
+export async function smallBody(request: Request, max: number = MEETING_BODY_MAX): Promise<string | Response> {
   const tooLarge = () => privateHeaders(apiError('Too large', { status: 413, code: 'TOO_LARGE' }))
   const declared = Number(request.headers.get('content-length') ?? '0')
-  if (Number.isFinite(declared) && declared > MEETING_BODY_MAX) return tooLarge()
+  if (Number.isFinite(declared) && declared > max) return tooLarge()
   if (!request.body) return ''
   const reader = request.body.getReader()
   const chunks: Uint8Array[] = []
@@ -84,7 +84,7 @@ export async function smallBody(request: Request): Promise<string | Response> {
   let next = await reader.read()
   while (!next.done) {
     size += next.value.byteLength
-    if (size > MEETING_BODY_MAX) {
+    if (size > max) {
       await reader.cancel().catch(() => undefined)
       return tooLarge()
     }

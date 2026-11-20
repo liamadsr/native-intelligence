@@ -92,6 +92,8 @@ describe('chat: the loop guard', () => {
     expect(chatMessageSkipReason(msg({ author_kind: 'agent', author_member_id: null }))).toBe('written by an agent')
     expect(chatMessageSkipReason(msg({ kind: 'call' }))).not.toBeNull()
     expect(chatMessageSkipReason(msg({ deleted: true }))).not.toBeNull()
+    // A meeting guest's message (migration 670) starts no loop.
+    expect(chatMessageSkipReason(msg({ author_kind: 'guest', author_member_id: null }))).toBe('written by a meeting guest')
   })
 
   it('reads the message facts, the agent author included', async () => {

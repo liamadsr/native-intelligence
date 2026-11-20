@@ -21,11 +21,19 @@
  *      page asks the server every 3 seconds while it is on screen (it has
  *      no database session), and every 20 seconds while the tab is hidden,
  *      so a guest who looks at another tab keeps their place in the lobby.
- *   3. The call: who is in it, their own mic, camera and screen, Leave. No
- *      team chat, no member list beyond who is in the call, no notes or
- *      recording controls; a badge says when either is on (asked every 10
- *      seconds). The server decides what they have said go to (the notes,
- *      once for the whole call, and each recording): when notes or a
+ *   3. The call: who is in it, their own mic, camera and screen, Leave, and
+ *      the meeting's chat (migration 670: src/components/meeting-links/
+ *      guest-chat.tsx). The chat is the meeting's own conversation, while
+ *      they are in its call and only from when they first came in: they read
+ *      the members' and other guests' messages (as plain words, never a link
+ *      into the app or a file; never an agent's reply) and write their own,
+ *      which the members see with their name and "Guest" (any member may take
+ *      one down), and which never reaches the agent or notifies anyone. Nothing
+ *      else of the workspace: no other conversation, no thread, no member
+ *      list beyond who is in the call, no notes or recording controls; a
+ *      badge says when either is on (asked every 10 seconds). The server
+ *      decides what they have said go to (the notes, once for the whole
+ *      call, and each recording): when notes or a
  *      recording come on that they haven't, it takes their publishing away in LiveKit, the page sees that
  *      at once (the permission event), holds their microphone and shows the
  *      notice; "Join with microphone" records their go and gives it back.
@@ -34,13 +42,17 @@
  *      call's notes are shown in the call (TEAM_CALL_LIVE_AGENT), the guest
  *      can open what has been said since they came in: the call's own words
  *      and the agent's notes of it as plain words, only while they are in it.
+ *      Notes and chat share one side panel with a tab each (the chat alone
+ *      while the notes are off); a dot on the Chat control says something new
+ *      came in while it was closed. The chat is asked every few seconds while
+ *      they are connected and the tab is on screen, never while it is hidden.
  *
  * Nothing runs without a reason: no script animation loop (the lobby's dot is
  * one CSS pulse, off under reduced motion), no timer while hidden.
  */
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { ArrowUpRight, Calendar, Contact, Home, Inbox, ListChecks, Mail, MessagesSquare, Mic, MicOff, MonitorUp, NotebookPen, PhoneOff, Video, VideoOff, Volume2, WifiOff } from 'lucide-react'
+import { ArrowUpRight, Calendar, Contact, Home, Inbox, ListChecks, Mail, MessageCircle, MessagesSquare, Mic, MicOff, MonitorUp, NotebookPen, PhoneOff, Video, VideoOff, Volume2, WifiOff } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TeamCallSession, type CallEnd, type CallSnapshot, type TeamCallJoin } from '@/lib/team-calls/call-session'
 import { MEETING_GUEST_NAME_MAX, MEETING_LOBBY_POLL_MS, cleanGuestName } from '@/lib/meeting-links/shape'
@@ -49,6 +61,7 @@ import { Logo, Mark } from '@/components/logo'
 import { DevicesMenu } from '@/components/team-calls/devices-menu'
 import { GuestCallNotes } from '@/components/team-calls/call-live-notes'
 import { MEETING_GLASS, MeetingShell } from './meeting-card'
+import { GuestChatView, GuestSidePanel, useChatUnread, useGuestChat, type GuestPanelTab } from './guest-chat'
 
 type Done = 'declined' | 'removed' | 'left' | 'ended' | 'inactive' | 'full' | 'limited' | 'early' | 'elsewhere' | 'error' | 'unreachable' | 'lost'
 
@@ -449,7 +462,7 @@ export function GuestMeeting({
   }, [base, finish])
 
   if (phase.kind === 'call')
-    return <GuestCall session={phase.session} title={title} onNow={onNow} hostGone={membersInCall === 0} notesBase={liveAgent ? base : undefined} cameraWaits={phase.cameraWaits} />
+    return <GuestCall session={phase.session} title={title} onNow={onNow} hostGone={membersInCall === 0} chatBase={base} notesBase={liveAgent ? base : undefined} cameraWaits={phase.cameraWaits} />
 
 
   const hostLine = host && (
@@ -679,13 +692,33 @@ const APP_AREAS = [
   { label: 'Contacts', icon: Contact },
 ] as const
 
+/** A wide screen (the panel opens beside the call on its own when the notes come on). */
+const WIDE_QUERY = '(min-width: 1024px)'
+
 /**
  * The guest in the call, in the app's own frame: where a member's workspace
  * name sits, theirs says Guest; the app's rail beside the call (this meeting is
- * the one place a guest has in it); everyone in the call, the call's notes as a
- * pad on the side, their own controls, Leave. Nothing of the workspace itself.
+ * the one place a guest has in it); everyone in the call, a side panel with
+ * the call's notes and the meeting's chat, their own controls, Leave. Nothing
+ * of the workspace itself.
  */
-function GuestCall({ session, title, onNow, hostGone, notesBase, cameraWaits }: { session: TeamCallSession; title: string; onNow: OnNow; hostGone: boolean; notesBase?: string; cameraWaits: boolean }) {
+function GuestCall({
+  session,
+  title,
+  onNow,
+  hostGone,
+  chatBase,
+  notesBase,
+  cameraWaits,
+}: {
+  session: TeamCallSession
+  title: string
+  onNow: OnNow
+  hostGone: boolean
+  chatBase: string
+  notesBase?: string
+  cameraWaits: boolean
+}) {
   const snap = useSnapshot(session)
   const screens = snap.tiles.filter((t) => t.kind === 'screen')
   const people = snap.tiles.filter((t) => t.kind === 'person')
@@ -696,6 +729,20 @@ function GuestCall({ session, title, onNow, hostGone, notesBase, cameraWaits }: 
   const cols = people.length <= 1 ? 'grid-cols-1' : people.length <= 4 ? 'grid-cols-2' : 'grid-cols-3'
   // The agent's notes as plain words and the call's own words since they came in (src/lib/team-calls/live-notes.ts).
   const showNotes = !!notesBase && onNow.notes && snap.phase === 'connected'
+  // The meeting's chat: asked while they are connected (and the tab is on screen), so its dot shows with the panel closed.
+  const chat = useGuestChat(chatBase, snap.phase === 'connected')
+  const [panel, setPanel] = useState<GuestPanelTab | null>(null)
+  // The notes come on: on a wide screen the panel opens on them, as the notes pad did; a phone keeps the call in view.
+  const notesBefore = useRef(false)
+  useEffect(() => {
+    if (showNotes && !notesBefore.current && typeof window !== 'undefined' && window.matchMedia?.(WIDE_QUERY).matches) setPanel((p) => p ?? 'notes')
+    notesBefore.current = showNotes
+  }, [showNotes])
+  // Notes gone (turned off, or not connected): their tab goes, and the panel with it if it was on them.
+  const shown: GuestPanelTab | null = panel === 'notes' && !showNotes ? null : panel
+  const tabs: GuestPanelTab[] = showNotes ? ['notes', 'chat'] : ['chat']
+  const unread = useChatUnread(chat.messages, shown === 'chat')
+  const chatLabel = shown === 'chat' ? 'Close the chat' : unread > 0 ? `Open the chat, ${unread === 1 ? '1 new message' : `${unread} new messages`}` : 'Open the chat'
   return (
     <main className="flex h-dvh flex-col text-foreground" data-guest-call={snap.phase}>
       <header className="flex h-16 shrink-0 items-center gap-2 px-3 sm:px-4">
@@ -802,7 +849,12 @@ function GuestCall({ session, title, onNow, hostGone, notesBase, cameraWaits }: 
           </button>
         )}
       </div>
-          {showNotes && notesBase && <GuestCallNotes base={notesBase} pad className={cn('lg:w-[340px] lg:shrink-0', MEETING_GLASS)} />}
+          {shown && (
+            // A phone: the whole width, under the call. A wide screen: a column beside it.
+            <GuestSidePanel tab={shown} tabs={tabs} onTab={setPanel} onClose={() => setPanel(null)} unread={unread} className={cn('h-[55%] shrink-0 lg:h-auto lg:w-[360px]', MEETING_GLASS)}>
+              {shown === 'notes' && notesBase ? <GuestCallNotes base={notesBase} embedded /> : <GuestChatView chat={chat} />}
+            </GuestSidePanel>
+          )}
         </div>
       </div>
       <footer className="flex shrink-0 justify-center px-4 pb-6 pt-3">
@@ -820,6 +872,17 @@ function GuestCall({ session, title, onNow, hostGone, notesBase, cameraWaits }: 
           </IconButton>
         )}
         <DevicesMenu session={session} snap={snap} glass />
+        {showNotes && (
+          <IconButton glass label={shown === 'notes' ? 'Hide the notes' : 'Show the notes'} onClick={() => setPanel(shown === 'notes' ? null : 'notes')} active={shown === 'notes'} data-guest-notes-control="">
+            <NotebookPen className="h-5 w-5" />
+          </IconButton>
+        )}
+        <span className="relative flex shrink-0">
+          <IconButton glass label={chatLabel} onClick={() => setPanel(shown === 'chat' ? null : 'chat')} active={shown === 'chat'} data-guest-chat-control={unread > 0 ? 'unread' : 'read'}>
+            <MessageCircle className="h-5 w-5" />
+          </IconButton>
+          {unread > 0 && <span aria-hidden className="pointer-events-none absolute right-0 top-0 h-3 w-3 rounded-full border-2 border-background bg-sky-500" data-guest-chat-dot="" />}
+        </span>
         <IconButton glass label="Leave the meeting" onClick={() => void session.leave()} danger data-guest-leave="">
           <PhoneOff className="h-5 w-5" />
         </IconButton>

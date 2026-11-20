@@ -109,7 +109,7 @@ export interface ChatMessageFacts {
   id: string
   channel_id: string
   workspace_id: string
-  author_kind: 'member' | 'agent'
+  author_kind: 'member' | 'agent' | 'guest'
   author_member_id: string | null
   thread_root_id: string | null
   mentions: string[]
@@ -130,7 +130,7 @@ export async function loadChatMessageFacts(supabase: SupabaseClient, messageId: 
     id: r.id as string,
     channel_id: r.channel_id as string,
     workspace_id: r.workspace_id as string,
-    author_kind: r.author_kind === 'agent' ? 'agent' : 'member',
+    author_kind: r.author_kind === 'agent' ? 'agent' : r.author_kind === 'guest' ? 'guest' : 'member',
     author_member_id: (r.author_member_id as string | null) ?? null,
     thread_root_id: (r.thread_root_id as string | null) ?? null,
     mentions: Array.isArray(r.mentions) ? (r.mentions as unknown[]).filter((m): m is string => typeof m === 'string') : [],
@@ -141,10 +141,12 @@ export async function loadChatMessageFacts(supabase: SupabaseClient, messageId: 
 
 /**
  * Why a team chat message fires no loop at all (the loop guard), or null.
- * Only a person's own written message fires: never an agent's reply, a call's
+ * Only a person's own written message fires: never an agent's reply, a
+ * meeting guest's message (migration 670: nobody's in the workspace), a call's
  * row in the conversation, or a message deleted since.
  */
 export function chatMessageSkipReason(msg: Pick<ChatMessageFacts, 'author_kind' | 'author_member_id' | 'kind' | 'deleted'>): string | null {
+  if (msg.author_kind === 'guest') return 'written by a meeting guest'
   if (msg.author_kind !== 'member' || !msg.author_member_id) return 'written by an agent'
   if (msg.kind !== 'message') return 'a call, not a message'
   if (msg.deleted) return 'deleted'

@@ -22,6 +22,9 @@ const AGENT_REPLY = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 const DESIGN_MSG = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
 const DM_MSG = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
 const OTHER_WS_MSG = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+const GUEST_MSG = '12121212-1212-4212-8212-121212121212'
+const GUEST_ROOT = '34343434-3434-4434-8434-343434343434'
+const UNDER_GUEST = '56565656-5656-4656-8656-565656565656'
 const EXEC = { toolCallId: 'c', messages: [], context: {} } satisfies ToolExecutionOptions<Record<string, unknown>>
 
 const message = (id: string, over: Record<string, unknown>) => ({
@@ -66,6 +69,9 @@ function db() {
       message(DESIGN_MSG, { channel_id: CH_DESIGN, body: 'Design only' }),
       message(DM_MSG, { channel_id: CH_DM, body: 'Just between us' }),
       message(OTHER_WS_MSG, { channel_id: 'ch-other-ws', workspace_id: 'ws-other', author_member_id: 'm-ana-2', body: 'Elsewhere' }),
+      message(GUEST_MSG, { author_kind: 'guest', author_member_id: null, guest_name: 'Sam Ruiz', body: 'A guest in a meeting', created_at: '2026-11-16T16:00:00Z' }),
+      message(GUEST_ROOT, { author_kind: 'guest', author_member_id: null, guest_name: 'Sam Ruiz', body: 'Guest root', created_at: '2026-11-16T16:01:00Z' }),
+      message(UNDER_GUEST, { thread_root_id: GUEST_ROOT, body: 'A member answers the guest', created_at: '2026-11-16T16:02:00Z' }),
     ],
   })
 }
@@ -75,6 +81,15 @@ const read = async (userId: string, id: string, opts: { strictWorkspace?: boolea
   (await createTeamChatTools(userId, db(), WS, opts).read_team_chat_message.execute!({ message_id: id }, EXEC)) as Result
 
 describe('read_team_chat_message', () => {
+  it('a meeting guest’s message (migration 670) is never read: not found by its id, and left out of a thread, its root too', async () => {
+    expect(await read('u-ana', GUEST_MSG)).toEqual({ success: false, error: 'No team chat message with that id that you can read' })
+    const res = await read('u-ana', UNDER_GUEST)
+    expect(res.success).toBe(true)
+    const thread = res.thread as Array<{ id: string }>
+    expect(thread.map((m) => m.id)).toEqual([UNDER_GUEST])
+    expect(JSON.stringify(res)).not.toMatch(/Guest root|Sam Ruiz/)
+  })
+
   it('reads a reply with its whole thread, oldest first, authors by name, the channel by name', async () => {
     const res = await read('u-ana', REPLY)
     expect(res).toMatchObject({ success: true, workspace_id: WS, channel: { id: CH_GENERAL, kind: 'channel', name: '#general' }, thread_root_id: ROOT, in_thread: true })
