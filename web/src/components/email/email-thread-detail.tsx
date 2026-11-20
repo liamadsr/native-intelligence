@@ -14,13 +14,11 @@ import {
   Boxes,
   ChevronDown,
   Tag,
-  X,
   Send,
   Link2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { useScopedLabels } from '@/lib/labels/use-scoped-labels'
 import { LabelPickerContent } from '@/components/labels/label-picker-content'
@@ -46,6 +44,7 @@ import { scheduleSend } from '@/lib/email/send-later'
 import { EmailMessage, type EmailMessageData } from './email-message'
 import { EmailShareDialog, copyEmailShareLink } from './email-share-dialog'
 import { EmailShareChips } from './email-share-chips'
+import { EmailThreadTags } from './email-thread-tags'
 
 interface EmailLabel {
   id: string
@@ -691,12 +690,20 @@ export function EmailThreadDetail({
       {/* Subject + meta */}
       <div className="shrink-0 px-5 pt-4 pb-3">
         <h2 className="select-text text-lg font-semibold leading-snug">{thread.subject}</h2>
-        <div className="flex flex-wrap items-center gap-2 mt-1">
-          {thread.metadata.needs_reply && (
-            <span className="text-xs font-medium text-blue-500 bg-blue-500/10 px-2 py-0.5 rounded-full">
-              To respond
-            </span>
-          )}
+        <EmailThreadTags
+          metadata={thread.metadata}
+          labels={threadLabels}
+          onRemoveLabel={(id) => toggleLabel(id, true)}
+          picker={
+            <LabelPickerContent
+              grouped={scopedLabelsGrouped}
+              selectedIds={threadLabels.map((l) => l.id)}
+              onToggle={(id, isAttached) => toggleLabel(id, isAttached)}
+            />
+          }
+          messages={thread.messages}
+          ownAddresses={ownAddressSet}
+        >
           {thread.contact && (
             <span className="text-xs text-muted-foreground flex items-center gap-1">
               <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-muted text-[10px] font-medium">
@@ -707,26 +714,7 @@ export function EmailThreadDetail({
             </span>
           )}
           <EmailShareChips thread={{ threadId, accountId }} reloadKey={sharesKey} />
-          {threadLabels.map((label) => (
-            <Badge
-              key={label.id}
-              variant="outline"
-              className="gap-1 pl-1.5 pr-0.5 py-0 text-[10px]"
-            >
-              <span
-                className="inline-block h-1.5 w-1.5 rounded-full"
-                style={{ backgroundColor: label.color }}
-              />
-              {label.name}
-              <button
-                onClick={() => toggleLabel(label.id, true)}
-                className="ml-0.5 rounded-sm p-0.5 hover:bg-muted"
-              >
-                <X className="h-2.5 w-2.5" />
-              </button>
-            </Badge>
-          ))}
-        </div>
+        </EmailThreadTags>
       </div>
 
       {/* Messages */}
