@@ -5,6 +5,7 @@ import {
   buildEntityQuery,
   applyFilters,
   applyCompletedFilter,
+  applyProjectCompletedFilter,
   doneStatesInScope,
   applyEntityDefaults,
   applyTeamScope,
@@ -241,9 +242,11 @@ export async function POST(request: NextRequest) {
         query.eq('visibility', 'workspace').neq('user_id', user.id)
       }
 
-      // Action-specific completed filter
+      // Completed filter: actions by workflow category, projects by status
       if (entity_type === 'action') {
         await applyCompletedFilter(supabase, query, completed_filter, show_completed, scopeWorkspaceIds)
+      } else if (entity_type === 'project') {
+        applyProjectCompletedFilter(query, completed_filter, show_completed)
       }
 
       // Team scope

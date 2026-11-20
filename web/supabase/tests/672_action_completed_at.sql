@@ -4,7 +4,8 @@
 -- open (with the iOS app's stamp, without one, over a stale stamp), Done to
 -- Canceled (the finish time kept), a finished action's other edits (kept),
 -- reopened (cleared, whatever the writer sent), an open action handed a stamp
--- (refused). And view.completed_filter taking the windows and nothing else.
+-- (refused). Projects the same way, by status (active, completed, canceled,
+-- paused). And view.completed_filter taking the windows and nothing else.
 --
 -- The TS test (src/lib/views/__tests__/migration-672.test.ts) pins the file's
 -- text; this runs the SQL. The backfill is not re-run here: it ran once, when
@@ -89,6 +90,25 @@ begin
   update public.actions set status_id = s_done where id = a;
   assert (select completed_at from public.actions where id = a) >= now() - interval '1 minute', 'open (stale stamp) -> done: now()';
 
+  -- Projects: the same, by status.
+  alter table public.projects disable trigger user;
+  alter table public.projects enable trigger project_completed_at;
+  insert into public.projects (workspace_id, user_id, name, status, completed_at) values (ws, uid, 't672 project', 'active', ios) returning id into a;
+  assert (select completed_at from public.projects where id = a) is null, 'project insert active: null';
+  update public.projects set status = 'completed' where id = a;
+  t := (select completed_at from public.projects where id = a);
+  assert t >= now() - interval '1 minute', 'project active -> completed: now()';
+  update public.projects set status = 'canceled' where id = a;
+  assert (select completed_at from public.projects where id = a) = t, 'project completed -> canceled: kept';
+  update public.projects set name = 't672 renamed', status = 'canceled' where id = a;
+  assert (select completed_at from public.projects where id = a) = t, 'project, other edit: kept';
+  update public.projects set status = 'paused', completed_at = ios where id = a;
+  assert (select completed_at from public.projects where id = a) is null, 'project reopened (paused): null';
+  update public.projects set status = 'completed', completed_at = ios where id = a;
+  assert (select completed_at from public.projects where id = a) = ios, 'project completed with a time: the time';
+  insert into public.projects (workspace_id, user_id, name, status) values (ws, uid, 't672 born done', 'completed') returning id into a;
+  assert (select completed_at from public.projects where id = a) >= now() - interval '1 minute', 'project insert completed: now()';
+
   -- The views take the windows, and nothing else.
   ok := true;
   begin
@@ -106,6 +126,7 @@ begin
        and pg_get_constraintdef(oid) like '%past_day%'
        and pg_get_constraintdef(oid) like '%past_week%'
        and pg_get_constraintdef(oid) like '%past_month%'
+       and pg_get_constraintdef(oid) like '%past_year%'
        and pg_get_constraintdef(oid) like '%recent%'
   ), 'view: the check names the windows and recent';
 

@@ -1,10 +1,13 @@
 /**
- * Which completed and canceled actions a list shows: the "Completed issues"
- * row in a view's settings (view-settings-popover.tsx), modelled on Linear's
- * "Completed projects" setting.
+ * Which completed and canceled actions (or projects) a list shows: the
+ * "Completed issues" / "Completed projects" row in a view's settings
+ * (view-settings-popover.tsx), modelled on Linear's "Completed projects"
+ * setting.
  *
- * - `past_day` / `past_week` / `past_month`: only the ones finished in that
- *   rolling window (24 hours, 7 days, one calendar month back from now).
+ * - `past_day` / `past_week` / `past_month` / `past_year`: only the ones
+ *   finished in that rolling window (24 hours, 7 days, one calendar month, one
+ *   calendar year back from now). Actions offer day, week and month; projects
+ *   week, month and year (COMPLETED_FILTER_OPTIONS_BY_ENTITY).
  * - `all`: every one, however old.
  * - `none`: none.
  * - `recent`: the setting's ONE older value (before 2026-11-20), kept so a view
@@ -12,9 +15,13 @@
  *   longer offered for a new choice; the settings show it only on a view that
  *   still holds it.
  *
- * A NEW action list opens on `past_week` (DEFAULT_ACTION_COMPLETED_FILTER). A
- * SAVED view keeps exactly what it stores: a view saved before this change with
- * the old default `all` still shows all.
+ * A NEW action list opens on `past_week` (DEFAULT_ACTION_COMPLETED_FILTER), a
+ * new project list on `past_month` (DEFAULT_PROJECT_COMPLETED_FILTER; Linear's
+ * own default is not documented). A SAVED view keeps exactly what it stores: a
+ * view saved before this change with the old default `all` still shows all.
+ *
+ * A project is finished when its status is `completed` or `canceled`, and
+ * when is `projects.completed_at` (migration 672's trigger).
  *
  * "Finished" is read from `actions.completed_at`, set by migration 672's
  * trigger when the status moves into a completed or canceled category (it was
@@ -31,7 +38,7 @@
  * read, for a view saved in between that 672 did not move.
  */
 
-export const COMPLETED_WINDOWS = ['past_day', 'past_week', 'past_month'] as const
+export const COMPLETED_WINDOWS = ['past_day', 'past_week', 'past_month', 'past_year'] as const
 export type CompletedWindow = (typeof COMPLETED_WINDOWS)[number]
 
 export const COMPLETED_FILTERS = [...COMPLETED_WINDOWS, 'all', 'none', 'recent'] as const
@@ -42,6 +49,21 @@ export const LEGACY_STORABLE_COMPLETED_FILTERS = ['all', 'recent', 'none'] as co
 
 /** A new action list's setting. Saved views keep their own. */
 export const DEFAULT_ACTION_COMPLETED_FILTER: CompletedFilter = 'past_week'
+
+/** A new project list's setting (Linear's default is not documented). Saved views keep their own. */
+export const DEFAULT_PROJECT_COMPLETED_FILTER: CompletedFilter = 'past_month'
+
+/** The entities with a completed setting, and what a new list of each opens on. */
+export function defaultCompletedFilterFor(entityType: string): CompletedFilter {
+  if (entityType === 'action') return DEFAULT_ACTION_COMPLETED_FILTER
+  if (entityType === 'project') return DEFAULT_PROJECT_COMPLETED_FILTER
+  return 'all'
+}
+
+/** Does this entity's list take the completed setting? */
+export function takesCompletedFilter(entityType: string): entityType is 'action' | 'project' {
+  return entityType === 'action' || entityType === 'project'
+}
 
 /** The `metadata` key a window rides in while the column cannot hold it. */
 export const COMPLETED_WINDOW_METADATA_KEY = 'completed_window'
@@ -55,10 +77,28 @@ export const COMPLETED_FILTER_OPTIONS: ReadonlyArray<{ value: CompletedFilter; l
   { value: 'none', label: 'None' },
 ]
 
+/** A project list's choices: Linear's "Completed projects" (past week, month, year, all, none). */
+export const PROJECT_COMPLETED_FILTER_OPTIONS: ReadonlyArray<{ value: CompletedFilter; label: string }> = [
+  { value: 'past_week', label: 'Past week' },
+  { value: 'past_month', label: 'Past month' },
+  { value: 'past_year', label: 'Past year' },
+  { value: 'all', label: 'All' },
+  { value: 'none', label: 'None' },
+]
+
+export const COMPLETED_FILTER_OPTIONS_BY_ENTITY = {
+  action: COMPLETED_FILTER_OPTIONS,
+  project: PROJECT_COMPLETED_FILTER_OPTIONS,
+} as const
+
+/** The settings row's name per entity. */
+export const COMPLETED_FILTER_ROW_LABEL = { action: 'Completed issues', project: 'Completed projects' } as const
+
 export const COMPLETED_FILTER_LABELS: Record<CompletedFilter, string> = {
   past_day: 'Past day',
   past_week: 'Past week',
   past_month: 'Past month',
+  past_year: 'Past year',
   all: 'All',
   none: 'None',
   recent: 'Past 2 weeks',
@@ -96,6 +136,9 @@ export function completedWindowStart(filter: CompletedFilter, now: Date = new Da
       break
     case 'past_month':
       start.setUTCMonth(start.getUTCMonth() - 1)
+      break
+    case 'past_year':
+      start.setUTCFullYear(start.getUTCFullYear() - 1)
       break
     case 'all':
     case 'none':

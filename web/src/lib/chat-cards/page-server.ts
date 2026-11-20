@@ -15,7 +15,7 @@
  * through its query engine on the same path the page takes, with the place's
  * scope (the team, the list, the suite) added on top.
  */
-import { DEFAULT_ACTION_COMPLETED_FILTER } from '@/lib/views/completed-window'
+import { DEFAULT_ACTION_COMPLETED_FILTER, DEFAULT_PROJECT_COMPLETED_FILTER } from '@/lib/views/completed-window'
 import {
   applyEntityDefaults,
   applyFilters,
@@ -25,6 +25,7 @@ import {
   applyPagination,
   applySearch,
   applyCompletedFilter,
+  applyProjectCompletedFilter,
   applyTeamScope,
   buildEntityQuery,
   NoMatchSignal,
@@ -383,6 +384,8 @@ async function runPageList(
     // Absent is the page's own default, as the page opens (a page card's query
     // leaves out what is still its default: queryFromConfig).
     await applyCompletedFilter(scope.supabase, q, query.completed_filter ?? DEFAULT_ACTION_COMPLETED_FILTER, query.show_completed ?? true, scope.workspaceId)
+  } else if (entity === 'project') {
+    applyProjectCompletedFilter(q, query.completed_filter ?? DEFAULT_PROJECT_COMPLETED_FILTER, query.show_completed ?? true)
   }
   applyOrdering(q, ordering, entity, { fieldTypes })
   applyPagination(q, 1, limit)

@@ -37,6 +37,7 @@ vi.mock('@/lib/views/query-engine', () => ({
   buildEntityQuery: hoisted.buildEntityQuery,
   applyFilters: hoisted.applyFilters,
   applyCompletedFilter: hoisted.applyCompletedFilter,
+  applyProjectCompletedFilter: vi.fn(),
   applyEntityDefaults: vi.fn(),
   applyTeamScope: vi.fn(),
   applyOrdering: hoisted.applyOrdering,

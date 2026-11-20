@@ -67,6 +67,21 @@ describe('migration 672', () => {
     expect(values).toEqual([...COMPLETED_FILTERS].sort())
   })
 
+  it('keeps projects.completed_at the same way, by status, and backfills it without bumping updated_at', () => {
+    expect(BODY).toContain('alter table public.projects add column if not exists completed_at timestamptz;')
+    expect(BODY).toContain('create trigger project_completed_at before insert or update of status, completed_at on public.projects for each row execute function public.project_completed_at();')
+    expect(BODY).toContain("if new.status not in ('completed', 'canceled') then new.completed_at := null; return new;")
+    expect(BODY).toContain('revoke all on function public.project_completed_at() from public, anon, authenticated;')
+    for (const trig of ['project_updated_at', 'update_projects_updated_at']) {
+      const off = BODY.indexOf(`alter table public.projects disable trigger ${trig};`)
+      const on = BODY.indexOf(`alter table public.projects enable trigger ${trig};`)
+      expect(off).toBeGreaterThan(-1)
+      expect(on).toBeGreaterThan(BODY.lastIndexOf('update public.projects p'))
+    }
+    expect(BODY).toContain("ea.entity_type = 'project'")
+    expect(BODY).toContain('create index if not exists projects_workspace_completed_at_idx on public.projects (workspace_id, completed_at desc) where completed_at is not null;')
+  })
+
   it('moves a window saved in metadata into the column', () => {
     expect(BODY).toContain("set completed_filter = metadata ->> 'completed_window', metadata = metadata - 'completed_window' where completed_filter = 'recent'")
   })

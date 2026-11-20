@@ -14,8 +14,11 @@ import {
   completedWindowStart,
   normalizeCompletedFilter,
   VIEW_COLUMN_TAKES_COMPLETED_WINDOWS,
+  DEFAULT_PROJECT_COMPLETED_FILTER,
+  PROJECT_COMPLETED_FILTER_OPTIONS,
+  defaultCompletedFilterFor,
 } from '@/lib/views/completed-window'
-import { applyCompletedFilter, COMPLETED_AT_COLUMN } from '@/lib/views/query-engine'
+import { applyCompletedFilter, applyProjectCompletedFilter, COMPLETED_AT_COLUMN } from '@/lib/views/query-engine'
 import { defaultConfig } from '@/components/views/hooks/use-view'
 
 vi.mock('@/app/account/workspace-switcher', () => ({ useWorkspaceId: () => 'ws-a' }))
@@ -42,11 +45,10 @@ describe('the choices', () => {
     expect(COMPLETED_FILTER_OPTIONS.map((o) => o.label)).toEqual(['Past day', 'Past week', 'Past month', 'All', 'None'])
   })
 
-  it('a NEW action list opens on the past week; every other entity keeps all', () => {
+  it('a NEW action list opens on the past week; entities without the setting keep all', () => {
     expect(DEFAULT_ACTION_COMPLETED_FILTER).toBe('past_week')
     expect(defaultConfig('action').completed_filter).toBe('past_week')
     expect(defaultConfig('action', true).completed_filter).toBe('past_week')
-    expect(defaultConfig('project').completed_filter).toBe('all')
     expect(defaultConfig('capture').completed_filter).toBe('all')
   })
 
@@ -176,6 +178,45 @@ describe('applyCompletedFilter — the SQL shape', () => {
     const c = client([])
     const q = recorder()
     await applyCompletedFilter(c.supabase, q.chain as never, 'past_day', true, 'ws-a', { now: NOW })
+    expect(q.calls).toEqual([])
+  })
+})
+
+describe('projects: "Completed projects" (REQUIRES migration 672: projects.completed_at)', () => {
+  it('offers Past week, Past month, Past year, All and None; a new project list opens on the past month', () => {
+    expect(PROJECT_COMPLETED_FILTER_OPTIONS.map((o) => o.label)).toEqual(['Past week', 'Past month', 'Past year', 'All', 'None'])
+    expect(DEFAULT_PROJECT_COMPLETED_FILTER).toBe('past_month')
+    expect(defaultConfig('project').completed_filter).toBe('past_month')
+    expect(defaultCompletedFilterFor('project')).toBe('past_month')
+    expect(defaultCompletedFilterFor('initiative')).toBe('all')
+  })
+
+  it('a year back is one calendar year', () => {
+    expect(completedWindowStart('past_year', NOW)).toBe('2025-11-20T12:00:00.000Z')
+  })
+
+  it('a saved project view keeps its setting, a year round-trips through storage', () => {
+    expect(completedFilterOfView({ completed_filter: 'all' })).toBe('all')
+    expect(completedFilterOfView(completedFilterForStorage('past_year', {}, { columnTakesWindows: true }))).toBe('past_year')
+  })
+
+  it('the window: every open project, and the ones completed or canceled since', () => {
+    const q = recorder()
+    applyProjectCompletedFilter(q.chain as never, 'past_month', true, { now: NOW })
+    expect(q.calls).toEqual([{
+      method: 'or',
+      args: ['status.not.in.(completed,canceled),and(status.in.(completed,canceled),completed_at.gte.2026-10-20T12:00:00.000Z)'],
+    }])
+  })
+
+  it('none (or Show completed off) leaves them all out; all adds nothing', () => {
+    for (const [filter, shown] of [['none', true], ['past_year', false]] as const) {
+      const q = recorder()
+      applyProjectCompletedFilter(q.chain as never, filter, shown, { now: NOW })
+      expect(q.calls).toEqual([{ method: 'not', args: ['status', 'in', '(completed,canceled)'] }])
+    }
+    const q = recorder()
+    applyProjectCompletedFilter(q.chain as never, 'all', true, { now: NOW })
     expect(q.calls).toEqual([])
   })
 })
