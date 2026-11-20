@@ -31,6 +31,9 @@ function isDesktopReplayForced(): boolean {
 // HUD windows (/hud/*, the desktop app's overlays) aren't visits to Native Intelligence, and
 // a texted single-use link's pages (/l/*) carry its token in the path, which
 // must never reach analytics (src/lib/links/one-time.ts).
+// The demo pages (/demo/*, the real app on made-up data in a frame on the public
+// site: components/demo) sign in as nobody: the shell there would otherwise
+// identify every visitor as the demo workspace's person.
 // (The agent browser's live view and computer card are not routes: their DOM —
 // the person's browsing — carries `ph-no-capture`, which keeps it out of
 // autocapture AND session recording; see components/cloud-browser.)
@@ -38,7 +41,8 @@ if (
   typeof window !== 'undefined' &&
   process.env.NEXT_PUBLIC_POSTHOG_KEY &&
   !window.location.pathname.startsWith('/hud/') &&
-  !window.location.pathname.startsWith('/l/')
+  !window.location.pathname.startsWith('/l/') &&
+  !window.location.pathname.startsWith('/demo/')
 ) {
   // Session replay (rrweb) is the single biggest analytics-side contributor to
   // the desktop app's WebContent heap: every dashboard tab stays mounted
@@ -93,7 +97,7 @@ function PostHogPageview() {
     // No pageview for a join link's or an email share link's page: its path
     // is the link (the token would be blanked anyway; this keeps the view out
     // altogether).
-    if (pathname && posthog && !pathname.startsWith('/hud/') && !pathname.startsWith('/l/') && !isJoinLinkPage(pathname) && !isEmailShareLinkPage(pathname)) {
+    if (pathname && posthog && !pathname.startsWith('/hud/') && !pathname.startsWith('/l/') && !pathname.startsWith('/demo/') && !isJoinLinkPage(pathname) && !isEmailShareLinkPage(pathname)) {
       let url = window.origin + pathname
       if (searchParams.toString()) {
         url = url + '?' + searchParams.toString()

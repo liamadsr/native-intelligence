@@ -52,11 +52,12 @@ import { FaqList } from '@/components/site/faq'
 import { SWITCHING_GUIDE } from '@/lib/marketing/site-nav'
 import { DEFAULT_SELECTION, NI_PRICE_PER_SEAT, stackCost } from '@/lib/marketing/replace-apps'
 import type { Section } from '@/components/page-layout'
-import { ActionStreamDemo, ChatDemo, ContactRecordDemo, ExecutionDemo, LiveAgentDemo } from '@/components/landing/lazy-demos'
+import { ActionStreamDemo, ChatDemo, ExecutionDemo, LiveAgentDemo } from '@/components/landing/lazy-demos'
 import type { ChatDemoExchange } from '@/components/landing/chat-demo'
 import type { StreamAction } from '@/components/landing/action-stream-demo'
 import type { LiveAgentScenario } from '@/components/landing/live-agent-demo'
 import { WorkspaceHub } from '@/components/landing/workspace-grid'
+import { DemoFrame } from '@/components/demo/demo-frame'
 import { HeroDay } from '@/components/landing/hero-day'
 import { AgentTextThread } from '@/components/landing/agent-text-thread'
 import { StackCalculator } from '@/components/site/stack-calculator'
@@ -613,8 +614,11 @@ function AgentsSection() {
         <FeatureStage
           title="CRM without data entry"
           description="A company or contact is added the first time they email or call. After each conversation the notes and the deal stage are updated, and you can undo any change."
-          ask={{ name: 'Jordan Kim', text: 'I’m picking up Northwind next week. What happened on their last call?' }}
-          visual={<ContactRecordDemo />}
+          ask={{ name: 'Jordan Kim', text: 'I’m picking up Larkspur Coffee next week. What do we know about Maya?' }}
+          visual={
+            // The app itself, opened on a made-up customer's record (components/demo/demo-frame.tsx).
+            <DemoFrame screen="contact" label="A customer's record in the app: notes, recent activity and what the workspace knows about them" width={1080} height={740} className="rounded-2xl shadow-2xl ring-1 ring-foreground/10" />
+          }
           links={[{ label: 'Learn about the CRM', href: '/features/crm' }]}
         />
       </div>

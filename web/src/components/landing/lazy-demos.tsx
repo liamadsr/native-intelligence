@@ -63,7 +63,6 @@ function lazyDemo<P extends object>(load: () => Promise<ComponentType<P>>, heigh
 export const HudTipsDemo = lazyDemo(() => import('./hud-tips-demo').then((m) => m.HudTipsDemo), 500)
 export const ChatDemo = lazyDemo<{ exchanges?: ChatDemoExchange[] }>(() => import('./chat-demo').then((m) => m.ChatDemo), 460)
 export const CrmAutologDemo = lazyDemo(() => import('./crm-autolog-demo').then((m) => m.CrmAutologDemo), 550)
-export const ContactRecordDemo = lazyDemo(() => import('./contact-record-demo').then((m) => m.ContactRecordDemo), 560)
 export const CaptureDemo = lazyDemo<{ variant?: CaptureDemoVariant }>(() => import('./capture-demo').then((m) => m.CaptureDemo), 530)
 export const NotesDocDemo = lazyDemo(() => import('./notes-doc-demo').then((m) => m.NotesDocDemo), 530)
 export const SpeakerIdDemo = lazyDemo(() => import('./speaker-id-demo').then((m) => m.SpeakerIdDemo), 510)

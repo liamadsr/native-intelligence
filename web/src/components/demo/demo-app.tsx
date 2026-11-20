@@ -25,11 +25,12 @@ import { useEffect, useRef, useState } from 'react'
 import { AccountProviders } from '@/app/account/account-providers'
 import { DashboardShell } from '@/app/account/(dashboard)/dashboard-shell'
 import { CARD_FRAME_ATTR } from '@/components/chat-cards/card-frame-attr'
+import { minimizeFrontCards } from '@/components/chat-cards/front-card'
 import { OPEN_CARD_EVENT, openTarget, type OpenTarget } from '@/lib/chat-cards/open-card'
 import { DemoWorkspace } from './demo-workspace'
 import { installDemoFetch, type DemoSnapshot } from '@/lib/demo/demo-fetch'
 
-export const DEMO_SCREENS = ['tasks', 'meeting', 'knowledge'] as const
+export const DEMO_SCREENS = ['ask', 'tasks', 'meeting', 'knowledge', 'contact'] as const
 export type DemoScreen = (typeof DEMO_SCREENS)[number]
 
 interface Recording {
@@ -41,9 +42,11 @@ interface Recording {
 }
 
 const RECORDINGS: Record<DemoScreen, () => Promise<Recording>> = {
+  ask: () => import('@/lib/demo/snapshots/app/ask.json').then((m) => m.default as unknown as Recording),
   tasks: () => import('@/lib/demo/snapshots/app/tasks.json').then((m) => m.default as unknown as Recording),
   meeting: () => import('@/lib/demo/snapshots/app/meeting.json').then((m) => m.default as unknown as Recording),
   knowledge: () => import('@/lib/demo/snapshots/app/knowledge.json').then((m) => m.default as unknown as Recording),
+  contact: () => import('@/lib/demo/snapshots/app/contact.json').then((m) => m.default as unknown as Recording),
 }
 
 interface Profile {
@@ -54,6 +57,12 @@ interface Profile {
 
 /** What the page around the frame sends to change the screen without loading the app again. */
 export const DEMO_SCREEN_MESSAGE = 'ni-demo-screen'
+/** What this page tells the page around the frame once the screen it was asked for is drawn. */
+export const DEMO_READY_MESSAGE = 'ni-demo-ready'
+
+function tellReady(screen: DemoScreen) {
+  if (window.parent !== window) window.parent.postMessage({ type: DEMO_READY_MESSAGE, screen }, window.location.origin)
+}
 
 export function DemoApp({ screen: first }: { screen: DemoScreen }) {
   const [screen, setScreen] = useState<DemoScreen>(first)
@@ -99,11 +108,23 @@ export function DemoApp({ screen: first }: { screen: DemoScreen }) {
   // shell starts listening a moment after it mounts, and an early request is
   // lost. `data-demo-opened` remembers which screen the open window is for.
   useEffect(() => {
-    if (!current || (!current.open && !current.target)) return
+    if (!current) return
+    // The home chat: nothing to open, and whatever another screen opened steps aside, as Home does.
+    if (!current.open && !current.target) {
+      if (document.documentElement.dataset.demoOpened) minimizeFrontCards()
+      document.documentElement.dataset.demoOpened = ''
+      // The chat draws its messages a beat after the shell is up.
+      const drawn = window.setTimeout(() => tellReady(screen), 1500)
+      return () => window.clearTimeout(drawn)
+    }
     let tries = 0
     const ask = () => {
       const root = document.documentElement
-      if (root.dataset.demoOpened === screen && document.querySelector(`[${CARD_FRAME_ATTR}]`)) return true
+      if (root.dataset.demoOpened === screen && document.querySelector(`[${CARD_FRAME_ATTR}]`)) {
+        // Its rows arrive a beat after its window.
+        window.setTimeout(() => tellReady(screen), 900)
+        return true
+      }
       if (current.open) window.dispatchEvent(new CustomEvent(OPEN_CARD_EVENT, { detail: current.open }))
       else if (current.target) openTarget(current.target, { from: 'demo' })
       root.dataset.demoOpened = screen

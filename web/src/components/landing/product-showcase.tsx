@@ -43,6 +43,7 @@ import { useInView, useReducedMotion } from './use-in-view'
 const SCREENS = [
   {
     tab: 'Ask',
+    live: 'ask',
     src: '/screens/chat-view.webp',
     alt: 'Asked for the open tasks on a project, the agent puts the live task board right in the chat and sums up what is left',
     caption:

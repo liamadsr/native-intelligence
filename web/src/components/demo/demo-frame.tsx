@@ -9,13 +9,13 @@
  * loads is the app itself.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { DEMO_SCREEN_MESSAGE, type DemoScreen } from './demo-app'
+import { DEMO_READY_MESSAGE, DEMO_SCREEN_MESSAGE, type DemoScreen } from './demo-app'
 
-const WIDTH = 1440
 
 export function DemoFrame({
   screen,
   label,
+  width = 1440,
   height = 900,
   wanted = true,
   className,
@@ -23,7 +23,8 @@ export function DemoFrame({
   /** The screen to show. Changing it asks the loaded app to switch; it does not load the app again. */
   screen: DemoScreen
   label: string
-  /** The app's window height before scaling, for a slot of another shape (its width is always 1440). */
+  /** The app's window size before scaling: a narrower window for a narrow slot keeps its text readable. */
+  width?: number
   height?: number
   /** False holds the load back (it is about 2.4 MB of the app's own code) until the screen is first asked for. */
   wanted?: boolean
@@ -43,11 +44,22 @@ export function DemoFrame({
   useLayoutEffect(() => {
     const el = ref.current
     if (!el) return
-    const fit = () => setScale(el.clientWidth / WIDTH)
+    const fit = () => setScale(el.clientWidth / width)
     fit()
     const observer = new ResizeObserver(fit)
     observer.observe(el)
     return () => observer.disconnect()
+  }, [width])
+
+  // Shown only once the app says the screen is drawn: until then whatever is under the frame shows.
+  const [drawn, setDrawn] = useState(false)
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin || event.source !== frameRef.current?.contentWindow) return
+      if ((event.data as { type?: unknown } | null)?.type === DEMO_READY_MESSAGE) setDrawn(true)
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
   }, [])
 
   useEffect(() => {
@@ -68,7 +80,7 @@ export function DemoFrame({
   useEffect(send, [screen])
 
   return (
-    <div ref={ref} role="img" aria-label={label} className={className} style={{ position: 'relative', width: '100%', aspectRatio: `${WIDTH} / ${height}`, overflow: 'hidden' }}>
+    <div ref={ref} role="img" aria-label={label} className={className} style={{ position: 'relative', width: '100%', aspectRatio: `${width} / ${height}`, overflow: 'hidden' }}>
       {near && everWanted && scale > 0 && (
         <iframe
           ref={frameRef}
@@ -77,7 +89,7 @@ export function DemoFrame({
           tabIndex={-1}
           aria-hidden
           onLoad={send}
-          style={{ position: 'absolute', left: 0, top: 0, width: WIDTH, height, border: 0, transformOrigin: 'top left', transform: `scale(${scale})`, pointerEvents: 'none' }}
+          style={{ position: 'absolute', left: 0, top: 0, width, height, border: 0, transformOrigin: 'top left', transform: `scale(${scale})`, pointerEvents: 'none', opacity: drawn ? 1 : 0, transition: 'opacity 0.4s ease' }}
         />
       )}
     </div>

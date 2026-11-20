@@ -15,6 +15,11 @@
  *     nothing. The demo is also `inert`, so nothing is clicked.
  * Every other request goes through untouched.
  *
+ * While a demo is up no socket opens either: the app keeps a live connection
+ * to the database for changes, which a picture of it has no use for, and a
+ * public page must not open one per visitor. `WebSocket` is replaced by one
+ * that never connects, and put back with `fetch`.
+ *
  * WHY PATCHING `fetch` IS SAFE HERE. Demos sit on public pages, where a
  * visitor is signed out and no real code calls `/api/account/*` (it would
  * get a 401). Two guards keep it that way: the patch is removed when the
@@ -63,6 +68,35 @@ export function isDemoRequest(pagePath: string, pageOrigin: string, url: string)
 // The snapshots of the demos on the page now, and the fetch they replaced.
 const active: DemoSnapshot[] = []
 let real: typeof window.fetch | null = null
+let realSocket: typeof WebSocket | null = null
+
+/** A socket that never connects and never says so: whoever opened it simply keeps waiting. */
+class DemoSocket extends EventTarget {
+  static readonly CONNECTING = 0
+  static readonly OPEN = 1
+  static readonly CLOSING = 2
+  static readonly CLOSED = 3
+  readonly CONNECTING = 0
+  readonly OPEN = 1
+  readonly CLOSING = 2
+  readonly CLOSED = 3
+  readyState = 0
+  bufferedAmount = 0
+  binaryType: BinaryType = 'blob'
+  extensions = ''
+  protocol = ''
+  onopen: ((event: Event) => void) | null = null
+  onmessage: ((event: MessageEvent) => void) | null = null
+  onerror: ((event: Event) => void) | null = null
+  onclose: ((event: CloseEvent) => void) | null = null
+  constructor(readonly url: string | URL) {
+    super()
+  }
+  send(): void {}
+  close(): void {
+    this.readyState = 3
+  }
+}
 
 /** Answers the workspace's requests from `snapshot` until the returned function is called. */
 export function installDemoFetch(snapshot: DemoSnapshot): () => void {
@@ -71,6 +105,8 @@ export function installDemoFetch(snapshot: DemoSnapshot): () => void {
   if (!real) {
     const original = window.fetch
     real = original
+    realSocket = window.WebSocket
+    window.WebSocket = DemoSocket as unknown as typeof WebSocket
     window.__demoMisses = []
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
@@ -90,6 +126,8 @@ export function installDemoFetch(snapshot: DemoSnapshot): () => void {
     if (active.length === 0 && real) {
       window.fetch = real
       real = null
+      if (realSocket) window.WebSocket = realSocket
+      realSocket = null
     }
   }
 }

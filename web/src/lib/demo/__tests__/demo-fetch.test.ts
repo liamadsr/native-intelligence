@@ -6,7 +6,9 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { demoAnswer, installDemoFetch, isDemoRequest } from '../demo-fetch'
-import { contactSnapshot, DEMO_CONTACT_ID } from '../snapshots/contact'
+
+const DEMO_CONTACT_ID = 'demo-contact'
+const SNAPSHOT = { [`/api/account/contacts/${DEMO_CONTACT_ID}`]: { contact: { full_name: 'Lena Park' } } }
 
 const ORIGIN = window.location.origin
 
@@ -61,7 +63,16 @@ describe('installDemoFetch', () => {
   it('answers from the snapshot, changes nothing, and puts the real fetch back', async () => {
     window.fetch = server as unknown as typeof window.fetch
     const before = window.fetch
-    const remove = installDemoFetch(contactSnapshot(new Date('2026-03-03T15:00:00Z')))
+    const socketBefore = window.WebSocket
+    const remove = installDemoFetch(SNAPSHOT)
+
+    // No live connection while a demo is up: a socket never connects, and sends nothing.
+    expect(window.WebSocket).not.toBe(socketBefore)
+    const socket = new WebSocket('wss://database.example/realtime')
+    expect(socket.readyState).toBe(WebSocket.CONNECTING)
+    socket.send('ignored')
+    socket.close()
+    expect(socket.readyState).toBe(WebSocket.CLOSED)
 
     const res = await fetch(`/api/account/contacts/${DEMO_CONTACT_ID}`)
     expect((await res.json()).contact.full_name).toBe('Lena Park')
@@ -87,6 +98,7 @@ describe('installDemoFetch', () => {
 
     remove()
     expect(window.fetch).toBe(before)
+    expect(window.WebSocket).toBe(socketBefore)
   })
 
   it('stays until the last demo on the page is gone', () => {

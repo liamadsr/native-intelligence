@@ -13,7 +13,9 @@
  * screens or their answers change, and commit what it writes.
  *
  * DEV OR LOCAL ONLY, like scripts/demo-workspace.ts (the same guard), and
- * only for the demo person. It writes nothing to the workspace. What it
+ * only for the demo person. Opening a page leaves an "opened" note in the
+ * demo person's own chat, as it does for anyone; nothing else is written
+ * (`scripts/demo-workspace.ts --clear-activity` clears the chat). What it
  * saves is scrubbed (connected accounts, chat history, mail) and then
  * refused outright if an address outside `.test` / `.example` is left in it.
  *
@@ -32,14 +34,24 @@ interface Screen {
   /**
    * What to hand `openTarget` (lib/chat-cards/open-card.ts) when the steps
    * send no `ni:open-card` event of their own (search opens a card directly).
-   * `capture` names a meeting by its title; its id is read from the answers.
+   * A meeting is named by its title and a contact by their name; the id is
+   * looked up in the demo workspace.
    */
-  target?: { type: 'page'; slug: string } | { type: 'capture'; title: string }
+  target?: { type: 'page'; slug: string } | { type: 'capture'; title: string } | { type: 'contact'; title: string }
+  /**
+   * The screen is the home chat itself, showing ASK_CONVERSATION: a written
+   * exchange handed to the app in place of the demo person's own history
+   * (which is whatever the last person to try the demo left there), so the
+   * app draws it, asks for what its board needs, and that is recorded too.
+   */
+  chat?: boolean
 }
 const SCREENS: Record<string, Screen> = {
+  ask: { steps: [], chat: true },
   tasks: { steps: [{ click: 'My Actions' }] },
   meeting: { steps: [{ search: 'Kickoff: Larkspur' }], target: { type: 'capture', title: 'Kickoff: Larkspur Coffee site relaunch' } },
   knowledge: { steps: [{ search: 'Knowledge' }], target: { type: 'page', slug: 'knowledge' } },
+  contact: { steps: [{ search: 'Maya Okafor' }], target: { type: 'contact', title: 'Maya Okafor' } },
 }
 
 const arg = (name: string) => process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3)
@@ -60,11 +72,44 @@ if (key.includes(PROD_SUPABASE_REF)) throw new Error("refusing: the service role
 const NEVER = [/^\/api\/account\/email/, /^\/api\/account\/mail/, /^\/api\/account\/messages/, /^\/api\/oauth\//]
 const EMPTY: Record<string, unknown> = { '/api/oauth/status': { accounts: [] }, '/api/account/messages': { messages: [] }, '/api/account/email/agent-drafts': { drafts: [] } }
 
+let keepChat = false
+
+/** The project the written conversation asks about (scripts/demo-workspace.ts seeds it). */
+const ASK_PROJECT = 'Larkspur Coffee site relaunch'
+
+/** The Ask screen's conversation: a question, and the agent's answer with the live board in it. */
+function askConversation(projectId: string) {
+  const at = (minutesAgo: number) => ({ createdAt: new Date(Date.now() - minutesAgo * 60_000).toISOString() })
+  const card = {
+    kind: 'list',
+    title: `Open tasks · ${ASK_PROJECT}`,
+    entity_type: 'action',
+    layout: 'board',
+    grouping: { field: 'status_id', direction: 'asc' },
+    filters: [
+      { field: 'project_id', operator: 'is', value: projectId },
+      { field: 'status_type', operator: 'is_none_of', value: ['completed', 'canceled'] },
+    ],
+  }
+  return [
+    { id: 'demo-ask-1', role: 'user', parts: [{ type: 'text', text: 'Show me the open tasks on the Larkspur relaunch as a board.' }], metadata: at(3) },
+    {
+      id: 'demo-ask-2',
+      role: 'assistant',
+      parts: [
+        { type: 'tool-show', toolCallId: 'demo-ask-show', state: 'output-available', input: card, output: { success: true, card, card_number: 1 } },
+        { type: 'text', text: 'Here is the board for the Larkspur Coffee site relaunch. The homepage wireframes and the new menu copy are in progress.' },
+      ],
+      metadata: at(2),
+    },
+  ]
+}
+
 function scrub(path: string, body: unknown): unknown {
   const bare = path.split('?')[0]
   if (bare in EMPTY) return EMPTY[bare]
   if (NEVER.some((re) => re.test(bare))) return {}
-  if (bare.startsWith('/api/account/chat-history/') && body && typeof body === 'object') return { ...(body as object), messages: [] }
+  if (!keepChat && bare.startsWith('/api/account/chat-history/') && body && typeof body === 'object') return { ...(body as object), messages: [] }
   // The demo is a picture: no nudge to enrol a voice over it.
   if (bare === '/api/account/voice-profile') return { ...(body as object), enrolled: true }
   if (bare === '/api/account/onboarding' && body && typeof body === 'object') return { ...(body as object), connectedAccounts: [] }
@@ -98,12 +143,24 @@ async function main() {
   mkdirSync(OUT, { recursive: true })
   const only = process.argv.slice(2).filter((a) => !a.startsWith('--'))
 
-  for (const [name, { steps, target: wanted }] of Object.entries(SCREENS)) {
+  for (const [name, { steps, target: wanted, chat }] of Object.entries(SCREENS)) {
+    keepChat = Boolean(chat)
     if (only.length && !only.includes(name)) continue
     const { data, error } = await admin.auth.admin.generateLink({ type: 'magiclink', email: DEMO_USER_EMAIL })
     if (error || !data.properties?.hashed_token) throw new Error(`generateLink: ${error?.message ?? 'no token'}`)
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'dark', timezoneId: 'America/Los_Angeles' })
     const page = await context.newPage()
+    if (chat) {
+      const project = await admin.from('projects').select('id, name, workspace_id').eq('name', ASK_PROJECT).limit(1).maybeSingle()
+      if (project.error || !project.data) throw new Error(`${name}: no project named "${ASK_PROJECT}" in the demo workspace`)
+      const written = askConversation(project.data.id as string)
+      await page.route('**/api/account/chat-history/*', async (route) => {
+        if (route.request().method() !== 'GET') return route.continue()
+        const res = await route.fetch()
+        const body = (await res.json()) as Record<string, unknown>
+        await route.fulfill({ response: res, json: { ...body, messages: written, hasMore: false } })
+      })
+    }
     await page.addInitScript(() => {
       window.addEventListener('ni:open-card', (event) => {
         ;(window as unknown as { __demoOpen?: unknown }).__demoOpen = (event as CustomEvent).detail
@@ -130,20 +187,25 @@ async function main() {
     await page.waitForTimeout(18_000)
     await page.addStyleTag({ content: 'nextjs-portal,[data-sonner-toaster]{display:none}' })
     await run(page, steps)
-    const open = await page.evaluate(() => (window as unknown as { __demoOpen?: unknown }).__demoOpen ?? null)
+    const open = chat ? null : await page.evaluate(() => (window as unknown as { __demoOpen?: unknown }).__demoOpen ?? null)
     if (SHOTS) await page.screenshot({ path: `${SHOTS}/demo-rec-${name}.png` })
     await context.close()
     let target: unknown = null
     if (!open && wanted?.type === 'page') target = wanted
-    if (!open && wanted?.type === 'capture') {
-      const id = JSON.stringify(answers).match(new RegExp(`"id":"([0-9a-f-]{36})"[^{}]*"(?:label|title)":"${wanted.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"`))?.[1]
-      if (!id) throw new Error(`${name}: no meeting titled "${wanted.title}" in what was recorded`)
-      target = { type: 'capture', id, title: wanted.title }
+    if (!open && (wanted?.type === 'capture' || wanted?.type === 'contact')) {
+      const workspaceId = (answers['/api/account/workspace'] as { workspace?: { id?: string } } | undefined)?.workspace?.id
+      if (!workspaceId) throw new Error(`${name}: the recording has no workspace answer to look the ${wanted.type} up in`)
+      const found =
+        wanted.type === 'capture'
+          ? await admin.from('captures').select('id').eq('workspace_id', workspaceId).eq('title', wanted.title).limit(1).maybeSingle()
+          : await admin.from('contact').select('id').eq('workspace_id', workspaceId).eq('full_name', wanted.title).limit(1).maybeSingle()
+      if (found.error || !found.data) throw new Error(`${name}: no ${wanted.type} "${wanted.title}" in the demo workspace`)
+      target = { type: wanted.type, id: found.data.id, title: wanted.title }
     }
     const out = JSON.stringify({ open, target, answers })
     assertMadeUp(name, out)
     writeFileSync(`${OUT}/${name}.json`, out)
-    console.log(`${name}: ${Object.keys(answers).length} answers, ${out.length} bytes, ${open ? 'open request saved' : target ? 'target saved' : 'NOTHING TO OPEN IT WITH'}`)
+    console.log(`${name}: ${Object.keys(answers).length} answers, ${out.length} bytes, ${open ? 'open request saved' : target ? 'target saved' : chat ? 'the home chat' : 'NOTHING TO OPEN IT WITH'}`)
   }
   await browser.close()
 }
