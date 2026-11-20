@@ -54,6 +54,8 @@ describe('codex-app-server', () => {
     expect(started.params).toEqual(threadParams(t.params))
     expect(started.params).toMatchObject({ cwd: t.cwd, approvalPolicy: 'never', sandbox: 'danger-full-access', developerInstructions: t.params.instructions, config: { mcp_servers: { ni: { url: t.mcp.url, http_headers: { Authorization: `Bearer ${t.mcp.token}` } } } } })
     expect(t.requests().map((r) => r.method).slice(0, 4)).toEqual(['initialize', 'initialized', 'account/read', 'thread/start'])
+    // The thread's own model and effort, as Codex answered them.
+    expect(t.seen.models).toEqual([{ model: 'fake', effort: 'high' }])
     expect(await t.link.prompt('TOOLS')).toBe('end_turn')
     expect(await t.link.prompt('hello')).toBe('end_turn')
     expect(t.requests().filter((r) => r.method === 'turn/start').map((r) => r.params)).toEqual([
@@ -88,6 +90,8 @@ describe('codex-app-server', () => {
     const again = codexAppServerLink(first.launchers, first.events, { label: 'Codex', setupTimeoutMs: 5000 })
     await again.initialize()
     await again.resume(id, first.params)
+    // A resume says the model again; with no effort named, none is shown.
+    expect(first.seen.models).toEqual([{ model: 'fake', effort: 'high' }, { model: 'fake-resumed', effort: null }])
     expect(first.requests().find((r) => r.method === 'thread/resume')!.params).toEqual({ threadId: id, ...threadParams(first.params), excludeTurns: true })
     expect(await again.prompt('go on')).toBe('end_turn')
 

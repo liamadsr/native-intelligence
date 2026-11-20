@@ -32,6 +32,8 @@ describe('offersPullRequest', () => {
     expect(offersPullRequest({ ...done, prUrl: 'https://github.com/fernhill/studio-site/pull/4' })).toBe(false)
     expect(offersPullRequest({ ...done, lastSignal: 'ask' })).toBe(false)
     expect(offersPullRequest(done, { promptOpen: true })).toBe(false)
+    // Its branch holds no change: nothing to open one for.
+    expect(offersPullRequest(done, { noChanges: true })).toBe(false)
     for (const status of ['queued', 'starting', 'running', 'interrupted', 'cancelled', 'failed', 'expired'] as const) {
       expect(offersPullRequest({ ...done, status }), status).toBe(false)
     }

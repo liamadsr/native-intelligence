@@ -104,7 +104,7 @@ function Stage({ selected, onLive, onError, header, back }: { selected: string; 
           </button>
         )}
         {/* Keyed by the chat: another one is another conversation, read afresh. */}
-        <LocalAgentPanel key={selected} sessionId={selected} composer={false} header={header} onLive={onLive} onError={onError} className="min-h-0 flex-1" />
+        <LocalAgentPanel key={selected} sessionId={selected} composer={false} header={header} onLive={onLive} onError={onError} hideScrollbar className="min-h-0 flex-1" />
       </div>
     </div>
   )

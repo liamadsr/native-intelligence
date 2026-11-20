@@ -78,6 +78,12 @@ export interface LinkEvents {
   toolEnd(tool: ToolEnd): void
   /** Something the person should see that does not end the turn (the manager tools' server did not connect). */
   error(message: string): void
+  /**
+   * The model the agent says this session runs on, and its reasoning effort
+   * when it says one: its own setting, on the person's own account (nothing
+   * here chooses either). Told when a session opens; the driver shows a change.
+   */
+  model(info: { model: string; effort?: string | null }): void
   log(line: string): void
 }
 

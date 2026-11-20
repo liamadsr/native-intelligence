@@ -138,6 +138,8 @@ export class WorkerDriver {
   private stopping = false
   private dead = false
   private lastStatus: JobStatus | null = null
+  /** The model and effort last shown (onModel). */
+  private modelSaid: string | null = null
   private message = ''
   private messageId: string | null = null
   /** Tool calls by id: shown once, with one result. */
@@ -159,6 +161,7 @@ export class WorkerDriver {
       error: (message) => {
         if (!this.stopping) this.emit({ kind: 'error', message: truncateText(message) })
       },
+      model: (info) => this.onModel(info.model, info.effort),
       log: io.log,
     }
     const make = deps.link ?? LINKS[opts.entry.driver]
@@ -211,6 +214,18 @@ export class WorkerDriver {
 
   private status(status: JobStatus) {
     this.emit({ kind: 'status', status })
+  }
+
+  /** The agent named its model (and effort): one `model` event per launch, and another only when it names a different one. */
+  private onModel(model: unknown, effort: unknown) {
+    const name = (v: unknown, max: number) => (typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, max) : '')
+    const m = name(model, 80)
+    if (!m || this.stopping) return
+    const e = name(effort, 24)
+    const said = `${m}\n${e}`
+    if (said === this.modelSaid) return
+    this.modelSaid = said
+    this.emit(e ? { kind: 'model', model: m, effort: e } : { kind: 'model', model: m })
   }
 
   /** The link's setup: the CLI's version (for `ready`). Throws a sentence. */

@@ -44,6 +44,8 @@ describe('claude-stream', () => {
     // Each text once (the whole assistant message after its deltas is not shown again), by message.
     expect(t.seen.text.map(([d]) => d)).toEqual(['got: hello', 'got: and again'])
     expect(new Set(t.seen.text.map(([, m]) => m)).size).toBe(2)
+    // The model each turn's init line names, as the link passes it on (the driver shows it once).
+    expect(t.seen.models).toEqual([{ model: 'fake-claude' }, { model: 'fake-claude' }])
     expect(t.calls).toEqual([
       { kind: 'finish', summary: 'Done.' },
       { kind: 'finish', summary: 'Done.' },
