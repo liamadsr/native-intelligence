@@ -1,7 +1,6 @@
 import { Fragment } from 'react'
 import { CompareLinks } from '@/components/compare-links'
 import { Footer } from '@/components/footer'
-import { Navbar } from '@/components/navbar'
 import { PageLayout } from '@/components/page-layout'
 import { Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -109,10 +108,9 @@ function FeatureCell({ value }: { value: FeatureValue }) {
 export default function PricingPage() {
   return (
     <PageLayout>
-      <Navbar />
       <main>
         {/* Header */}
-        <div className="pt-36 pb-12 px-6 lg:px-8">
+        <div className="pt-16 pb-12 px-6 lg:pt-20 lg:px-8">
           <div className="mx-auto max-w-4xl text-center">
             <h1 className="text-4xl font-medium tracking-tight text-foreground sm:text-5xl">
               Simple pricing for your whole team.

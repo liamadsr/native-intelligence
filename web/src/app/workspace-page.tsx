@@ -50,6 +50,7 @@ import { useSignupHref } from '@/components/signup-href'
 import { SiteShell } from '@/components/site/site-shell'
 import { FaqList } from '@/components/site/faq'
 import { SWITCHING_GUIDE } from '@/lib/marketing/site-nav'
+import { DEFAULT_SELECTION, NI_PRICE_PER_SEAT, stackCost } from '@/lib/marketing/replace-apps'
 import type { Section } from '@/components/page-layout'
 import { ActionStreamDemo, ChatDemo, CrmAutologDemo, ExecutionDemo, LiveAgentDemo } from '@/components/landing/lazy-demos'
 import type { ChatDemoExchange } from '@/components/landing/chat-demo'
@@ -372,7 +373,7 @@ const HERO_FACTS = [
   { icon: AudioLines, text: 'Captures every call on your Mac' },
   { icon: ShieldCheck, text: 'Your data never trains AI' },
   { icon: Map, text: 'Public roadmap' },
-  { icon: CalendarCheck, text: '7-day free trial' },
+  { icon: CalendarCheck, text: `7 days free, then $${NI_PRICE_PER_SEAT} a seat` },
 ]
 
 // THE HERO IS THE WORDS AND THEN THE PRODUCT. A short headline, one sentence,
@@ -390,7 +391,7 @@ function Hero() {
           transition={{ duration: 0.5, ease: IN }}
           className="text-[2.75rem]/[1.08] font-heading font-light tracking-[-0.02em] text-foreground sm:text-6xl/[1.06] lg:text-[4.25rem]/[1.05] max-w-4xl text-balance"
         >
-          The workspace with an agent that’s always on
+          An agent that drafts your replies, writes up your calls and updates your CRM
         </motion.h1>
 
         <motion.p
@@ -399,8 +400,8 @@ function Hero() {
           transition={{ duration: 0.5, delay: 0.08, ease: IN }}
           className="mt-6 max-w-2xl text-lg text-muted-foreground sm:text-xl text-pretty"
         >
-          Native Intelligence replaces a stack of apps with one connected workspace,
-          and an agent that learns your work, acts on it, and texts you when it needs a yes.
+          It can, because Native Intelligence is the app that work lives in: your team’s mail, chat,
+          meetings, docs, tasks and customers. It works day and night, and nothing is sent until you say yes, in the app or by text.
         </motion.p>
 
         <motion.div
@@ -446,19 +447,19 @@ function Hero() {
 const ALWAYS_ON_POINTS = [
   {
     title: 'Learns your work',
-    body: 'Every call, thread and finished piece of work teaches it something: the facts, your preferences, how you like things done. You can see what it has learned and remove anything that’s wrong.',
+    body: 'After each call, thread and finished task it writes down what it learned, like a customer’s new deadline or how you word a follow-up. You can read the list and delete anything that’s wrong.',
   },
   {
-    title: 'Acts first',
-    body: 'It drafts replies as mail arrives, writes up your meetings, keeps tasks and customer records current, and makes the first pass on work it can draft.',
+    title: 'Does the first pass',
+    body: 'The reply is drafted when the email arrives. The notes are written when the call ends. Tasks and customer records change when the work does.',
   },
   {
     title: 'Texts you',
-    body: 'Away from the app, it texts your phone, and holds routine things until morning. Text it back, or call its number and talk it through.',
+    body: 'When you’re away from the app, it texts your phone. Routine things wait until morning. Text it back, or call its number and talk it through.',
   },
   {
     title: 'Asks before it sends',
-    body: 'Changes inside your workspace come with an undo. Sending, deleting or anything outside it waits for your yes, in the app or by text.',
+    body: 'A change inside your workspace comes with an undo. Sending an email, deleting something or acting outside the workspace waits for your yes, in the app or by text.',
   },
 ]
 
@@ -467,7 +468,7 @@ function AlwaysOnSection() {
     <SectionContainer id="always-on">
       <SectionIntro
         title="An always-on agent"
-        lead="It reads mail, calls and chat as they arrive, and acts on them around the clock. It texts you when it needs a yes."
+        lead="At 07:50 a customer emails to move a delivery. The reply is drafted before you open your laptop. Here is one day of its work, on a made-up team."
       />
       {/* One of its days, from the first email to the night shift. */}
       <motion.div
@@ -512,12 +513,18 @@ function AlwaysOnSection() {
   )
 }
 
+// The calculator's opening selection, as one sentence: what those apps cost a
+// seat, from the same table the calculator reads (lib/marketing/replace-apps.ts).
+const DEFAULT_STACK_PER_SEAT = Math.round(stackCost(new Set(DEFAULT_SELECTION), 1).appsPerSeat)
+const DEFAULT_STACK_COUNT = ['none', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'][DEFAULT_SELECTION.length] ?? String(DEFAULT_SELECTION.length)
+const DEFAULT_STACK_NAMES = `${DEFAULT_SELECTION.slice(0, -1).join(', ')} and ${DEFAULT_SELECTION[DEFAULT_SELECTION.length - 1]}`
+
 function WorkspaceSection() {
   return (
     <SectionContainer id="workspace">
       <SectionIntro
-        title="One app instead of twenty"
-        lead="Mail, chat, meetings, docs, tasks and a CRM in one workspace. Pick what you pay for today and see the difference."
+        title={`One subscription instead of ${DEFAULT_STACK_COUNT}`}
+        lead={`${DEFAULT_STACK_NAMES} come to $${DEFAULT_STACK_PER_SEAT} a seat each month. Native Intelligence does those jobs for $${NI_PRICE_PER_SEAT}. Pick the apps you pay for and see your own number.`}
       />
       <div className="mt-14">
         <StackCalculator />
@@ -538,18 +545,18 @@ function MemorySection() {
     <SectionContainer id="memory">
       <GroupIntro
         label="Shared memory"
-        promise="One memory across calls, mail, chat and docs, with a source for every fact."
+        promise="What’s said on a call, in an email, in chat or in a doc goes into one memory. Every fact links back to where it was said."
       />
       <div className="mt-20 space-y-28 lg:space-y-36">
         <FeatureStage
           title="Search and ask"
-          description="Ask a question across calls, mail, chat and docs. Every answer cites where it came from."
+          description="Ask what you agreed with a customer about March. The answer names the call and the email it came from."
           visual={<ChatDemo exchanges={WORKSPACE_CHAT_EXCHANGES} />}
           links={[{ label: 'Learn about agents', href: '/features/agents' }]}
         />
         <FeatureStage
           title="Meeting notes"
-          description="Capture any call from your Mac: Zoom, Meet, Teams or the phone. Notes, decisions and next steps are ready when you hang up."
+          description="Record any call from your Mac: Zoom, Meet, Teams or the phone. The notes, the decisions and the next steps are written when you hang up."
           ask={{ name: 'Priya Mehta', text: 'Did anyone take notes on the planning call? I need the new launch date.' }}
           visual={<LiveAgentDemo scenario={PLANNING_CALL_SCENARIO} tools={false} />}
           links={[
@@ -559,7 +566,7 @@ function MemorySection() {
         />
         <FeatureStage
           title="Knowledge graph"
-          description="Customers, people, calls, docs and tasks in one connected graph. Agents read it before they act."
+          description="Every customer, person, call, doc and task is linked to the others. Agents read those links before they act, so you don’t have to brief them."
           visual={
             // The app's own Knowledge map, as it looks on a made-up studio's workspace.
             <img
@@ -583,12 +590,12 @@ function AgentsSection() {
     <SectionContainer id="agents">
       <GroupIntro
         label="Agents"
-        promise="Agents work from what your team already knows. Assign the work, skip the briefing."
+        promise="Hand an agent a task the way you’d hand it to a teammate who sat in on every call."
       />
       <div className="mt-20 space-y-28 lg:space-y-36">
         <FeatureStage
           title="Tasks from conversations"
-          description="Commitments made on calls, in mail and in chat become tasks with an owner and a date. Plan them in projects and cycles."
+          description="When someone says “I’ll have it by Tuesday” on a call, in mail or in chat, it becomes a task with their name and the date on it. Plan the tasks in projects and cycles."
           ask={{ name: 'Sarah Chen', text: 'I’ll write the help article for the new onboarding by Tuesday.' }}
           visual={<ActionStreamDemo pool={WORKSPACE_TASKS} />}
           links={[
@@ -598,14 +605,14 @@ function AgentsSection() {
         />
         <FeatureStage
           title="Coding agent"
-          description="Assign a task to the coding agent. It works from the task and your code, then opens a pull request for review."
+          description="Assign a bug to the coding agent. It reads the task and your code, writes the fix and opens a pull request for your team to review."
           ask={{ name: 'Marcus Tran', text: 'Can an agent take the export timeout Lena reported? I’ll review the pull request.' }}
           visual={<ExecutionDemo />}
           links={[{ label: 'Learn about coding', href: '/features/coding' }]}
         />
         <FeatureStage
           title="CRM without data entry"
-          description="Companies and contacts are created from mail and calls. Notes and deal stages update after every conversation, with an undo."
+          description="A company or contact is added the first time they email or call. After each conversation the notes and the deal stage are updated, and you can undo any change."
           ask={{ name: 'Jordan Kim', text: 'I’m picking up Northwind next week. What happened on their last call?' }}
           visual={<CrmAutologDemo />}
           links={[{ label: 'Learn about the CRM', href: '/features/crm' }]}
@@ -619,7 +626,7 @@ function AgentsSection() {
           },
           {
             title: 'Skills',
-            body: 'Write down how your team does something once, and every agent can do it that way.',
+            body: 'Write down once how your team does something, like a weekly report. Every agent then does it that way.',
           },
           {
             title: 'Evals',
@@ -637,8 +644,8 @@ function AgentsSection() {
 
 function DesktopSection() {
   const points = [
-    { title: 'Every call app', body: 'Zoom, Google Meet, Microsoft Teams, Webex and phone calls, captured the same way.' },
-    { title: 'Meeting alerts', body: 'Get notified before a meeting, and start capturing in one click.' },
+    { title: 'Every call app', body: 'Zoom, Google Meet, Microsoft Teams, Webex and phone calls are all recorded the same way.' },
+    { title: 'Meeting alerts', body: 'A reminder before each meeting, with a button that starts recording.' },
     { title: 'Live agent', body: 'Ask it something mid-call, and it answers from what your team knows.' },
     { title: 'Mac today, Windows next', body: 'The web app works anywhere. Windows capture is on the way.' },
   ]
@@ -647,7 +654,7 @@ function DesktopSection() {
       <div className="text-center">
         <SectionIntro
           title="Desktop app"
-          lead="Capture every call you take on your Mac, in any app. A live agent answers your questions while you talk."
+          lead="The Mac app records any call from your own computer. Ask it a question during the call and it answers from what your team knows."
         />
         <div className="mt-8 flex justify-center">
           <DownloadCta location="home_desktop" primary />
@@ -697,7 +704,7 @@ function IntegrationsSection() {
     <SectionContainer id="integrations">
       <SectionIntro
         title="Switch from your stack"
-        lead="Sign in with Google or Microsoft for mail and calendar. Import customers and spreadsheets. Move one piece at a time."
+        lead="Sign in with Google or Microsoft and your mail and calendar are there. Import your customers from HubSpot or a spreadsheet. Start with one piece and move the rest when you’re ready."
       />
       <motion.div
         variants={GROUP}
@@ -739,11 +746,11 @@ export const FAQ_ITEMS = [
   },
   {
     q: 'What can the agents do on their own?',
-    a: 'Draft replies, turn commitments into tasks, keep projects and customer records current, run your flows, and take on tasks like writing code, which ends in a pull request for your team to review.',
+    a: 'They draft replies, turn what people promise into tasks, update projects and customer records, and run your flows. They also take on whole tasks, like a code fix that ends in a pull request for your team to review. Sending an email or deleting something waits for your yes.',
   },
   {
     q: 'Who is it for?',
-    a: 'Teams that run on meetings, mail and chat and are tired of copying what they learn from one tool into another: founders, operators, product and engineering teams, and the people who talk to customers.',
+    a: 'Small teams that spend the day in meetings, mail and chat, then copy what was said into a tracker and a CRM. That’s founders, operators, product and engineering teams, and anyone who talks to customers.',
   },
   {
     q: 'Is our data used to train AI models?',
@@ -751,7 +758,7 @@ export const FAQ_ITEMS = [
   },
   {
     q: 'How much does it cost?',
-    a: 'Start with a 7-day free trial (you add a card to begin, and pay nothing if you cancel before it ends), then pay per seat. The pricing page has the details.',
+    a: `$${NI_PRICE_PER_SEAT} per seat per month, after a 7-day free trial. You add a card to start, and pay nothing if you cancel before the trial ends. The pricing page has the details.`,
   },
 ]
 
@@ -781,9 +788,9 @@ function CTASection() {
         className="text-center"
       >
         <h2 className="text-4xl/[1.1] font-heading font-light tracking-[-0.02em] text-foreground sm:text-5xl/[1.08] lg:text-6xl/[1.06] text-balance">
-          Bring your team into one workspace.
+          Try it on tomorrow’s inbox and calls.
           <br />
-          <span className="text-muted-foreground">Try it free for 7 days.</span>
+          <span className="text-muted-foreground">7 days free, then ${NI_PRICE_PER_SEAT} a seat.</span>
         </h2>
         <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-3">
           <PrimaryCta location="home_cta" />

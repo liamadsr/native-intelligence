@@ -13,7 +13,6 @@
  */
 
 import { Footer } from '@/components/footer'
-import { Navbar } from '@/components/navbar'
 import { useSignupHref } from '@/components/signup-href'
 import { PageLayout, type Section } from '@/components/page-layout'
 import { EarlyAccessForm } from '@/components/early-access-form'
@@ -118,11 +117,7 @@ function Hero() {
 
   return (
     <section id="hero" className="relative flex flex-col">
-      {/* Navbar self-positions as a `fixed z-50` header — don't wrap it in a
-          `relative z-10` div (see company-brain-page.tsx). */}
-      <Navbar />
-
-      <div className="relative z-10 flex flex-col items-center px-6 lg:px-8 pt-44 sm:pt-52 pb-24 text-center">
+      <div className="relative z-10 flex flex-col items-center px-6 lg:px-8 pt-20 sm:pt-28 pb-24 text-center">
         <motion.h1
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}

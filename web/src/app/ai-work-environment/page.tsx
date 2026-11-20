@@ -1,7 +1,6 @@
 import type { Metadata } from 'next'
 import { Footer } from '@/components/footer'
 import { Link } from '@/components/link'
-import { Navbar } from '@/components/navbar'
 import { PageLayout } from '@/components/page-layout'
 import { StructuredData } from '@/components/structured-data'
 import { hasDownload } from '@/lib/app-download'
@@ -56,11 +55,10 @@ function SectionDivider() {
 export default function AiWorkEnvironmentPage() {
   return (
     <PageLayout>
-      <Navbar />
       <StructuredData id="article-ai-work-environment" data={articleSchema} />
       <main>
         {/* Hero / definition */}
-        <section className="relative pt-40 pb-16 px-6 lg:px-8">
+        <section className="relative pt-16 pb-16 px-6 lg:pt-24 lg:px-8">
           <div className="mx-auto max-w-3xl w-full">
             <p className="font-mono text-xs/5 font-semibold uppercase tracking-widest text-muted-foreground">
               Category

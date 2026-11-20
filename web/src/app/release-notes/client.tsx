@@ -1,7 +1,6 @@
 'use client'
 
 import { Footer } from '@/components/footer'
-import { Navbar } from '@/components/navbar'
 import { ContentSection, PageHeader, PageLayout, type Section } from '@/components/page-layout'
 import { releases } from '@/data/releases'
 import dayjs from 'dayjs'
@@ -15,7 +14,6 @@ export default function ReleaseNotes() {
   return (
     <PageLayout sections={sections}>
       <div>
-        <Navbar />
         <PageHeader
           eyebrow="Product Updates"
           title="Release Notes"

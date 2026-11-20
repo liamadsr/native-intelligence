@@ -16,7 +16,7 @@ export const tables: FeaturePage = {
     {
       id: 'columns',
       nav: 'Columns',
-      title: 'Columns that know what they hold.',
+      title: 'Typed columns: text, numbers, dates, people and more.',
       body: 'Give each column a type: text, number, currency, date, select, checkbox, person, email, phone, web address, or a relation to other records. Every value is checked against its column, so a number column only takes numbers.',
     },
     {

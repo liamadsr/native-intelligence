@@ -3,7 +3,7 @@ import type { FeaturePage } from './types'
 export const seo: FeaturePage = {
   slug: 'seo',
   name: 'SEO',
-  title: 'The work of being found, in your workspace.',
+  title: 'Site audits, keywords and rank tracking in your workspace.',
   lead: 'Audit your site, research keywords, track where you rank, see who links to you and check whether AI assistants mention you. Every page is also something you can ask for in chat.',
   metaTitle: 'SEO: audits, keywords and rankings in one place',
   metaDescription:

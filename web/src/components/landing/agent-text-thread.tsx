@@ -276,7 +276,7 @@ export function AgentTextThread() {
             </div>
 
             {/* A fixed height, so the page never moves as the thread fills. */}
-            <ul className="flex h-[24rem] flex-col justify-end gap-1.5 overflow-hidden px-4 pt-3 pb-2">
+            <ul className="flex h-[30rem] flex-col justify-end gap-1.5 overflow-hidden px-4 pt-3 pb-2">
               {THREAD.slice(0, now.shown).map((message) => (
                 <li
                   key={message.text}

@@ -39,7 +39,7 @@ export const docs: FeaturePage = {
     {
       id: 'linked-work',
       nav: 'Linked work',
-      title: 'Docs that sit with the work.',
+      title: 'Docs attached to projects and tasks.',
       body: 'Attach a doc to a project or a task, pin the ones your team opens most, and archive the ones you no longer need. Docs link to each other, so a spec can point at the decisions behind it.',
     },
     {

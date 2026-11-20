@@ -4,7 +4,7 @@ export const flows: FeaturePage = {
   slug: 'flows',
   name: 'Flows',
   title: 'Steps that run when something happens.',
-  lead: 'A flow is one trigger and the steps that follow it. Mail arrives, a meeting ends, a task moves, the clock strikes nine: the steps run, and you see what they did.',
+  lead: 'A flow is one trigger and the steps that follow it. When mail arrives, a meeting ends, a task moves or it turns 9:00, the steps run and you see what they did.',
   metaTitle: 'Flows: automations on triggers and schedules',
   metaDescription:
     'Run steps when mail arrives, a message lands in a channel, a doc is created, a meeting ends or a schedule fires. Built in chat or on a canvas.',

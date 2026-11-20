@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { usePostHog } from 'posthog-js/react'
 import { Container } from '@/components/container'
 import { Footer } from '@/components/footer'
-import { Navbar } from '@/components/navbar'
+import { PageLayout } from '@/components/page-layout'
 import { Heading } from '@/components/text'
 import { Button } from '@/components/button'
 
@@ -54,10 +54,9 @@ export default function Contact() {
   }
 
   return (
-    <div className="overflow-hidden">
+    <PageLayout>
       <div className="relative">
         <Container className="relative">
-          <Navbar />
           <div className="pb-24 pt-16 sm:pb-32 sm:pt-24">
             <div className="mx-auto max-w-2xl">
               <Heading as="h1" className="text-center">
@@ -140,6 +139,6 @@ export default function Contact() {
         </Container>
       </div>
       <Footer />
-    </div>
+    </PageLayout>
   )
 }

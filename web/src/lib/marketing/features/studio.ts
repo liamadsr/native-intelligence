@@ -3,7 +3,7 @@ import type { FeaturePage } from './types'
 export const studio: FeaturePage = {
   slug: 'studio',
   name: 'Studio',
-  title: 'Make videos and ads where your team already works.',
+  title: 'Script, record and edit product videos in your workspace.',
   lead: 'Write the script, record the screen, edit on a timeline and export an MP4, all inside the workspace. The agent can do any of those steps with you.',
   metaTitle: 'Studio: videos and ads inside your workspace',
   metaDescription:

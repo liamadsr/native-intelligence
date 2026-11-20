@@ -65,7 +65,7 @@ export const chat: FeaturePage = {
     {
       id: 'notifications',
       nav: 'Notifications',
-      title: 'Hear about what is meant for you.',
+      title: 'Notifications per channel.',
       body: 'Set each channel to all messages, mentions only, or muted. Direct messages, mentions and thread replies reach you in the app and as a desktop banner, and if you are away, one email gathers what you missed.',
     },
   ],
