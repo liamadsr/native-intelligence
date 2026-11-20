@@ -30,12 +30,18 @@
  *   Environment  the Mac and the folder it works in.
  *   Agent        who does the work: Native Intelligence on that Mac, or the
  *                person's own coding agent by name.
+ *   Action       first, when the job works an action (its Start): the
+ *                action's identifier and title, a press opening it (Liam,
+ *                11-20: "a two way connection where I can start an action
+ *                items work from the action item then I can go to the coding
+ *                view and see it's chat and go to the action item from it's
+ *                properties panel").
  *
  * Read from the conversation's own reader (chat/code-view-store.ts `live`):
  * no read of its own, no timer. Until that first read, blank cards.
  */
-import type { ReactNode } from 'react'
-import { ExternalLink, Square } from 'lucide-react'
+import { useEffect, useState, type ReactNode } from 'react'
+import { ArrowUpRight, ExternalLink, Square } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -48,6 +54,7 @@ import type { PanelSession } from '@/components/local-agent/session-api'
 import { useCodeView } from '../chat/use-code-view'
 import { useOptionalAgentWorkShared } from '@/components/work/agent-work-provider'
 import { WorkItemDetailPanel } from '@/components/work/work-item-detail-panel'
+import { openTarget } from '@/lib/chat-cards/open-card'
 
 /** Who does the work, one way for every agent: its name, and where it runs. */
 export function codeAgentName(session: Pick<PanelSession, 'worker'>): string {
@@ -80,10 +87,72 @@ function Line({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
+/** The action a job works, as its card names it. */
+interface JobAction {
+  id: string
+  identifier: string | null
+  title: string
+}
+
+/**
+ * The action a job works (an action's Start), read once per action from its
+ * own route (GET /api/account/actions/[id]): the conversation's reader polls,
+ * so the read stays here, never in each poll. Null with none, until it lands,
+ * or when it can't be read (gone, another workspace's).
+ */
+export function useJobAction(actionId: string | undefined): JobAction | null {
+  const [read, setRead] = useState<{ id: string; action: JobAction | null } | null>(null)
+  useEffect(() => {
+    if (!actionId) return
+    let current = true
+    void fetch(`/api/account/actions/${encodeURIComponent(actionId)}`, { cache: 'no-store' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body: { action?: { identifier?: unknown; title?: unknown } } | null) => {
+        if (!current) return
+        const a = body?.action
+        setRead({
+          id: actionId,
+          action: a ? { id: actionId, identifier: typeof a.identifier === 'string' && a.identifier ? a.identifier : null, title: typeof a.title === 'string' ? a.title : '' } : null,
+        })
+      })
+      .catch(() => {
+        if (current) setRead({ id: actionId, action: null })
+      })
+    return () => {
+      current = false
+    }
+  }, [actionId])
+  return actionId && read?.id === actionId ? read.action : null
+}
+
+/**
+ * The action the job works, first (Liam, 11-20: "on the side panel I want to
+ * see the action item the agent is working on… a two way connection"): its
+ * identifier and title, a press opening it, as any action opens.
+ */
+function ActionCard({ action }: { action: JobAction }) {
+  return (
+    <Card id="action" title="Action">
+      <button
+        type="button"
+        data-code-chat-action={action.id}
+        onClick={() => openTarget({ type: 'action', id: action.id, title: action.title }, { from: 'code-view' })}
+        title={[action.identifier, action.title].filter(Boolean).join(' · ')}
+        className="-mx-1 flex w-[calc(100%+0.5rem)] min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 text-left text-[13px] text-foreground/90 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+      >
+        {action.identifier && <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{action.identifier}</span>}
+        <span className="min-w-0 flex-1 truncate">{action.title || 'Untitled action'}</span>
+        <ArrowUpRight aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+      </button>
+    </Card>
+  )
+}
+
 export function CodeChatSections() {
   const { selected, live, error } = useCodeView()
   // The work item's panel opens records through the agents' shared source: only inside the shell.
   const inShell = useOptionalAgentWorkShared() !== null
+  const action = useJobAction(live?.session.actionId)
   if (!selected) return null
   if (error && !live) {
     return (
@@ -115,6 +184,7 @@ export function CodeChatSections() {
   }
   return (
     <div data-code-chat-sections={session.id} className="ph-no-capture flex flex-col gap-2.5">
+      {action && <ActionCard action={action} />}
       {session.model && (
         <Card id="model" title="Model">
           <Line label="Model">

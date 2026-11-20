@@ -7,11 +7,14 @@
  * now"): the person's coding chats in place of the recents, in the recents'
  * own look (home-recents.tsx: the same frame, sections by day, rows).
  *
- *   What    the Code jobs the person started from the composer's Code tab
- *           (code-chats-model.ts), newest first, in the recents' sections.
- *   A row   the request's first line, its folder for the pointer, and a
- *           short time; a dot while its agent waits on the person's answer,
- *           a quiet pulse while it works.
+ *   What    every coding job of the person's in the workspace (code-chats-
+ *           model.ts; Liam, 11-20: "any chat/agent that's working on
+ *           something including the ones that were started from an action
+ *           item"), newest first, in the recents' sections.
+ *   A row   the request's first line (an action's job: the action's
+ *           identifier and title), its folder for the pointer, and a short
+ *           time; a dot while its agent waits on the person's answer, a
+ *           quiet pulse while it works.
  *   Open    a click selects it: its conversation shows in the middle and
  *           its details in the right panel (chat/code-view-store.ts), in the
  *           dashboard itself, whoever does the work. The selected one's row
@@ -159,7 +162,7 @@ export function CodeChatsRows({ items, readAt, onLimit }: { items: readonly Code
                   data-code-chat-working={item.working ? '' : undefined}
                   aria-current={item.key === selected ? 'true' : undefined}
                   onClick={() => open(item)}
-                  title={item.folder ? `${item.title} · ${item.folder}` : item.title}
+                  title={[item.action?.identifier, item.title, item.folder].filter(Boolean).join(' · ')}
                   className={cn(
                     'flex h-8 w-full items-center gap-2.5 rounded-xl px-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring motion-reduce:transition-none',
                     item.key === selected ? ROW_LIT : 'hover:bg-muted/60',
@@ -168,7 +171,15 @@ export function CodeChatsRows({ items, readAt, onLimit }: { items: readonly Code
                   <span aria-hidden className="flex w-4 shrink-0 items-center justify-center text-muted-foreground">
                     <Code2 className={cn('size-4', item.working && 'motion-safe:animate-pulse')} strokeWidth={1.75} />
                   </span>
-                  <span className={cn('min-w-0 flex-1 truncate text-[13px] text-foreground', item.needsYou && 'font-medium')}>{item.title}</span>
+                  <span className={cn('min-w-0 flex-1 truncate text-[13px] text-foreground', item.needsYou && 'font-medium')}>
+                    {/* The action it works, by its identifier: which actions are being worked on. */}
+                    {item.action?.identifier && (
+                      <span data-code-chat-row-action={item.action.id} className="mr-1.5 text-[11px] font-normal tabular-nums text-muted-foreground">
+                        {item.action.identifier}
+                      </span>
+                    )}
+                    {item.title}
+                  </span>
                   {item.needsYou && (
                     <span className="size-1.5 shrink-0 rounded-full bg-primary">
                       <span className="sr-only">, needs your answer</span>
