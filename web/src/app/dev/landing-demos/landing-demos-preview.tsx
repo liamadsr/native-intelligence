@@ -22,6 +22,11 @@ const DEMOS: { id: string; node: ReactNode }[] = [
   { id: 'app-notes', node: <AppScreen screen="notes" /> },
   { id: 'app-transcript', node: <AppScreen screen="transcript" /> },
   { id: 'app-contact', node: <AppScreen screen="contact" /> },
+  { id: 'cut-chat', node: <AppScreen screen="chat" cut /> },
+  { id: 'cut-list', node: <AppScreen screen="list" cut /> },
+  { id: 'cut-notes', node: <AppScreen screen="notes" cut /> },
+  { id: 'cut-transcript', node: <AppScreen screen="transcript" cut /> },
+  { id: 'cut-contact', node: <AppScreen screen="contact" cut /> },
   { id: 'execution', node: <ExecutionDemo /> },
   { id: 'integrations', node: <IntegrationsDemo /> },
 ]

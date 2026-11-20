@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import sharp from 'sharp'
 import { describe, expect, it } from 'vitest'
-import { DEMO_SCREENS, DEMO_WINDOWS } from '../demo-screens'
+import { DEMO_CUTS, DEMO_SCREENS, DEMO_WINDOWS } from '../demo-screens'
 
 // Every screen a page can frame has what the recorder writes for it
 // (scripts/record-demo-screens.ts): the answers the app is drawn from, and the
@@ -24,6 +24,25 @@ describe('the demo screens', () => {
       const text = readFileSync(`src/lib/demo/snapshots/app/${screen}.json`, 'utf8')
       const real = (text.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g) ?? []).filter((address) => !/\.(test|example)$/i.test(address))
       expect(real).toEqual([])
+    }
+  })
+
+  it('a screen\u2019s cut lies inside the window it was recorded in, so the frame never shows past the app\u2019s edge', () => {
+    for (const [screen, cut] of Object.entries(DEMO_CUTS)) {
+      const window = DEMO_WINDOWS[screen as keyof typeof DEMO_WINDOWS]
+      expect(cut.x).toBeGreaterThanOrEqual(0)
+      expect(cut.y).toBeGreaterThanOrEqual(0)
+      expect(cut.x + cut.width).toBeLessThanOrEqual(window.width)
+      expect(cut.y + cut.height).toBeLessThanOrEqual(window.height)
+    }
+  })
+
+  it('the pages whose demos sit in half a column show the cut, not the whole app shrunk to fit', () => {
+    for (const page of ['src/app/meeting-notes/meeting-notes-page.tsx', 'src/app/company-brain/company-brain-page.tsx']) {
+      const source = readFileSync(page, 'utf8')
+      const screens = source.match(/<AppScreen [^>]*\/>/g) ?? []
+      expect(screens.length).toBeGreaterThan(0)
+      for (const tag of screens) expect(tag).toMatch(/ cut /)
     }
   })
 })
