@@ -15,6 +15,7 @@
  * through its query engine on the same path the page takes, with the place's
  * scope (the team, the list, the suite) added on top.
  */
+import { DEFAULT_ACTION_COMPLETED_FILTER } from '@/lib/views/completed-window'
 import {
   applyEntityDefaults,
   applyFilters,
@@ -379,7 +380,9 @@ async function runPageList(
   applyEntityDefaults(q, entity, filters)
   if (query.search && (CARD_SEARCHABLE_ENTITIES.has(entity) || entity === 'claim')) applySearch(q, entity, query.search)
   if (entity === 'action') {
-    await applyCompletedFilter(scope.supabase, q, query.completed_filter ?? 'all', query.show_completed ?? true, scope.workspaceId)
+    // Absent is the page's own default, as the page opens (a page card's query
+    // leaves out what is still its default: queryFromConfig).
+    await applyCompletedFilter(scope.supabase, q, query.completed_filter ?? DEFAULT_ACTION_COMPLETED_FILTER, query.show_completed ?? true, scope.workspaceId)
   }
   applyOrdering(q, ordering, entity, { fieldTypes })
   applyPagination(q, 1, limit)

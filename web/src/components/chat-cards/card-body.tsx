@@ -218,6 +218,12 @@ function baselineOf(spec: ListCardSpec): Partial<ViewConfig> {
     ...(spec.grouping !== undefined ? { grouping: spec.grouping } : {}),
     ...(spec.layout ? { layout: spec.layout } : {}),
     ...(spec.columns ? { display_properties: spec.columns } : {}),
+    // The completed setting the agent's read used (lib/chat-cards/server.ts),
+    // so the card shows the rows the agent saw. Absent is 'all' for a list
+    // card, not the page's window: every list card already in a chat means
+    // 'all' by leaving it out (CardQuery).
+    completed_filter: spec.completed_filter ?? 'all',
+    ...(spec.show_completed === false ? { show_completed: false } : {}),
   }
 }
 

@@ -1,3 +1,4 @@
+import type { CompletedFilter } from '@/lib/views/completed-window'
 import { requireWorkspaceMember, requireWorkspaceFeature } from '@/lib/api-auth'
 import { badRequest, serverError } from '@/lib/api-errors'
 import {
@@ -82,7 +83,7 @@ export async function POST(request: NextRequest) {
     page?: number
     per_page?: number
     show_completed?: boolean
-    completed_filter?: 'all' | 'recent' | 'none'
+    completed_filter?: CompletedFilter
     action_scope?: 'assigned' | 'created' | 'all' | null
     crm_scope?: 'internal' | 'external' | null
     capture_scope?: 'mine' | 'shared' | null

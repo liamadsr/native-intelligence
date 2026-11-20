@@ -45,6 +45,7 @@ import { DEFAULT_CURRENCY, type CustomFieldType } from '@/lib/crm/custom-field-t
 // components can import it without pulling in this server-side module.
 import { applyVisibilityFence, companyNeedsFenceEmbed, COMPANY_FENCE_SELECT, type VisibilityFence } from './visibility-fence'
 import { flowRowForViewer } from '@/lib/flows/types'
+import { completedFilterOfView, completedWindowStart, normalizeCompletedFilter } from './completed-window'
 export { NO_MATCH_FILTER_VALUE } from './types'
 
 /**
@@ -1869,33 +1870,50 @@ export async function applyCompletedFilter(
   completedFilter: string,
   showCompleted: boolean,
   workspaceId: WorkspaceScopeIds,
+  options: { now?: Date } = {},
 ) {
-  if (showCompleted && completedFilter === 'all') return
+  const filter = normalizeCompletedFilter(completedFilter)
+  if (showCompleted && filter === 'all') return
 
-  // Get completed + canceled state IDs for every workspace in scope
-  const categories = ['completed', 'canceled']
+  const doneIds = await doneStateIds(supabase, workspaceId)
+  if (doneIds.length === 0) return
+
+  if (!showCompleted || filter === 'none') {
+    // Exclude all completed/canceled
+    query.not('status_id', 'in', `(${doneIds.join(',')})`)
+    return
+  }
+  // A window (past day / week / month, or the older `recent`, 14 days): every
+  // open action, and the finished ones finished inside it. One OR, because
+  // PostgREST has no other way to say "not done, or done recently".
+  const since = completedWindowStart(filter, options.now)
+  if (!since) return
+  const ids = doneIds.join(',')
+  query.or(`status_id.not.in.(${ids}),and(status_id.in.(${ids}),${COMPLETED_AT_COLUMN}.gte.${since})`)
+}
+
+/**
+ * The column a window is measured on. `updated_at` until migration 671 adds
+ * `actions.completed_at`: any edit to an old finished action brings it back
+ * into the window, which is the known flaw 671 fixes.
+ */
+export const COMPLETED_AT_COLUMN: 'updated_at' | 'completed_at' = 'updated_at'
+
+/**
+ * Every completed and canceled workflow state in scope, by CATEGORY — see
+ * applyCompletedFilter for why the category and not a state or a name.
+ */
+export async function doneStateIds(supabase: SupabaseClient, workspaceId: WorkspaceScopeIds): Promise<string[]> {
   const { data: doneStates } = await scopedWorkflowStates(supabase, workspaceId)
-    .in('category', categories)
-
+    .in('category', DONE_CATEGORIES)
   const inScope = scopeIdSet(workspaceId)
-  const doneIds = (doneStates || [])
+  return (doneStates || [])
     .filter((s) => inScope.has((s.team as unknown as { workspace_id: string })?.workspace_id))
     .map((s) => s.id)
-
-  if (!showCompleted || completedFilter === 'none') {
-    // Exclude all completed/canceled
-    if (doneIds.length > 0) {
-      query.not('status_id', 'in', `(${doneIds.join(',')})`)
-    }
-  } else if (completedFilter === 'recent') {
-    // Include completed only from last 2 weeks
-    const twoWeeksAgo = subDays(new Date(), 14).toISOString()
-    // This is complex with PostgREST — we use an OR: not-done OR (done AND updated recently)
-    query.or(
-      `status_id.not.in.(${doneIds.join(',')}),and(status_id.in.(${doneIds.join(',')}),updated_at.gte.${twoWeeksAgo})`,
-    )
-  }
 }
+
+/** The workflow categories a finished action is in. */
+export const DONE_CATEGORIES = ['completed', 'canceled']
 
 // ============================================================
 // Team Scope
@@ -2620,7 +2638,7 @@ export async function executeView(
     await applyCompletedFilter(
       supabase,
       query,
-      view.completed_filter || 'all',
+      completedFilterOfView(view),
       view.show_completed,
       view.workspace_id,
     )

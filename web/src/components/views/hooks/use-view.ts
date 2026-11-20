@@ -1,5 +1,6 @@
 'use client'
 
+import { DEFAULT_ACTION_COMPLETED_FILTER, completedFilterOfView, type CompletedFilter } from '@/lib/views/completed-window'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useWorkspaceId } from '@/app/account/workspace-switcher'
 import type {
@@ -407,7 +408,7 @@ export interface ViewConfig {
   layout: ViewLayout
   board_group_by: string | null
   show_completed: boolean
-  completed_filter: 'all' | 'recent' | 'none'
+  completed_filter: CompletedFilter
   show_sub_items: boolean
   nested_sub_items: boolean
   show_empty_groups: boolean
@@ -497,7 +498,12 @@ export function defaultConfig(
     layout: defaultLayout(entityType),
     board_group_by: null,
     show_completed: true,
-    completed_filter: 'all',
+    // A new action list shows the past week's finished actions, not every one
+    // ever (Linear's "Completed" window). A saved view keeps its own setting
+    // (viewToConfig). A page in the chat (the Tasks panel's lists) is the page,
+    // so it opens on this too; an agent's list card keeps 'all' unless the
+    // agent's query says otherwise (card-body.tsx baselineOf).
+    completed_filter: entityType === 'action' ? DEFAULT_ACTION_COMPLETED_FILTER : 'all',
     show_sub_items: true,
     nested_sub_items: false,
     show_empty_groups: false,
@@ -1029,7 +1035,9 @@ function viewToConfig(view: View): ViewConfig {
     layout,
     board_group_by: view.board_group_by,
     show_completed: view.show_completed ?? true,
-    completed_filter: view.completed_filter || 'all',
+    // Exactly what the view stores (an old `all` stays `all`); a window saved
+    // before migration 671 rides in its metadata (completedFilterOfView).
+    completed_filter: completedFilterOfView(view),
     show_sub_items: view.show_sub_items ?? true,
     nested_sub_items: view.nested_sub_items ?? false,
     show_empty_groups: view.show_empty_groups ?? false,
