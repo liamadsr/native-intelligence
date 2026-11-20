@@ -24,7 +24,7 @@ import { createRoot, type Root } from 'react-dom/client'
 vi.mock('sonner', () => ({ toast: Object.assign(vi.fn(), { error: vi.fn(), success: vi.fn() }) }))
 vi.mock('@/lib/local-agent/relay-core', () => ({ refreshLocalAgentDevice: vi.fn(async () => null) }))
 
-import { StartAgentWith, startWorkerOptions } from '../start-agent-with'
+import { StartAgentWith, startPlaceLabel, startWorkerOptions, useStartOnMac } from '../start-agent-with'
 import { configureEnvironment, resetEnvironmentStore } from '@/lib/local-agent/environment-client'
 import { cloud, fakeFetch, json, mac } from './fixtures'
 
@@ -50,7 +50,9 @@ function Host({ actionId }: { actionId: string | null }) {
   const [value, setValue] = useState<string | null | undefined>(undefined)
   setOutside = setValue
   chosen.push(value)
-  return h(StartAgentWith, { actionId, enabled: true, value, onChange: setValue })
+  // As the panel does: one read of where the Start runs, its Mac handed to "with".
+  const place = useStartOnMac(actionId, true)
+  return h(StartAgentWith, { mac: place.mac, enabled: true, value, onChange: setValue })
 }
 
 /**
@@ -157,5 +159,16 @@ describe('the Start’s “with” choice', () => {
     await flush()
     expect(chosen.at(-1)).toBeNull()
     expect(q('[data-start-agent-with]')!.textContent).toBe('with Native Intelligence')
+  })
+})
+
+describe('startPlaceLabel: the Start says where it runs', () => {
+  it('the cloud without “Run my work here”; the Mac’s name with it, and the picked agent when one is', () => {
+    expect(startPlaceLabel({ macId: null, mac: null }, undefined)).toBe('Run agent in cloud')
+    expect(startPlaceLabel({ macId: 'env-mac', mac: STUDIO() }, undefined)).toBe('Run on Studio Mac')
+    expect(startPlaceLabel({ macId: 'env-mac', mac: STUDIO() }, null)).toBe('Run on Studio Mac')
+    expect(startPlaceLabel({ macId: 'env-mac', mac: STUDIO({ offeredWorkers: OFFERS }) }, 'claude-code')).toBe('Run on Studio Mac with Claude Code')
+    // The Mac not in the list yet: still on a Mac, never “in cloud”.
+    expect(startPlaceLabel({ macId: 'env-mac', mac: null }, 'codex')).toBe('Run on your Mac with Codex')
   })
 })

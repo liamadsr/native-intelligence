@@ -71,6 +71,8 @@ const SID = '5e1c2a3b-4d5e-4f60-8a71-92b3c4d5e6f7'
 let runStatus = 'working'
 let job: Record<string, unknown> | null = null
 let startAnswer: Record<string, unknown> = {}
+let placeAnswer: Record<string, unknown> = { onMac: null, coding: null }
+let environments: unknown[] = []
 const action = () => ({
   id: 'act-1', identifier: 'ENG-42', title: 'Ship the thing', description: null, status_id: 'st-1', status_name: 'Todo',
   status_category: 'unstarted', status_color: '#888888', priority: 'none', team_id: 'team-1', project_id: null,
@@ -89,7 +91,12 @@ function installFetch() {
       calls.push({ url, init })
       if (url === DETAIL_URL) return { ok: true, status: 200, json: async () => ({ action: action() }) }
       if (url === `${DETAIL_URL}/mac-job`) return { ok: true, status: 200, json: async () => ({ job }) }
-      if (url === `${DETAIL_URL}/start-agent`) return { ok: true, status: 200, json: async () => startAnswer }
+      if (url === `${DETAIL_URL}/start-agent`) {
+        // GET: where this person's Start runs; POST: the Start itself.
+        if ((init?.method ?? 'GET') === 'GET') return { ok: true, status: 200, json: async () => placeAnswer }
+        return { ok: true, status: 200, json: async () => startAnswer }
+      }
+      if (url === '/api/account/environments') return { ok: true, status: 200, json: async () => ({ environments: environments, defaultEnvironmentId: null }) }
       if (url.startsWith('/api/account/task-destinations')) return { ok: true, status: 200, json: async () => ({ destinations: [] }) }
       return {
         ok: true,
@@ -117,6 +124,8 @@ beforeEach(() => {
   runStatus = 'working'
   job = null
   startAnswer = {}
+  placeAnswer = { onMac: null, coding: null }
+  environments = []
   installFetch()
   container = document.createElement('div')
   document.body.appendChild(container)
@@ -178,7 +187,8 @@ describe('ActionDetailPanel — the job on the person’s Mac', () => {
     runStatus = 'idle'
     startAnswer = { mode: 'mac', worker: 'local_agent', sessionId: SID, mac: 'Studio Mac', folder: 'site', agent: 'codex' }
     await render()
-    const play = container.querySelector('[aria-label="Launch Builder to work on this task"]') as HTMLButtonElement
+    const play = container.querySelector('[data-start-agent-place]') as HTMLButtonElement
+    expect(play.getAttribute('aria-label')).toBe('Run agent in cloud: launch Builder to work on this task')
     await act(async () => play.click())
     for (let i = 0; i < 3; i++) await act(async () => { await vi.advanceTimersByTimeAsync(50) })
     const post = calls.find((c) => c.url === `${DETAIL_URL}/start-agent`)!
@@ -186,5 +196,25 @@ describe('ActionDetailPanel — the job on the person’s Mac', () => {
     expect(post.init?.body).toBeUndefined()
     expect(q('[data-local-agent-panel]')?.getAttribute('data-local-agent-panel')).toBe(SID)
     expect(q('[data-action-mac-tab]')!.textContent).toContain('Codex')
+  })
+
+  it('the Start says where it runs: the cloud, or the Mac “Run my work here” names', async () => {
+    runStatus = 'idle'
+    environments = [
+      {
+        kind: 'mac', id: 'env-mac', name: 'Studio Mac', deviceId: 'dev-1', deviceName: 'Studio Mac', appVersion: '0.3.0',
+        lastSeenAt: '2026-10-22T10:00:00Z', online: true, supportsBaseBranch: true, folders: [],
+        createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z',
+      },
+    ]
+    placeAnswer = { onMac: { environmentId: 'env-mac' }, coding: { projectId: 'proj-1', repo: 'acme/core' } }
+    await render()
+    const play = container.querySelector('[data-start-agent-place]') as HTMLButtonElement
+    expect(play.getAttribute('data-start-agent-place')).toBe('mac')
+    expect(play.getAttribute('aria-label')).toBe('Run on Studio Mac: launch Builder to work on this task')
+    // Where it runs, beside it: the Mac (no folder linked to acme/core is flagged).
+    const where = q('[data-start-agent-where]')!
+    expect(where.textContent).toContain('on Studio Mac')
+    expect(where.getAttribute('title')).toBe('No folder on Studio Mac is linked to acme/core.')
   })
 })

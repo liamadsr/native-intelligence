@@ -322,13 +322,18 @@ describe('GET start-agent: does my Start run on my Mac as a coding job (the "wit
     return res.json()
   }
 
+  const CODING = { projectId: PROJECT, repo: 'acme/core' }
+
   it('my Start: a repo, a developer agent and my “Run my work here”: that Mac', async () => {
-    expect(await get(ME)).toEqual({ onMac: { environmentId: MAC_ENV } })
+    expect(await get(ME)).toEqual({ onMac: { environmentId: MAC_ENV }, coding: CODING })
   })
 
-  it('a non-developer agent, or no “Run my work here” (a teammate’s Start): not on a Mac, so no choice is offered or sent', async () => {
-    expect(await get(TEAMMATE)).toEqual({ onMac: null })
+  it('no “Run my work here” (a teammate’s Start): a coding run in the cloud, so the panel may offer their own Mac, never mine', async () => {
+    expect(await get(TEAMMATE)).toEqual({ onMac: null, coding: CODING })
+  })
+
+  it('a non-developer agent: a work run, never on a Mac, so nothing is offered or sent', async () => {
     hoisted.role = 'writer'
-    expect(await get(ME)).toEqual({ onMac: null })
+    expect(await get(ME)).toEqual({ onMac: null, coding: null })
   })
 })

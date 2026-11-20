@@ -7,7 +7,8 @@
  * a repo, a developer agent, their "Run my work here"), with the same rule
  * the Start itself runs by. Native Intelligence, or one of the coding agents
  * that Mac offers (on that Mac as it says now, anywhere else as it last told
- * the server). Defaults to the Mac's saved choice while the Mac offers it,
+ * the server). Which Mac comes from useStartOnMac, read once by the panel
+ * for this and the Start's own label. Defaults to the Mac's saved choice while the Mac offers it,
  * else Native Intelligence; a saved agent it doesn't offer (or whose offer
  * isn't known) shows, unavailable, so the way back to Native Intelligence is
  * always there. Exactly what it shows is sent with the Start (`worker`), and
@@ -16,7 +17,7 @@
  * Nothing to choose (not a Mac coding Start, or no saved choice and nothing
  * offered): renders nothing, and Start sends no choice, as it always did.
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Bot, Check, ChevronDown } from 'lucide-react'
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
@@ -57,39 +58,77 @@ export function startWorkerOptions(mac: MacEnvironmentItem | null, thisMac: This
 }
 
 /**
- * The Mac this person's Start of this action runs on as a coding job (GET
- * …/start-agent: the route's own rule), as the environments list shows it,
- * or null (it doesn't run on their Mac: the Start sends no choice).
+ * Where this person's Start of this action runs (GET …/start-agent: the
+ * route's own rule), read once per action (and again on `reload`, or when
+ * `refreshKey` changes: a new agent or project).
+ *
+ *   coding  the action's project and repo when the Start is a coding run
+ *           (whoever's Mac it runs on), else null (a work run, never on a Mac);
+ *   macId   the Mac environment their "Run my work here" names, or null (the
+ *           project's cloud);
+ *   mac     that Mac as the environments list shows it (null until the list
+ *           has it);
+ *   loaded  the answer has come back (false while reading, and after a read
+ *           that failed: nothing is offered then).
  */
-export function useStartOnMac(actionId: string | null, enabled: boolean): MacEnvironmentItem | null {
-  const [macId, setMacId] = useState<string | null>(null)
+export interface StartPlace {
+  loaded: boolean
+  coding: { projectId: string; repo: string } | null
+  macId: string | null
+  mac: MacEnvironmentItem | null
+  /** Read it again (after "Run my work here" changed). */
+  reload: () => void
+}
+
+export function useStartOnMac(actionId: string | null, enabled: boolean, refreshKey = ''): StartPlace {
+  const [answer, setAnswer] = useState<{ macId: string | null; coding: StartPlace['coding'] } | null>(null)
+  const [round, setRound] = useState(0)
   useEffect(() => {
-    setMacId(null)
+    setAnswer(null)
     if (!enabled || !actionId) return
     let cancelled = false
     fetch(`/api/account/actions/${encodeURIComponent(actionId)}/start-agent`, { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d: { onMac?: { environmentId?: unknown } | null } | null) => {
-        const id = d?.onMac?.environmentId
-        if (!cancelled) setMacId(typeof id === 'string' && id ? id : null)
+      .then((d: { onMac?: { environmentId?: unknown } | null; coding?: { projectId?: unknown; repo?: unknown } | null } | null) => {
+        if (cancelled || !d) return
+        const id = d.onMac?.environmentId
+        const c = d.coding
+        setAnswer({
+          macId: typeof id === 'string' && id ? id : null,
+          coding: c && typeof c.projectId === 'string' && c.projectId && typeof c.repo === 'string' && c.repo ? { projectId: c.projectId, repo: c.repo } : null,
+        })
       })
       .catch(() => {})
     return () => {
       cancelled = true
     }
-  }, [actionId, enabled])
+  }, [actionId, enabled, refreshKey, round])
+  const macId = answer?.macId ?? null
   const list = useEnvironments({ enabled: enabled && !!macId })
-  return useMemo(() => {
+  const mac = useMemo(() => {
     if (!macId) return null
     const env = list.environments.find((e) => e.id === macId)
     return env?.kind === 'mac' ? (env as MacEnvironmentItem) : null
   }, [list.environments, macId])
+  const reload = useCallback(() => setRound((n) => n + 1), [])
+  return { loaded: !!answer, coding: answer?.coding ?? null, macId, mac, reload }
+}
+
+/**
+ * The Start's name, as its button, tooltip and property row say it: on the
+ * Mac it runs on ("Run on Studio Mac", "… with Claude Code" when one of the
+ * person's own agents is picked), else "Run agent in cloud". Pure.
+ */
+export function startPlaceLabel(place: Pick<StartPlace, 'macId' | 'mac'>, worker: string | null | undefined): string {
+  if (!place.macId) return 'Run agent in cloud'
+  const where = place.mac?.name || 'your Mac'
+  return worker ? `Run on ${where} with ${workerLabel(worker, place.mac?.offeredWorkers)}` : `Run on ${where}`
 }
 
 export interface StartAgentWithProps {
-  /** The action whose Start this is. */
-  actionId: string | null
-  /** Off: nothing read, nothing shown (no agent assignee, a run already going). */
+  /** The Mac this Start runs on as a coding job (useStartOnMac's `mac`), or null: nothing to choose. */
+  mac: MacEnvironmentItem | null
+  /** Off: nothing shown (no agent assignee, a run already going). */
   enabled: boolean
   /** The chosen agent (undefined until the choice is known: the Start then sends none). */
   value: string | null | undefined
@@ -97,8 +136,7 @@ export interface StartAgentWithProps {
   disabled?: boolean
 }
 
-export function StartAgentWith({ actionId, enabled, value, onChange, disabled = false }: StartAgentWithProps) {
-  const mac = useStartOnMac(actionId, enabled)
+export function StartAgentWith({ mac, enabled, value, onChange, disabled = false }: StartAgentWithProps) {
   const thisMac = useThisMac({ enabled: enabled && !!mac })
   const choice = enabled ? startWorkerOptions(mac, thisMac) : null
   const initial = choice?.initial

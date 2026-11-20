@@ -75,10 +75,14 @@ import { CHATGPT_PLAN_NO_CODING_REASON } from '@/lib/chatgpt/plan-models'
  * refuses an agent it doesn't offer with its own sentence, and the job
  * fails with it.
  *
- * GET: whether this person's Start of this action runs on their Mac as a
- * coding job (a repo, a developer agent or one with no role, and their "Run
- * my work here"): { onMac: { environmentId } | null }. Only then does the
- * action panel offer "with" and send a choice.
+ * GET: where this person's Start of this action runs. { onMac, coding }:
+ *   coding  { projectId, repo } when the Start is a coding run (a repo, a
+ *           developer agent or one with no role), whoever's Mac it runs on;
+ *           else null (a work run: it never runs on a Mac);
+ *   onMac   { environmentId } when, on top of that, their "Run my work here"
+ *           names one of their Macs; else null (the project's cloud).
+ * Only with onMac does the action panel offer "with" and send a choice; with
+ * coding and no onMac, it offers their Mac (the same "Run my work here").
  */
 export async function GET(
   _request: Request,
@@ -97,16 +101,17 @@ export async function GET(
     .eq('workspace_id', workspaceId)
     .maybeSingle()
   if (!action) return NextResponse.json({ error: 'Action not found' }, { status: 404 })
-  const none = () => NextResponse.json({ onMac: null }, { headers: { 'Cache-Control': 'no-store' } })
+  const answer = (coding: { projectId: string; repo: string } | null, environmentId: string | null = null) =>
+    NextResponse.json({ onMac: environmentId ? { environmentId } : null, coding }, { headers: { 'Cache-Control': 'no-store' } })
   const repo = (action.project as unknown as { github_repo?: string | null } | null)?.github_repo ?? null
   const projectId = (action.project_id as string | null) ?? null
-  if (!action.assignee_ai_member_id || !repo || !projectId) return none()
+  if (!action.assignee_ai_member_id || !repo || !projectId) return answer(null)
   const agent = await checkDelegate(supabase, { userId: user.id, workspaceId, teammateId: action.assignee_ai_member_id as string })
   // The same rule POST runs by: a developer agent, or one with no role.
-  if (!agent.ok || !(agent.role === null || agent.role === 'developer')) return none()
+  if (!agent.ok || !(agent.role === null || agent.role === 'developer')) return answer(null)
   try {
     const environmentId = await getDefault(getServiceClient(), { userId: user.id, workspaceId, projectId })
-    return environmentId ? NextResponse.json({ onMac: { environmentId } }, { headers: { 'Cache-Control': 'no-store' } }) : none()
+    return answer({ projectId, repo }, environmentId)
   } catch (err) {
     console.error('[start-agent] run-here lookup failed:', err instanceof Error ? err.message : err)
     return serverError()
