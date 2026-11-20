@@ -105,6 +105,12 @@ import Foundation
             let again = TeamChatMessage(id: "g4", channelId: ch, authorKind: "guest", authorMemberId: nil, body: "One more", createdAt: "2026-11-11T20:01:50+00:00",
                                         guestId: g.guestId, guestName: g.guestName)
             check(TeamChatTimeline.continues(g, again), "the same guest twice is one run")
+            let sameName = TeamChatMessage(id: "g5", channelId: ch, authorKind: "guest", authorMemberId: nil, body: "Also me", createdAt: "2026-11-11T20:01:55+00:00",
+                                           guestId: "0a000000-0000-4000-8000-000000000003", guestName: g.guestName)
+            check(!TeamChatTimeline.continues(g, sameName), "another guest who typed the same name is another run")
+            let goneA = TeamChatMessage(id: "g6", channelId: ch, authorKind: "guest", authorMemberId: nil, body: "First", createdAt: "2026-11-11T20:02:00+00:00", guestName: "Sam")
+            let goneB = TeamChatMessage(id: "g7", channelId: ch, authorKind: "guest", authorMemberId: nil, body: "Second", createdAt: "2026-11-11T20:02:05+00:00", guestName: "Sam")
+            check(!TeamChatTimeline.continues(goneA, goneB), "guests whose rows are gone are never joined into one run")
         }
         equal(m?.isGuest, false, "a member's row is not a guest's")
         let list = """

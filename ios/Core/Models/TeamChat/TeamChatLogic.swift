@@ -176,6 +176,8 @@ enum TeamChatTimeline {
               previous.authorMemberId == message.authorMemberId,
               previous.agentForMemberId == message.agentForMemberId,
               previous.guestId == message.guestId, previous.guestName == message.guestName else { return false }
+        // A guest whose row is gone has no id to tell them from another guest of the same name: never one run (as on the web).
+        if message.isGuest, message.guestId == nil { return false }
         guard let a = TeamChatTime.date(previous.createdAt), let b = TeamChatTime.date(message.createdAt) else { return false }
         return b.timeIntervalSince(a) < seconds && Calendar.current.isDate(a, inSameDayAs: b)
     }
