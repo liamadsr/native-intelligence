@@ -3601,8 +3601,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
               data-main-chat-thread={alwaysShowMessages ? '' : undefined}
               className={cn(
                 // Its first and last lines clear the top bar and the composer
-                // floating over the scroller, once scrolled to either end.
-                'chat-reading-col w-full gap-4 px-5 pb-[calc(var(--chat-bottom-inset,0px)+0.5rem)] pt-[var(--chat-top-inset,0px)]',
+                // floating over the scroller, once scrolled to either end (the
+                // composer's room is the last child, data-chat-bottom-inset).
+                'chat-reading-col w-full gap-4 px-5 pt-[var(--chat-top-inset,0px)]',
                 // In-strip chat bottom-anchors its stack. No top band is
                 // reserved — the chat uses its full height and messages pass
                 // behind the HUDs.
@@ -3723,6 +3724,16 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
               )}
 
               <ChatContainerScrollAnchor />
+
+              {/* The room kept clear for the composer floating over the thread:
+                  an element, not the content's padding, so stick-to-bottom's
+                  observer sees it change (a ResizeObserver reads the content
+                  box, never its padding). As padding, a page opening over the
+                  chat took the composer's height off it unseen: the scroll
+                  clamped up, the library read the person scrolling up and
+                  stopped following, and the next reload of the thread left it
+                  at the top (Liam, 11-20). `-mt-4` takes back the list's gap. */}
+              <div aria-hidden data-chat-bottom-inset="" className="-mt-4 h-[calc(var(--chat-bottom-inset,0px)+0.5rem)] shrink-0" />
             </ChatContainerContent>
 
             <div className="pointer-events-none absolute inset-x-0 bottom-[calc(var(--chat-bottom-inset,0px)+0.5rem)] z-10 flex justify-center">
