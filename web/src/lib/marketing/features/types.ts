@@ -7,7 +7,11 @@
  * is live in production today. People and companies in examples are made up.
  */
 
-/** A live demo from components/landing/lazy-demos.tsx, by name. */
+/**
+ * A demo, by name: a screen of the app itself (components/demo/app-screen.tsx) where the feature
+ * is one, else the product's components on written content (components/landing/lazy-demos.tsx).
+ * components/site/feature-page-view.tsx says which is which.
+ */
 export type FeatureDemoKey =
   | 'chat'
   | 'live-agent'
@@ -16,7 +20,6 @@ export type FeatureDemoKey =
   | 'crm-autolog'
   | 'intelligence-loop'
   | 'capture'
-  | 'notes-doc'
   | 'speaker-id'
   | 'hud-tips'
   | 'context-package'

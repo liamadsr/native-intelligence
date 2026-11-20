@@ -3,8 +3,8 @@
 /**
  * The landing demos, loaded only as they near the viewport.
  *
- * The demos draw the product's own components (the HUD, the chat's composer
- * and messages, a capture's proposal rows, …), which are far heavier than the
+ * The demos draw the product's own components (the HUD, an agent's plan and
+ * reply, …), which are far heavier than the
  * marketing page around them. So none of that code is in the page's first
  * load: each demo is its own chunk (next/dynamic, client only), fetched once
  * its slot comes within a screen or so of the viewport, with a quiet
@@ -13,10 +13,7 @@
 import dynamic from 'next/dynamic'
 import { useEffect, useRef, useState, type ComponentType } from 'react'
 import { cn } from '@/lib/utils'
-import type { ChatDemoExchange } from './chat-demo'
-import type { CaptureDemoVariant } from './capture-demo'
 import type { LiveAgentScenario } from './live-agent-demo'
-import type { StreamAction } from './action-stream-demo'
 
 /** A slot that mounts `children` once it is within `margin` of the viewport. */
 function NearViewport({ height, children, className }: { height: number; children: React.ReactNode; className?: string }) {
@@ -61,13 +58,7 @@ function lazyDemo<P extends object>(load: () => Promise<ComponentType<P>>, heigh
 }
 
 export const HudTipsDemo = lazyDemo(() => import('./hud-tips-demo').then((m) => m.HudTipsDemo), 500)
-export const ChatDemo = lazyDemo<{ exchanges?: ChatDemoExchange[] }>(() => import('./chat-demo').then((m) => m.ChatDemo), 460)
-export const CrmAutologDemo = lazyDemo(() => import('./crm-autolog-demo').then((m) => m.CrmAutologDemo), 550)
-export const CaptureDemo = lazyDemo<{ variant?: CaptureDemoVariant }>(() => import('./capture-demo').then((m) => m.CaptureDemo), 530)
-export const NotesDocDemo = lazyDemo(() => import('./notes-doc-demo').then((m) => m.NotesDocDemo), 530)
-export const SpeakerIdDemo = lazyDemo(() => import('./speaker-id-demo').then((m) => m.SpeakerIdDemo), 510)
 export const LiveAgentDemo = lazyDemo<{ scenario?: LiveAgentScenario; tools?: boolean }>(() => import('./live-agent-demo').then((m) => m.LiveAgentDemo), 560)
 export const ContextPackageDemo = lazyDemo(() => import('./context-package-demo').then((m) => m.ContextPackageDemo), 480)
 export const ExecutionDemo = lazyDemo(() => import('./execution-demo').then((m) => m.ExecutionDemo), 510)
 export const IntelligenceLoopDemo = lazyDemo(() => import('./intelligence-loop-demo').then((m) => m.IntelligenceLoopDemo), 420)
-export const ActionStreamDemo = lazyDemo<{ pool?: readonly StreamAction[] }>(() => import('./action-stream-demo').then((m) => m.ActionStreamDemo), 460)

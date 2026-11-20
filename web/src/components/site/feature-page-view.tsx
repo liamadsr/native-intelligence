@@ -19,44 +19,33 @@ import { useSignupHref } from '@/components/signup-href'
 import { SiteShell } from '@/components/site/site-shell'
 import { FaqList } from '@/components/site/faq'
 import { FeatureVideo } from '@/components/site/feature-video'
-import {
-  ActionStreamDemo,
-  CaptureDemo,
-  ChatDemo,
-  ContextPackageDemo,
-  CrmAutologDemo,
-  ExecutionDemo,
-  HudTipsDemo,
-  IntelligenceLoopDemo,
-  LiveAgentDemo,
-  NotesDocDemo,
-  SpeakerIdDemo,
-} from '@/components/landing/lazy-demos'
+import { AppScreen } from '@/components/demo/app-screen'
+import { ContextPackageDemo, ExecutionDemo, HudTipsDemo, IntelligenceLoopDemo, LiveAgentDemo } from '@/components/landing/lazy-demos'
 import { getFeature, type FeatureDemoKey, type FeatureSection } from '@/lib/marketing/features'
 import { FEATURE_NAV } from '@/lib/marketing/site-nav'
 
-// Every demo is the product's own components (components/landing/lazy-demos.tsx),
-// never a drawing of the app.
+// Where the feature is a screen of the app, the demo is the app itself on a made-up
+// workspace (components/demo/app-screen.tsx). The rest (the desktop window beside a
+// call, an agent's run) are the product's own components on written content
+// (components/landing/lazy-demos.tsx). Never a drawing of the app.
 function Demo({ name }: { name: FeatureDemoKey }) {
   switch (name) {
     case 'chat':
-      return <ChatDemo />
+      return <AppScreen screen="chat" />
     case 'live-agent':
       return <LiveAgentDemo tools={false} />
     case 'action-stream':
-      return <ActionStreamDemo />
+      return <AppScreen screen="list" />
     case 'execution':
       return <ExecutionDemo />
     case 'crm-autolog':
-      return <CrmAutologDemo />
+      return <AppScreen screen="contact" />
     case 'intelligence-loop':
       return <IntelligenceLoopDemo />
     case 'capture':
-      return <CaptureDemo />
-    case 'notes-doc':
-      return <NotesDocDemo />
+      return <AppScreen screen="notes" />
     case 'speaker-id':
-      return <SpeakerIdDemo />
+      return <AppScreen screen="transcript" />
     case 'hud-tips':
       return <HudTipsDemo />
     case 'context-package':
