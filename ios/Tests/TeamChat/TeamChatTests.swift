@@ -88,6 +88,25 @@ import Foundation
         check(m != nil, "a realtime row without the newer columns decodes")
         equal(m?.attachments ?? [TeamChatAttachment(path: "x", name: "x", size: 1, type: "x")], [], "… with no files")
         equal(m?.threadRootId, nil, "… in the channel itself")
+        // A meeting guest's message (migration 670): no member behind it, the name they typed on the row.
+        let guestJson = """
+        {"id":"g1","channel_id":"\(ch)","author_kind":"guest","author_member_id":null,"guest_id":"0A000000-0000-4000-8000-000000000001","guest_name":" Tomas Ek ","body":"Hello from the lobby","created_at":"2026-11-11T20:01:00+00:00"}
+        """
+        let g = try? JSONDecoder().decode(TeamChatMessage.self, from: Data(guestJson.utf8))
+        check(g?.isGuest == true, "a guest's row decodes as a guest's")
+        equal(g?.guestId, "0a000000-0000-4000-8000-000000000001", "… with the guest's row, lowercased")
+        if let g {
+            equal(TeamChatNames.author(of: g, members: [:], me: me), "Tomas Ek", "… and is named as the guest typed it")
+            let unnamed = TeamChatMessage(id: "g2", channelId: ch, authorKind: "guest", authorMemberId: nil, body: "Hi", createdAt: "2026-11-11T20:01:30+00:00")
+            equal(TeamChatNames.author(of: unnamed, members: [:], me: me), "Guest", "a guest's row without a name says Guest")
+            let other = TeamChatMessage(id: "g3", channelId: ch, authorKind: "guest", authorMemberId: nil, body: "Me too", createdAt: "2026-11-11T20:01:40+00:00",
+                                        guestId: "0a000000-0000-4000-8000-000000000002", guestName: "Ines Maro")
+            check(!TeamChatTimeline.continues(g, other), "two guests in a row are two runs, each with its name")
+            let again = TeamChatMessage(id: "g4", channelId: ch, authorKind: "guest", authorMemberId: nil, body: "One more", createdAt: "2026-11-11T20:01:50+00:00",
+                                        guestId: g.guestId, guestName: g.guestName)
+            check(TeamChatTimeline.continues(g, again), "the same guest twice is one run")
+        }
+        equal(m?.isGuest, false, "a member's row is not a guest's")
         let list = """
         {"channels":[{"id":"\(ch)","kind":"channel","name":"launch","topic":null,"team_id":null,"dm_member_id":null,"last_message_at":"2026-11-11T20:00:00+00:00","archived_at":null,"unread":2,"mentions":1,"thread_unread":3,"thread_mentions":0,"notify":"mentions"}],"threads":[{"root_id":"r1","channel_id":"\(ch)","unread":3,"mentions":0}],"memberId":"\(me)"}
         """

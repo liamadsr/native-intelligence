@@ -122,8 +122,14 @@ struct TeamChatMessage: Codable, Identifiable, Equatable {
     /// "message", or "call": a team call's own row in the conversation (migration 564), its words what happened.
     let kind: String
     let callId: String?
+    /// A meeting guest's message (migration 670, author_kind "guest"): the guest's row, nil once it is gone.
+    let guestId: String?
+    /// The name the guest typed, kept with their message.
+    let guestName: String?
 
     var isAgent: Bool { authorKind == "agent" }
+    /// Written by someone without an account, let into a meeting's call from its link.
+    var isGuest: Bool { authorKind == "guest" }
     var isCall: Bool { kind == "call" && callId != nil }
     var isDeleted: Bool { deletedAt != nil }
 
@@ -145,6 +151,8 @@ struct TeamChatMessage: Codable, Identifiable, Equatable {
         case deletedAt = "deleted_at"
         case kind
         case callId = "call_id"
+        case guestId = "guest_id"
+        case guestName = "guest_name"
     }
 
     init(
@@ -153,7 +161,8 @@ struct TeamChatMessage: Codable, Identifiable, Equatable {
         threadRootId: String? = nil, clientId: String? = nil, body: String, mentions: [String] = [],
         mentionsAgent: Bool = false, recordMentions: [TeamChatRecordMention] = [],
         attachments: [TeamChatAttachment] = [], linkPreview: TeamChatLinkPreview? = nil,
-        createdAt: String, editedAt: String? = nil, deletedAt: String? = nil, kind: String = "message", callId: String? = nil
+        createdAt: String, editedAt: String? = nil, deletedAt: String? = nil, kind: String = "message", callId: String? = nil,
+        guestId: String? = nil, guestName: String? = nil
     ) {
         self.id = id
         self.channelId = channelId
@@ -175,6 +184,8 @@ struct TeamChatMessage: Codable, Identifiable, Equatable {
         self.deletedAt = deletedAt
         self.kind = kind
         self.callId = callId
+        self.guestId = guestId
+        self.guestName = guestName
     }
 
     /// Lenient: a realtime row, or one from before a column existed, may leave any of the
@@ -201,6 +212,8 @@ struct TeamChatMessage: Codable, Identifiable, Equatable {
         deletedAt = try c.decodeIfPresent(String.self, forKey: .deletedAt)
         kind = (try? c.decode(String.self, forKey: .kind)) ?? "message"
         callId = (try? c.decodeIfPresent(String.self, forKey: .callId))?.lowercased()
+        guestId = (try? c.decodeIfPresent(String.self, forKey: .guestId))?.lowercased()
+        guestName = try? c.decodeIfPresent(String.self, forKey: .guestName)
     }
 }
 

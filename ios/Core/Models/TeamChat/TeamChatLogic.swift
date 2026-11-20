@@ -174,7 +174,8 @@ enum TeamChatTimeline {
         guard let previous, !previous.isDeleted else { return false }
         guard previous.authorKind == message.authorKind,
               previous.authorMemberId == message.authorMemberId,
-              previous.agentForMemberId == message.agentForMemberId else { return false }
+              previous.agentForMemberId == message.agentForMemberId,
+              previous.guestId == message.guestId, previous.guestName == message.guestName else { return false }
         guard let a = TeamChatTime.date(previous.createdAt), let b = TeamChatTime.date(message.createdAt) else { return false }
         return b.timeIntervalSince(a) < seconds && Calendar.current.isDate(a, inSameDayAs: b)
     }
@@ -325,8 +326,10 @@ enum TeamChatMentions {
 // MARK: - Names
 
 enum TeamChatNames {
-    /// Who wrote it, as its line says: a member's name, or an agent as the web shows it.
+    /// Who wrote it, as its line says: a member's name, an agent as the web shows it, or the name a
+    /// meeting's guest typed (the row draws "Guest" beside it).
     static func author(of m: TeamChatMessage, members: [String: TeamChatMember], me: String?) -> String {
+        if m.isGuest { return guestName(of: m) }
         if m.isAgent {
             let name = m.agentName?.trimmingCharacters(in: .whitespaces).nilIfEmpty ?? "Agent"
             if let owner = m.agentForMemberId, owner == me { return "\(name) (your agent)" }
@@ -335,6 +338,11 @@ enum TeamChatNames {
         }
         guard let id = m.authorMemberId else { return "Someone" }
         return members[id]?.name ?? "A teammate"
+    }
+
+    /// A meeting guest's name as typed, or "Guest" when the row carries none.
+    static func guestName(of m: TeamChatMessage) -> String {
+        m.guestName?.trimmingCharacters(in: .whitespaces).nilIfEmpty ?? "Guest"
     }
 
     /// A channel's title: "#name", a DM's other person, or "You" for a note to self.

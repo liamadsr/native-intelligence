@@ -30,13 +30,18 @@ struct iOSTeamChatMessageRow: View {
     private var store: TeamChatStore { model.store }
     private var isMine: Bool { m.authorKind == "member" && m.authorMemberId == model.me }
     private var isMyAgent: Bool { m.isAgent && m.agentForMemberId == model.me }
+    /// Whose initials or picture the row draws: the member, or a meeting guest by the name they typed (no picture).
+    private var avatarMember: TeamChatMember? {
+        if m.isGuest { return TeamChatMember(id: m.guestId ?? m.id, userId: nil, displayName: TeamChatNames.guestName(of: m), avatarUrl: nil) }
+        return m.authorMemberId.flatMap { store.members[$0] }
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             if continues {
                 Color.clear.frame(width: 36, height: 1)
             } else {
-                TeamChatAvatar(member: m.authorMemberId.flatMap { store.members[$0] }, agent: m.isAgent, size: 36)
+                TeamChatAvatar(member: avatarMember, agent: m.isAgent, size: 36)
             }
             VStack(alignment: .leading, spacing: 6) {
                 if !continues { header }
@@ -70,6 +75,15 @@ struct iOSTeamChatMessageRow: View {
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(.primary)
                 .lineLimit(1)
+            if m.isGuest {
+                // Someone without an account, let into the meeting's call from its link.
+                Text("Guest")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(TeamChatStyle.tile, in: Capsule())
+            }
             Text(TeamChatFormat.messageTime(m.createdAt))
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
@@ -274,7 +288,8 @@ struct iOSTeamChatMessageRow: View {
             }
             Button { choosingEmoji = true } label: { Label("Add reaction", systemImage: "face.smiling") }
         }
-        if showsThreadActions, let openThread {
+        // A guest reads top-level messages only: no thread under theirs (as on the web).
+        if showsThreadActions, !m.isGuest, let openThread {
             Button { openThread(m) } label: { Label("Reply in thread", systemImage: "bubble.left.and.bubble.right") }
         }
         if !m.body.isEmpty, !m.isCall {
@@ -283,7 +298,8 @@ struct iOSTeamChatMessageRow: View {
         if isMine, !m.body.isEmpty, !m.isCall {
             Button { model.beginEdit(m) } label: { Label("Edit", systemImage: "pencil") }
         }
-        if (isMine && !m.isCall) || isMyAgent {
+        // Anyone in the conversation can take a guest's message out of it.
+        if (isMine && !m.isCall) || isMyAgent || m.isGuest {
             Button(role: .destructive) { confirmingDelete = true } label: { Label("Delete", systemImage: "trash") }
         }
     }
