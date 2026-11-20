@@ -86,7 +86,7 @@ const COMMENTS = [
 ]
 
 let fetchCalls: string[] = []
-let posts: Array<{ body: string; parent_id?: string }> = []
+let posts: Array<{ body: string; parent_id?: string; mentions?: string[] }> = []
 
 function installFetch() {
   fetchCalls = []
@@ -286,7 +286,7 @@ describe('Comments — the box is the shared composer', () => {
     expect(posts).toEqual([{ body: 'Top level' }])
   })
 
-  it('@ lists the teammates but the viewer, runs no record search, and a pick goes in the words', async () => {
+  it('@ lists the teammates but the viewer (no record search before a word is typed), and a pick goes in the words and with the comment', async () => {
     await mount({ currentMemberId: 'm-1' })
 
     type('@')
@@ -305,6 +305,7 @@ describe('Comments — the box is the shared composer', () => {
     type('take a look?')
     press('Enter')
     await settle()
-    expect(posts).toEqual([{ body: '@Rosa Lind take a look?' }])
+    // The teammate picked rides with the comment (their mention is stored, and they are told).
+    expect(posts).toEqual([{ body: '@Rosa Lind take a look?', mentions: ['m-2'] }])
   })
 })

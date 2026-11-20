@@ -75,12 +75,13 @@ describe('migration 642', () => {
     expect(TABLE).toContain('check (attempts between 0 and 10)')
   })
 
-  it('adds email_send_failed to 572’s notification types, the app’s list, and is the newest word on the check', () => {
+  it('adds email_send_failed to 572’s notification types, the app’s list then; 671 widens the check next', () => {
     const types = [...(/notification_type_check check \(type = any \(array\[([^\]]*)\]\)\)/.exec(BODY)?.[1] ?? '').matchAll(/'([a-z_]+)'/g)].map((v) => v[1])
-    expect(types).toEqual([...NOTIFICATION_TYPES])
+    // 671 (mentions everywhere) adds 'mentioned' after it, and is the newest word on the check since.
+    expect(types).toEqual(NOTIFICATION_TYPES.filter((t) => t !== 'mentioned'))
     expect(types[types.length - 1]).toBe('email_send_failed')
     const newest = [...migrationsInOrder()].reverse().find((m) => /add constraint notification_type_check/i.test(m.sql))!.file
-    expect(newest).toBe(FILE)
+    expect(newest).toBe('671_mentions_everywhere.sql')
     expect(BODY.indexOf('drop constraint if exists notification_type_check')).toBeLessThan(BODY.indexOf('add constraint notification_type_check'))
   })
 

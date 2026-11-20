@@ -1,6 +1,6 @@
 # Mentions everywhere: one registry, one search, one @ picker
 
-Status: plan (phase 1 of the work). Nothing here is built yet.
+Status: in progress. "Progress" at the end says what is built; nothing is rolled out.
 
 Goal: everything the app has can be found in search and @-mentioned, the same way, in every
 place a person types; a mention is a chip that opens the thing; the agent reads what was
@@ -255,3 +255,32 @@ written here and applied to production only by the owner, before the code that n
 rolled out.
 
 Not in this plan: the iOS app's composer, and semantic (embedding) search in the menu.
+
+## Progress
+
+Built on `claude/mentions-everywhere` (merged nowhere, rolled out nowhere):
+
+- **Registry and search.** `web/src/lib/search/findable-registry.ts`; the five lists derive
+  from it. Search also finds campaigns, sequences, prospect lists, tables, table rows,
+  channels, decisions, teams and knowledge packages.
+- **Main chat.** `@` takes every kind a mention can store. Kinds with no id key travel as
+  `mentionedRecords: [{type,id,label}]` in the turn's context; the agent gets a fenced line
+  for each and the tool that reads it, and the conversation gets the mention edge.
+- **Comments.** `@` finds teammates and every record kind. Mentions are stored on the comment
+  (migration 671: `mentions`, `record_mentions`), drawn as chips that open the record
+  (`web/src/components/entity-refs/mention-text.tsx`), written as edges from the record the
+  comment is on, and a mentioned teammate gets one `mentioned` notification instead of the
+  plain "commented" one. Decision 2 for comments: a private record mentioned in a comment is
+  shared, view only, with the teammates mentioned in that same comment (a comment has no
+  channel to grant to; other readers see the label and cannot open it).
+
+Needs migration 671 on a database before this code runs against it (the owner's call for
+production; not applied to the dev database either, so comments were checked by tests only).
+
+Still to do, in order: mail and agent chats (search, mention, the share a mention makes);
+sent chat messages keeping their mentions as chips; team chat on the unified list, its edit
+box, and its agent turn reading the records; documents and the `NoteEditor` descriptions
+(teammates, every kind, the `mentioned` notification); `MentionTextarea` for the remaining
+textareas; the one `EntityChip` with live status for every kind; grouped search tabs;
+sequences, prospect lists, teams and packages as mentionable (they are not graph endpoints
+yet); run chats carrying the kinds that have no id key.
