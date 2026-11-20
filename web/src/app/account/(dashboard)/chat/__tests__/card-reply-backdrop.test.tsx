@@ -59,6 +59,6 @@ describe('CardReplyBackdrop', () => {
     expect(shell).toContain('<CardReplyBackdrop />')
     // The composer dock, and the side panel while it shows For you (Liam, 11-11: the cards moved there), rise over the blur's z-[45].
     expect(read('../chat-panel.tsx')).toContain('data-chat-composer-dock="" className="absolute inset-x-0 bottom-0 z-20 [html[data-card-reply-focus]_&]:z-[46]"')
-    expect(read('../../side-panels/side-panels.tsx')).toContain("state.view === 'forYou' && '[html[data-card-reply-focus]_&]:z-[46]'")
+    expect(read('../../side-panels/side-panels.tsx')).toContain("(state.codeView ? state.codeForYou : state.view === 'forYou') && '[html[data-card-reply-focus]_&]:z-[46]'")
   })
 })

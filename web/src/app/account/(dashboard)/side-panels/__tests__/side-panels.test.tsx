@@ -29,7 +29,9 @@
  *     swapped in place with no slide; the sections' reads only while they
  *     show; For you only with cards (the panel saved on it waits off screen,
  *     the chat gets its room back), over the Reply chip's blur while it
- *     shows; Esc gives the focus back to the button of the view that showed.
+ *     shows; Esc gives the focus back to the button of the view that showed;
+ *   • on Code (Liam, 11-20) the Code view's own For you: a coding agent's
+ *     work only, told to the store, never the agent's For you.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, createElement as h, useRef } from 'react'
@@ -39,7 +41,7 @@ import { createRoot, type Root } from 'react-dom/client'
 
 const shared = vi.hoisted(() => ({ rows: [] as unknown[] }))
 /** For you: the shell's shared source (null: none) and what the bots brought. */
-const forYou = vi.hoisted(() => ({ shared: null as null | object, entries: [] as Array<{ id: string }>, mounts: 0 }))
+const forYou = vi.hoisted(() => ({ shared: null as null | object, entries: [] as Array<{ id: string }>, codeEntries: [] as Array<{ id: string }>, mounts: 0 }))
 vi.mock('@/components/work/agent-work-provider', () => ({
   useOptionalAgentWork: () => ({ work: { rows: shared.rows, stop: vi.fn(), stopping: new Set() }, counts: new Map() }),
   useOptionalAgentWorkShared: () => forYou.shared,
@@ -53,7 +55,7 @@ vi.mock('../../chat/for-you-column', async () => {
     }, [])
     return React.createElement('section', { 'data-for-you-view-stub': '', 'aria-label': 'For you' }, entries.map((e) => e.id).join(','))
   }
-  return { useForYouEntries: () => forYou.entries, ForYouView }
+  return { useForYouEntries: () => forYou.entries, useCodeForYouEntries: () => forYou.codeEntries, ForYouView }
 })
 vi.mock('@/hooks/use-open-teammate', () => ({ useOpenWorkItem: () => vi.fn() }))
 const connections = vi.hoisted(() => ({
@@ -146,6 +148,7 @@ beforeEach(() => {
   environment.calls = []
   forYou.shared = null
   forYou.entries = []
+  forYou.codeEntries = []
   forYou.mounts = 0
   container = document.createElement('div')
   document.body.appendChild(container)
@@ -1000,5 +1003,39 @@ describe('the panel’s two views (Liam, 11-11: “you can’t see both at the s
     expect(forYouBox()!.hidden).toBe(false)
     key({ key: '\\', metaKey: true })
     expect(store.getSidePanelState()).toMatchObject({ rightOpen: false, view: 'forYou' })
+  })
+})
+
+describe('on Code: the Code view’s own For you (Liam, 11-20)', () => {
+  const codeBox = () => q('[data-side-panel-code-for-you]')
+  const forYouButton = () => q('[data-for-you-panel-toggle]')
+
+  it('tells the store whether it has cards, apart from the agent’s For you', () => {
+    forYou.shared = {}
+    forYou.codeEntries = [{ id: 'mac' }]
+    renderPanel()
+    expect(store.getSidePanelState()).toMatchObject({ forYouContent: false, codeForYouContent: true })
+  })
+
+  it('its button on Code opens a coding agent’s cards (only theirs) in the panel, and closes them; Esc too', () => {
+    forYou.shared = {}
+    forYou.entries = [{ id: 'brief' }]
+    forYou.codeEntries = [{ id: 'mac' }, { id: 'cloud' }]
+    act(() => store.setCodeView(true))
+    renderPanel()
+    expect(forYouButton()?.getAttribute('aria-label')).toBe('For you, 2')
+    act(() => forYouButton()!.click())
+    rerender()
+    expect(codeBox()!.hidden).toBe(false)
+    expect(codeBox()!.textContent).toBe('mac,cloud')
+    expect(q('[data-side-panel-for-you]')).toBeNull()
+    act(() => forYouButton()!.click())
+    rerender()
+    expect(store.shownView(store.getSidePanelState())).toBeNull()
+    act(() => forYouButton()!.click())
+    rerender()
+    key({ key: 'Escape' }, codeBox()!)
+    rerender()
+    expect(store.getSidePanelState().codeForYou).toBe(false)
   })
 })

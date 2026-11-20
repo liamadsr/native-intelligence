@@ -143,6 +143,24 @@ export interface SessionRow {
    * too. Absent for every other job.
    */
   codeRequestId?: string
+  /**
+   * The action it works: an action's Start put it on the Mac (cardOf:
+   * migration 659's action_id, else its key's). Absent for every other job.
+   */
+  actionId?: string
+  /**
+   * That action, named, for the Code view's list (attachSessionActions; Liam,
+   * 11-20: "see all the action items that are actively being worked on").
+   * Absent from every other read, and when the action is gone.
+   */
+  action?: SessionAction
+}
+
+/** An action a job works, as the Code view names it: its identifier (ENG-42) and title. */
+export interface SessionAction {
+  id: string
+  identifier: string | null
+  title: string
 }
 
 // ── Constants ───────────────────────────────────────────────────────────────
@@ -313,7 +331,14 @@ export function toSessionRow(r: DbSession): SessionRow {
     ...(isActionJobKey(r.idempotency_key) ? { requestedByPerson: true } : {}),
     ...(r.status === 'starting' && r.mac_queued_at ? { queuedOnMac: true } : {}),
     ...(isCodeJob(r) ? { codeRequestId: codeRequestIdOf(r.idempotency_key)! } : {}),
+    ...actionIdOf(r),
   }
+}
+
+/** The action a job works, as a row field: present only when it has one. */
+function actionIdOf(r: DbSession): { actionId?: string } {
+  const actionId = cardOf(r)
+  return actionId ? { actionId } : {}
 }
 
 /** The chat tool's start key (start_local_agent from a typed turn): local-agent:<conv>:session:<s>:turn:<t>:call:<c>. */
@@ -558,9 +583,10 @@ export async function listSessions(
 ): Promise<SessionRow[]> {
   let q = svc.from('local_agent_session').select(SESSION_SELECT).eq('user_id', userId)
   if (opts.conversationId) q = q.eq('conversation_id', opts.conversationId)
-  // The Code view's list: the person's own Code jobs (isCodeJob) in ONE workspace, so another
-  // workspace's chats never show, and the newest 100 are 100 coding chats, not 100 sessions of any kind.
-  if (opts.codeIn) q = q.eq('workspace_id', opts.codeIn).eq('started_by', 'person').like('idempotency_key', `${CODE_JOB_KEY_PREFIX}%`)
+  // The Code view's list: every coding job of the person's in ONE workspace, so another workspace's
+  // never show: their Code tab's, an action's Start, the chat agent's, a loop's (Liam, 11-20: "shows
+  // any chat/agent that's working on something including the ones that were started from an action item").
+  if (opts.codeIn) q = q.eq('workspace_id', opts.codeIn)
   if (opts.live) q = q.in('status', LIVE_STATUSES as LocalAgentStatus[])
   const { data, error } = await q.order('created_at', { ascending: false }).limit(100)
   if (error) throw new Error(`local agent sessions read failed: ${error.message}`)
@@ -571,6 +597,27 @@ export async function listSessions(
   }
   const out = rows.map(toSessionRow)
   return opts.live ? out.filter((s) => (LIVE_STATUSES as string[]).includes(s.status)) : out
+}
+
+/**
+ * The Code view's list, each job with the action it works named (its
+ * identifier and title), in one read of that workspace's actions. An action
+ * that's gone (or another workspace's) leaves its job unnamed. Fail-soft: a
+ * failed read lists the jobs as they are.
+ */
+export async function attachSessionActions(svc: Svc, workspaceId: string, sessions: SessionRow[]): Promise<SessionRow[]> {
+  const ids = [...new Set(sessions.flatMap((s) => (s.actionId ? [s.actionId] : [])))]
+  if (ids.length === 0) return sessions
+  const { data, error } = await svc.from('actions').select('id, identifier, title').eq('workspace_id', workspaceId).in('id', ids)
+  if (error) {
+    console.warn('[local-agent] naming the jobs’ actions failed:', error.message)
+    return sessions
+  }
+  const byId = new Map(((data ?? []) as Array<{ id: string; identifier: string | null; title: string | null }>).map((a) => [a.id, a]))
+  return sessions.map((s) => {
+    const a = s.actionId ? byId.get(s.actionId) : undefined
+    return a ? { ...s, action: { id: a.id, identifier: a.identifier ?? null, title: a.title ?? '' } } : s
+  })
 }
 
 // ── Devices and folders ─────────────────────────────────────────────────────

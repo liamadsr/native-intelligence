@@ -20,6 +20,8 @@
  *               something (with nothing, no button: Liam's "hide empty
  *               widgets"): opens the panel on the For you cards, swaps to
  *               them from the sections, or closes the panel while they show.
+ *               On Code it is the Code view's own For you, a coding agent's
+ *               work only (Liam, 11-20), over the coding chat's details.
  *
  * Each is lit only while its own view is on screen (side-panel-store.ts
  * shownView), so at most one is.
@@ -30,7 +32,7 @@ import { useModKeyLabel } from '@/lib/hotkeys'
 import { TOP_BAR_PILL, TOP_BAR_TIP } from '../top-bar/pill-style'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useAgentsSummary } from '../chat/chat-widgets'
-import { useForYouEntries } from '../chat/for-you-column'
+import { useCodeForYouEntries, useForYouEntries } from '../chat/for-you-column'
 import { shownView, toggleSidePanelView } from './side-panel-store'
 import { RIGHT_PANEL_ID, useSidePanelState } from './side-panels'
 
@@ -127,11 +129,11 @@ export function ForYouToggle({ variant = 'pill' }: { variant?: 'pill' | 'header'
   // On screen now (the panel open on For you, which it is only with cards): what the button shows and flips.
   const state = useSidePanelState()
   const shown = shownView(state) === 'forYou'
-  const entries = useForYouEntries()
-  // On Code the panel holds the coding chat's details, not the agent's For you
-  // cards: no button for a view that isn't there (Liam, 11-16: it "still
-  // shows on the coding view even though you can't click it"). Back with the agent's tab.
-  if (entries.length === 0 || state.codeView) return null
+  // On Code it is the Code view's own For you, a coding agent's work only (Liam, 11-20); the agent's leaves that out.
+  const agentEntries = useForYouEntries()
+  const codeEntries = useCodeForYouEntries()
+  const entries = state.codeView ? codeEntries : agentEntries
+  if (entries.length === 0) return null
   return (
     <Tooltip>
       <TooltipTrigger asChild>

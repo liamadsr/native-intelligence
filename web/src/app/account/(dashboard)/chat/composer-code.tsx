@@ -66,7 +66,7 @@ import {
 } from '@/lib/local-agent/code-tab'
 import { CODE_MESSAGE_METADATA_KEY, codeMessageId, type CodeMessageMeta } from '@/lib/local-agent/code-thread'
 import { stampCreatedAt } from '@/lib/chat/message-time'
-import { fetchConversationSessions, fetchSessionPage, postCodeStart } from '@/components/local-agent/session-api'
+import { fetchConversationSessions, fetchSessionPage, postCodeStart, postSessionMessage } from '@/components/local-agent/session-api'
 import type { ComposerEnvironment, ComposerFolders } from './composer-state'
 import { CodeJobLine } from './code-job-line'
 import { closeFrontCards } from '@/components/chat-cards/front-card'
@@ -107,10 +107,24 @@ export interface ComposerCode {
   /**
    * A coding chat is open in the Code view and takes the next send as its
    * message (chat/code-view-store.ts): who it goes to (the chat's own agent,
-   * whoever the picker names for a new chat), whether it works right now, and
-   * how the message lands while it does. Null: the next send starts a new chat.
+   * whoever the picker names for a new chat) and whether it works right now.
+   * Null: the next send starts a new chat.
    */
-  messaging: { agentLabel: string; working: boolean; policy: LocalAgentPolicy; setPolicy: (policy: LocalAgentPolicy) => void } | null
+  messaging: { agentLabel: string; working: boolean } | null
+}
+
+/**
+ * A message sent while the open chat's agent works (Liam, 11-20: as the main
+ * chat, no Steer / Queue choice): held under the box until the turn ends,
+ * then sent as the chat's next turn, with Edit and Send now (handed to the
+ * agent mid-turn, a steer: a job can't be stopped mid-turn without ending
+ * it). Leaving the chat hands it to the server to wait there (queue), so it
+ * is never lost. `failed`: its send was refused; it waits for Send now or Edit.
+ */
+export interface CodeHeldMessage {
+  sessionId: string
+  text: string
+  failed?: string
 }
 
 /** What the message list draws for the Code jobs: one compact line each. */
@@ -145,13 +159,24 @@ export interface ComposerCodeResult {
   active: boolean
   /** Null while the tabs don't show. */
   code: ComposerCode | null
-  /** Send the words as a Code send. True when they left the box (sent, or in the thread). */
+  /** Send the words as a Code send. True when they left the box (sent, held, or in the thread). */
   submit: (text: string) => Promise<boolean>
   thread: CodeThread | null
+  /** The message held while the open chat works (CodeHeldMessage), or null. */
+  held: CodeHeldMessage | null
+  /** Send now: the held message goes to the agent mid-turn. */
+  sendHeldNow: () => void
+  /** Edit: the held message's words, taken back for the box (null with none). */
+  takeHeld: () => string | null
 }
 
 const BUSY_LINE = 'A Chat reply is still running. Send this when it finishes, or stop it.'
 const UNSAVED_LINE = 'This chat isn’t saved yet, so nothing was sent. Try again in a moment.'
+
+/** Its agent works right now (a message to it is held: CodeHeldMessage). */
+function isWorkingStatus(status: string | null | undefined): boolean {
+  return status === 'queued' || status === 'starting' || status === 'running'
+}
 
 function newRequestId(): string {
   return typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`
@@ -269,17 +294,65 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
   const [openId, openStatus, openWorker] = openKey ? openKey.split('\n') : [null, null, null]
   const messagesOpenChat = active && !!openId && canMessageSession(openStatus as LocalAgentStatus)
   const blocker = active && !messagesOpenChat ? codeBlocker(chat, mac, folderId) : null
-  // How a message lands while the chat works (the conversation's own choice: Steer now, or Queue for the turn's end).
-  const [policy, setPolicy] = useState<LocalAgentPolicy>('steer')
-  const policyRef = useRef(policy)
-  policyRef.current = policy
-  const openChatWorking = messagesOpenChat && (openStatus === 'queued' || openStatus === 'starting' || openStatus === 'running')
+  const openChatWorking = messagesOpenChat && isWorkingStatus(openStatus)
   // One name for every agent (Liam, 11-16: "treat all coding agents the same"): the chat's own, ours or the person's.
   const openChatAgent = messagesOpenChat ? (openWorker ? workerLabel(openWorker) : 'Native Intelligence') : null
   const messaging = useMemo<ComposerCode['messaging']>(
-    () => (openChatAgent ? { agentLabel: openChatAgent, working: openChatWorking, policy, setPolicy } : null),
-    [openChatAgent, openChatWorking, policy],
+    () => (openChatAgent ? { agentLabel: openChatAgent, working: openChatWorking } : null),
+    [openChatAgent, openChatWorking],
   )
+
+  // ── A message sent while the open chat works (CodeHeldMessage) ────────────
+  const [held, setHeldState] = useState<CodeHeldMessage | null>(null)
+  const heldRef = useRef(held)
+  const setHeld = useCallback((next: CodeHeldMessage | null) => {
+    heldRef.current = next
+    setHeldState(next)
+  }, [])
+  /** The held message goes: to the chat on screen through its reader (its thread shows it), else straight to its session. */
+  const deliverHeld = useCallback(
+    async (policy: LocalAgentPolicy): Promise<void> => {
+      const message = heldRef.current
+      if (!message) return
+      setHeld(null)
+      const view = getCodeView()
+      const requestId = newRequestId()
+      const sent =
+        view.live && view.live.session.id === message.sessionId
+          ? await view.live.send(message.text, policy, requestId)
+          : await postSessionMessage(message.sessionId, message.text, policy, requestId)
+      if (sent.ok) {
+        noteCodeChatsChanged()
+        return
+      }
+      // Refused: it waits for Send now or Edit, never retried on its own; a newer one keeps its place.
+      if (!heldRef.current) setHeld({ ...message, failed: sent.message })
+    },
+    [setHeld],
+  )
+  const deliverHeldRef = useRef(deliverHeld)
+  deliverHeldRef.current = deliverHeld
+  // Its turn ended (the chat on screen no longer works): it goes, as the chat's next turn.
+  // The chat left (another picked, none, the agent's tab): handed to the server to wait for the turn's end there.
+  useEffect(() => {
+    if (!held || held.failed) return
+    if (openId !== held.sessionId || !openChatWorking) void deliverHeldRef.current('queue')
+  }, [held, openId, openChatWorking])
+  // The composer goes (another page, a reload's unmount): the same, never lost.
+  useEffect(
+    () => () => {
+      const message = heldRef.current
+      if (message && !message.failed) void postSessionMessage(message.sessionId, message.text, 'queue', newRequestId())
+    },
+    [],
+  )
+  const sendHeldNow = useCallback(() => void deliverHeldRef.current('steer'), [])
+  const takeHeld = useCallback((): string | null => {
+    const message = heldRef.current
+    if (!message) return null
+    setHeld(null)
+    return message.text
+  }, [setHeld])
 
   const currentRef = useRef(current)
   currentRef.current = current
@@ -380,11 +453,21 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
         return false
       }
       if (!newJob && view.selected && view.live && view.live.session.id === view.selected && canMessageSession(view.live.session.status)) {
+        // Its agent works: held under the box until the turn ends (Send now hands it over mid-turn).
+        // A second message joins the first, on its own lines.
+        if (isWorkingStatus(view.live.session.status)) {
+          const sessionId = view.live.session.id
+          const was = heldRef.current
+          setHeld(was && was.sessionId === sessionId ? { sessionId, text: `${was.text}\n\n${words}` } : { sessionId, text: words })
+          setNotice(null)
+          return true
+        }
         inFlightRef.current = true
         setSending(true)
         setNotice(null)
         try {
-          const sent = await view.live.send(words, policyRef.current, newRequestId())
+          // Idle: it starts the chat's next turn.
+          const sent = await view.live.send(words, 'steer', newRequestId())
           if (!sent.ok) {
             setNotice(sent.message)
             return false
@@ -477,7 +560,7 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
         setSending(false)
       }
     },
-    [openJob, setNotice],
+    [openJob, setNotice, setHeld],
   )
   const submit = useCallback((text: string) => send(text.trim(), false), [send])
   const startNew = useCallback(
@@ -536,5 +619,5 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
     [available, tab, setTab, agents, agent, agentLabel, pickAgent, mac, folderOptions, folderId, pickFolder, folders.canPick, addFolder, blocker, notice, noticeActions, sending, messaging],
   )
 
-  return { available, active: available && active, code, submit, thread }
+  return { available, active: available && active, code, submit, thread, held, sendHeldNow, takeHeld }
 }

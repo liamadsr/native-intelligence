@@ -20,7 +20,8 @@
  *   • the focus view's small line names the bot once (no kind line or area
  *     label repeating it), and Dismiss is a plain row, never red;
  *   • its impression goes once (the full card opened later sends no other);
- *   • placeFocus keeps card and menu on screen: below, else above, else up.
+ *   • placeFocus puts the menu on the card's left, level with its top, when
+ *     there is room; else below, else above, else the card up; on screen.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, createElement as h } from 'react'
@@ -65,7 +66,7 @@ vi.mock('@/components/capture/action-target-picker', () => ({
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
 import { ColumnCompactCard, type ColumnShown } from '../column-compact-card'
-import { FOCUS_EDGE_PX, FOCUS_MENU_GAP_PX, FOCUS_SHADOW_ROOM_PX, FOCUS_SKY_HOLD, placeFocus } from '../column-focus-view'
+import { FOCUS_EDGE_PX, FOCUS_MENU_GAP_PX, FOCUS_MENU_WIDTH_PX, FOCUS_SHADOW_ROOM_PX, FOCUS_SKY_HOLD, placeFocus } from '../column-focus-view'
 import { __resetColumnImpressionsForTests } from '../attention-card'
 import { reviewCardOf } from '../rail-cards'
 import { skyActivity } from '@/lib/sky/sky-activity'
@@ -398,23 +399,49 @@ describe('ColumnCompactCard', () => {
   })
 })
 
-describe('placeFocus', () => {
+describe('placeFocus: room on the card’s left (the column at the window’s right)', () => {
+  const anchor = { top: 100, left: 1000, width: 360 }
+  it('the menu on the left, level with the card’s top, whatever the card’s height; the card keeps its top and all the window’s height', () => {
+    const short = placeFocus(anchor, 120, 160, 800)
+    const tall = placeFocus(anchor, 500, 160, 800)
+    expect(short).toEqual({ top: 100, left: 1000, width: 360, menu: 'left', maxHeight: 800 - FOCUS_EDGE_PX * 2 })
+    expect(tall).toEqual(short)
+  })
+  it('just room enough: the menu’s width and the gap past the window’s edge', () => {
+    const left = FOCUS_EDGE_PX + FOCUS_MENU_WIDTH_PX + FOCUS_MENU_GAP_PX
+    expect(placeFocus({ ...anchor, left }, 120, 160, 800).menu).toBe('left')
+    expect(placeFocus({ ...anchor, left: left - 1 }, 120, 160, 800).menu).not.toBe('left')
+  })
+  it('a card near the bottom moves up just enough for the taller of it and its menu', () => {
+    expect(placeFocus({ ...anchor, top: 700 }, 120, 160, 800).top).toBe(800 - FOCUS_EDGE_PX - 160)
+    expect(placeFocus({ ...anchor, top: 700 }, 300, 160, 800).top).toBe(800 - FOCUS_EDGE_PX - 300)
+  })
+  it('a card taller than the window starts at the top edge and scrolls inside its cap', () => {
+    const p = placeFocus({ ...anchor, top: 300 }, 2000, 160, 800)
+    expect(p).toMatchObject({ top: FOCUS_EDGE_PX, menu: 'left', maxHeight: 800 - FOCUS_EDGE_PX * 2 })
+  })
+  it('no menu: nothing goes beside it', () => {
+    expect(placeFocus(anchor, 120, 0, 800).menu).toBe('below')
+  })
+})
+
+describe('placeFocus: no room on the card’s left (a narrow window)', () => {
   const anchor = { top: 100, left: 20, width: 300 }
   it('the card at its own top, the menu below, when both fit', () => {
-    expect(placeFocus(anchor, 200, 120, 800)).toEqual({ top: 100, left: 20, width: 300, menuAbove: false, maxHeight: 800 - FOCUS_EDGE_PX * 2 - 120 - FOCUS_MENU_GAP_PX })
+    expect(placeFocus(anchor, 200, 120, 800)).toEqual({ top: 100, left: 20, width: 300, menu: 'below', maxHeight: 800 - FOCUS_EDGE_PX * 2 - 120 - FOCUS_MENU_GAP_PX })
   })
   it('no room below: the menu goes above, the card stays', () => {
     const p = placeFocus({ ...anchor, top: 600 }, 120, 120, 800)
-    expect(p).toMatchObject({ top: 600, menuAbove: true })
+    expect(p).toMatchObject({ top: 600, menu: 'above' })
   })
   it('a card that would run off the bottom moves up, and the menu flips above when it fits there', () => {
     const p = placeFocus({ ...anchor, top: 700 }, 200, 100, 800)
-    expect(p.menuAbove).toBe(true)
+    expect(p.menu).toBe('above')
     expect(p.top).toBe(800 - FOCUS_EDGE_PX - 200)
   })
   it('neither fits as it stands (the card near the top, tall): the card moves up so the menu fits below', () => {
     const p = placeFocus({ ...anchor, top: 40 }, 500, 200, 800)
-    expect(p.menuAbove).toBe(false)
+    expect(p.menu).toBe('below')
     expect(p.top + Math.min(500, p.maxHeight) + FOCUS_MENU_GAP_PX + 200).toBeLessThanOrEqual(800 - FOCUS_EDGE_PX)
     expect(p.top).toBeGreaterThanOrEqual(FOCUS_EDGE_PX)
   })

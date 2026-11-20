@@ -30,6 +30,10 @@
  * bot-owner.ts), so it lists under the agent, each card with the area it came
  * from (`area`: Captures, Mail, …) as a small label. Custom agents, role
  * teammates and loop bots keep their own groups and faces.
+ *
+ * Two views read it (Liam, 11-20): the agent's For you leaves out a coding
+ * agent's work, which the Code view's own For you lists instead
+ * (splitCodingEntries), so the agent's stays the focused view of what matters.
  */
 import type { AttentionItem } from '@/hooks/use-attention-items'
 import { AGENT_DRAFT_ITEM_PREFIX, type AgentDraft } from '@/lib/email/agent-drafts'
@@ -37,7 +41,7 @@ import type { OwnerCounts } from '@/lib/work/agent-work-lanes'
 import type { RosterTeammate } from '@/lib/work/agent-roster'
 import { waitingSince } from '@/lib/work/presentation'
 import type { CardRunRow } from '@/lib/work/queries'
-import type { WorkItem } from '@/lib/work/types'
+import { WORK_KINDS, type WorkItem } from '@/lib/work/types'
 import { faceAreaOf } from '@/lib/work/bot-owner'
 import { isAreaFaceKey } from '@/lib/work/work-area'
 import { PACKS, isAreaKey } from '@/lib/packs/registry'
@@ -158,6 +162,32 @@ export function forYouColumnEntries({ roster, counts, rows, cards, cardRows = []
     .map((entry, i) => ({ entry, i, t: timeOf(entry.at) }))
     .sort((a, b) => b.t - a.t || a.i - b.i)
     .map(({ entry }) => entry)
+}
+
+/**
+ * The work kinds a coding agent's run records: a job on the person's Mac
+ * (lib/local-agent/ledger.ts LOCAL_AGENT_WORK_KIND, Native Intelligence's own
+ * agent or the person's Codex, Claude Code…) and the cloud coding agent's run
+ * (WORK_KINDS.codingRun, lib/work/agent-run-mirror.ts).
+ */
+const CODING_WORK_KINDS: ReadonlySet<string> = new Set(['local_agent', WORK_KINDS.codingRun])
+
+/**
+ * A coding agent's work waiting on your review (Liam, 11-20: "we're mixing up
+ * coding agent alerts with the for you cards in the main agent view… that's
+ * supposed to be a focused view for important things"): listed in the Code
+ * view's own For you, never the agent's.
+ */
+export function isCodingEntry(entry: ColumnEntry): boolean {
+  return entry.kind === 'review' && CODING_WORK_KINDS.has(entry.row.kind)
+}
+
+/** The column's entries split by view: the agent's For you, and the Code view's (coding work only). Each in the order given. */
+export function splitCodingEntries(entries: readonly ColumnEntry[]): { agent: ColumnEntry[]; coding: ColumnEntry[] } {
+  const agent: ColumnEntry[] = []
+  const coding: ColumnEntry[] = []
+  for (const entry of entries) (isCodingEntry(entry) ? coding : agent).push(entry)
+  return { agent, coding }
 }
 
 /**

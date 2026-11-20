@@ -14,6 +14,7 @@ import {
   getSession,
   listDevices,
   listFolders,
+  attachSessionActions,
   listSessions,
   listWorktrees,
   readEnvironment,
@@ -159,6 +160,45 @@ describe('reading sessions, with lazy reaping', () => {
     expect(row.status).toBe('interrupted')
     expect(ledger.moveTurn).toHaveBeenCalledWith(db, expect.objectContaining({ id: s.id }), { type: 'interrupted' })
     expect(await listSessions(db as never, USER, { live: true })).toEqual([])
+  })
+})
+
+describe('the Code view’s list (codeIn): every coding job of the person’s in one workspace (Liam, 11-20)', () => {
+  const ACTION = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+  const OTHER_WS = '55555555-5555-4555-8555-555555555555'
+
+  it('lists the Code tab’s, an action’s Start and the chat agent’s, never another workspace’s; an action’s job says which action', async () => {
+    const db = seeded()
+    await createSession(db as never, base)
+    const first = { ...session(db) }
+    const rows = db.tables.local_agent_session
+    rows.length = 0
+    const at = (m: number) => new Date(Date.now() - m * 60_000).toISOString()
+    rows.push(
+      { ...first, id: 's-code', started_by: 'person', idempotency_key: 'local-agent-code:req-1', created_at: at(4) },
+      { ...first, id: 's-action', started_by: 'agent', idempotency_key: `local-agent-action:${ACTION}:start:k1`, created_at: at(3) },
+      { ...first, id: 's-chat', started_by: 'agent', idempotency_key: 'local-agent:conv:session:1:turn:1:call:c1', created_at: at(2) },
+      { ...first, id: 's-elsewhere', workspace_id: OTHER_WS, created_at: at(1) },
+    )
+    const list = await listSessions(db as never, USER, { codeIn: WS })
+    expect(list.map((s) => s.id).sort()).toEqual(['s-action', 's-chat', 's-code'])
+    expect(list.find((s) => s.id === 's-action')?.actionId).toBe(ACTION)
+    expect(list.find((s) => s.id === 's-code')?.actionId).toBeUndefined()
+    // Migration 659's column names the action too, whatever the key says.
+    rows.push({ ...first, id: 's-col', action_id: ACTION, idempotency_key: null, created_at: at(0) })
+    expect((await listSessions(db as never, USER, { codeIn: WS })).find((s) => s.id === 's-col')?.actionId).toBe(ACTION)
+  })
+
+  it('names each job’s action from that workspace’s actions; one it can’t find stays unnamed, and a job with none is left as it is', async () => {
+    const db = seeded({ actions: [{ id: ACTION, workspace_id: WS, identifier: 'ENG-42', title: 'Fix the board' }] })
+    const named = await attachSessionActions(db as never, WS, [
+      { id: 's1', actionId: ACTION },
+      { id: 's2', actionId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' },
+      { id: 's3' },
+    ] as never)
+    expect(named.map((s) => s.action ?? null)).toEqual([{ id: ACTION, identifier: 'ENG-42', title: 'Fix the board' }, null, null])
+    // Another workspace's action is never named.
+    expect((await attachSessionActions(db as never, OTHER_WS, [{ id: 's1', actionId: ACTION }] as never))[0].action).toBeUndefined()
   })
 })
 
