@@ -1,14 +1,15 @@
 // @vitest-environment jsdom
 /**
- * "in the cloud / on <your Mac>" beside an action's Start (start-agent-where.tsx):
+ * "Run on" beside an action's Start (start-agent-where.tsx), picked per task:
  *
  *   - not a coding run (GET …/start-agent's `coding` is null), or no Mac: nothing;
- *   - a coding run and a Mac: where the Start runs now, and the choice of the
- *     cloud or the Mac, which sets the project's own "Run my work here" (PUT
- *     …/environments/default, the switch the project panel shows) and reads
- *     where the Start runs again, so the "with" picker can appear;
- *   - the Mac chosen with no folder linked to the repo: one sentence, and
- *     Link a folder (that Mac's Edit environment).
+ *   - a coding run and a Mac: it opens where the task last ran, else on the
+ *     project default, else the cloud; picking another place changes THIS
+ *     task's Start only (nothing is written);
+ *   - "Make this the default for this project" sets the project's own "Run my
+ *     work here" (PUT …/environments/default) and reads the place again;
+ *   - a Mac picked with no folder linked to the repo: one sentence, and Link a
+ *     folder (that Mac's Edit environment).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, createElement as h } from 'react'
@@ -52,15 +53,19 @@ function Host() {
   return h('div', { 'data-place': place.macId ?? 'cloud' }, h(StartAgentWhere, { place, enabled: true }))
 }
 
-/** `onMac`: the Mac "Run my work here" names now (the PUT changes it); `coding`: a coding run or not. */
-async function mount(opts: { coding: boolean; onMac: string | null; envs: unknown[] }) {
+/** `onMac`: the project default (the PUT changes it); `last`: where the task last ran; `coding`: a coding run or not. */
+async function mount(opts: { coding: boolean; onMac: string | null; envs: unknown[]; last?: { environmentId: string | null; worker: string | null } | null; put?: () => Response }) {
   let onMac = opts.onMac
   const f = fakeFetch({ list: opts.envs }, [
-    { url: START_URL, reply: () => json({ onMac: onMac ? { environmentId: onMac } : null, coding: opts.coding ? { projectId: PROJECT, repo: REPO } : null }) },
+    {
+      url: START_URL,
+      reply: () => json({ onMac: onMac ? { environmentId: onMac } : null, coding: opts.coding ? { projectId: PROJECT, repo: REPO } : null, last: opts.last ?? null }),
+    },
     {
       method: 'PUT',
       url: '/api/account/environments/default',
       reply: (body) => {
+        if (opts.put) return opts.put()
         onMac = (body as { environmentId: string | null }).environmentId
         return json({ environmentId: onMac, projectId: PROJECT })
       },
@@ -74,10 +79,13 @@ async function mount(opts: { coding: boolean; onMac: string | null; envs: unknow
 }
 
 async function open() {
-  await act(async () => {
-    q('[data-start-agent-where]')!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 0 }))
-  })
-  await flush()
+  // Radix toggles on pointerdown; right after a pick the menu may still be closing, so try twice.
+  for (let i = 0; i < 2 && !q('[data-start-agent-where-menu]'); i++) {
+    await act(async () => {
+      q('[data-start-agent-where]')!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 0 }))
+    })
+    await flush()
+  }
 }
 
 beforeEach(() => {
@@ -104,7 +112,7 @@ describe('unlinkedFolderSentence', () => {
   })
 })
 
-describe('where the Start runs, chosen at the Start', () => {
+describe('where this task runs, picked at its Start', () => {
   it('a work run (no repo, not a developer agent): nothing, even with a Mac', async () => {
     await mount({ coding: false, onMac: null, envs: [STUDIO(), cloud()] })
     expect(q('[data-start-agent-where]')).toBeNull()
@@ -115,38 +123,64 @@ describe('where the Start runs, chosen at the Start', () => {
     expect(q('[data-start-agent-where]')).toBeNull()
   })
 
-  it('a coding run in the cloud with a Mac available: choosing the Mac sets “Run my work here” and reads the Start again', async () => {
+  it('never run, no default: the cloud; picking the Mac changes this task only, and nothing is written', async () => {
     const f = await mount({ coding: true, onMac: null, envs: [STUDIO(), cloud()] })
     const trigger = q('[data-start-agent-where]')!
     expect(trigger.getAttribute('data-start-agent-where')).toBe('cloud')
     expect(trigger.textContent).toContain('in the cloud')
     await open()
     expect([...document.querySelectorAll('[data-start-agent-where-option]')].map((el) => el.getAttribute('data-start-agent-where-option'))).toEqual(['cloud', 'env-mac'])
-    const reads = f.calls.filter((c) => c.url === START_URL).length
     await act(async () => q('[data-start-agent-where-option="env-mac"]')!.click())
     await flush()
-    // The project's own switch, not a second setting.
-    expect(f.calls.filter((c) => c.method === 'PUT')).toEqual([
-      { method: 'PUT', url: '/api/account/environments/default', body: { projectId: PROJECT, environmentId: 'env-mac' } },
-    ])
-    expect(f.calls.filter((c) => c.url === START_URL).length).toBe(reads + 1)
     expect(q('[data-place]')!.getAttribute('data-place')).toBe('env-mac')
     expect(q('[data-start-agent-where]')!.textContent).toContain('on Studio Mac')
+    expect(f.calls.filter((c) => c.method !== 'GET')).toEqual([])
     // The folder is linked: nothing to say.
     expect(toast).not.toHaveBeenCalled()
   })
 
-  it('back to the cloud turns “Run my work here” off', async () => {
+  it('never run: it opens on the project default, marked as such; the cloud for this task leaves the default alone', async () => {
     const f = await mount({ coding: true, onMac: 'env-mac', envs: [STUDIO(), cloud()] })
     expect(q('[data-start-agent-where]')!.textContent).toContain('on Studio Mac')
     await open()
+    expect(q('[data-start-agent-where-option="env-mac"]')!.textContent).toContain('project default')
+    // Already the default: nothing to make default.
+    expect(q('[data-start-agent-where-make-default]')).toBeNull()
     await act(async () => q('[data-start-agent-where-option="cloud"]')!.click())
     await flush()
-    expect(f.calls.find((c) => c.method === 'PUT')!.body).toEqual({ projectId: PROJECT, environmentId: null })
     expect(q('[data-place]')!.getAttribute('data-place')).toBe('cloud')
+    expect(f.calls.filter((c) => c.method !== 'GET')).toEqual([])
   })
 
-  it('the Mac with no folder linked to the repo: one sentence, and Link a folder opens that Mac', async () => {
+  it('a task remembers where it last ran, over the project default', async () => {
+    await mount({ coding: true, onMac: 'env-mac', envs: [STUDIO(), cloud()], last: { environmentId: null, worker: null } })
+    expect(q('[data-place]')!.getAttribute('data-place')).toBe('cloud')
+    act(() => root.unmount())
+    root = createRoot(container)
+    resetEnvironmentStore()
+    await mount({ coding: true, onMac: null, envs: [STUDIO(), cloud()], last: { environmentId: 'env-mac', worker: 'codex' } })
+    expect(q('[data-place]')!.getAttribute('data-place')).toBe('env-mac')
+  })
+
+  it('“Make this the default for this project” sets “Run my work here” to the picked place and reads it again', async () => {
+    const f = await mount({ coding: true, onMac: null, envs: [STUDIO(), cloud()] })
+    await open()
+    await act(async () => q('[data-start-agent-where-option="env-mac"]')!.click())
+    await flush()
+    await open()
+    const reads = f.calls.filter((c) => c.url === START_URL).length
+    await act(async () => q('[data-start-agent-where-make-default]')!.click())
+    await flush()
+    expect(f.calls.filter((c) => c.method === 'PUT')).toEqual([
+      { method: 'PUT', url: '/api/account/environments/default', body: { projectId: PROJECT, environmentId: 'env-mac' } },
+    ])
+    expect(f.calls.filter((c) => c.url === START_URL).length).toBe(reads + 1)
+    await open()
+    expect(q('[data-start-agent-where-option="env-mac"]')!.textContent).toContain('project default')
+    expect(q('[data-start-agent-where-make-default]')).toBeNull()
+  })
+
+  it('a Mac with no folder linked to the repo: one sentence, and Link a folder opens that Mac', async () => {
     const unlinked = STUDIO({ folders: [{ id: 'f-9', label: 'notes', mode: 'read', isGit: false, baseBranch: null, repoFullName: null }] })
     await mount({ coding: true, onMac: null, envs: [unlinked, cloud()] })
     await open()
@@ -161,19 +195,15 @@ describe('where the Start runs, chosen at the Start', () => {
     expect(q('[data-edit-environment]')!.getAttribute('data-edit-environment')).toBe('env-mac')
   })
 
-  it('a refused change: the place stays, and the server’s sentence shows', async () => {
-    const f = fakeFetch({ list: [STUDIO(), cloud()] }, [
-      { url: START_URL, reply: () => json({ onMac: null, coding: { projectId: PROJECT, repo: REPO } }) },
-      { method: 'PUT', url: '/api/account/environments/default', reply: () => json({ error: 'That Mac was removed.' }, 409) },
-    ])
-    vi.stubGlobal('fetch', f.fn)
-    configureEnvironment({ fetch: f.fn as never, isDesktop: () => false })
-    await act(async () => root.render(h(Host)))
-    await flush()
+  it('a refused default: the server’s sentence shows, and the task keeps its pick', async () => {
+    await mount({ coding: true, onMac: null, envs: [STUDIO(), cloud()], put: () => json({ error: 'That Mac was removed.' }, 409) })
     await open()
     await act(async () => q('[data-start-agent-where-option="env-mac"]')!.click())
     await flush()
-    expect(toast.error).toHaveBeenCalledWith('Couldn’t run your work on Studio Mac', { description: 'That Mac was removed.' })
-    expect(q('[data-place]')!.getAttribute('data-place')).toBe('cloud')
+    await open()
+    await act(async () => q('[data-start-agent-where-make-default]')!.click())
+    await flush()
+    expect(toast.error).toHaveBeenCalledWith('Couldn’t change this project’s default', { description: 'That Mac was removed.' })
+    expect(q('[data-place]')!.getAttribute('data-place')).toBe('env-mac')
   })
 })

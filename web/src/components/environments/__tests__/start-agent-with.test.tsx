@@ -24,7 +24,7 @@ import { createRoot, type Root } from 'react-dom/client'
 vi.mock('sonner', () => ({ toast: Object.assign(vi.fn(), { error: vi.fn(), success: vi.fn() }) }))
 vi.mock('@/lib/local-agent/relay-core', () => ({ refreshLocalAgentDevice: vi.fn(async () => null) }))
 
-import { StartAgentWith, startPlaceLabel, startWorkerOptions, useStartOnMac } from '../start-agent-with'
+import { StartAgentWith, initialStartPlace, startPlaceLabel, startWorkerOptions, useStartOnMac } from '../start-agent-with'
 import { configureEnvironment, resetEnvironmentStore } from '@/lib/local-agent/environment-client'
 import { cloud, fakeFetch, json, mac } from './fixtures'
 
@@ -62,7 +62,8 @@ function Host({ actionId }: { actionId: string | null }) {
  */
 async function mount(actionId: string | null, onMac: string | null, envs: unknown[]) {
   const f = fakeFetch({ list: envs }, [
-    { url: START_URL, reply: () => json({ onMac: onMac ? { environmentId: onMac } : null }) },
+    // A coding Start whose place opens on the project default (`onMac`), or the cloud.
+    { url: START_URL, reply: () => json({ onMac: onMac ? { environmentId: onMac } : null, coding: { projectId: 'p-1', repo: 'acme/core' }, last: null }) },
   ])
   vi.stubGlobal('fetch', f.fn)
   configureEnvironment({ fetch: f.fn as never, isDesktop: () => false })
@@ -170,5 +171,34 @@ describe('startPlaceLabel: the Start says where it runs', () => {
     expect(startPlaceLabel({ macId: 'env-mac', mac: STUDIO({ offeredWorkers: OFFERS }) }, 'claude-code')).toBe('Run on Studio Mac with Claude Code')
     // The Mac not in the list yet: still on a Mac, never “in cloud”.
     expect(startPlaceLabel({ macId: 'env-mac', mac: null }, 'codex')).toBe('Run on your Mac with Codex')
+  })
+})
+
+describe('initialStartPlace: a task opens where it last ran, else on the project default, else the cloud', () => {
+  const coding = { projectId: 'p-1', repo: 'acme/core' }
+  const macs = [{ id: 'env-mac' }, { id: 'env-other' }]
+  it('never a Mac for a work run', () => {
+    expect(initialStartPlace({ coding: null, defaultMacId: 'env-mac', last: { environmentId: 'env-mac', worker: null } }, macs)).toBeNull()
+  })
+  it('the last run’s place wins over the default, the cloud included', () => {
+    expect(initialStartPlace({ coding, defaultMacId: 'env-mac', last: { environmentId: null, worker: null } }, macs)).toBeNull()
+    expect(initialStartPlace({ coding, defaultMacId: null, last: { environmentId: 'env-other', worker: 'codex' } }, macs)).toBe('env-other')
+  })
+  it('never run: the default; a default or last Mac no longer listed falls back', () => {
+    expect(initialStartPlace({ coding, defaultMacId: 'env-mac', last: null }, macs)).toBe('env-mac')
+    expect(initialStartPlace({ coding, defaultMacId: 'env-gone', last: null }, macs)).toBeNull()
+    expect(initialStartPlace({ coding, defaultMacId: 'env-mac', last: { environmentId: 'env-gone', worker: null } }, macs)).toBe('env-mac')
+    // The list not loaded yet: the ids as they are.
+    expect(initialStartPlace({ coding, defaultMacId: 'env-gone', last: null }, null)).toBe('env-gone')
+  })
+})
+
+describe('startWorkerOptions: a task remembers its own agent', () => {
+  it('the agent it last ran with, while the Mac offers it; Native Intelligence when that was it; else the Mac’s saved choice', () => {
+    const m = STUDIO({ offeredWorkers: OFFERS, worker: 'claude-code' })
+    expect(startWorkerOptions(m, null, 'codex')!.initial).toBe('codex')
+    expect(startWorkerOptions(m, null, null)!.initial).toBeNull()
+    expect(startWorkerOptions(m, null, 'gemini-cli')!.initial).toBe('claude-code')
+    expect(startWorkerOptions(m, null, undefined)!.initial).toBe('claude-code')
   })
 })

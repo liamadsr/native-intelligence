@@ -625,8 +625,9 @@ export function ActionDetailPanel({
   // while there is nothing to choose (the Start then sends none: the Mac's
   // saved choice applies). Never stored on the action: the run records it.
   const [startWorker, setStartWorker] = useState<string | null | undefined>(undefined)
-  // Where this person's Start runs (GET …/start-agent, read once here for the
-  // Start's label, "where" and "with"): their Mac, or the project's cloud.
+  // Where this task's Start runs (GET …/start-agent, read once here for the
+  // Start's label, "Run on" and "with"): picked per task, opening where it
+  // last ran, else on the project default, else the cloud.
   const startPlace = useStartOnMac(action?.id ?? null, !!action?.assignee_ai_member_id, `${action?.assignee_ai_member_id ?? ''}:${action?.project_id ?? ''}`)
   const startLabel = startPlaceLabel(startPlace, startWorker)
   // The person's own job for this action on their Mac, when a Start put one there.
@@ -1469,8 +1470,18 @@ export function ActionDetailPanel({
     try {
       const res = await fetch(`/api/account/actions/${actionId}/start-agent`, {
         method: 'POST',
-        // Who does the work on the person's Mac, when they chose (StartAgentWith); none: the Mac's saved choice.
-        ...(startWorker !== undefined ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ worker: startWorker }) } : {}),
+        // A coding Start goes where "Run on" shows (this task's pick: a Mac, or
+        // null for the cloud), with who "with" shows on a Mac; anything else
+        // sends nothing, as before.
+        ...(startPlace.coding || startWorker !== undefined
+          ? {
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                ...(startPlace.coding ? { environmentId: startPlace.macId } : {}),
+                ...(startWorker !== undefined ? { worker: startWorker } : {}),
+              }),
+            }
+          : {}),
       })
       if (!res.ok) {
         const error = ((await res.json().catch(() => ({}))) as { error?: string })?.error
@@ -1748,13 +1759,14 @@ export function ActionDetailPanel({
           {/* Agent run control — only when this action is assigned to an agent.
                     Idle/failed = launch button; working/PR-opened = status icon. */}
           {/* Who does the work when Start runs on the person's Mac as a coding job (the route's own rule); nothing to choose: nothing shown, and Start sends no choice. */}
-          {/* Where it runs (a coding Start, when the person has a Mac): the project's "Run my work here", chosen right here. */}
+          {/* Where this task runs (a coding Start, when the person has a Mac): picked per task; the project's "Run my work here" is its default. */}
           {action?.assignee_ai_member_id && action.agent_run_status !== 'working' && action.agent_run_status !== 'pr_open' && (
             <StartAgentWhere place={startPlace} enabled disabled={startingAgent} />
           )}
           {action?.assignee_ai_member_id && action.agent_run_status !== 'working' && action.agent_run_status !== 'pr_open' && (
             <StartAgentWith
               mac={startPlace.mac}
+              remembered={startPlace.lastWorker}
               enabled
               value={startWorker}
               onChange={setStartWorker}

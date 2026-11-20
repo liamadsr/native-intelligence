@@ -1,20 +1,22 @@
 'use client'
 
 /**
- * "in the cloud / on <your Mac>" beside an action's Start: where this
- * person's Start of a coding run goes, chosen right there. It IS the
- * project's "Run my work here on <your Mac>" (project-environment-field.tsx:
- * the same per-person project default, PUT …/environments/default), so
- * picking a Mac here turns that switch on and picking the cloud turns it off;
- * there is no second setting. Then the Start reads where it runs again
- * (useStartOnMac), and the "with" picker appears when the Mac offers agents.
+ * "Run on" beside an action's Start: where THIS task's Start runs, the cloud
+ * or one of the person's own Macs (the owner's rule, 11-19: the place is
+ * chosen per task; the project's "Run my work here" is only the default).
+ * It opens where the task last ran, else on the project default, else on the
+ * cloud (useStartOnMac). Picking another place changes only this task's
+ * Start; "Make this the default for this project" in the same menu sets the
+ * project's own "Run my work here" (PUT …/environments/default, the switch
+ * the project panel shows), for the person who wants that. With a Mac picked
+ * the existing "with" picker appears beside it.
  *
  * Shown only for a coding run (GET …/start-agent's `coding`: a repo, a
- * developer agent or one with no role) when the person has a Mac. A work
- * run never runs on a Mac, so nothing is offered for one. With the Mac
- * chosen and no folder on it linked to the project's repo, it says so in one
- * sentence and offers that Mac's Edit environment to link one (the Start
- * would be refused with the same reason, never moved to the cloud).
+ * developer agent or one with no role) when the person has a Mac: a work run
+ * always runs in the cloud. With a Mac picked and no folder on it linked to
+ * the project's repo, it says so in one sentence and offers that Mac's Edit
+ * environment to link one (the Start would be refused with the same reason,
+ * never moved to the cloud).
  */
 import { useState } from 'react'
 import { Check, ChevronDown } from 'lucide-react'
@@ -22,7 +24,7 @@ import { toast } from 'sonner'
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
-import { useEnvironments, type MacEnvironmentItem } from '@/lib/local-agent/environment-client'
+import type { MacEnvironmentItem } from '@/lib/local-agent/environment-client'
 import { setProjectMacDefault } from './api'
 import { EditEnvironmentDialog } from './edit-environment-dialog'
 import { EnvironmentKindIcon } from './environment-meta'
@@ -46,31 +48,37 @@ export interface StartAgentWhereProps {
 }
 
 export function StartAgentWhere({ place, enabled, disabled = false }: StartAgentWhereProps) {
-  const coding = enabled && place.loaded ? place.coding : null
-  const list = useEnvironments({ enabled: !!coding })
-  const macs = list.environments.filter((e): e is MacEnvironmentItem => e.kind === 'mac')
   const [saving, setSaving] = useState(false)
   const [linking, setLinking] = useState<MacEnvironmentItem | null>(null)
+  const coding = enabled && place.loaded ? place.coding : null
+  const macs = place.macs
   if (!coding || macs.length === 0) return null
 
   const current = place.macId ? (macs.find((m) => m.id === place.macId) ?? place.mac) : null
   const unlinked = unlinkedFolderSentence(current, coding.repo)
   const where = place.macId ? `on ${current?.name || 'your Mac'}` : 'in the cloud'
+  const isDefault = place.macId === place.defaultMacId
 
-  async function choose(value: string) {
+  function choose(value: string) {
     const next = value === CLOUD ? null : value
     if (next === place.macId || !coding) return
-    const mac = next ? macs.find((m) => m.id === next) ?? null : null
+    place.pick(next)
+    const mac = next ? (macs.find((m) => m.id === next) ?? null) : null
+    const missing = unlinkedFolderSentence(mac, coding.repo)
+    if (mac && missing) toast(missing, { description: 'Link one so the agent can work in it.', action: { label: 'Link a folder', onClick: () => setLinking(mac) } })
+  }
+
+  async function makeDefault() {
+    if (!coding) return
+    const environmentId = place.macId
     setSaving(true)
-    const res = await setProjectMacDefault({ projectId: coding.projectId, environmentId: next })
+    const res = await setProjectMacDefault({ projectId: coding.projectId, environmentId })
     setSaving(false)
     if (!res.ok) {
-      toast.error(next ? `Couldn’t run your work on ${mac?.name || 'your Mac'}` : 'Couldn’t move your work to the cloud', { description: res.error })
+      toast.error('Couldn’t change this project’s default', { description: res.error })
       return
     }
     place.reload()
-    const missing = unlinkedFolderSentence(mac, coding.repo)
-    if (mac && missing) toast(missing, { description: 'Link one so the agent can work in it.', action: { label: 'Link a folder', onClick: () => setLinking(mac) } })
   }
 
   const optionRow = (value: string, label: string, kind: 'mac' | 'cloud', note?: string) => (
@@ -86,6 +94,8 @@ export function StartAgentWhere({ place, enabled, disabled = false }: StartAgent
       <Check aria-hidden className={cn('size-3.5 shrink-0', (place.macId ?? CLOUD) === value ? 'text-foreground' : 'invisible')} />
     </DropdownMenuPrimitive.RadioItem>
   )
+  const noteFor = (id: string | null, online = true) =>
+    [id === place.defaultMacId ? 'project default' : null, online ? null : 'offline'].filter(Boolean).join(' · ') || undefined
 
   return (
     <>
@@ -95,8 +105,8 @@ export function StartAgentWhere({ place, enabled, disabled = false }: StartAgent
             type="button"
             data-start-agent-where={place.macId ? 'mac' : 'cloud'}
             {...(unlinked ? { 'data-start-agent-where-unlinked': '' } : {})}
-            title={unlinked ?? `Your Start runs ${where}`}
-            aria-label={`Runs ${where}. Change where`}
+            title={unlinked ?? `This task runs ${where}`}
+            aria-label={`Runs ${where}. Change where this task runs`}
             className="inline-flex h-7 max-w-[12rem] shrink-0 items-center gap-1 rounded-md px-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 data-[state=open]:bg-muted"
           >
             <EnvironmentKindIcon kind={place.macId ? 'mac' : 'cloud'} className="size-3.5" />
@@ -108,13 +118,10 @@ export function StartAgentWhere({ place, enabled, disabled = false }: StartAgent
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" side="bottom" className="w-64" data-start-agent-where-menu="">
-          <DropdownMenuLabel className="px-2 pb-1 pt-1 text-[11px] font-medium text-muted-foreground">
-            Where your work in this project runs
-            <span className="block font-normal">For actions you start. Teammates’ run in the cloud.</span>
-          </DropdownMenuLabel>
-          <DropdownMenuRadioGroup value={place.macId ?? CLOUD} onValueChange={(v) => void choose(v)} aria-label="Where this card’s work runs">
-            {optionRow(CLOUD, 'In the cloud', 'cloud')}
-            {macs.map((m) => optionRow(m.id, m.name || 'Your Mac', 'mac', m.online ? undefined : 'offline'))}
+          <DropdownMenuLabel className="px-2 pb-1 pt-1 text-[11px] font-medium text-muted-foreground">Run this task on</DropdownMenuLabel>
+          <DropdownMenuRadioGroup value={place.macId ?? CLOUD} onValueChange={choose} aria-label="Where this task runs">
+            {optionRow(CLOUD, 'Cloud', 'cloud', noteFor(null))}
+            {macs.map((m) => optionRow(m.id, m.name || 'Your Mac', 'mac', noteFor(m.id, m.online)))}
           </DropdownMenuRadioGroup>
           {unlinked && current && (
             <>
@@ -124,6 +131,18 @@ export function StartAgentWhere({ place, enabled, disabled = false }: StartAgent
               </p>
               <DropdownMenuItem data-start-agent-where-link="" onSelect={() => setLinking(current)} className="rounded-2xl px-2 py-2 text-sm">
                 Link a folder…
+              </DropdownMenuItem>
+            </>
+          )}
+          {!isDefault && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                data-start-agent-where-make-default=""
+                onSelect={() => void makeDefault()}
+                className="rounded-2xl px-2 py-2 text-xs text-muted-foreground"
+              >
+                Make this the default for this project
               </DropdownMenuItem>
             </>
           )}

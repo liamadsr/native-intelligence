@@ -123,6 +123,7 @@ beforeEach(() => {
     // My "Run my work here" for the project.
     environment_default: [{ id: 'd-me', user_id: ME, workspace_id: WS, project_id: PROJECT, environment_id: MAC_ENV }],
     local_agent_session: [],
+    agent_run: [],
   })
   hoisted.db = db
   hoisted.role = 'developer'
@@ -271,7 +272,7 @@ describe('start-agent: who does the work on my Mac (migration 658)', () => {
     // No "Run my work here" (the teammate has none).
     const noMac = await start(TEAMMATE, { worker: 'codex' })
     expect(noMac.status).toBe(409)
-    expect(await noMac.json()).toMatchObject({ code: 'OWN_AGENT_NEEDS_MAC', error: expect.stringContaining('Run my work here') })
+    expect(await noMac.json()).toMatchObject({ code: 'OWN_AGENT_NEEDS_MAC', error: expect.stringContaining('pick your Mac') })
     // Not a developer agent.
     hoisted.role = 'writer'
     const notCoding = await start(ME, { worker: 'codex' })
@@ -315,6 +316,58 @@ describe('start-agent: who does the work on my Mac (migration 658)', () => {
   })
 })
 
+describe('start-agent: the place picked on the action for this Start (environmentId)', () => {
+  it('my own Mac, with no “Run my work here”: that Mac', async () => {
+    db.tables.environment_default = []
+    const res = await start(ME, { environmentId: MAC_ENV })
+    expect((await res.json()).mode).toBe('mac')
+    expect((hoisted.onMac.mock.calls[0][1] as { environmentId: string }).environmentId).toBe(MAC_ENV)
+    expect(inserts()).toHaveLength(0)
+  })
+
+  it('the cloud, with “Run my work here” on: the cloud for this Start only, and the default is left as it was', async () => {
+    const res = await start(ME, { environmentId: null })
+    expect(await res.json()).toEqual({ mode: 'server', worker: 'coding_run', agentRunId: 'run-new' })
+    expect(hoisted.onMac).not.toHaveBeenCalled()
+    expect(db.tables.environment_default).toEqual([expect.objectContaining({ user_id: ME, project_id: PROJECT, environment_id: MAC_ENV })])
+  })
+
+  it('a teammate naming my Mac: refused, and nothing starts anywhere', async () => {
+    const res = await start(TEAMMATE, { environmentId: MAC_ENV })
+    expect(res.status).toBe(409)
+    expect(await res.json()).toMatchObject({ code: 'MAC_UNAVAILABLE' })
+    expect(hoisted.onMac).not.toHaveBeenCalled()
+    expect(inserts()).toHaveLength(0)
+  })
+
+  it('a removed Mac of mine: refused, never moved to the cloud', async () => {
+    db.tables.user_device[0].removed_at = new Date().toISOString()
+    const res = await start(ME, { environmentId: MAC_ENV })
+    expect(res.status).toBe(409)
+    expect(hoisted.onMac).not.toHaveBeenCalled()
+    expect(inserts()).toHaveLength(0)
+  })
+
+  it('a Mac for a work run (not a developer agent): refused, and no work run starts', async () => {
+    hoisted.role = 'writer'
+    const res = await start(ME, { environmentId: MAC_ENV })
+    expect(res.status).toBe(409)
+    expect(await res.json()).toMatchObject({ code: 'MAC_NEEDS_CODING' })
+    expect(hoisted.launch).not.toHaveBeenCalled()
+  })
+
+  it('my own agent with the cloud picked: refused, never a cloud run', async () => {
+    const res = await start(ME, { environmentId: null, worker: 'claude-code' })
+    expect(res.status).toBe(409)
+    expect(await res.json()).toMatchObject({ code: 'OWN_AGENT_NEEDS_MAC' })
+    expect(inserts()).toHaveLength(0)
+  })
+
+  it('not an id: a 400', async () => {
+    expect((await start(ME, { environmentId: 'my-mac' })).status).toBe(400)
+  })
+})
+
 describe('GET start-agent: does my Start run on my Mac as a coding job (the "with" control’s rule)', () => {
   const get = async (userId: string) => {
     hoisted.userId = userId
@@ -325,15 +378,42 @@ describe('GET start-agent: does my Start run on my Mac as a coding job (the "wit
   const CODING = { projectId: PROJECT, repo: 'acme/core' }
 
   it('my Start: a repo, a developer agent and my “Run my work here”: that Mac', async () => {
-    expect(await get(ME)).toEqual({ onMac: { environmentId: MAC_ENV }, coding: CODING })
+    expect(await get(ME)).toEqual({ onMac: { environmentId: MAC_ENV }, coding: CODING, last: null })
   })
 
   it('no “Run my work here” (a teammate’s Start): a coding run in the cloud, so the panel may offer their own Mac, never mine', async () => {
-    expect(await get(TEAMMATE)).toEqual({ onMac: null, coding: CODING })
+    expect(await get(TEAMMATE)).toEqual({ onMac: null, coding: CODING, last: null })
   })
 
   it('a non-developer agent: a work run, never on a Mac, so nothing is offered or sent', async () => {
     hoisted.role = 'writer'
-    expect(await get(ME)).toEqual({ onMac: null, coding: null })
+    expect(await get(ME)).toEqual({ onMac: null, coding: null, last: null })
+  })
+
+  it('the task remembers where I last ran it, and with whom: the newer of my Mac job and my cloud run', async () => {
+    const job = (at: string, worker: string | null) => ({
+      id: `sess-${at}`, user_id: ME, workspace_id: WS, device_id: MAC, folder_id: 'f-1', status: 'done', worker,
+      idempotency_key: `local-agent-action:${ACTION}:start:${at}`, created_at: at,
+    })
+    db.tables.local_agent_session.push(job('2026-11-18T10:00:00Z', 'codex'))
+    expect((await get(ME)).last).toEqual({ environmentId: MAC_ENV, worker: 'codex' })
+    // A later cloud coding run of mine wins; a later work run, or a teammate's run, doesn't count.
+    db.tables.agent_run.push(
+      { id: 'r-1', workspace_id: WS, action_id: ACTION, triggered_by: ME, kind: null, created_at: '2026-11-19T09:00:00Z' },
+      { id: 'r-2', workspace_id: WS, action_id: ACTION, triggered_by: ME, kind: 'workspace', created_at: '2026-11-19T11:00:00Z' },
+      { id: 'r-3', workspace_id: WS, action_id: ACTION, triggered_by: TEAMMATE, kind: null, created_at: '2026-11-19T12:00:00Z' },
+    )
+    expect((await get(ME)).last).toEqual({ environmentId: null, worker: null })
+    // A teammate never inherits my memory.
+    expect((await get(TEAMMATE)).last).toEqual({ environmentId: null, worker: null })
+  })
+
+  it('a job on a Mac I since removed: no memory (the default applies), never the cloud', async () => {
+    db.tables.local_agent_session.push({
+      id: 'sess-x', user_id: ME, workspace_id: WS, device_id: MAC, folder_id: 'f-1', status: 'done', worker: null,
+      idempotency_key: `local-agent-action:${ACTION}:start:x`, created_at: '2026-11-18T10:00:00Z',
+    })
+    db.tables.environment[0].archived_at = '2026-11-19T00:00:00Z'
+    expect((await get(ME)).last).toBeNull()
   })
 })

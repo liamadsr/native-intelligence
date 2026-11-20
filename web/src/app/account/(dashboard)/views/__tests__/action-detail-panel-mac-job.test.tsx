@@ -216,5 +216,22 @@ describe('ActionDetailPanel — the job on the person’s Mac', () => {
     const where = q('[data-start-agent-where]')!
     expect(where.textContent).toContain('on Studio Mac')
     expect(where.getAttribute('title')).toBe('No folder on Studio Mac is linked to acme/core.')
+    // The Start sends where it shows: this task's place.
+    await act(async () => play.click())
+    for (let i = 0; i < 3; i++) await act(async () => { await vi.advanceTimersByTimeAsync(50) })
+    const post = calls.find((c) => c.url === `${DETAIL_URL}/start-agent` && c.init?.method === 'POST')!
+    expect(JSON.parse(String(post.init?.body))).toEqual({ environmentId: 'env-mac' })
+  })
+
+  it('a task that last ran in the cloud opens there, over the project default, and its Start sends the cloud', async () => {
+    runStatus = 'idle'
+    placeAnswer = { onMac: { environmentId: 'env-mac' }, coding: { projectId: 'proj-1', repo: 'acme/core' }, last: { environmentId: null, worker: null } }
+    await render()
+    const play = container.querySelector('[data-start-agent-place]') as HTMLButtonElement
+    expect(play.getAttribute('aria-label')).toBe('Run agent in cloud: launch Builder to work on this task')
+    await act(async () => play.click())
+    for (let i = 0; i < 3; i++) await act(async () => { await vi.advanceTimersByTimeAsync(50) })
+    const post = calls.find((c) => c.url === `${DETAIL_URL}/start-agent` && c.init?.method === 'POST')!
+    expect(JSON.parse(String(post.init?.body))).toEqual({ environmentId: null })
   })
 })

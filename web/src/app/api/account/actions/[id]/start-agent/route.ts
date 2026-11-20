@@ -7,7 +7,9 @@ import { isWorkerId, workerLabel } from '@/lib/environments/types'
 import { findLiveActionRun } from '@/lib/agent-run/live-action-run'
 import { launchWorkItem, snapshotResources } from '@/lib/work/start-work-item'
 import { checkDelegate, memberIdForUser } from '@/lib/actions/delegate'
-import { getDefault } from '@/lib/environments/store'
+import { getDefault, getEnvironment } from '@/lib/environments/store'
+import { lastActionPlace } from '@/lib/environments/last-action-place'
+import { isUuid } from '@/lib/local-agent/store'
 import { startActionOnMac, startInEnvironment } from '@/lib/environments/start'
 import { liveActionMacJob, type PersonAgentChoice } from '@/lib/local-agent/unattended'
 import { chatgptPlanFor } from '@/lib/chatgpt/plan-route'
@@ -55,8 +57,21 @@ import { CHATGPT_PLAN_NO_CODING_REASON } from '@/lib/chatgpt/plan-models'
  * When the agent finishes, the action goes to review, not Done; the person
  * marks it Done (src/lib/actions/agent-finish.ts).
  *
- * Body (optional, JSON): { worker?: string | null } (migration 658): who does
- * the work when it runs on the person's Mac.
+ * Body (optional, JSON): { worker?: string | null, environmentId?: string | null }.
+ *
+ * `environmentId`: where THIS Start runs, chosen on the action (the owner's
+ * rule, 11-19: the place is per task; "Run my work here" is only the
+ * default). Absent: their "Run my work here" for the project, as before;
+ * null: the project's cloud environment; an id: one of the CALLER's own Macs
+ * (getEnvironment reads only theirs), so a teammate's Start never reaches
+ * another person's Mac. It is checked the way the default is: a Mac that
+ * isn't theirs (or was removed) is refused (409 MAC_UNAVAILABLE), and on
+ * their Mac an offline Mac or no folder linked to the repo is refused with
+ * its sentence, never moved to the cloud. Only a coding Start runs on a
+ * Mac: an id for any other is refused (409 MAC_NEEDS_CODING). Nothing is
+ * stored: the run records where it ran (lastActionPlace reads it back).
+ *
+ * `worker` (migration 658): who does the work when it runs on the person's Mac.
  *   no body, or no `worker`  Native Intelligence's own agent, exactly as
  *                 before this existed (every caller that doesn't choose:
  *                 accepting a proposed card, the attention verbs);
@@ -75,14 +90,16 @@ import { CHATGPT_PLAN_NO_CODING_REASON } from '@/lib/chatgpt/plan-models'
  * refuses an agent it doesn't offer with its own sentence, and the job
  * fails with it.
  *
- * GET: where this person's Start of this action runs. { onMac, coding }:
+ * GET: where this person's Start of this action would run, for the
+ * panel's "Run on" picker. { onMac, coding, last }:
  *   coding  { projectId, repo } when the Start is a coding run (a repo, a
- *           developer agent or one with no role), whoever's Mac it runs on;
- *           else null (a work run: it never runs on a Mac);
- *   onMac   { environmentId } when, on top of that, their "Run my work here"
- *           names one of their Macs; else null (the project's cloud).
- * Only with onMac does the action panel offer "with" and send a choice; with
- * coding and no onMac, it offers their Mac (the same "Run my work here").
+ *           developer agent or one with no role); else null (a work run: it
+ *           never runs on a Mac, and the rest is null too);
+ *   onMac   { environmentId } when their "Run my work here" for the project
+ *           names one of their Macs (the project default); else null;
+ *   last    where they last ran THIS action and with whom ({ environmentId:
+ *           a Mac's, or null for the cloud; worker }), or null when they
+ *           never did. The picker opens on `last`, else on the default.
  */
 export async function GET(
   _request: Request,
@@ -101,8 +118,11 @@ export async function GET(
     .eq('workspace_id', workspaceId)
     .maybeSingle()
   if (!action) return NextResponse.json({ error: 'Action not found' }, { status: 404 })
-  const answer = (coding: { projectId: string; repo: string } | null, environmentId: string | null = null) =>
-    NextResponse.json({ onMac: environmentId ? { environmentId } : null, coding }, { headers: { 'Cache-Control': 'no-store' } })
+  const answer = (
+    coding: { projectId: string; repo: string } | null,
+    environmentId: string | null = null,
+    last: { environmentId: string | null; worker: string | null } | null = null,
+  ) => NextResponse.json({ onMac: environmentId ? { environmentId } : null, coding, last }, { headers: { 'Cache-Control': 'no-store' } })
   const repo = (action.project as unknown as { github_repo?: string | null } | null)?.github_repo ?? null
   const projectId = (action.project_id as string | null) ?? null
   if (!action.assignee_ai_member_id || !repo || !projectId) return answer(null)
@@ -110,8 +130,12 @@ export async function GET(
   // The same rule POST runs by: a developer agent, or one with no role.
   if (!agent.ok || !(agent.role === null || agent.role === 'developer')) return answer(null)
   try {
-    const environmentId = await getDefault(getServiceClient(), { userId: user.id, workspaceId, projectId })
-    return answer({ projectId, repo }, environmentId)
+    const svc = getServiceClient()
+    const [environmentId, last] = await Promise.all([
+      getDefault(svc, { userId: user.id, workspaceId, projectId }),
+      lastActionPlace(svc, { userId: user.id, workspaceId, actionId: id }),
+    ])
+    return answer({ projectId, repo }, environmentId, last)
   } catch (err) {
     console.error('[start-agent] run-here lookup failed:', err instanceof Error ? err.message : err)
     return serverError()
@@ -122,8 +146,9 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params
-  const asked = await readWorkerAsk(request)
-  if (asked instanceof Response) return asked
+  const body = await readStartBody(request)
+  if (body instanceof Response) return body
+  const { asked, place } = body
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -225,6 +250,15 @@ export async function POST(
   const ownAgentAsked = !!asked && asked.worker !== null
 
   // ── Work run on this action (every non-coding delegate) ──
+  // A Mac picked for this Start: only a coding run goes to a Mac.
+  if (!coding && place && place.environmentId !== null) {
+    return apiError(
+      repo
+        ? 'Only coding runs on your Mac, and this action’s agent isn’t a developer. Start it in the cloud instead.'
+        : 'Only coding runs on your Mac: this action’s project has no GitHub repository. Start it in the cloud instead.',
+      { status: 409, code: 'MAC_NEEDS_CODING' },
+    )
+  }
   if (!coding && ownAgentAsked) {
     return apiError(
       repo
@@ -282,7 +316,26 @@ export async function POST(
   // reaches this person's Mac.
   const projectId = (action.project_id as string | null) ?? null
   let macEnvironmentId: string | null = null
-  if (projectId) {
+  if (place) {
+    // Picked on the action for this Start: the cloud, or one of the CALLER's
+    // own Macs (getEnvironment reads only theirs: a teammate's never resolves).
+    if (place.environmentId !== null) {
+      let env: Awaited<ReturnType<typeof getEnvironment>>
+      try {
+        env = await getEnvironment(service, { userId: user.id, workspaceId, environmentId: place.environmentId })
+      } catch (err) {
+        console.error('[start-agent] picked Mac lookup failed:', err instanceof Error ? err.message : err)
+        return serverError()
+      }
+      if (!env || env.kind !== 'mac') {
+        return apiError('That Mac isn’t one of yours in Native Intelligence any more. Pick another place to run it, then press Start again.', {
+          status: 409,
+          code: 'MAC_UNAVAILABLE',
+        })
+      }
+      macEnvironmentId = env.id
+    }
+  } else if (projectId) {
     try {
       macEnvironmentId = await getDefault(service, { userId: user.id, workspaceId, projectId })
     } catch (err) {
@@ -292,7 +345,7 @@ export async function POST(
   }
   if (!macEnvironmentId && ownAgentAsked) {
     return apiError(
-      'Your own coding agent runs on your Mac: turn on “Run my work here” for this project first. Nothing started.',
+      'Your own coding agent runs on your Mac: pick your Mac where this action runs. Nothing started.',
       { status: 409, code: 'OWN_AGENT_NEEDS_MAC' },
     )
   }
@@ -362,14 +415,17 @@ export async function POST(
 }
 
 /**
- * The body's `worker` as the person's agent choice: absent (no body, an empty
- * one, or no `worker` key) → undefined, Native Intelligence's own agent as
- * before; null → Native Intelligence's own agent, chosen; an id in the
- * worker-id shape → that agent. Anything else is a 400.
+ * The body. `worker` as the person's agent choice: absent (no body, an
+ * empty one, or no `worker` key) → undefined, Native Intelligence's own
+ * agent as before; null → Native Intelligence's own agent, chosen; an id in
+ * the worker-id shape → that agent. `environmentId` as the place picked for
+ * this Start (see the route's doc). Anything else is a 400.
  */
-async function readWorkerAsk(request: Request): Promise<PersonAgentChoice | undefined | Response> {
+async function readStartBody(
+  request: Request,
+): Promise<{ asked: PersonAgentChoice | undefined; place: { environmentId: string | null } | undefined } | Response> {
   const text = await request.text().catch(() => '')
-  if (!text.trim()) return undefined
+  if (!text.trim()) return { asked: undefined, place: undefined }
   let body: unknown
   try {
     body = JSON.parse(text)
@@ -377,11 +433,22 @@ async function readWorkerAsk(request: Request): Promise<PersonAgentChoice | unde
     return badRequest('Invalid JSON')
   }
   if (!body || typeof body !== 'object' || Array.isArray(body)) return badRequest('Expected a JSON object')
-  if (!('worker' in body)) return undefined
-  const worker = (body as { worker?: unknown }).worker
-  if (worker === null) return { worker: null }
-  if (!isWorkerId(worker)) return badRequest('worker must be a coding agent’s id (like claude-code), or null for Native Intelligence')
-  return { worker }
+  let asked: PersonAgentChoice | undefined
+  if ('worker' in body) {
+    const worker = (body as { worker?: unknown }).worker
+    if (worker === null) asked = { worker: null }
+    else if (isWorkerId(worker)) asked = { worker }
+    else return badRequest('worker must be a coding agent’s id (like claude-code), or null for Native Intelligence')
+  }
+  // Where this Start runs: absent → the project default; null → the cloud; an id → one of their Macs.
+  let place: { environmentId: string | null } | undefined
+  if ('environmentId' in body) {
+    const environmentId = (body as { environmentId?: unknown }).environmentId
+    if (environmentId === null) place = { environmentId: null }
+    else if (isUuid(environmentId)) place = { environmentId }
+    else return badRequest('environmentId must be one of your Macs’ environment ids, or null for the cloud')
+  }
+  return { asked, place }
 }
 
 /**

@@ -34,7 +34,7 @@ export interface StartWorkerOptions {
   options: Array<{ id: string | null; label: string }>
   /** A saved agent the Mac doesn't offer (or whose offer isn't known): shown, never picked. */
   unavailable: { id: string; label: string } | null
-  /** The Mac's saved choice while it offers it, else Native Intelligence. */
+  /** The agent this action last ran with there while offered, else the Mac's saved choice while offered, else Native Intelligence. */
   initial: string | null
 }
 
@@ -42,76 +42,124 @@ export interface StartWorkerOptions {
  * What "with" offers for this Mac, or null when there is nothing to choose
  * (no saved choice and nothing offered). Pure.
  */
-export function startWorkerOptions(mac: MacEnvironmentItem | null, thisMac: ThisMacSnapshot | null | undefined): StartWorkerOptions | null {
+export function startWorkerOptions(
+  mac: MacEnvironmentItem | null,
+  thisMac: ThisMacSnapshot | null | undefined,
+  /** The agent this action last ran with on this Mac (null: Native Intelligence); undefined: none. */
+  remembered?: string | null,
+): StartWorkerOptions | null {
   if (!mac) return null
   const live = thisMac?.deviceId && thisMac.deviceId === mac.deviceId ? thisMac.workers : null
   const offers: readonly MacWorkerOffer[] = live ?? mac.offeredWorkers ?? []
   const saved = mac.worker ?? null
   if (offers.length === 0 && !saved) return null
   const offered = !!saved && offers.some((w) => w.id === saved)
+  // A task remembers its own agent while the Mac still offers it; else the Mac's saved choice.
+  const rememberedOk = remembered === null || (!!remembered && offers.some((w) => w.id === remembered))
   return {
     mac,
     options: [{ id: null, label: NATIVE_WORKER_LABEL }, ...offers.map((w) => ({ id: w.id, label: w.label || workerLabel(w.id) }))],
     unavailable: saved && !offered ? { id: saved, label: workerLabel(saved) } : null,
-    initial: offered ? saved : null,
+    initial: rememberedOk ? (remembered ?? null) : offered ? saved : null,
   }
 }
 
 /**
- * Where this person's Start of this action runs (GET …/start-agent: the
- * route's own rule), read once per action (and again on `reload`, or when
- * `refreshKey` changes: a new agent or project).
+ * Where this person's Start of this action runs, picked per task (the
+ * owner's rule, 11-19): GET …/start-agent says whether it is a coding run,
+ * their project default ("Run my work here") and where they last ran this
+ * action. The pick opens on the last run's place (a task remembers its own),
+ * else the project default, else the cloud; picking something else changes
+ * only this task's Start (`pick`), never the project default. Read once per
+ * action (again on `reload`, or when `refreshKey` changes: a new agent or
+ * project).
  *
- *   coding  the action's project and repo when the Start is a coding run
- *           (whoever's Mac it runs on), else null (a work run, never on a Mac);
- *   macId   the Mac environment their "Run my work here" names, or null (the
- *           project's cloud);
- *   mac     that Mac as the environments list shows it (null until the list
- *           has it);
- *   loaded  the answer has come back (false while reading, and after a read
- *           that failed: nothing is offered then).
+ *   coding        the project and repo when the Start is a coding run, else
+ *                 null (a work run: always the cloud, nothing to pick);
+ *   defaultMacId  the project default's Mac, or null (the cloud);
+ *   lastWorker    the agent the last run on the picked Mac used (undefined
+ *                 when it last ran elsewhere, or never): "with" opens on it;
+ *   macs          the person's Macs (the places to pick, beside the cloud);
+ *   macId / mac   where this Start runs now (null: the cloud), and that Mac
+ *                 as the list shows it (null until the list has it);
+ *   loaded        the answer has come back (a failed read offers nothing).
  */
 export interface StartPlace {
   loaded: boolean
   coding: { projectId: string; repo: string } | null
+  defaultMacId: string | null
+  lastWorker: string | null | undefined
+  macs: MacEnvironmentItem[]
   macId: string | null
   mac: MacEnvironmentItem | null
-  /** Read it again (after "Run my work here" changed). */
+  /** Pick where THIS Start runs: a Mac environment's id, or null for the cloud. */
+  pick: (environmentId: string | null) => void
+  /** Read it again (after the project default changed). */
   reload: () => void
 }
 
+export interface StartPlaceAnswer {
+  coding: { projectId: string; repo: string } | null
+  defaultMacId: string | null
+  last: { environmentId: string | null; worker: string | null } | null
+}
+
+/** GET …/start-agent's answer, or null when it isn't one. Pure. */
+export function parseStartPlaceAnswer(d: unknown): StartPlaceAnswer | null {
+  if (!d || typeof d !== 'object') return null
+  const o = d as { onMac?: { environmentId?: unknown } | null; coding?: { projectId?: unknown; repo?: unknown } | null; last?: { environmentId?: unknown; worker?: unknown } | null }
+  const str = (v: unknown) => (typeof v === 'string' && v ? v : null)
+  const c = o.coding
+  const coding = c && str(c.projectId) && str(c.repo) ? { projectId: c.projectId as string, repo: c.repo as string } : null
+  const last = o.last && typeof o.last === 'object' ? { environmentId: str(o.last.environmentId), worker: str(o.last.worker) } : null
+  return { coding, defaultMacId: str(o.onMac?.environmentId), last }
+}
+
+/**
+ * Where a Start opens: the last run's place while it can still be used (the
+ * cloud, or a Mac still in the list), else the project default's Mac while
+ * it is in the list, else the cloud. Before the list has loaded, the ids are
+ * taken as they are. Never a Mac for a work run. Pure.
+ */
+export function initialStartPlace(answer: StartPlaceAnswer | null, macs: readonly { id: string }[] | null): string | null {
+  if (!answer?.coding) return null
+  const usable = (id: string) => macs === null || macs.some((m) => m.id === id)
+  const last = answer.last
+  if (last && (last.environmentId === null || usable(last.environmentId))) return last.environmentId
+  return answer.defaultMacId && usable(answer.defaultMacId) ? answer.defaultMacId : null
+}
+
 export function useStartOnMac(actionId: string | null, enabled: boolean, refreshKey = ''): StartPlace {
-  const [answer, setAnswer] = useState<{ macId: string | null; coding: StartPlace['coding'] } | null>(null)
+  const [answer, setAnswer] = useState<StartPlaceAnswer | null>(null)
+  const [picked, setPicked] = useState<{ key: string; environmentId: string | null } | null>(null)
   const [round, setRound] = useState(0)
+  const key = `${actionId ?? ''}|${refreshKey}`
   useEffect(() => {
     setAnswer(null)
     if (!enabled || !actionId) return
     let cancelled = false
     fetch(`/api/account/actions/${encodeURIComponent(actionId)}/start-agent`, { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d: { onMac?: { environmentId?: unknown } | null; coding?: { projectId?: unknown; repo?: unknown } | null } | null) => {
-        if (cancelled || !d) return
-        const id = d.onMac?.environmentId
-        const c = d.coding
-        setAnswer({
-          macId: typeof id === 'string' && id ? id : null,
-          coding: c && typeof c.projectId === 'string' && c.projectId && typeof c.repo === 'string' && c.repo ? { projectId: c.projectId, repo: c.repo } : null,
-        })
+      .then((d: unknown) => {
+        if (!cancelled) setAnswer(parseStartPlaceAnswer(d))
       })
       .catch(() => {})
     return () => {
       cancelled = true
     }
   }, [actionId, enabled, refreshKey, round])
-  const macId = answer?.macId ?? null
-  const list = useEnvironments({ enabled: enabled && !!macId })
-  const mac = useMemo(() => {
-    if (!macId) return null
-    const env = list.environments.find((e) => e.id === macId)
-    return env?.kind === 'mac' ? (env as MacEnvironmentItem) : null
-  }, [list.environments, macId])
+  const coding = answer?.coding ?? null
+  const list = useEnvironments({ enabled: enabled && !!coding })
+  const macs = useMemo(() => list.environments.filter((e): e is MacEnvironmentItem => e.kind === 'mac'), [list.environments])
+  // A pick belongs to this action: another action (or agent, or project) opens fresh.
+  const pickedHere = picked && picked.key === key ? picked.environmentId : undefined
+  const macId = !coding ? null : pickedHere !== undefined ? pickedHere : initialStartPlace(answer, list.loaded ? macs : null)
+  const mac = macId ? (macs.find((m) => m.id === macId) ?? null) : null
+  const last = answer?.last ?? null
+  const lastWorker = last && last.environmentId !== null && last.environmentId === macId ? last.worker : undefined
+  const pick = useCallback((environmentId: string | null) => setPicked({ key, environmentId }), [key])
   const reload = useCallback(() => setRound((n) => n + 1), [])
-  return { loaded: !!answer, coding: answer?.coding ?? null, macId, mac, reload }
+  return { loaded: !!answer, coding, defaultMacId: answer?.defaultMacId ?? null, lastWorker, macs, macId, mac, pick, reload }
 }
 
 /**
@@ -130,15 +178,17 @@ export interface StartAgentWithProps {
   mac: MacEnvironmentItem | null
   /** Off: nothing shown (no agent assignee, a run already going). */
   enabled: boolean
+  /** The agent this action last ran with on this Mac (StartPlace.lastWorker): what "with" opens on. */
+  remembered?: string | null
   /** The chosen agent (undefined until the choice is known: the Start then sends none). */
   value: string | null | undefined
   onChange: (worker: string | null | undefined) => void
   disabled?: boolean
 }
 
-export function StartAgentWith({ mac, enabled, value, onChange, disabled = false }: StartAgentWithProps) {
+export function StartAgentWith({ mac, enabled, remembered, value, onChange, disabled = false }: StartAgentWithProps) {
   const thisMac = useThisMac({ enabled: enabled && !!mac })
-  const choice = enabled ? startWorkerOptions(mac, thisMac) : null
+  const choice = enabled ? startWorkerOptions(mac, thisMac, remembered) : null
   const initial = choice?.initial
   const known = !!choice
   // Every id that may be sent right now: what the label shows is what Start sends.
