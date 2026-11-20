@@ -37,6 +37,7 @@
  * Privacy: the plan step hands on message ids only (redactChannelPlan); logs
  * carry ids and outcomes, never words.
  */
+import { buildMentionedRefsBlock } from '@/lib/ai/mentioned-records'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { inngest } from '@/lib/inngest/client'
 import { persistEveMessage } from '@/lib/chat/eve-message-writer'
@@ -249,7 +250,10 @@ export async function deliverTeamChatMention(
     title: `Team chat: ${placeLabel(channel, input.dmWith ?? null)}`,
   })
   const context = await channelContext(svc, channel, message)
-  const text = renderMentionText({ place, body, context })
+  // The records the message @-mentions (migration 480), read again for this
+  // person: the agent gets each one's own name and the tool that reads it.
+  const mentioned = await buildMentionedRefsBlock(svc, { workspaceId: channel.workspace_id, userId, refs: message.record_mentions ?? [] }).catch(() => null)
+  const text = [renderMentionText({ place, body, context }), ...(mentioned ? ['', mentioned] : [])].join('\n')
   const messageId = teamChatMessageId(message.id)
   const written = await persistEveMessage(svc, {
     conversationId: thread.conversation_id,

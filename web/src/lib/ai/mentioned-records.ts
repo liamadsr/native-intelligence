@@ -227,12 +227,13 @@ const REF_LINES: Partial<Record<MentionableType, { noun: string; read: (id: stri
 async function gatherRefLines(
   supabase: SupabaseClient,
   { workspaceId, userId, refs }: { workspaceId: string; userId: string; refs: readonly MentionRef[] },
+  specs: Partial<Record<MentionableType, { noun: string; read: (id: string) => string }>> = REF_LINES,
 ): Promise<MentionedRecordLine[]> {
   const perKind = new Map<string, number>()
   const capped = refs.filter((r) => {
     const n = (perKind.get(r.type) ?? 0) + 1
     perKind.set(r.type, n)
-    return n <= MAX_PER_KIND && !!REF_LINES[r.type]
+    return n <= MAX_PER_KIND && !!specs[r.type]
   })
   const visible = await visibleMentionTargets(supabase, { workspaceId, userId }, capped)
   const byType = new Map<MentionableType, string[]>()
@@ -250,11 +251,44 @@ async function gatherRefLines(
     }),
   )
   return visible.flatMap((r) => {
-    const spec = REF_LINES[r.type]
+    const spec = specs[r.type]
     const label = labels.get(`${r.type}:${r.id}`)
     // No label read: the row is gone (or the read failed), so it is left out.
     return spec && label !== undefined ? [{ kind: r.type, id: r.id, line: `${spec.noun} ${quote(label)}: ${spec.read(r.id)}` }] : []
   })
+}
+
+/** How the agent reads each kind a message can mention, for a surface that names its mentions as refs (team chat). */
+const ANY_REF_LINES: Partial<Record<MentionableType, { noun: string; read: (id: string) => string }>> = {
+  ...REF_LINES,
+  action: { noun: 'Action', read: (id) => `get_action(action_id: ${id})` },
+  document: { noun: 'Doc', read: (id) => `get_document(document_id: ${id})` },
+  project: { noun: 'Project', read: (id) => `get_project_context(project_id: ${id})` },
+  initiative: { noun: 'Initiative', read: (id) => `get_initiative(initiative_id: ${id})` },
+  capture: { noun: 'Capture', read: (id) => `get_capture_content(capture_id: ${id})` },
+  contact: { noun: 'Contact', read: (id) => `get_contact(contact_id: ${id})` },
+  company: { noun: 'Company', read: (id) => `get_company_overview(company_id: ${id})` },
+  flow: { noun: 'Flow', read: (id) => `id ${id}: list_flows shows it in full` },
+  attachment: { noun: 'File', read: (id) => `get_attachment_content(attachment_id: ${id})` },
+  calendar_event: { noun: 'Calendar event', read: (id) => `id ${id}: get_calendar_events shows it` },
+  studio_video: { noun: 'Studio video', read: (id) => `get_studio_video(video_id: ${id})` },
+}
+
+/**
+ * `Mentioned records` for a message whose mentions are refs of ANY kind (a
+ * team-chat message's `record_mentions`): each fenced for the person the turn
+ * runs as, named by its own label, with the tool that reads it; fenced as
+ * data. Null when nothing reads. The refs' labels are never used.
+ */
+export async function buildMentionedRefsBlock(
+  supabase: SupabaseClient,
+  args: { workspaceId: string; userId: string; refs: unknown },
+): Promise<string | null> {
+  const refs = tidyMentionRefs(args.refs).filter((r) => !!ANY_REF_LINES[r.type])
+  if (!refs.length) return null
+  const lines = await gatherRefLines(supabase, { workspaceId: args.workspaceId, userId: args.userId, refs }, ANY_REF_LINES)
+  if (!lines.length) return null
+  return ['Mentioned records', MENTIONED_RECORDS_PREAMBLE, '', wrapUntrusted(lines.map((l) => `- ${l.line}`).join('\n'), 'WORKSPACE')].join('\n')
 }
 
 /** Files the caller may read (src/lib/attachments/visibility.ts); no caller: only what every member reads. */

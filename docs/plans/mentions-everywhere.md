@@ -274,12 +274,16 @@ Built on `claude/mentions-everywhere` (merged nowhere, rolled out nowhere):
   shared, view only, with the teammates mentioned in that same comment (a comment has no
   channel to grant to; other readers see the label and cannot open it).
 
+- **Sent chat messages.** A message keeps what it mentions (`metadata.mentions`) and draws
+  each as a chip that opens the record, after the composer clears and on reload.
+- **Team chat's agent.** A message that calls the agent hands over the records it mentions:
+  each read again for that person, named by its own label, with the tool that reads it.
+
 Needs migration 671 on a database before this code runs against it (the owner's call for
 production; not applied to the dev database either, so comments were checked by tests only).
 
 Still to do, in order: mail and agent chats (search, mention, the share a mention makes);
-sent chat messages keeping their mentions as chips; team chat on the unified list, its edit
-box, and its agent turn reading the records; documents and the `NoteEditor` descriptions
+team chat on the unified list (teammates through the registry) and its edit box; documents and the `NoteEditor` descriptions
 (teammates, every kind, the `mentioned` notification); `MentionTextarea` for the remaining
 textareas; the one `EntityChip` with live status for every kind; grouped search tabs;
 sequences, prospect lists, teams and packages as mentionable (they are not graph endpoints
