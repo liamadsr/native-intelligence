@@ -37,6 +37,8 @@ export interface IEvent {
   provider?: string;
   // The connected account the event is on (a chat card's account filter)
   accountId?: string;
+  /** The account owner's own answer, when they are a guest (adapters' eventResponse). */
+  response?: 'accepted' | 'declined' | 'tentative' | 'pending';
   // Linked capture data
   linkedCapture?: IEventCapture;
   // Action-specific fields (isAction = true means this event came from the actions table)

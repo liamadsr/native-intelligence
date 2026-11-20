@@ -1,15 +1,40 @@
 import type { CalendarEvent } from '@/lib/integrations/calendar'
 import type { IEvent } from '@/calendar/interfaces'
 import type { TEventColor } from '@/calendar/types'
+import { CALENDAR_COLORS } from '@/calendar/event-colors'
 
-const EVENT_COLORS: TEventColor[] = ['blue', 'green', 'red', 'yellow', 'purple', 'orange', 'gray']
-
-function hashColor(str: string): TEventColor {
+/**
+ * A calendar's colour: one of the calm calendar hues (CALENDAR_COLORS), the
+ * same for every event on that calendar of that account. An event that says
+ * neither is blue, never a colour of its own.
+ */
+export function calendarColor(accountId: string | undefined, calendarName: string | undefined): TEventColor {
+  const key = `${accountId ?? ''}|${calendarName ?? ''}`
+  if (key === '|') return 'blue'
   let hash = 0
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash)
+  for (let i = 0; i < key.length; i++) {
+    hash = key.charCodeAt(i) + ((hash << 5) - hash)
   }
-  return EVENT_COLORS[Math.abs(hash) % EVENT_COLORS.length]
+  return CALENDAR_COLORS[Math.abs(hash) % CALENDAR_COLORS.length]
+}
+
+/** The owner's answer as the grid draws it: Google's and Microsoft's words for the same four states. */
+export function eventResponse(myResponse: string | undefined): IEvent['response'] {
+  switch (myResponse) {
+    case 'accepted':
+    case 'organizer':
+      return 'accepted'
+    case 'declined':
+      return 'declined'
+    case 'tentative':
+    case 'tentativelyAccepted':
+      return 'tentative'
+    case 'needsAction':
+    case 'notResponded':
+      return 'pending'
+    default:
+      return undefined
+  }
 }
 
 function priorityToColor(priority: string): TEventColor {
@@ -55,7 +80,7 @@ export function calendarEventToIEvent(event: CalendarEvent): IEvent {
     startDate: event.start,
     endDate: inclusiveAllDayEnd(event),
     title: event.title,
-    color: hashColor(event.calendarName || event.id),
+    color: calendarColor(event.accountId, event.calendarName),
     description: event.description || '',
     htmlLink: event.htmlLink,
     location: event.location,
@@ -71,6 +96,7 @@ export function calendarEventToIEvent(event: CalendarEvent): IEvent {
     icalUid: event.icalUid,
     provider: event.provider,
     ...(event.accountId ? { accountId: event.accountId } : {}),
+    ...(eventResponse(event.myResponse) ? { response: eventResponse(event.myResponse) } : {}),
   }
 }
 

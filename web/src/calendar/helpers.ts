@@ -26,6 +26,9 @@ import {
   isWithinInterval,
 } from "date-fns";
 
+import { layoutDayEvents, MIN_VISUAL_MINUTES } from "@/calendar/layout/overlap-layout";
+
+import type { CSSProperties } from "react";
 import type { ICalendarCell, IEvent } from "@/calendar/interfaces";
 import type { TCalendarView, TVisibleHours, TWorkingHours } from "@/calendar/types";
 
@@ -93,56 +96,60 @@ export function getCurrentEvents(events: IEvent[]) {
   return events.filter(event => isWithinInterval(now, { start: parseISO(event.startDate), end: parseISO(event.endDate) })) || null;
 }
 
-export function groupEvents(dayEvents: IEvent[]) {
-  const sortedEvents = dayEvents.sort((a, b) => parseISO(a.startDate).getTime() - parseISO(b.startDate).getTime());
-  const groups: IEvent[][] = [];
+/** The grid's hour height. The drag and resize layers measure against the same number. */
+export const HOUR_HEIGHT_PX = 96;
+/** The share of a day column events draw in: the rest stays free on the right, to click an empty slot behind a full one. */
+const EVENT_AREA = 0.96;
 
-  for (const event of sortedEvents) {
-    const eventStart = parseISO(event.startDate);
-
-    let placed = false;
-    for (const group of groups) {
-      const lastEventInGroup = group[group.length - 1];
-      const lastEventEnd = parseISO(lastEventInGroup.endDate);
-
-      if (eventStart >= lastEventEnd) {
-        group.push(event);
-        placed = true;
-        break;
-      }
-    }
-
-    if (!placed) groups.push([event]);
-  }
-
-  return groups;
+export interface PositionedEvent {
+  event: IEvent;
+  style: CSSProperties;
 }
 
-export function getEventBlockStyle(event: IEvent, day: Date, groupIndex: number, groupSize: number, visibleHoursRange?: { from: number; to: number }) {
-  const startDate = parseISO(event.startDate);
-  const endDate = parseISO(event.endDate);
+/**
+ * One day column's timed events, placed: top and height from their times, left
+ * and width from the overlap layout (@/calendar/layout/overlap-layout), so a
+ * later event is drawn offset on top of an earlier one instead of the column
+ * being cut into equal slivers. `--event-z` is the paint order; the wrapper
+ * raises itself above it on hover.
+ */
+export function positionDayEvents(dayEvents: IEvent[], day: Date, visibleHoursRange: { from: number; to: number }): PositionedEvent[] {
   const dayStart = new Date(day);
   dayStart.setHours(0, 0, 0, 0);
-  const eventStart = startDate < dayStart ? dayStart : startDate;
-  const startMinutes = differenceInMinutes(eventStart, dayStart);
-  const durationMinutes = differenceInMinutes(endDate, eventStart);
 
-  let top;
+  const timed = dayEvents.map(event => {
+    const start = Math.max(0, differenceInMinutes(parseISO(event.startDate), dayStart));
+    const end = Math.min(1440, Math.max(start, differenceInMinutes(parseISO(event.endDate), dayStart)));
+    return { event, start, end };
+  });
 
-  if (visibleHoursRange) {
-    const visibleStartMinutes = visibleHoursRange.from * 60;
-    const visibleEndMinutes = visibleHoursRange.to * 60;
-    const visibleRangeMinutes = visibleEndMinutes - visibleStartMinutes;
-    top = ((startMinutes - visibleStartMinutes) / visibleRangeMinutes) * 100;
-  } else {
-    top = (startMinutes / 1440) * 100;
-  }
+  const boxes = layoutDayEvents(timed.map(({ event, start, end }) => ({ id: event.id, start, end })));
+  const visibleStart = visibleHoursRange.from * 60;
+  const visibleRange = Math.max(1, visibleHoursRange.to * 60 - visibleStart);
 
-  const width = 100 / groupSize;
-  const left = groupIndex * width;
-  const height = (durationMinutes / 60) * 96;
+  return timed.map(({ event, start, end }) => {
+    const box = boxes.get(event.id) ?? { left: 0, width: 1, zIndex: 1 };
+    const style = {
+      top: `${((start - visibleStart) / visibleRange) * 100}%`,
+      height: `${(Math.max(end - start, MIN_VISUAL_MINUTES) / 60) * HOUR_HEIGHT_PX}px`,
+      left: `${box.left * EVENT_AREA * 100}%`,
+      width: `${box.width * EVENT_AREA * 100}%`,
+      "--event-z": Math.min(box.zIndex, 8),
+    } as CSSProperties;
+    return { event, style };
+  });
+}
 
-  return { top: `${top}%`, width: `${width}%`, left: `${left}%`, height: `${height}px` };
+/** "9am", "9:30am": the grid's compact clock. */
+export function compactTime(date: Date): string {
+  return format(date, date.getMinutes() === 0 ? "haaa" : "h:mmaaa");
+}
+
+/** "10 – 11:30am", "11:30am – 1pm": am/pm said once when both ends share it. */
+export function compactTimeRange(start: Date, end: Date): string {
+  const sameHalf = start.getHours() < 12 === end.getHours() < 12;
+  const from = sameHalf ? format(start, start.getMinutes() === 0 ? "h" : "h:mm") : compactTime(start);
+  return `${from} – ${compactTime(end)}`;
 }
 
 export function isWorkingHour(day: Date, hour: number, workingHours: TWorkingHours) {
