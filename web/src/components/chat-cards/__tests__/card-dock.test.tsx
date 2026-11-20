@@ -7,7 +7,9 @@
  *     second copy), and is never one of the kept pages;
  *   - in the dock it is the card itself, as it draws in the chat: its frame,
  *     its header (Back and Forward, the page's controls such as Properties in
- *     its slots) and its round Full screen, but no Close; full screen it is
+ *     its slots) and Full screen, in its header rather than round over its
+ *     corner (nothing floats at the foot of the capture's page), but no
+ *     Close; full screen it is
  *     the same page in the overlay, "Back to notes" puts it back in the dock;
  *   - let go (the capture ended), it is the page visited last (kept mounted,
  *     as any), and stays in the dock while the dock slides away;
@@ -200,7 +202,8 @@ describe('the docked card', () => {
     expect(card.querySelector('[data-card-glass]')).not.toBeNull()
     expect(card.querySelector('[data-card-header]')?.textContent).toContain('Capture Oct 9')
     expect(card.querySelector('[data-card-header] button[aria-label="Properties"]')).not.toBeNull()
-    expect(card.querySelector('button[aria-label="Full screen"]')).not.toBeNull()
+    expect(card.querySelector('[data-card-header] button[aria-label="Full screen"]')).not.toBeNull()
+    expect(card.querySelectorAll('button[aria-label="Full screen"]')).toHaveLength(1)
     // Nothing closes it: it leaves when the capture ends.
     expect(card.querySelector('button[aria-label="Close"]')).toBeNull()
   })

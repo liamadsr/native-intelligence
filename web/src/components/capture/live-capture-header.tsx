@@ -21,13 +21,13 @@ import { parseTranscriptText, type TranscriptSegment } from '@/lib/deepgram-stre
 import type { SpeakerIdentification } from '@/lib/voice-id-service'
 
 /**
- * A capture page's live pieces, at the foot of its card (see
- * CaptureControlsBar in app/account/(dashboard)/views/capture-controls-bar.tsx):
- *   - Voice ID — LiveVoiceIdRow, the speakers carousel in a slim row above the
- *     controls (during a live capture, VoiceIdCarousel shows in the live
- *     agent's HUD instead: components/live-hud);
- *   - the transcript — TranscriptView, in the Transcripts pill's card;
- *   - the live agent's tool calls — ToolCallsView, in the Tools pill's card,
+ * A capture page's live pieces, in its Transcripts tab (see
+ * app/account/(dashboard)/views/capture-live-sections.tsx):
+ *   - Voice ID — LiveVoiceIdRow, the speakers carousel heading the tab
+ *     (during a live capture, VoiceIdCarousel shows in the live agent's HUD
+ *     instead: components/live-hud);
+ *   - the transcript — TranscriptView, the tab's page;
+ *   - the live agent's tool calls — ToolCallsView, the Tools tab's page,
  *     which exists only while the capture records.
  * The leaves read the per-utterance signals (live segments, detected speakers,
  * agent activity) from the ref-backed recording stores themselves, so a
