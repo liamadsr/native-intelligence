@@ -1038,12 +1038,12 @@ export function WorkItemDetailPanel({ itemId, embedded = false, shown = true, on
                     </div>
                   )}
 
-                  {/* What happened — in the run's own words. */}
+                  {/* What happened — in the run's own words, its action ids as the chat's live chips (Liam, 11-20). */}
                   {showWhatHappened && (
                     <section className="space-y-3">
                       <SectionHeading>What happened</SectionHeading>
                       {whatHappened && (
-                        <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/85"><Linkify text={whatHappened} /></p>
+                        <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/85"><Linkify text={whatHappened} entityRefs /></p>
                       )}
                       {subline && <p className="text-xs text-muted-foreground">{subline}</p>}
                       {output?.verdict_missing && (

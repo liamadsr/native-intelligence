@@ -51,6 +51,10 @@ vi.mock('@/components/agent-run/run-question-section', () => ({
   RunQuestionSection: ({ runId }: { runId: string }) => h('div', { 'data-testid': 'question', 'data-run': runId }, 'question form'),
 }))
 vi.mock('@/lib/work/open-deliverable', () => ({ openDeliverable: hoisted.openDeliverable }))
+// The chat's live action chip (its own tests: entity-refs, linkify-entity-refs): here, which ids reach it.
+vi.mock('@/components/entity-refs/entity-ref-chip', () => ({
+  EntityRefChip: ({ identifier }: { identifier?: string }) => h('span', { 'data-fake-chip': identifier }, identifier),
+}))
 vi.mock('@/hooks/use-open-teammate', () => ({ useOpenWorkItem: () => hoisted.openWorkItem }))
 vi.mock('@/components/local-agent/local-agent-panel', () => ({
   LocalAgentPanel: ({ sessionId }: { sessionId: string }) => h('div', { 'data-testid': 'local-agent-panel', 'data-session': sessionId }),
@@ -1241,6 +1245,17 @@ describe('WorkItemDetailPanel — a local agent’s turn', () => {
     await flush()
     expect(container.querySelector('h1')?.textContent).toBe('Your Mac · native-intelligence: Take a look at this repository')
     expect(container.querySelector('[data-testid="local-agent-panel"]')).toBeNull()
+  })
+
+  it('What happened draws its action ids as the chat’s live chips', async () => {
+    const summary = 'Closed GEN-12 and moved GEN-34 to Todo. Details: https://example.com/GEN-56'
+    payload = { item: { ...LOCAL, status: 'done', needs: null, result_summary: summary }, run: null, drafts: {}, output: output() }
+    await render()
+    expect(text()).toContain('What happened')
+    expect(text()).toContain(summary)
+    expect([...container.querySelectorAll('[data-fake-chip]')].map((c) => c.getAttribute('data-fake-chip'))).toEqual(['GEN-12', 'GEN-34'])
+    // An id inside a link stays the link's.
+    expect(container.querySelector('a[href="https://example.com/GEN-56"]')).not.toBeNull()
   })
 
   it('a row naming no session draws no conversation', async () => {
