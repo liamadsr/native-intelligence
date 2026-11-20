@@ -51,7 +51,7 @@ describe('messageMentionsOfMetadata', () => {
       messageMentionsOfMetadata({
         mentions: [
           { type: 'action', id: TASK, label: 'GEN-1' },
-          { type: 'email_thread', id: TASK, label: 'mail' },
+          { type: 'claim', id: TASK, label: 'a fact' },
           { type: 'action', id: 'nope', label: 'x' },
           { type: 'action', id: DEAL },
           'junk',

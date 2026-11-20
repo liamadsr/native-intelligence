@@ -55,6 +55,78 @@ alter table public.notification add constraint notification_type_check check (ty
 ])) not valid;
 alter table public.notification validate constraint notification_type_check;
 
+-- ============================================================
+-- Sequences and prospect lists became @-mentionable (graph endpoints). Both
+-- are every member's, so their entity_link edges need no fence and no policy
+-- changes here. Teams stay search-only: a private team's edges would need
+-- entity_visible_to and the entity_link policies redefined, which is its own
+-- migration (their latest definitions are 664's and 522's).
+
+-- ============================================================
+-- Sharing an agent chat by mention (JOB 2): conversation_share.
+-- ============================================================
+-- A chat with the agent is its owner's alone (chat_conversations RLS). Decision
+-- 1: mentioning your own chat where teammates read it lets those readers open
+-- it, read only. The share is a row here, made by the owner, naming a workspace
+-- member as grantee; src/lib/chat/conversation-share.ts writes it, called from
+-- applyCommentMentions for a mentioned conversation and the teammates mentioned
+-- beside it. Nothing of the chat is copied; the row records who may be shown it.
+create table if not exists public.conversation_share (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id uuid not null references public.workspace(id) on delete cascade,
+  conversation_id uuid not null references public.chat_conversations(id) on delete cascade,
+  shared_by uuid not null references auth.users(id) on delete cascade,
+  grantee_member_id uuid not null references public.member(id) on delete cascade,
+  source text not null default 'mention' check (source in ('mention')),
+  created_at timestamptz not null default now(),
+  unique (conversation_id, grantee_member_id)
+);
+
+create index if not exists conversation_share_grantee_idx on public.conversation_share (grantee_member_id);
+create index if not exists conversation_share_conversation_idx on public.conversation_share (conversation_id);
+
+comment on table public.conversation_share is
+  'A read-only share of an agent chat (671), made by the chat owner to a workspace member by @-mentioning the chat (decision 1). Holds ids only; chat_conversations and chat_messages stay owner-only under RLS.';
+
+alter table public.conversation_share enable row level security;
+
+-- The owner sees their own shares; a grantee sees the shares made to them.
+drop policy if exists conversation_share_select on public.conversation_share;
+create policy conversation_share_select on public.conversation_share
+  for select
+  using (
+    shared_by = (select auth.uid())
+    or exists (select 1 from public.member m where m.id = grantee_member_id and m.user_id = (select auth.uid()))
+  );
+
+-- Only the conversation's owner may share it, and only as themselves.
+drop policy if exists conversation_share_insert on public.conversation_share;
+create policy conversation_share_insert on public.conversation_share
+  for insert
+  with check (
+    shared_by = (select auth.uid())
+    and exists (
+      select 1 from public.chat_conversations cc
+      where cc.id = conversation_id and cc.user_id = (select auth.uid()) and cc.workspace_id = conversation_share.workspace_id
+    )
+    -- Only to a member of the conversation's own workspace.
+    and exists (select 1 from public.member m where m.id = grantee_member_id and m.workspace_id = conversation_share.workspace_id)
+  );
+
+-- The owner may un-share.
+drop policy if exists conversation_share_delete on public.conversation_share;
+create policy conversation_share_delete on public.conversation_share
+  for delete
+  using (shared_by = (select auth.uid()));
+
+revoke all on table public.conversation_share from public, anon;
+grant select, insert, delete on table public.conversation_share to authenticated;
+grant select, insert, update, delete on table public.conversation_share to service_role;
+
+-- Reading a shared chat is NOT opened here: chat_conversations and
+-- chat_messages stay their owner's alone under RLS (many reads rely on that).
+-- A grantee's read goes through a server route that checks this table.
+
 commit;
 
 notify pgrst, 'reload schema';

@@ -5,11 +5,16 @@ const hoisted = vi.hoisted(() => ({
   requireUser: vi.fn(),
   resolveMemberIdsForUser: vi.fn(),
   getCurrentWorkspaceId: vi.fn(),
+  visibleMentionTargets: vi.fn(),
   actionsResult: { data: [] as Record<string, unknown>[], error: null as unknown },
 }))
 
 vi.mock('@/lib/api-auth', () => ({
   requireUser: hoisted.requireUser,
+}))
+
+vi.mock('@/lib/entity-links/mentions', () => ({
+  visibleMentionTargets: hoisted.visibleMentionTargets,
 }))
 
 vi.mock('@/lib/workspace', () => ({
@@ -41,6 +46,15 @@ function req(refs: string): NextRequest {
   return { nextUrl: new URL(`https://nativeintelligence.dev/api/account/entities/resolve?refs=${encodeURIComponent(refs)}`) } as unknown as NextRequest
 }
 
+function reqMentions(mentions: string): NextRequest {
+  return { nextUrl: new URL(`https://nativeintelligence.dev/api/account/entities/resolve?mentions=${encodeURIComponent(mentions)}`) } as unknown as NextRequest
+}
+
+/** A syntactically valid uuid built from a number (digits are hex). */
+const uuid = (n: number) => `00000000-0000-0000-0000-${String(n).padStart(12, '0')}`
+const DOC = uuid(1)
+const ACT = uuid(2)
+
 function row(identifier: string, workspaceId: string, over: Record<string, unknown> = {}) {
   return {
     id: `id-${workspaceId}-${identifier}`,
@@ -67,6 +81,7 @@ beforeEach(() => {
   hoisted.requireUser.mockReset()
   hoisted.resolveMemberIdsForUser.mockReset()
   hoisted.getCurrentWorkspaceId.mockReset()
+  hoisted.visibleMentionTargets.mockReset()
   hoisted.actionsResult = { data: [], error: null }
   hoisted.requireUser.mockResolvedValue({ supabase: makeSupabase(), user: { id: 'user-1' } })
   hoisted.resolveMemberIdsForUser.mockResolvedValue([
@@ -74,6 +89,7 @@ beforeEach(() => {
     { memberId: 'm-b', workspaceId: 'ws-b' },
   ])
   hoisted.getCurrentWorkspaceId.mockResolvedValue('ws-a')
+  hoisted.visibleMentionTargets.mockResolvedValue([])
 })
 
 describe('GET /api/account/entities/resolve', () => {
@@ -162,5 +178,60 @@ describe('GET /api/account/entities/resolve', () => {
     expect(body.refs['GEN-2'].status).toEqual({ id: 's2', name: 'Done', category: 'completed', color: null })
     expect(body.refs['GEN-2'].assignee).toEqual({ id: 'm2', name: 'Bob' })
     expect(body.refs['GEN-2'].project).toEqual({ id: 'p2', name: 'Ops' })
+  })
+
+  it('leaves out a mentions key when mentions is not requested (refs unchanged)', async () => {
+    hoisted.actionsResult = { data: [row('GEN-1', 'ws-a')], error: null }
+    const body = await (await GET(req('GEN-1'))).json()
+    expect(body.refs['GEN-1']).toBeDefined()
+    expect(body.mentions).toBeUndefined()
+  })
+})
+
+describe('GET /api/account/entities/resolve?mentions', () => {
+  it('fences then labels only what the caller may read, in the current workspace', async () => {
+    hoisted.visibleMentionTargets.mockResolvedValue([{ type: 'document', id: DOC }])
+    hoisted.actionsResult = { data: [{ id: DOC, title: 'Harbor plan' }], error: null }
+    const res = await GET(reqMentions(`document:${DOC}`))
+    const body = await res.json()
+    expect(body.mentions).toEqual({ [`document:${DOC}`]: { type: 'document', id: DOC, label: 'Harbor plan', status: null } })
+    // The fence ran in the current workspace, for this user.
+    expect(hoisted.visibleMentionTargets).toHaveBeenCalledWith(expect.anything(), { workspaceId: 'ws-a', userId: 'user-1' }, [{ type: 'document', id: DOC }])
+  })
+
+  it('adds a status where it is cheap: an action’s workflow state name', async () => {
+    hoisted.visibleMentionTargets.mockResolvedValue([{ type: 'action', id: ACT }])
+    hoisted.actionsResult = {
+      data: [{ id: ACT, title: 'Fix pricing', workflow_state: { id: 's1', name: 'In progress', category: 'started', color: null } }],
+      error: null,
+    }
+    const body = await (await GET(reqMentions(`action:${ACT}`))).json()
+    expect(body.mentions[`action:${ACT}`]).toEqual({ type: 'action', id: ACT, label: 'Fix pricing', status: 'In progress' })
+  })
+
+  it('omits anything the caller may not read (absent from the answer)', async () => {
+    hoisted.visibleMentionTargets.mockResolvedValue([])
+    const body = await (await GET(reqMentions(`document:${DOC}`))).json()
+    expect(body.mentions).toEqual({})
+  })
+
+  it('drops malformed pairs and non-mentionable types (nothing to fence)', async () => {
+    const body = await (await GET(reqMentions(`notatype:${DOC},document:not-a-uuid,,bad`))).json()
+    expect(body.mentions).toEqual({})
+    // Every pair was malformed, so no fence ran.
+    expect(hoisted.visibleMentionTargets).not.toHaveBeenCalled()
+  })
+
+  it('keeps only the well-formed pair among malformed ones', async () => {
+    hoisted.visibleMentionTargets.mockResolvedValue([])
+    await GET(reqMentions(`notatype:${DOC},action:${ACT},document:not-a-uuid`))
+    expect(hoisted.visibleMentionTargets).toHaveBeenCalledWith(expect.anything(), expect.anything(), [{ type: 'action', id: ACT }])
+  })
+
+  it('rejects more than 50 mentions with a 400', async () => {
+    const many = Array.from({ length: 51 }, (_, i) => `action:${uuid(i + 10)}`).join(',')
+    const res = await GET(reqMentions(many))
+    expect(res.status).toBe(400)
+    expect((await res.json()).code).toBe('BAD_REQUEST')
   })
 })

@@ -284,11 +284,35 @@ Built on `claude/mentions-everywhere` (merged nowhere, rolled out nowhere):
   (`web/src/lib/documents/mention-notifications.ts`); a private document tells no one who
   cannot open it.
 
+- **Search tabs.** The strip shows groups (People, Work, Docs, Meetings, Mail, Chats, CRM,
+  Outreach, Files, Agents & skills, Studio, Pages) instead of one tab per kind.
+- **Live chips.** `GET /api/account/entities/resolve?mentions=type:id,…` answers what the
+  reader may see; a chip shows the kind's icon, the current title and a status word, and a
+  locked chip when the reader cannot see the record. Nothing is fetched on a public share.
+- **Edit boxes.** Editing a comment or a team-chat message uses the composer, with `@`.
+- **Descriptions and notes.** `@` in the action, project and initiative descriptions and in
+  contact notes; mentions are edges from the record, and a teammate newly mentioned is told.
+  Capture notes are not done (the capture editor is the AI summary's, with its own streaming).
+- **Other text boxes.** `MentionTextarea` (`web/src/components/mentions/`) gives `@` to inline
+  comments (stored), the sub-action description, the event description and campaign notes.
+- **More kinds.** Sequences and prospect lists are mentionable. Agent chats and mail are found
+  (your own only; mail by sender, since no subject is stored) and mentionable by their owner.
+
+Migration 671 now also creates `conversation_share` (who an agent chat was shared with by a
+mention). It redefines no existing function or policy.
+
+Not done, and why:
+- **Mail share-on-mention.** The live email share (646) can only target a team-chat channel;
+  targeting a person is a larger change. A teammate sees the mention's label (the sender) and
+  cannot open the thread.
+- **Opening a shared agent chat.** The share is recorded, but the chat tables stay owner-only
+  under row-level security (many reads rely on that), and no reader route exists yet. There is
+  also no card that opens a past chat, so a found chat does not open.
+- **Teams and knowledge packages as mentions.** A private team's or package's mention edge needs
+  a database fence that means redefining `entity_visible_to` and the `entity_link` policies
+  (last defined by 664 and 522); left for its own migration. Both stay searchable.
+- **Capture notes `@`**, and teammates as people (not contacts) in `MentionTextarea`.
+- Run chats carrying the kinds that have no id key.
+
 Needs migration 671 on a database before this code runs against it (the owner's call for
 production; not applied to the dev database either, so comments were checked by tests only).
-
-Still to do, in order: mail and agent chats (search, mention, the share a mention makes);
-team chat on the unified list (teammates through the registry) and its edit box; the `NoteEditor` descriptions and notes (no `@` there yet); `MentionTextarea` for the remaining
-textareas; the one `EntityChip` with live status for every kind; grouped search tabs;
-sequences, prospect lists, teams and packages as mentionable (they are not graph endpoints
-yet); run chats carrying the kinds that have no id key.

@@ -230,12 +230,26 @@ export interface MenuStudioRow extends Scored {
 }
 
 /** The kinds found by a name and listed alike: no fields of their own beyond a status and where they live. */
-export type MenuNamedKind = 'campaign' | 'sequence' | 'prospect_list' | 'data_table' | 'data_row' | 'team_chat_channel' | 'decision' | 'team' | 'package'
+export type MenuNamedKind =
+  | 'campaign'
+  | 'sequence'
+  | 'prospect_list'
+  | 'data_table'
+  | 'data_row'
+  | 'team_chat_channel'
+  | 'decision'
+  | 'team'
+  | 'package'
+  | 'conversation'
+  | 'email_thread'
 
 /**
  * A campaign, sequence, prospect list, table, table row, channel, decision,
- * team or knowledge package: its name (a decision's words), a quiet word
- * about it, and what opening it needs beyond its own id.
+ * team, knowledge package, the caller's own agent chat (`conversation`) or
+ * their own mail thread (`email_thread`): its name (a decision's words, a
+ * chat's title, a thread's subject or sender), a quiet word about it, and
+ * what opening it needs beyond its own id (a row's table, a thread's provider
+ * id to open the mail card).
  */
 export interface MenuNamedRow extends Scored {
   kind: MenuNamedKind
@@ -320,6 +334,16 @@ export function menuRowTarget(row: MenuSearchRow): OpenTarget {
     case 'decision':
       // A decision lives on its capture.
       return row.parentId ? { type: 'capture', id: row.parentId, title: null } : { type: 'page', slug: 'captures' }
+    case 'email_thread':
+      // Mail opens the mail card on its provider thread (held in parentId);
+      // stored nowhere, read live from the owner's mailbox.
+      return row.parentId ? { type: 'mail', threadId: row.parentId, title: row.title } : { type: 'page', slug: 'mail' }
+    case 'conversation':
+      // No card draws a past agent chat, and the menu has no chats-list page,
+      // so opening a chat row is a no-op today (cardForTarget returns null for
+      // an unknown slug). Resuming a past chat is chat-panel's loadConversation;
+      // wiring the composer's onOpenRecord to it is the composer's to do.
+      return { type: 'page', slug: 'chats' }
     case 'sequence':
     case 'prospect_list':
     case 'team':

@@ -59,6 +59,18 @@ beforeEach(() => {
       { id: 'tm-gen', workspace_id: WS, name: 'General', is_private: false, updated_at: at(2) },
     ],
     knowledge_package: [{ id: 'k-brand', workspace_id: WS, name: 'Harbor brand voice', description: 'How we write', updated_at: at(1) }],
+    // Agent chats are the caller's OWN (user_id); an untitled one and a teammate's stay out.
+    chat_conversations: [
+      { id: 'cv-harbor', workspace_id: WS, user_id: ANA, title: 'Harbor launch plan', updated_at: at(3) },
+      { id: 'cv-blank', workspace_id: WS, user_id: ANA, title: '', updated_at: at(4) },
+      { id: 'cv-other', workspace_id: WS, user_id: OTHER, title: 'Harbor theirs', updated_at: at(5) },
+    ],
+    // Mail is the caller's OWN (user_id); the trash and a teammate's stay out. No subject is stored.
+    email_thread_index: [
+      { id: 'em-ana', workspace_id: WS, user_id: ANA, from_email: 'maya@harbor.test', participant_emails: ['maya@harbor.test', 'ana@acme.test'], provider_thread_id: 'thr-1', folder: 'inbox', last_message_at: at(3) },
+      { id: 'em-trash', workspace_id: WS, user_id: ANA, from_email: 'maya@harbor.test', participant_emails: [], provider_thread_id: 'thr-2', folder: 'trash', last_message_at: at(4) },
+      { id: 'em-other', workspace_id: WS, user_id: OTHER, from_email: 'maya@harbor.test', participant_emails: [], provider_thread_id: 'thr-3', folder: 'inbox', last_message_at: at(5) },
+    ],
   }
 })
 
@@ -125,5 +137,34 @@ describe('kinds found by a name', () => {
 
   it('nothing typed: the most recent', async () => {
     expect(ids(await MENU_QUERIES.team(ctx('')))).toEqual(['tm-gen', 'tm-harbor'])
+  })
+})
+
+describe('the caller’s own agent chats (conversation)', () => {
+  it('by title, the caller’s own only, never an untitled one or a teammate’s', async () => {
+    const rows = await MENU_QUERIES.conversation(ctx('harbor'))
+    expect(ids(rows)).toEqual(['cv-harbor'])
+    expect(rows[0]).toMatchObject({ kind: 'conversation', title: 'Harbor launch plan', status: null, parentId: null })
+    // No card draws a past chat and the menu has no chats page, so opening is a no-op today.
+    expect(menuRowTarget(rows[0])).toEqual({ type: 'page', slug: 'chats' })
+  })
+})
+
+describe('the caller’s own mail threads (email_thread)', () => {
+  it('by sender, the caller’s own only, never the trash, opening the mail card on the provider thread', async () => {
+    const rows = await MENU_QUERIES.email_thread(ctx('harbor'))
+    expect(ids(rows)).toEqual(['em-ana'])
+    expect(rows[0]).toMatchObject({ kind: 'email_thread', title: 'maya@harbor.test', status: 'inbox', parentId: 'thr-1' })
+    expect(menuRowTarget(rows[0])).toEqual({ type: 'mail', threadId: 'thr-1', title: 'maya@harbor.test' })
+  })
+
+  it('a full address also matches a thread it is a participant of', async () => {
+    const rows = await MENU_QUERIES.email_thread(ctx('ana@acme.test'))
+    expect(ids(rows)).toEqual(['em-ana'])
+  })
+
+  it('nothing, or almost nothing, typed: no provider-less mail search runs', async () => {
+    expect(await MENU_QUERIES.email_thread(ctx(''))).toEqual([])
+    expect(await MENU_QUERIES.email_thread(ctx('ha'))).toEqual([])
   })
 })

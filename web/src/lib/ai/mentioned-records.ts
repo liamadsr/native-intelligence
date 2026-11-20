@@ -216,6 +216,13 @@ const REF_LINES: Partial<Record<MentionableType, { noun: string; read: (id: stri
   team_chat_channel: { noun: 'Team chat channel', read: (id) => `id ${id}` },
   decision: { noun: 'Decision', read: (id) => `id ${id}: list_decisions shows it with its capture` },
   studio_project: { noun: 'Studio project', read: (id) => `id ${id}: list_studio_projects shows it in full` },
+  sequence: { noun: 'Sequence', read: (id) => `get_sequence(sequence_id: ${id})` },
+  prospect_list: { noun: 'Prospect list', read: (id) => `id ${id}: list_prospect_lists shows it in full` },
+  // Owner-only (decision 1): each is fenced to the person the turn runs as
+  // (visibleMentionTargets, on user_id), so only their own mail/chat is read.
+  email_thread: { noun: 'Email thread', read: (id) => `id ${id}: read_email reads this thread (your own mail)` },
+  conversation: { noun: 'Agent chat', read: (id) => `id ${id}: your own earlier chat with the agent (its title is above; no tool re-reads a past chat)` },
+  // A team has no read tool of its own, so a mentioned team carries no line (gatherRefLines drops a ref with no spec).
 }
 
 /**

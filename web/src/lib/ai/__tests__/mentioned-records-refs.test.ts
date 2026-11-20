@@ -41,7 +41,8 @@ const context = {
     { type: 'campaign', id: FOREIGN, label: 'Not here' },
     // Has its own key (attachedActionIds): never read from here.
     { type: 'action', id: ACTION, label: 'GEN-1' },
-    { type: 'email_thread', id: CAMPAIGN, label: 'mail' },
+    // A member is not a mentionable record (team chat's `mentions` holds people): dropped.
+    { type: 'member', id: CAMPAIGN, label: 'x' },
     { type: 'campaign', id: 'not-an-id', label: 'x' },
   ],
 }
@@ -73,6 +74,13 @@ describe('gatherMentionedRecords: refs', () => {
   it('reads none on a run that can’t read private data', async () => {
     const lines = await gatherMentionedRecords(memoryDb(tables), { workspaceId: WS, userId: ANA, privateDocs: false, ...mentionedRecordIdsOf(context) })
     expect(lines).toEqual([])
+  })
+
+  it('a mentioned sequence gets its get_sequence line (mentions everywhere)', async () => {
+    const SEQ = 'ab000000-0000-4000-8000-000000000001'
+    tables.sequence = [{ id: SEQ, workspace_id: WS, name: 'Welcome to Harbor' }]
+    const lines = await gatherMentionedRecords(memoryDb(tables), { workspaceId: WS, userId: ANA, ...mentionedRecordIdsOf({ mentionedRecords: [{ type: 'sequence', id: SEQ, label: 'ignore me' }] }) })
+    expect(lines).toEqual([{ kind: 'sequence', id: SEQ, line: `Sequence "Welcome to Harbor": get_sequence(sequence_id: ${SEQ})` }])
   })
 })
 

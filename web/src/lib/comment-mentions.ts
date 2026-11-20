@@ -22,6 +22,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { CommentableType } from '@/lib/comments'
 import { addEntityGrant } from '@/lib/entity-access/store'
 import { isGrantableType } from '@/lib/entity-access/model'
+import { shareConversationWithMembers } from '@/lib/chat/conversation-share'
 import { MAX_MENTIONED_RECORDS, type LabeledMentionRef } from '@/lib/entity-links/mentionable'
 import { syncMentions } from '@/lib/entity-links/mentions'
 import { fenceRecordMentions } from '@/lib/team-chat/record-mentions'
@@ -97,10 +98,21 @@ export async function applyCommentMentions(
     for (const record of mentions.records) {
       if (!isGrantableType(record.type)) continue
       for (const memberId of others) {
-        if (made >= MAX_GRANTS) return
+        if (made >= MAX_GRANTS) break
         made++
         const granted = await addEntityGrant(supabase, { workspaceId: input.workspaceId, memberId: input.memberId }, record.type, record.id, { kind: 'member', id: memberId }, 'view', 'mention')
         if ('error' in granted && granted.error === 'failed') console.warn('[comment-mentions] share failed:', granted.message)
+      }
+    }
+
+    // A mentioned agent chat of the author's OWN (fenced to them at mention
+    // time) is shared read-only with the teammates mentioned beside it
+    // (decision 1). conversation is not a grant kind, so this is its own path:
+    // the share's insert policy still refuses a chat the author doesn't own.
+    if (others.length) {
+      const conversationIds = [...new Set(mentions.records.filter((r) => r.type === 'conversation').map((r) => r.id))]
+      for (const conversationId of conversationIds) {
+        await shareConversationWithMembers(supabase, { workspaceId: input.workspaceId, conversationId, userId: input.userId, memberIds: others })
       }
     }
   } catch (err) {

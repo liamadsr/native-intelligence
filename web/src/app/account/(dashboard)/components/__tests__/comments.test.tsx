@@ -54,8 +54,8 @@ vi.mock('@/components/ui/dropdown-menu', async (importOriginal) => ({
   DropdownMenu: ({ children }: { children?: ReactNode }) => h('div', {}, children),
   DropdownMenuTrigger: ({ children }: { children?: ReactNode }) => h('span', {}, children),
   DropdownMenuContent: ({ children }: { children?: ReactNode }) => h('div', {}, children),
-  DropdownMenuItem: ({ children }: { children?: ReactNode }) =>
-    h('button', { type: 'button' }, children),
+  DropdownMenuItem: ({ children, ...props }: { children?: ReactNode }) =>
+    h('button', { type: 'button', ...props }, children),
 }))
 vi.mock('@/components/ui/alert-dialog', () => ({
   AlertDialog: ({ open, children }: { open?: boolean; children?: ReactNode }) =>
@@ -87,10 +87,12 @@ const COMMENTS = [
 
 let fetchCalls: string[] = []
 let posts: Array<{ body: string; parent_id?: string; mentions?: string[] }> = []
+let patches: Array<{ url: string; body: Record<string, unknown> }> = []
 
 function installFetch() {
   fetchCalls = []
   posts = []
+  patches = []
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: string, init?: RequestInit) => {
@@ -102,6 +104,11 @@ function installFetch() {
       }
       if (url === '/api/account/actions/act-1/comments') {
         return { ok: true, status: 200, json: async () => ({ comments: COMMENTS }) }
+      }
+      if (url.startsWith('/api/account/comments/') && init?.method === 'PATCH') {
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>
+        patches.push({ url, body })
+        return { ok: true, status: 200, json: async () => ({ comment: { id: 'c-1', body: body.body, author_id: 'm-1', author_name: 'Alice', author_avatar: null, parent_id: null, created_at: COMMENTS[0].created_at, edited_at: new Date().toISOString(), mentions: body.mentions ?? [], record_mentions: body.records ?? [] } }) }
       }
       return { ok: true, status: 200, json: async () => ({}) }
     }),
@@ -307,5 +314,76 @@ describe('Comments — the box is the shared composer', () => {
     await settle()
     // The teammate picked rides with the comment (their mention is stored, and they are told).
     expect(posts).toEqual([{ body: '@Rosa Lind take a look?', mentions: ['m-2'] }])
+  })
+})
+
+/**
+ * Editing a comment uses the same composer, prefilled with the body, so `@`
+ * offers teammates and records there too, and Save PATCHes { body, mentions,
+ * records } — what the edited words still name.
+ */
+describe('Comments — editing uses the composer with @', () => {
+  beforeEach(() => {
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 480 })
+  })
+  afterEach(() => {
+    delete (HTMLElement.prototype as unknown as Record<string, unknown>).clientWidth
+  })
+  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
+  const editBox = () => container.querySelector('[data-comment-edit]') as HTMLElement | null
+  const editField = () => editBox()!.querySelector('textarea') as HTMLTextAreaElement
+  async function settle() {
+    for (let i = 0; i < 5; i++) await act(async () => new Promise((r) => setTimeout(r, 0)))
+  }
+  function typeInto(ta: HTMLTextAreaElement, text: string) {
+    act(() => ta.focus())
+    for (const ch of text) {
+      act(() => {
+        const { selectionStart: s, selectionEnd: e, value } = ta
+        setter.call(ta, value.slice(0, s) + ch + value.slice(e))
+        ta.setSelectionRange(s + 1, s + 1)
+        ta.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+    }
+  }
+  function pressOn(ta: HTMLTextAreaElement, key: string, opts: KeyboardEventInit = {}) {
+    act(() => {
+      ta.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...opts }))
+    })
+  }
+
+  it('prefills the body, lists teammates on @, and saves the mention that stays in the words', async () => {
+    await mount({ currentMemberId: 'm-1' })
+
+    // Alice's own comment offers Edit (the dropdown renders inline in the stub).
+    const edit = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Edit')!
+    await act(async () => edit.click())
+    await settle()
+
+    expect(editBox()).toBeTruthy()
+    const ta = editField()
+    // Prefilled with the comment's body.
+    expect(ta.value).toBe('Looks good')
+
+    // Append a teammate mention: `@` lists the teammates (not the viewer).
+    act(() => ta.setSelectionRange(ta.value.length, ta.value.length))
+    typeInto(ta, ' @ro')
+    await settle()
+    const options = [...document.querySelectorAll('[data-mention-option]')].map((r) => r.getAttribute('data-mention-option'))
+    expect(options).toEqual(['m-2'])
+    pressOn(ta, 'Enter')
+    await settle()
+    expect(editField().value).toBe('Looks good @Rosa Lind ')
+
+    // Save PATCHes the edited body with the mention it still names.
+    const save = [...editBox()!.querySelectorAll('button')].find((b) => b.textContent === 'Save')!
+    await act(async () => save.click())
+    await settle()
+
+    expect(patches).toHaveLength(1)
+    expect(patches[0].url).toBe('/api/account/comments/c-1')
+    expect(patches[0].body).toEqual({ body: 'Looks good @Rosa Lind', mentions: ['m-2'], records: [] })
+    // The edit box closes after a save.
+    expect(editBox()).toBeNull()
   })
 })

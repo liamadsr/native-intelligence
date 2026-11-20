@@ -41,7 +41,8 @@ const LATER = new Set<string>(['data_table', 'data_row', 'studio_video', 'studio
 const FENCED_IN_500 = LINK_FENCED_KINDS.filter((k) => !LATER.has(k))
 
 /** Linkable kinds every member of the workspace reads (their tables' RLS is membership only). */
-const OPEN_KINDS = ['project', 'action', 'initiative', 'cycle', 'member', 'campaign', 'milestone', 'deal', 'flow']
+// sequence and prospect_list joined with "mentions everywhere": both are every member's (sequence_member_all, prospect_list_member_select).
+const OPEN_KINDS = ['project', 'action', 'initiative', 'cycle', 'member', 'campaign', 'milestone', 'deal', 'flow', 'sequence', 'prospect_list']
 
 describe('migration 500: entity_link reads follow both ends', () => {
   it('holds no backslash', () => {

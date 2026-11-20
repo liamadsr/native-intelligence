@@ -21,7 +21,7 @@ import {
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
+import { MentionTextarea } from '@/components/mentions/mention-textarea'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import { DateTimePicker } from '@/components/ui/datetime-picker'
@@ -632,12 +632,12 @@ export function CalendarEventDetailPanel({ event, onClose, onEventUpdate, onEven
                 </span>
               </div>
               <div className="pl-6">
-                <Textarea
-                  placeholder="Add description"
+                <MentionTextarea
+                  placeholder="Add description (@ to mention)"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   rows={3}
-                  className="min-h-0 resize-none border-none bg-transparent px-0 text-sm shadow-none focus-visible:ring-0 placeholder:text-muted-foreground/50"
+                  className="min-h-0 w-full resize-none border-none bg-transparent px-0 text-sm shadow-none focus-visible:outline-none placeholder:text-muted-foreground/50"
                 />
               </div>
             </div>

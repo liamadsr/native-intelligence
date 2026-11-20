@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getCurrentWorkspaceId } from '@/lib/workspace'
 import { forbidden, notFound } from '@/lib/api-errors'
 import { inngest } from '@/lib/inngest/client'
+import { syncDescriptionMentions } from '@/lib/entity-links/description-mentions'
 import { NextResponse, type NextRequest } from 'next/server'
 
 type ServerClient = Awaited<ReturnType<typeof createClient>>
@@ -313,14 +314,16 @@ export async function PATCH(
   // Fetch previous status if a status change is part of this update —
   // needed to emit `flow/entity.status_changed` only on actual transitions.
   let previousStatus: string | null = null
-  if (body.status !== undefined) {
+  let previousDescription: string | null = null
+  if (body.status !== undefined || body.description !== undefined) {
     const { data: prev } = await supabase
       .from('initiative')
-      .select('status')
+      .select('status, description')
       .eq('id', id)
       .eq('workspace_id', workspaceId)
       .maybeSingle()
     previousStatus = (prev?.status as string | null) ?? null
+    previousDescription = typeof prev?.description === 'string' ? prev.description : null
   }
 
   const updates: Record<string, unknown> = {}
@@ -370,6 +373,19 @@ export async function PATCH(
         .catch((err) => {
           console.error('[flows] inngest.send failed', err)
         })
+    }
+
+    // The description's `@` chips become `mentions` edges, and a teammate newly
+    // mentioned is told (non-blocking, fail-soft: never fails the save).
+    if (body.description !== undefined) {
+      await syncDescriptionMentions(supabase, {
+        workspaceId,
+        source: { type: 'initiative', id },
+        markdown: typeof updates.description === 'string' ? updates.description : '',
+        previousMarkdown: previousDescription,
+        userId: user.id,
+        title: typeof data?.name === 'string' ? data.name : null,
+      })
     }
 
     if (labelError) return labelError

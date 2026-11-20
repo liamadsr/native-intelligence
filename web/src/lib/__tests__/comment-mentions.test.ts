@@ -27,6 +27,7 @@ const TASK = 'a0000000-0000-4000-8000-000000000001'
 const PROJECT = 'b0000000-0000-4000-8000-000000000001'
 const FOREIGN = 'b0000000-0000-4000-8000-000000000002'
 const DOC = 'd0000000-0000-4000-8000-000000000001'
+const CONV = 'e0000000-0000-4000-8000-000000000001'
 
 type Row = Record<string, unknown>
 let tables: Record<string, Row[]>
@@ -43,8 +44,10 @@ beforeEach(() => {
       { id: FOREIGN, workspace_id: 'another', name: 'Elsewhere' },
     ],
     document: [{ id: DOC, workspace_id: WS, title: 'Harbor plan', visibility: 'workspace', created_by: ANA }],
+    chat_conversations: [{ id: CONV, workspace_id: WS, user_id: ANA_USER, title: 'Harbor chat' }],
     entity_link: [],
     entity_access: [],
+    conversation_share: [],
   }
 })
 
@@ -98,6 +101,22 @@ describe('applyCommentMentions', () => {
     expect(tables.entity_link).toEqual([])
     expect(tables.entity_access).toEqual([])
   })
+
+  it('shares a mentioned agent chat read-only with the teammates mentioned beside it (decision 1)', async () => {
+    await applyCommentMentions(memoryDb(tables), {
+      workspaceId: WS,
+      userId: ANA_USER,
+      memberId: ANA,
+      commentable: { type: 'action', id: TASK },
+      mentions: { memberIds: [BEN, ANA], records: [{ type: 'conversation', id: CONV, label: 'Harbor chat' }] },
+    })
+    // The chat becomes a mentions edge from the task...
+    expect(tables.entity_link.map((e) => [e.target_type, e.target_id])).toEqual([['conversation', CONV]])
+    // ...and a read-only share to Ben (never the author), not a grant (conversation is not grantable).
+    expect(tables.entity_access).toEqual([])
+    expect(tables.conversation_share).toHaveLength(1)
+    expect(tables.conversation_share[0]).toMatchObject({ conversation_id: CONV, grantee_member_id: BEN, shared_by: ANA_USER, source: 'mention', workspace_id: WS })
+  })
 })
 
 describe('migration 671', () => {
@@ -122,5 +141,26 @@ describe('migration 671', () => {
     const newest = [...migrationsInOrder()].reverse().find((m) => /add constraint notification_type_check/i.test(m.sql))!.file
     expect(newest).toBe(FILE)
     expect(BODY.indexOf('drop constraint if exists notification_type_check')).toBeLessThan(BODY.indexOf('add constraint notification_type_check'))
+  })
+
+  it('redefines no shared function or policy (teams stay search-only; their edge fence is its own migration)', () => {
+    // entity_visible_to and the entity_link policies were last defined by 664 and 522: a copy here would undo them.
+    expect(BODY).not.toContain('function public.entity_visible_to')
+    expect(BODY).not.toContain('policy entity_link_select')
+    expect(BODY).not.toContain('policy entity_link_insert')
+  })
+
+  it('creates conversation_share, and leaves the chat tables owner-only', () => {
+    expect(BODY).toContain('create table if not exists public.conversation_share')
+    expect(BODY).toContain('grantee_member_id uuid not null references public.member(id) on delete cascade')
+    expect(BODY).toContain("source text not null default 'mention' check (source in ('mention'))")
+    expect(BODY).toContain('unique (conversation_id, grantee_member_id)')
+    expect(BODY).toContain('alter table public.conversation_share enable row level security')
+    // Only the chat's owner shares, to a member of the chat's own workspace.
+    expect(BODY).toContain('cc.user_id = (select auth.uid()) and cc.workspace_id = conversation_share.workspace_id')
+    expect(BODY).toContain('m.id = grantee_member_id and m.workspace_id = conversation_share.workspace_id')
+    // No policy on the chat tables: many reads rely on them being their owner's alone.
+    expect(BODY).not.toContain('on public.chat_conversations')
+    expect(BODY).not.toContain('on public.chat_messages')
   })
 })

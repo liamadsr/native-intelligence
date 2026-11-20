@@ -603,6 +603,7 @@ export function InitiativeDetailPanel({
                 initialContent={initiative.description || ''}
                 onUpdate={handleDescriptionChange}
                 placeholder="Add description..."
+                recordMentions
               />
             </div>
 

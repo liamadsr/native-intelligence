@@ -703,6 +703,7 @@ export function ProjectDetailPanel({
                     initialContent={project.description || ''}
                     onUpdate={handleDescriptionChange}
                     placeholder="Add description..."
+                    recordMentions
                   />
                 </div>
 

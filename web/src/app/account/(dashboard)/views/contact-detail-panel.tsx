@@ -798,6 +798,7 @@ export function ContactDetailPanel({
                         initialContent={contact.notes || ''}
                         onUpdate={handleNotesChange}
                         placeholder="Add notes..."
+                        recordMentions
                       />
                     </div>
 

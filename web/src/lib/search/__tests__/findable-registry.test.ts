@@ -68,10 +68,14 @@ describe('the lists derived from it', () => {
       'studio_video',
       'studio_project',
       'campaign',
+      'sequence',
+      'prospect_list',
       'data_table',
       'data_row',
       'team_chat_channel',
       'decision',
+      'email_thread',
+      'conversation',
     ])
   })
 
@@ -85,18 +89,23 @@ describe('the lists derived from it', () => {
 })
 
 describe('a found row as a mention', () => {
-  const named = (kind: 'campaign' | 'sequence' | 'data_row' | 'team' | 'decision'): MenuSearchRow => ({ kind, id: 'r1', title: 'Spring push', status: null, parentId: null, score: 1 })
+  const named = (kind: 'campaign' | 'sequence' | 'data_row' | 'team' | 'decision' | 'conversation' | 'email_thread'): MenuSearchRow => ({ kind, id: 'r1', title: 'Spring push', status: null, parentId: null, score: 1 })
 
   it('stores the kind the registry names', () => {
     expect(menuRowMention(named('campaign'))).toEqual({ type: 'campaign', id: 'r1', label: 'Spring push' })
     expect(menuRowMention(named('data_row'))).toEqual({ type: 'data_row', id: 'r1', label: 'Spring push' })
     expect(menuRowMention(named('decision'))).toEqual({ type: 'decision', id: 'r1', label: 'Spring push' })
+    // Mentions everywhere: sequences, agent chats and mail are stored now too (mail/chat only by their owner).
+    expect(menuRowMention(named('sequence'))).toEqual({ type: 'sequence', id: 'r1', label: 'Spring push' })
+    // A team is found and opened, never mentioned (a private team's edges have no database fence yet).
+    expect(menuRowMention(named('team'))).toBeNull()
+    expect(menuRowMention(named('conversation'))).toEqual({ type: 'conversation', id: 'r1', label: 'Spring push' })
+    expect(menuRowMention(named('email_thread'))).toEqual({ type: 'email_thread', id: 'r1', label: 'Spring push' })
     expect(menuRowMention({ kind: 'deal', id: 'd1', pipelineId: 'p1', title: 'Harbor renewal', status: null, score: 1 })).toEqual({ type: 'data_row', id: 'd1', label: 'Harbor renewal' })
   })
 
   it('is nothing for a kind no mention can store', () => {
-    expect(menuRowMention(named('sequence'))).toBeNull()
-    expect(menuRowMention(named('team'))).toBeNull()
     expect(menuRowMention({ kind: 'agent', id: 'a1', title: 'Researcher', description: null, icon: null, score: 1 })).toBeNull()
+    expect(menuRowMention({ kind: 'team_chat_message', id: 'm1', title: 'hi', place: '#general', author: 'Ana', channelId: 'ch', threadRootId: null, createdAt: '', score: 1 })).toBeNull()
   })
 })

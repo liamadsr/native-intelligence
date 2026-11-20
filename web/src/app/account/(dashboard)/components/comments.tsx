@@ -278,6 +278,11 @@ export function Comments({
   const [replyingTo, setReplyingTo] = useState<Comment | null>(null)
   const [editing, setEditing] = useState<Comment | null>(null)
   const [editBody, setEditBody] = useState('')
+  // What the edit box has picked (teammates and records): started from the
+  // comment's stored mentions, grown by new `@` picks; only what the edited
+  // words still name is sent.
+  const [editPicked, setEditPicked] = useState<Array<{ id: string; label: string }>>([])
+  const [editPickedRecords, setEditPickedRecords] = useState<LabeledMentionRef[]>([])
   const [deleting, setDeleting] = useState<Comment | null>(null)
   // Bumped whenever a reply changes, so each thread's loaded replies refetch.
   const [repliesVersion, setRepliesVersion] = useState(0)
@@ -329,26 +334,33 @@ export function Comments({
   )
 
   // `@` lists the teammates (not the viewer), then any record the one picker
-  // finds: a pick puts "@Name" in the words and rides with the comment.
-  const mentionList = useMemo<ComposerMentionList>(
-    () => ({
+  // finds: a pick puts "@Name" in the words and rides with the comment. The new
+  // comment box and each edit box share the list; they only differ in where the
+  // picks are kept, so the builder takes the two setters.
+  const makeMentionList = useCallback(
+    (
+      setMembersPicked: typeof setPicked,
+      setRecordsPicked: typeof setPickedRecords,
+    ): ComposerMentionList => ({
       options: members
         .filter((m) => m.id !== currentMemberId)
         .map<ComposerMentionOption>((m) => ({ id: m.id, label: memberName(m) })),
       // A teammate picked is kept: their mention goes with the comment while "@Name" is still in it.
-      onPick: (o) => setPicked((prev) => (prev.some((p) => p.id === o.id) ? prev : [...prev, { id: o.id, label: o.label }])),
+      onPick: (o) => setMembersPicked((prev) => (prev.some((p) => p.id === o.id) ? prev : [...prev, { id: o.id, label: o.label }])),
       // Any record, as in team chat: the one picker's kinds, found by the composer's own search.
       records: {
         kinds: MENTION_PICKER_KINDS,
         onPick: (row: MenuSearchRow) => {
           const m = menuRowMention(row)
           if (!m) return
-          setPickedRecords((prev) => (prev.some((p) => p.type === m.type && p.id === m.id) ? prev : [...prev, m]))
+          setRecordsPicked((prev) => (prev.some((p) => p.type === m.type && p.id === m.id) ? prev : [...prev, m]))
         },
       },
     }),
     [members, currentMemberId],
   )
+  const mentionList = useMemo(() => makeMentionList(setPicked, setPickedRecords), [makeMentionList])
+  const editMentionList = useMemo(() => makeMentionList(setEditPicked, setEditPickedRecords), [makeMentionList])
   const memberNames = useMemo(() => new Map(members.map((m) => [m.id, memberName(m)])), [members])
 
   const fetchComments = useCallback(async () => {
@@ -424,11 +436,16 @@ export function Comments({
 
   const handleEdit = async () => {
     if (!editing || !editBody.trim()) return
+    const text = editBody.trim()
+
+    // Only what the edited words still name (stored mentions plus new picks).
+    const mentions = editPicked.filter((p) => hasMention(text, p.label)).map((p) => p.id)
+    const records = editPickedRecords.filter((r) => hasMention(text, r.label))
 
     const res = await fetch(`/api/account/comments/${editing.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ body: editBody.trim() }),
+      body: JSON.stringify({ body: text, mentions, records }),
     })
 
     if (res.ok) {
@@ -439,6 +456,8 @@ export function Comments({
       if (editing.parent_id) setRepliesVersion((v) => v + 1)
       setEditing(null)
       setEditBody('')
+      setEditPicked([])
+      setEditPickedRecords([])
     }
   }
 
@@ -464,6 +483,10 @@ export function Comments({
   const submitRef = useRef(handleSubmit)
   submitRef.current = handleSubmit
   const onComposerSubmit = useCallback(() => void submitRef.current(), [])
+  // The same for the edit box (which also owns its field and is memoized).
+  const editSubmitRef = useRef(handleEdit)
+  editSubmitRef.current = handleEdit
+  const onEditSubmit = useCallback(() => void editSubmitRef.current(), [])
 
   const focusComposer = () => {
     requestAnimationFrame(() => composerRef.current?.querySelector('textarea')?.focus())
@@ -478,18 +501,44 @@ export function Comments({
   const startEdit = (comment: Comment) => {
     setEditing(comment)
     setEditBody(comment.body)
+    // Seed the picks from what the comment already mentions, so a save that
+    // doesn't touch them keeps them (and a new `@` pick adds to them).
+    setEditPicked((comment.mentions ?? []).flatMap((id) => {
+      const label = memberNames.get(id)
+      return label ? [{ id, label }] : []
+    }))
+    setEditPickedRecords(comment.record_mentions ?? [])
     setReplyingTo(null)
+  }
+
+  const cancelEdit = () => {
+    setEditing(null)
+    setEditBody('')
+    setEditPicked([])
+    setEditPickedRecords([])
   }
 
   const renderEditor = (comment: Comment) =>
     editing?.id === comment.id ? (
-      <div key={comment.id} className="py-2">
-        <textarea
+      <div key={comment.id} data-comment-edit="" className="py-2">
+        <ChatInput
           value={editBody}
-          onChange={(e) => setEditBody(e.target.value)}
-          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:border-foreground/30"
-          rows={2}
+          onChange={setEditBody}
+          onSubmit={onEditSubmit}
+          onStop={noop}
+          isLoading={false}
+          attachedNotes={NO_NOTES}
+          onAttachNote={noop}
+          onRemoveNote={noop}
+          attachedFiles={NO_FILES}
+          onAttachFiles={noop}
+          onRemoveFile={noop}
+          unavailable={COMMENT_UNAVAILABLE}
+          placeholder="Edit comment…"
+          mainComposer={false}
+          mentionList={editMentionList}
           autoFocus
+          layout="inline"
         />
         <div className="mt-1.5 flex gap-1.5">
           <Button size="sm" onClick={handleEdit} className="h-7 text-xs">
@@ -498,10 +547,7 @@ export function Comments({
           <Button
             size="sm"
             variant="ghost"
-            onClick={() => {
-              setEditing(null)
-              setEditBody('')
-            }}
+            onClick={cancelEdit}
             className="h-7 text-xs"
           >
             Cancel

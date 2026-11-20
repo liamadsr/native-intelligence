@@ -24,15 +24,19 @@ describe('toMentionRecord', () => {
     expect(toMentionRecord({ kind: 'action', id: 'a1', title: 'Pricing page', identifier: 'GEN-1', status: null, score: 1 })).toEqual({ kind: 'action', id: 'a1', title: 'Pricing page', identifier: 'GEN-1' })
   })
 
-  it('is nothing for what no mention can store, or what has a chip of its own', () => {
-    expect(toMentionRecord(named('sequence', 's1', 'Welcome'))).toBeNull()
+  it('makes a record of a sequence too, never of a team (mentions everywhere)', () => {
+    expect(toMentionRecord(named('sequence', 's1', 'Welcome'))).toEqual({ kind: 'sequence', id: 's1', title: 'Welcome' })
     expect(toMentionRecord(named('team', 't1', 'General'))).toBeNull()
+  })
+
+  it('is nothing for what no mention can store, or what has a chip of its own', () => {
     expect(toMentionRecord({ kind: 'agent', id: 'g1', title: 'Researcher', description: null, icon: null, score: 1 })).toBeNull()
+    expect(toMentionRecord({ kind: 'contact', contact: { id: 'c1', full_name: 'Ana', email: null, job_title: null, company_name: null, is_member: true }, score: 1 })).toBeNull()
   })
 
   it('covers the kinds the composer lists', () => {
-    expect(COMPOSER_RECORD_KINDS).toEqual(['action', 'document', 'project', 'initiative', 'deal', 'flow', 'attachment', 'calendar_event', 'studio_video', 'studio_project', 'campaign', 'data_table', 'data_row', 'team_chat_channel', 'decision'])
-    expect([...UNKEYED_MENTION_TYPES].sort()).toEqual(['campaign', 'data_row', 'data_table', 'decision', 'studio_project', 'team_chat_channel'])
+    expect(COMPOSER_RECORD_KINDS).toEqual(['action', 'document', 'project', 'initiative', 'deal', 'flow', 'attachment', 'calendar_event', 'studio_video', 'studio_project', 'campaign', 'sequence', 'prospect_list', 'data_table', 'data_row', 'team_chat_channel', 'decision', 'email_thread', 'conversation'])
+    expect([...UNKEYED_MENTION_TYPES].sort()).toEqual(['campaign', 'conversation', 'data_row', 'data_table', 'decision', 'email_thread', 'prospect_list', 'sequence', 'studio_project', 'team_chat_channel'])
   })
 })
 

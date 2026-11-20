@@ -91,7 +91,7 @@ describe('SubActionComposer', () => {
 
     expect(titleInput()).toBeTruthy()
     expect(
-      composer().querySelector('textarea[placeholder="Add description..."]'),
+      composer().querySelector('textarea[placeholder="Add description... (@ to mention)"]'),
     ).toBeTruthy()
     // The whole reason for reusing this form rather than a bare title input.
     for (const label of ['Backlog', 'Priority', 'Assignee', 'Project', 'Labels']) {

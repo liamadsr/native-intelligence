@@ -18,11 +18,34 @@ import type { EditionTerm } from '@/lib/editions/manifest'
 import type { MentionableType } from '@/lib/entity-links/mentionable'
 import type { EntityType } from '@/lib/knowledge/entity-registry'
 
+/**
+ * The search menu's tab GROUPS (docs/plans/mentions-everywhere.md, 3.2): with
+ * two dozen kinds the strip would overflow, so each kind belongs to one group,
+ * and the strip shows a tab per group (plus Pages and skills, which live at the
+ * menu level, not here). A group tab lists all its kinds' sections at once.
+ */
+export const FINDABLE_GROUPS = [
+  'people',
+  'work',
+  'docs',
+  'meetings',
+  'mail',
+  'chats',
+  'crm',
+  'outreach',
+  'files',
+  'agents_skills',
+  'studio',
+] as const
+export type FindableGroup = (typeof FINDABLE_GROUPS)[number]
+
 export interface FindableDescriptor {
   /** The menu's section and tab for it ('actions', 'docs'…). */
   readonly section: string
   /** That tab's name. */
   readonly label: string
+  /** The grouped tab it falls under in the search strip (3.2). */
+  readonly group: FindableGroup
   /** The app term an edition may rename it by ("Jobs" for Actions). */
   readonly term?: EditionTerm
   /** The registered kind its rows are stored as (a deal is a pipeline's `data_row`); null for what is no entity. */
@@ -55,6 +78,7 @@ export const FINDABLE = {
     entity: 'action',
     mention: 'action',
     turnKeys: { context: 'attachedActionIds', run: 'actionIds' },
+    group: 'work',
     order: 20,
   },
   document: {
@@ -64,6 +88,7 @@ export const FINDABLE = {
     entity: 'document',
     mention: 'document',
     turnKeys: { context: 'attachedDocumentIds', run: 'documentIds' },
+    group: 'docs',
     order: 30,
   },
   project: {
@@ -73,6 +98,7 @@ export const FINDABLE = {
     entity: 'project',
     mention: 'project',
     turnKeys: { context: 'attachedProjectIds', run: 'projectIds' },
+    group: 'work',
     order: 40,
   },
   initiative: {
@@ -82,11 +108,12 @@ export const FINDABLE = {
     entity: 'initiative',
     mention: 'initiative',
     turnKeys: { context: 'attachedInitiativeIds', run: 'initiativeIds' },
+    group: 'work',
     order: 50,
   },
-  capture: { section: 'captures', label: 'Captures', term: 'capture', entity: 'capture', mention: 'capture', order: 60 },
-  contact: { section: 'people', label: 'People', term: 'contact', entity: 'contact', mention: 'contact', order: 10 },
-  company: { section: 'companies', label: 'Companies', term: 'company', entity: 'company', mention: 'company', order: 70 },
+  capture: { section: 'captures', label: 'Captures', term: 'capture', entity: 'capture', mention: 'capture', group: 'meetings', order: 60 },
+  contact: { section: 'people', label: 'People', term: 'contact', entity: 'contact', mention: 'contact', group: 'people', order: 10 },
+  company: { section: 'companies', label: 'Companies', term: 'company', entity: 'company', mention: 'company', group: 'crm', order: 70 },
   // A pipeline's row (Tables, phase 7), found and listed as a deal, mentioned as the row it is.
   deal: {
     section: 'deals',
@@ -95,6 +122,7 @@ export const FINDABLE = {
     entity: 'data_row',
     mention: 'data_row',
     turnKeys: { context: 'attachedDealIds', run: 'dealIds' },
+    group: 'crm',
     order: 80,
   },
   flow: {
@@ -103,6 +131,7 @@ export const FINDABLE = {
     entity: 'flow',
     mention: 'flow',
     turnKeys: { context: 'attachedFlowIds', run: 'flowIds' },
+    group: 'agents_skills',
     order: 90,
   },
   attachment: {
@@ -111,6 +140,7 @@ export const FINDABLE = {
     entity: 'attachment',
     mention: 'attachment',
     turnKeys: { context: 'attachedFileIds', run: 'fileIds' },
+    group: 'files',
     order: 100,
   },
   calendar_event: {
@@ -119,12 +149,13 @@ export const FINDABLE = {
     entity: 'calendar_event',
     mention: 'calendar_event',
     turnKeys: { context: 'attachedCalendarEventIds', run: 'calendarEventIds' },
+    group: 'meetings',
     order: 110,
   },
   // A recipe offered as someone to @: opened, never mentioned as a record.
-  agent: { section: 'agents', label: 'Agents', entity: 'recipe', mention: null, order: 220 },
+  agent: { section: 'agents', label: 'Agents', entity: 'recipe', mention: null, group: 'agents_skills', order: 220 },
   // A message is opened where it was said; not offered by the pickers yet.
-  team_chat_message: { section: 'messages', label: 'Messages', entity: 'team_chat_message', mention: null, order: 230 },
+  team_chat_message: { section: 'messages', label: 'Messages', entity: 'team_chat_message', mention: null, group: 'chats', order: 230 },
   // The Studio's (624): found only for a member who may use the Studio.
   studio_video: {
     section: 'videos',
@@ -132,22 +163,27 @@ export const FINDABLE = {
     entity: 'studio_video',
     mention: 'studio_video',
     turnKeys: { context: 'attachedStudioVideoIds', run: 'studioVideoIds' },
+    group: 'studio',
     order: 120,
   },
-  studio_project: { section: 'studio_projects', label: 'Studio projects', entity: 'studio_project', mention: 'studio_project', order: 130 },
+  studio_project: { section: 'studio_projects', label: 'Studio projects', entity: 'studio_project', mention: 'studio_project', group: 'studio', order: 130 },
   // ── Found since "mentions everywhere" ─────────────────────────────────────
-  campaign: { section: 'campaigns', label: 'Campaigns', entity: 'campaign', mention: 'campaign', order: 140 },
-  // Sequences and prospect lists are not graph endpoints (not `linkable`), so nothing can store a mention of one yet.
-  sequence: { section: 'sequences', label: 'Sequences', entity: 'sequence', mention: null, order: 150 },
-  prospect_list: { section: 'prospect_lists', label: 'Prospect lists', entity: 'prospect_list', mention: null, order: 160 },
-  data_table: { section: 'tables', label: 'Tables', entity: 'data_table', mention: 'data_table', order: 170 },
+  campaign: { section: 'campaigns', label: 'Campaigns', entity: 'campaign', mention: 'campaign', group: 'outreach', order: 140 },
+  // Sequences, prospect lists and teams became graph endpoints (`linkable`) with "mentions everywhere", so a mention of one can be stored.
+  sequence: { section: 'sequences', label: 'Sequences', entity: 'sequence', mention: 'sequence', group: 'outreach', order: 150 },
+  prospect_list: { section: 'prospect_lists', label: 'Prospect lists', entity: 'prospect_list', mention: 'prospect_list', group: 'outreach', order: 160 },
+  data_table: { section: 'tables', label: 'Tables', entity: 'data_table', mention: 'data_table', group: 'crm', order: 170 },
   // A row of a table that is not a pipeline (a pipeline's rows are deals).
-  data_row: { section: 'rows', label: 'Rows', entity: 'data_row', mention: 'data_row', order: 180 },
-  team_chat_channel: { section: 'channels', label: 'Channels', entity: 'team_chat_channel', mention: 'team_chat_channel', order: 190 },
-  decision: { section: 'decisions', label: 'Decisions', entity: 'decision', mention: 'decision', order: 200 },
-  team: { section: 'teams', label: 'Teams', entity: 'team', mention: null, order: 210 },
-  // A knowledge package: not a registered entity kind.
-  package: { section: 'packages', label: 'Packages', entity: null, mention: null, order: 215 },
+  data_row: { section: 'rows', label: 'Rows', entity: 'data_row', mention: 'data_row', group: 'crm', order: 180 },
+  team_chat_channel: { section: 'channels', label: 'Channels', entity: 'team_chat_channel', mention: 'team_chat_channel', group: 'chats', order: 190 },
+  decision: { section: 'decisions', label: 'Decisions', entity: 'decision', mention: 'decision', group: 'meetings', order: 200 },
+  // A private team's edges would need their own fence in the database (not built): found and opened, never mentioned.
+  team: { section: 'teams', label: 'Teams', entity: 'team', mention: null, group: 'agents_skills', order: 210 },
+  // A knowledge package: not a registered entity kind, so it is found and opened but never mentioned (leaving it search-only was the contained choice: making it a graph endpoint would need a private-package edge fence like team's).
+  package: { section: 'packages', label: 'Packages', entity: null, mention: null, group: 'agents_skills', order: 215 },
+  // Mail (email_thread) and agent chats (conversation): found and mentionable by their OWNER only (decisions 1); each is its person's alone (fenced on user_id).
+  email_thread: { section: 'mail', label: 'Mail', entity: 'email_thread', mention: 'email_thread', group: 'mail', order: 216 },
+  conversation: { section: 'chats', label: 'Chats', entity: 'conversation', mention: 'conversation', group: 'chats', order: 217 },
 } as const satisfies Record<string, FindableDescriptor>
 
 /** A kind the search finds. */
@@ -184,3 +220,11 @@ export const FINDABLE_SECTION: Record<FindableKind, FindableSection> = Object.fr
 export const SECTION_FINDABLE: Record<FindableSection, FindableKind> = Object.fromEntries(
   FINDABLE_KINDS.map((k) => [FINDABLE[k].section, k]),
 ) as Record<FindableSection, FindableKind>
+
+/** Each kind's grouped tab, and each section's (3.2). */
+export const FINDABLE_GROUP: Record<FindableKind, FindableGroup> = Object.fromEntries(
+  FINDABLE_KINDS.map((k) => [k, FINDABLE[k].group]),
+) as Record<FindableKind, FindableGroup>
+export const SECTION_GROUP: Record<FindableSection, FindableGroup> = Object.fromEntries(
+  FINDABLE_KINDS.map((k) => [FINDABLE[k].section, FINDABLE[k].group]),
+) as Record<FindableSection, FindableGroup>
