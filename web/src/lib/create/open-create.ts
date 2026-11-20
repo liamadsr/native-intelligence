@@ -36,7 +36,7 @@ export function createKeyAllowed(target: EventTarget | null): boolean {
   const active = typeof document === 'undefined' ? null : document.activeElement
   for (const el of [target, active]) {
     if (!(el instanceof Element)) continue
-    if (el.closest('[role="dialog"],[role="alertdialog"],[role="menu"],[role="menubar"],[role="listbox"],[role="combobox"],[role="textbox"],[data-radix-popper-content-wrapper]')) {
+    if (el.closest('[role="dialog"],[role="alertdialog"],[role="menu"],[role="menubar"],[role="listbox"],[role="combobox"],[role="textbox"],[contenteditable]:not([contenteditable="false"]),input,textarea,select,[data-radix-popper-content-wrapper]')) {
       return false
     }
   }

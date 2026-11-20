@@ -79,7 +79,7 @@ describe('CreateDialog open triggers', () => {
   it('ignores `c` typed in a field, a contenteditable, a menu or another dialog', async () => {
     const input = document.createElement('input')
     const editable = document.createElement('div')
-    editable.contentEditable = 'true'
+    editable.setAttribute('contenteditable', 'true')
     const menu = document.createElement('div')
     menu.setAttribute('role', 'menu')
     const menuItem = document.createElement('button')
@@ -91,7 +91,7 @@ describe('CreateDialog open triggers', () => {
     document.body.append(input, editable, menu, other)
     for (const el of [input, editable, menuItem, otherButton]) {
       await act(async () => void press(el))
-      expect(dialog()).toBeNull()
+      expect(dialog(), el.outerHTML).toBeNull()
     }
     // A modified `c` (⌘C, Shift+C) is never the shortcut.
     await act(async () => void press(document.body, { metaKey: true }))

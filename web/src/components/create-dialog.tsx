@@ -52,6 +52,20 @@ import {
   Loader2,
   MapPin,
   Video,
+  FileText,
+  Table2,
+  Hash,
+  Package,
+  Clapperboard,
+  Film,
+  Handshake,
+  Workflow,
+  Bot,
+  Sparkles,
+  ListOrdered,
+  UserSearch,
+  Megaphone,
+  CalendarClock,
 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -73,6 +87,20 @@ import { scheduleSend } from '@/lib/email/send-later'
 import { cn } from '@/lib/utils'
 import { useHotkeys, useModKeyLabel } from '@/lib/hotkeys'
 import { OPEN_CREATE_EVENT, createKeyAllowed, type OpenCreateRequest } from '@/lib/create/open-create'
+import {
+  availableCreateTypes,
+  createTypeDef,
+  isCreateTypeId,
+  type CreateQuickTypeId,
+  type CreateTypeId,
+} from '@/lib/create/create-types'
+import { openPageCreate } from '@/lib/create/page-create'
+import { openCard } from '@/lib/chat-cards/open-card'
+import { pagesFor } from '@/lib/chat-cards/page-menu'
+import { useIsWorkspaceGuest, useWorkspaceEdition } from '@/app/account/workspace-switcher'
+import { useIsDesktop } from '@/components/desktop-titlebar'
+import { CreateTypePicker, type CreateTypeOption } from '@/components/create/create-type-picker'
+import { QUICK_CREATE } from '@/components/create/quick-create'
 import { useTeams } from '@/app/account/teams-context'
 import { openTarget } from '@/lib/chat-cards/open-card'
 import { useTeamCalls } from '@/components/team-calls/team-calls-provider'
@@ -90,16 +118,75 @@ import { ATTACHMENT_ACCEPT_ATTR, isAllowedAttachmentFile } from '@/lib/attachmen
 
 // ── Entity Types ────────────────────────────────────────
 
-type CreateEntityType = 'action' | 'project' | 'initiative' | 'contact' | 'email' | 'event'
+// Every type the dialog makes is in lib/create/create-types.ts (Liam, 11-20:
+// "it supports every kind of thing the app can create now"): the six forms
+// below, quick types (components/create/quick-create.ts) and the types whose
+// page opens on its own create flow (lib/create/page-create.ts).
+type CreateEntityType = CreateTypeId
 
-const ENTITY_TYPE_OPTIONS: { value: CreateEntityType; label: string; icon: React.ReactNode }[] = [
-  { value: 'action', label: 'Action', icon: <Circle className="h-3.5 w-3.5" /> },
-  { value: 'project', label: 'Project', icon: <Folder className="h-3.5 w-3.5" /> },
-  { value: 'initiative', label: 'Initiative', icon: <Target className="h-3.5 w-3.5" /> },
-  { value: 'contact', label: 'Contact', icon: <Contact className="h-3.5 w-3.5" /> },
-  { value: 'email', label: 'Email', icon: <Mail className="h-3.5 w-3.5" /> },
-  { value: 'event', label: 'Event', icon: <CalendarIcon className="h-3.5 w-3.5" /> },
-]
+const TYPE_ICON = 'h-3.5 w-3.5'
+const ENTITY_TYPE_ICONS: Record<CreateTypeId, React.ReactNode> = {
+  action: <Circle className={TYPE_ICON} />,
+  project: <Folder className={TYPE_ICON} />,
+  initiative: <Target className={TYPE_ICON} />,
+  contact: <Contact className={TYPE_ICON} />,
+  email: <Mail className={TYPE_ICON} />,
+  event: <CalendarIcon className={TYPE_ICON} />,
+  company: <Building2 className={TYPE_ICON} />,
+  document: <FileText className={TYPE_ICON} />,
+  table: <Table2 className={TYPE_ICON} />,
+  channel: <Hash className={TYPE_ICON} />,
+  package: <Package className={TYPE_ICON} />,
+  studio_project: <Clapperboard className={TYPE_ICON} />,
+  studio_video: <Film className={TYPE_ICON} />,
+  deal: <Handshake className={TYPE_ICON} />,
+  flow: <Workflow className={TYPE_ICON} />,
+  agent: <Bot className={TYPE_ICON} />,
+  skill: <Sparkles className={TYPE_ICON} />,
+  sequence: <ListOrdered className={TYPE_ICON} />,
+  prospect_list: <UserSearch className={TYPE_ICON} />,
+  campaign: <Megaphone className={TYPE_ICON} />,
+  booking_link: <CalendarClock className={TYPE_ICON} />,
+}
+
+const typeLabel = (id: CreateTypeId) => createTypeDef(id).label
+const isQuickType = (id: CreateTypeId): id is CreateQuickTypeId => createTypeDef(id).mode === 'quick'
+
+/**
+ * A type whose making needs its own page: that page, on its own create flow
+ * (Liam, 11-20: open it there, not copied into the dialog). A deal is added on
+ * the Deals board itself; a flow in the canvas editor (the flows card's
+ * `editing: '__new__'`, as its New flow).
+ */
+function openPageType(id: CreateTypeId): void {
+  switch (id) {
+    case 'deal':
+      openTarget({ type: 'page', slug: 'deals' }, { from: 'create' })
+      return
+    case 'flow':
+      openCard({ kind: 'flows', title: 'Flows' }, { from: 'create', seed: { editing: '__new__' } })
+      return
+    case 'agent':
+    case 'skill':
+      openPageCreate(id, 'agents')
+      return
+    case 'sequence':
+      openPageCreate('sequence', 'sequences')
+      return
+    case 'prospect_list':
+      openPageCreate('prospect_list', 'prospecting')
+      return
+    case 'campaign':
+      openPageCreate('campaign', 'campaigns')
+      return
+    case 'booking_link':
+      openPageCreate('booking_link', 'availability')
+      return
+    case 'studio_video':
+      openPageCreate('studio_video', 'studio')
+      return
+  }
+}
 
 // ── Shared Types ────────────────────────────────────────
 
@@ -310,6 +397,33 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
   const titleRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // ── Quick types: the second field (a company's domain, a channel's topic) ──
+  const [quickSecondary, setQuickSecondary] = useState('')
+
+  // ── The types this workspace can create: a type shows while its page is on (create-types.ts) ──
+  const edition = useWorkspaceEdition()
+  const guest = useIsWorkspaceGuest()
+  const desktop = useIsDesktop()
+  const typeOptions = useMemo<CreateTypeOption[]>(
+    () =>
+      availableCreateTypes(pagesFor(edition, { desktop, guest }).map((p) => p.slug)).map((t) => ({
+        ...t,
+        icon: ENTITY_TYPE_ICONS[t.id],
+      })),
+    [edition, desktop, guest],
+  )
+
+  function pickType(id: CreateTypeId) {
+    if (createTypeDef(id).mode === 'page') {
+      // Its page, on its own create flow; this dialog steps aside (what was typed stays for next time).
+      setOpen(false)
+      openPageType(id)
+      return
+    }
+    setEntityType(id)
+    setTimeout(() => titleRef.current?.focus(), 50)
+  }
+
   // Resolve effective team
   const effectiveTeamId = teamId || teams[0]?.id
   const currentTeam = teams.find((t) => t.id === effectiveTeamId)
@@ -325,6 +439,10 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
   useEffect(() => {
     function handleOpen(e: Event) {
       const type = (e as CustomEvent<OpenCreateRequest | null>).detail?.type
+      if (type && isCreateTypeId(type) && createTypeDef(type).mode === 'page') {
+        openPageType(type)
+        return
+      }
       setEntityType(type && isCreateTypeId(type) ? type : 'action')
       setOpen(true)
     }
@@ -509,6 +627,7 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
   function resetForm() {
     setTitle('')
     setDescription('')
+    setQuickSecondary('')
     // Action
     setTeamId(null)
     setStatusId(null)
@@ -947,6 +1066,37 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
     setOpen(false)
   }
 
+  // A quick type: its own route (quick-create.ts), then the new thing opened
+  // as the app opens it, the dialog closed. With Create more: the dialog stays
+  // for the next one, and the toast opens this one.
+  async function handleCreateQuick(type: CreateQuickTypeId) {
+    const name = title.trim()
+    if (!name) return
+    setCreating(true)
+    const label = typeLabel(type)
+    try {
+      const made = await QUICK_CREATE[type].run({ name, secondary: quickSecondary.trim() })
+      const entity = { id: made.id, name: made.title, title: made.title }
+      onCreated?.(entity)
+      window.dispatchEvent(new CustomEvent('ni:entity-created', { detail: { entityType: type, entity } }))
+      if (createMore) {
+        toast(`${label} created`, { description: made.title, action: { label: 'Open', onClick: () => { resetForm(); setOpen(false); made.open() } } })
+        setTitle('')
+        setQuickSecondary('')
+        setTimeout(() => titleRef.current?.focus(), 50)
+      } else {
+        toast(`${label} created`, { description: made.title })
+        resetForm()
+        setOpen(false)
+        made.open()
+      }
+    } catch (err) {
+      toast.error(err instanceof Error && err.message ? err.message : `Could not create the ${label.toLowerCase()}`)
+    } finally {
+      setCreating(false)
+    }
+  }
+
   async function handleCreate() {
     if (creating) return
 
@@ -959,6 +1109,11 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
       if (!title.trim() || !eventStart || !eventEnd) return
     } else {
       if (!title.trim()) return
+    }
+
+    if (isQuickType(entityType)) {
+      await handleCreateQuick(entityType)
+      return
     }
 
     setCreating(true)
@@ -988,7 +1143,7 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
       }
 
       if (!result) {
-        const label = ENTITY_TYPE_OPTIONS.find((o) => o.value === entityType)?.label || 'item'
+        const label = typeLabel(entityType)
         toast.error(`Could not create the ${label.toLowerCase()}`)
         setCreating(false)
         return
@@ -1001,7 +1156,7 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
         detail: { entityType, entity: result },
       }))
 
-      const entityLabel = ENTITY_TYPE_OPTIONS.find((o) => o.value === entityType)?.label || 'Item'
+      const entityLabel = typeLabel(entityType)
 
       if (createMore) {
         const displayTitle = entityType === 'contact'
@@ -1065,14 +1220,14 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
   const currentCompany = companies.find((c) => c.id === companyId)
 
   const hiddenExtras = ACTION_EXTRA_PROPERTY_DEFS.filter((d) => !visibleExtras.has(d.key))
-  const currentEntityOption = ENTITY_TYPE_OPTIONS.find((o) => o.value === entityType)!
+  const currentEntityOption = { label: typeLabel(entityType), icon: ENTITY_TYPE_ICONS[entityType] }
 
   // ── Title placeholder by entity type ──
   const pickerAccounts = entityType === 'email' ? emailAccounts : calendarAccounts
   const pickerAccountId = entityType === 'email' ? emailAccountId : eventAccountId
   const setPickerAccountId = entityType === 'email' ? setEmailAccountId : setEventAccountId
 
-  const titlePlaceholder = entityType === 'contact' ? 'Contact name' : entityType === 'project' ? 'Project name' : entityType === 'initiative' ? 'Initiative name' : entityType === 'email' ? 'Subject' : entityType === 'event' ? 'Event title' : 'Action title'
+  const titlePlaceholder = isQuickType(entityType) ? QUICK_CREATE[entityType].namePlaceholder : entityType === 'contact' ? 'Contact name' : entityType === 'project' ? 'Project name' : entityType === 'initiative' ? 'Initiative name' : entityType === 'email' ? 'Subject' : entityType === 'event' ? 'Event title' : 'Action title'
   const descriptionPlaceholder = entityType === 'contact' ? 'Add notes...' : entityType === 'email' ? '' : 'Add description...'
 
   // ── Determine if create button should be enabled ──
@@ -1097,6 +1252,7 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/80 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
         <DialogPrimitive.Content
+          data-create-dialog=""
           className="fixed left-[50%] top-[25%] z-50 w-full max-w-[680px] translate-x-[-50%] translate-y-0 overflow-hidden rounded-lg border bg-background shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=open]:slide-in-from-left-1/2"
         >
           <VisuallyHidden.Root><DialogPrimitive.Title>Create new {currentEntityOption.label.toLowerCase()}</DialogPrimitive.Title></VisuallyHidden.Root>
@@ -1120,31 +1276,7 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
                   <span className="text-muted-foreground">Sub-action</span>
                 </>
               ) : (
-                <DropdownMenu>
-                  <DropdownMenuTrigger className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full border border-border px-3 text-xs text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground data-[state=open]:bg-muted data-[state=open]:text-foreground dark:shadow-none">
-                    {currentEntityOption.icon}
-                    <span className="max-w-[100px] truncate">New {currentEntityOption.label.toLowerCase()}</span>
-                    <ChevronsUpDown className="h-3 w-3 opacity-50" />
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" className="w-48">
-                    {ENTITY_TYPE_OPTIONS.map((opt) => (
-                      <DropdownMenuItem
-                        key={opt.value}
-                        onClick={() => setEntityType(opt.value)}
-                        className="gap-2"
-                      >
-                        <div className={cn(
-                          'flex h-4 w-4 items-center justify-center rounded-sm border border-primary',
-                          entityType === opt.value ? 'bg-primary text-primary-foreground' : 'opacity-50',
-                        )}>
-                          {entityType === opt.value && <Check className="h-3 w-3" />}
-                        </div>
-                        {opt.icon}
-                        <span className="text-sm">{opt.label}</span>
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                <CreateTypePicker options={typeOptions} value={entityType} onChange={pickType} />
               )}
 
               {/* Team selector (action) — appears to the right of entity type */}
@@ -1325,13 +1457,31 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
                     className="w-full bg-transparent text-lg font-medium placeholder:text-muted-foreground/50 focus:outline-none"
                   />
                 )}
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder={descriptionPlaceholder}
-                  rows={3}
-                  className="w-full resize-none bg-transparent text-sm text-muted-foreground placeholder:text-muted-foreground/40 focus:outline-none"
-                />
+                {isQuickType(entityType) ? (
+                  QUICK_CREATE[entityType].secondaryPlaceholder ? (
+                    <input
+                      value={quickSecondary}
+                      onChange={(e) => setQuickSecondary(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey && title.trim()) {
+                          e.preventDefault()
+                          handleCreate()
+                        }
+                      }}
+                      placeholder={QUICK_CREATE[entityType].secondaryPlaceholder}
+                      data-create-secondary=""
+                      className="w-full bg-transparent pb-2 text-sm text-muted-foreground placeholder:text-muted-foreground/40 focus:outline-none"
+                    />
+                  ) : null
+                ) : (
+                  <textarea
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder={descriptionPlaceholder}
+                    rows={3}
+                    className="w-full resize-none bg-transparent text-sm text-muted-foreground placeholder:text-muted-foreground/40 focus:outline-none"
+                  />
+                )}
               </div>
             </>
           )}
@@ -2258,6 +2408,8 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
                   Save draft
                 </Button>
               </div>
+            ) : isQuickType(entityType) ? (
+              <span />
             ) : (
               <button
                 type="button"
