@@ -218,21 +218,23 @@ Team chat keeps its own path. A comment that mentions a teammate creates one in-
 notification for them, through `createNotification`, and stops them getting the weaker
 `comment_added` for the same comment. Documents and descriptions: see 4.4. No new channel.
 
-## 4. Decisions needed before building on them
+## 4. Decisions (the owner's, 2026-11-20)
 
-1. **Mail and agent chats.** Both are their person's alone, and migration 341 decided mail is
-   shown to no one. Subjects and bodies are not stored (read live from the provider).
-   Proposed: a person finds and mentions their own; to anyone else the chip says only
-   "an email" or "a chat" and opens nothing; only the writer's own agent turn reads it.
-   Showing it to others stays the existing explicit share (`email_share`).
-2. **Mentioning something private where others will read it.** Team chat already shares a
-   mentioned private doc or capture with the channel (a view grant, source `mention`).
-   Proposed: the same everywhere a mention has an audience (a comment's record, a document's
-   readers), for the kinds grants cover; never for events, mail or agent chats.
-3. **Stored format and old data.** Proposed in 3.4: side-car triples for messages, the link
-   form for rich text, no rewrite of old rows.
-4. **Notifications.** Proposed: a comment's @ notifies (in-app, as replies do). Whether a
-   mention in a document or a description should notify too, or stay an Inbox row only.
+1. **Mail and agent chats: a mention shares it.** A person finds their own mail and agent
+   chats in search and may @mention them. Mentioning one where teammates read it lets those
+   readers open it. This reverses migration 341's "mail is shown to no one" for the one case
+   of an explicit mention by its owner; nothing else about mail's privacy changes (search
+   still finds only your own). Mail is not stored, so the share is the existing live share
+   (`email_share`, migration 646: read from the owner's mailbox when opened), widened from a
+   team-chat channel to a mention's readers. An agent chat is shared read-only the same way.
+   The 3.3 "neutral chip" applies only to a reader the share does not reach.
+2. **Mentioning something private shares it, everywhere**, as team chat does: a view grant
+   (source `mention`) to the mention's readers, for the kinds grants cover. Calendar events
+   stay their person's (a reader sees the title chip only if they are on the event).
+3. **No rewrite of old rows.** Old comments and old chat messages stay plain text.
+4. **Notify on comments and documents.** A teammate mentioned in a comment, a document, or a
+   description or note gets one in-app notification (a new `mentioned` type, migration 671),
+   once per source per person.
 
 ## 5. Phases
 
