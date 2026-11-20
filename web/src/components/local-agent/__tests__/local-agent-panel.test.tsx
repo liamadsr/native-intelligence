@@ -64,6 +64,8 @@ vi.mock('@/lib/supabase/client', () => ({
 // The chat's bubble renders markdown; the text is what matters here.
 vi.mock('@/components/ui/message', () => ({
   MessageContent: ({ children, className }: { children: string; className?: string }) => h('div', { className }, children),
+  MessageActions: ({ children, className, ...rest }: { children?: unknown; className?: string }) => h('div', { className, ...rest }, children as never),
+  MessageAction: ({ children }: { children?: unknown }) => children as never,
 }))
 
 import { LocalAgentHeader, LocalAgentPanel, RENDER_WINDOW } from '../local-agent-panel'
@@ -178,7 +180,8 @@ describe('LocalAgentPanel', () => {
   it('reads the newest page, then the session after it, and draws its conversation', async () => {
     await mount()
     expect(db.reads).toEqual([{ lt: null, limit: EVENTS_PAGE }])
-    expect(fetchMock.mock.calls[0][0]).toBe(`/api/local-agent/sessions/${SID}?afterId=9`)
+    // The first read also asks for its coding agent's model; a catch-up never does.
+    expect(fetchMock.mock.calls[0][0]).toBe(`/api/local-agent/sessions/${SID}?afterId=9&model=1`)
     // The header: the teammate (Native Intelligence on its Mac), where it works, whether it edits, its status, Stop.
     expect(q('[data-local-agent-teammate-name]')?.textContent).toBe('Native Intelligence on Liam’s MacBook')
     expect(q('[data-local-agent-header]')?.textContent).toContain('native-intelligence')
@@ -209,6 +212,70 @@ describe('LocalAgentPanel', () => {
     expect(tool.textContent).not.toContain('# Native Intelligence readme body')
     await act(async () => tool.querySelector('button')!.click())
     expect(tool.textContent).toContain('# Native Intelligence readme body')
+  })
+
+  it('tool calls in a row fold into one line that opens to its steps; a single call stays its own line', async () => {
+    const calls = [1, 2, 3].flatMap((n) => [
+      { id: n * 2, source: 'device', kind: 'tool', payload: { kind: 'tool', callId: `c${n}`, name: 'mcp__ni__get_action', input: `{"id":"a${n}"}` } },
+      { id: n * 2 + 1, source: 'device', kind: 'tool_result', payload: { kind: 'tool_result', callId: `c${n}`, name: 'mcp__ni__get_action', ok: n !== 2, output: `out ${n}` } },
+    ])
+    await mount(sessionRow({ status: 'waiting' }), [
+      { id: 1, source: 'device', kind: 'text', payload: { kind: 'text', delta: 'Looking.' } },
+      ...calls,
+      // A working status between two calls draws nothing and breaks no run.
+      { id: 8, source: 'device', kind: 'status', payload: { kind: 'status', status: 'running' } },
+      { id: 9, source: 'device', kind: 'tool', payload: { kind: 'tool', callId: 'c4', name: 'shell', input: '{"command":"/bin/zsh -lc \\"git status\\""}' } },
+      { id: 10, source: 'device', kind: 'text', payload: { kind: 'text', delta: 'Done looking.' } },
+      { id: 11, source: 'device', kind: 'tool', payload: { kind: 'tool', callId: 'c5', name: 'read_file', input: '{"path":"README.md"}' } },
+    ])
+    const runs = [...container.querySelectorAll('[data-local-agent-tool-run]')]
+    expect(runs.map((r) => r.getAttribute('data-local-agent-tool-run'))).toEqual(['4'])
+    expect(runs[0].textContent).toBe('4 stepsDone · 1 failed')
+    // Folded: none of its steps is drawn. The lone call after the text is its own line.
+    expect(runs[0].querySelector('[data-local-agent-tool]')).toBeNull()
+    expect([...container.querySelectorAll('[data-local-agent-tool]')].map((t) => t.textContent)).toEqual(['Reading README.md'])
+    await act(async () => runs[0].querySelector('button')!.click())
+    expect([...runs[0].querySelectorAll('[data-local-agent-tool]')].map((t) => t.textContent)).toEqual(['Get actionDone', 'Get actionError', 'Get actionDone', 'Running git status'])
+    // A step opens to its output, inside the open run.
+    await act(async () => runs[0].querySelector<HTMLButtonElement>('[data-local-agent-tool] button')!.click())
+    expect(runs[0].textContent).toContain('out 1')
+  })
+
+  it('a run still working reads as the step it is on', async () => {
+    await mount(sessionRow({ status: 'running' }), [
+      { id: 1, source: 'device', kind: 'tool', payload: { kind: 'tool', callId: 'c1', name: 'read_file', input: '{"path":"a.ts"}' } },
+      { id: 2, source: 'device', kind: 'tool_result', payload: { kind: 'tool_result', callId: 'c1', name: 'read_file', ok: true, output: 'x' } },
+      { id: 3, source: 'device', kind: 'tool', payload: { kind: 'tool', callId: 'c2', name: 'read_file', input: '{"path":"b.ts"}' } },
+    ])
+    expect(q('[data-local-agent-tool-run]')?.textContent).toBe('Reading b.ts2 steps')
+  })
+
+  it('the agent’s messages carry Copy once they have settled', async () => {
+    const writeText = vi.fn(async () => {})
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
+    await mount()
+    const said = q('[data-local-agent-text]')!
+    await act(async () => said.querySelector<HTMLButtonElement>('[data-local-agent-copy]')!.click())
+    expect(writeText).toHaveBeenCalledWith('It is a Next.js app.')
+    // The finish box too; a question and the person's own messages have none.
+    expect(q('[data-local-agent-highlight="finish"] [data-local-agent-copy]')).not.toBeNull()
+    expect(container.querySelectorAll('[data-local-agent-inbound] [data-local-agent-copy]')).toHaveLength(0)
+  })
+
+  it('says the model its coding agent runs on: the first read’s, then a newer model event’s', async () => {
+    await mount(sessionRow({ worker: 'codex', model: 'gpt-fake-codex', effort: 'high' } as Partial<SessionRow>))
+    expect(q('[data-local-agent-model]')?.textContent).toBe('gpt-fake-codex · High·')
+    const events = channels.find((c) => c.table === 'local_agent_event')!
+    await act(async () => events.onRow({ id: 40, session_id: SID, source: 'device', kind: 'model', payload: { kind: 'model', model: 'gpt-fake-next' } }))
+    await settle(20)
+    expect(q('[data-local-agent-model]')?.textContent).toBe('gpt-fake-next·')
+    // The event itself is no row of the conversation.
+    expect(text()).not.toContain('gpt-fake-nextgpt-fake-next')
+  })
+
+  it('names no model when its agent never said one', async () => {
+    await mount()
+    expect(q('[data-local-agent-model]')).toBeNull()
   })
 
   it('subscribes to its events and its row, one filtered channel each', async () => {
@@ -518,6 +585,22 @@ describe('an edit job’s results: Open pull request and Changes', () => {
     // Asked: the button goes, and the line says the Mac still asks before a push.
     expect(q('[data-local-agent-open-pr]')).toBeNull()
     expect(q('[data-local-agent-pr-offer]')?.textContent).toContain('Your Mac asks you before anything is pushed.')
+  })
+
+  it('offers no pull request for a branch with nothing on it', async () => {
+    const branch = (filesChanged: number) => ({
+      id: 20,
+      source: 'device',
+      kind: 'branch',
+      payload: { kind: 'branch', branch: 'dial8/native-intelligence-1a2b', commit: '6cfa56d', filesChanged, insertions: 0, deletions: 0 },
+    })
+    await mount(finished(), [branch(0)])
+    expect(q('[data-local-agent-pr-offer]')).toBeNull()
+    expect(q('[data-local-agent-open-pr]')).toBeNull()
+    await act(async () => root.unmount())
+    root = createRoot(container)
+    await mount(finished(), [branch(2)])
+    expect(q('[data-local-agent-open-pr]')).not.toBeNull()
   })
 
   it('is hidden when the job can’t take it: a pull request already, a question open, still working, ended, or a read job', async () => {

@@ -19,6 +19,9 @@ import {
   sessionStatusText,
   toolLine,
   truncate,
+  agentModelOf,
+  effortLabel,
+  latestAgentModel,
   type SessionTranscript,
   type StoredEventLike,
   type Transcript,
@@ -439,6 +442,34 @@ describe('session helpers', () => {
     expect(toolLine('bash', '{"command":"git   status"}')).toBe('Running git status')
     expect(toolLine('report', '{"text":"x"}')).toBe('report')
     expect(toolLine('bash', '{"command":')).toBe('Running')
+    // A coding agent's login-shell wrapper is not the command.
+    expect(toolLine('shell', JSON.stringify({ command: '/bin/zsh -lc "rg -n \\"needs_reconnect\\" web/src"' }))).toBe('Running rg -n "needs_reconnect" web/src')
+    expect(toolLine('shell', JSON.stringify({ command: "bash -lc 'git log -3'" }))).toBe('Running git log -3')
+    // An MCP tool in words, and one called through call_tool as the tool it called.
+    expect(toolLine('mcp__ni__get_action', '{"id":"a"}')).toBe('Get action')
+    expect(toolLine('mcp__ni__call_tool', '{"name":"ni_update_action","arguments":{}}')).toBe('Update action')
+    expect(toolLine('mcp__ni__call_tool', '{"name":')).toBe('Call tool')
+  })
+
+  it('agentModelOf / latestAgentModel: the model a coding agent names, and its effort when it names one', () => {
+    expect(agentModelOf({ model: ' gpt-5.3-codex ', effort: 'high' })).toEqual({ model: 'gpt-5.3-codex', effort: 'high' })
+    expect(agentModelOf({ model: 'claude-opus-4-8' })).toEqual({ model: 'claude-opus-4-8', effort: null })
+    expect(agentModelOf({ model: '' })).toBeNull()
+    expect(agentModelOf({ effort: 'high' })).toBeNull()
+    expect(agentModelOf(null)).toBeNull()
+    const events: StoredEventLike[] = [
+      { id: 9, kind: 'model', payload: { model: 'newer', effort: 'low' }, source: 'device' },
+      { id: 4, kind: 'model', payload: { model: 'older' }, source: 'device' },
+      { id: 12, kind: 'model', payload: { model: 'not-the-macs' }, source: 'server' },
+      { id: 11, kind: 'text', payload: { delta: 'model' }, source: 'device' },
+    ]
+    expect(latestAgentModel(events)).toEqual({ id: 9, model: 'newer', effort: 'low' })
+    expect(latestAgentModel([])).toBeNull()
+    // The event itself draws nothing in the conversation.
+    expect(applyStoredEvents(emptySessionTranscript('s'), events).items).toEqual([{ type: 'assistant', key: 'e11', text: 'model', open: true }])
+    expect(effortLabel('xhigh')).toBe('Extra high')
+    expect(effortLabel('High')).toBe('High')
+    expect(effortLabel('turbo')).toBe('turbo')
   })
 })
 

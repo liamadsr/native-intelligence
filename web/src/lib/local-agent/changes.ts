@@ -28,10 +28,14 @@ export interface ResultSession {
  * "Open pull request" shows for a finished edit job with a branch and no pull
  * request, which can take a message: its turn ended (waiting, no question
  * open), nothing is open on the Mac (a push prompt already asks), and it
- * hasn't ended. Pure.
+ * hasn't ended. Not when its branch is known to hold no change (`noChanges`:
+ * the app commits at every finish, so a job that only read or worked the
+ * board still has a branch, with nothing on it to open a pull request for).
+ * Pure.
  */
-export function offersPullRequest(s: ResultSession, opts: { promptOpen?: boolean } = {}): boolean {
+export function offersPullRequest(s: ResultSession, opts: { promptOpen?: boolean; noChanges?: boolean } = {}): boolean {
   if (s.mode !== 'edit' || !s.branch) return false
+  if (opts.noChanges) return false
   if (isGithubPullRequestUrl(s.prUrl)) return false
   if (s.status !== 'waiting' || s.lastSignal === 'ask') return false
   return !opts.promptOpen

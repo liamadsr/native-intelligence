@@ -417,7 +417,10 @@ never `tool` / `tool_result`. The teammate tools (`report_to_person`,
 and the ledger from the call itself. `report` stays in the protocol for older
 bundles; the Mac body never sends it. `waiting` = the turn ended and
 the agent is idle. After a cancel the session's `waiting` is not reported, so
-the job stays `cancelled`.
+the job stays `cancelled`. A worker's adapter also sends `model` (`model`, and `effort`
+when its agent names one): the model the person's own coding agent says the
+session runs on, once per launch and again when it changes. The launcher never
+sends it; the desktop passes it through as any kind it doesn't know.
 
 stdin is framed on `\n` only (readline would also split on U+2028/U+2029),
 and output lines escape U+2028/U+2029. The launcher takes an exclusive flock

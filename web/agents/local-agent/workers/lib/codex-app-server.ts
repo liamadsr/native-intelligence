@@ -18,7 +18,9 @@
  *     sandbox cannot nest inside our Seatbelt profile: the profile is the
  *     fence), the job's instructions as `developerInstructions`, and our MCP
  *     server in `config.mcp_servers` (Streamable HTTP with the bearer). The
- *     thread's id is the session id.
+ *     thread's id is the session id. Both answer the thread's `model` and
+ *     `reasoningEffort` (null when Codex leaves it to the model): shown as
+ *     they are, never set here.
  *   - **A turn:** `turn/start`; it ends with `turn/completed` (`completed`,
  *     `interrupted`, or `failed` with an error; `unauthorized` is the
  *     sign-in sentence). Text from `item/agentMessage/delta`; tools from
@@ -216,7 +218,14 @@ class CodexAppServer implements AgentLink {
     const id = obj(res.thread).id
     if (!isSessionId(id)) throw new SentenceError(`${this.ctx.label} answered with a session id this app can't keep`)
     this.threadId = id
+    this.sayModel(res)
     return id
+  }
+
+  /** The thread's model and reasoning effort, as `thread/start` and `thread/resume` answer them (Codex's own settings). */
+  private sayModel(res: Record<string, unknown>) {
+    if (typeof res.model !== 'string' || !res.model) return
+    this.ev.model({ model: res.model, effort: typeof res.reasoningEffort === 'string' ? res.reasoningEffort : null })
   }
 
   async resume(sessionId: string, p: SessionParams): Promise<void> {
@@ -224,7 +233,7 @@ class CodexAppServer implements AgentLink {
     await this.checkLogin()
     this.threadId = sessionId
     try {
-      await this.conn().request('thread/resume', { threadId: sessionId, ...threadParams(p), excludeTurns: true })
+      this.sayModel(obj(await this.conn().request('thread/resume', { threadId: sessionId, ...threadParams(p), excludeTurns: true })))
     } catch (err) {
       this.threadId = null
       throw err

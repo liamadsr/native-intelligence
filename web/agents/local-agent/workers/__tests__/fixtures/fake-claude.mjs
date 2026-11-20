@@ -65,7 +65,7 @@ const io = {
 
 async function onUser(text) {
   n += 1
-  out({ type: 'system', subtype: 'init', session_id: sessionId, cwd: process.cwd(), claude_code_version: '9.9.9', mcp_servers: mcp.map((s) => ({ name: s.name, status: opts.mcp === 'failed' ? 'failed' : 'connected' })) })
+  out({ type: 'system', subtype: 'init', session_id: sessionId, cwd: process.cwd(), claude_code_version: '9.9.9', model: 'fake-claude', mcp_servers: mcp.map((s) => ({ name: s.name, status: opts.mcp === 'failed' ? 'failed' : 'connected' })) })
   if (opts.signedOut) {
     out({ type: 'assistant', parent_tool_use_id: null, session_id: sessionId, error: 'authentication_failed', is_api_error_message: true, message: { id: `synthetic-${n}`, model: '<synthetic>', content: [{ type: 'text', text: 'Not logged in · Please run /login' }] } })
     return out({ type: 'result', subtype: 'success', is_error: true, result: 'Not logged in · Please run /login', stop_reason: 'stop_sequence', session_id: sessionId })

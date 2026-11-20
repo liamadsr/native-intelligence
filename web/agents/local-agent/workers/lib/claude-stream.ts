@@ -37,6 +37,8 @@
  *     `error: "authentication_failed"` ("Not logged in · Please run /login")
  *     and a `result` with `is_error`. An expired or revoked login has not been
  *     seen; its text is matched by AUTH_TEXT, unverified.
+ *   - **The model** is the `system` `init` line's `model` (one line per
+ *     turn): shown as it is, never set here. The line names no effort.
  *   - **Our MCP server** is checked in each `system` `init` line: anything but
  *     connected (or still pending) is logged and shown once as an `error`.
  *   - **Cancel:** SIGINT, which ends the running turn; the driver's stop then
@@ -266,6 +268,8 @@ class ClaudeStream implements AgentLink {
 
   private onInit(m: Record<string, unknown>) {
     if (typeof m.session_id === 'string' && m.session_id !== this.sessionId) this.ev.log(`[worker] ${this.ctx.label} reports session ${m.session_id.slice(0, 80)}, not ${this.sessionId}`)
+    // The model each turn runs on (Claude Code's own setting). It names no effort here.
+    if (typeof m.model === 'string' && m.model) this.ev.model({ model: m.model })
     if (this.mcpReported) return
     const servers = Array.isArray(m.mcp_servers) ? m.mcp_servers.map(obj) : []
     const ours = servers.find((s) => s.name === this.mcpName)

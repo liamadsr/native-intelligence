@@ -20,6 +20,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { LocalAgentError, loadSession, toSessionRow, type SessionRow } from './store'
 import { isMacTeammateTool } from './teammate'
+import { MODEL_EVENT_KIND, agentModelOf, type AgentModel } from './transcript-view'
 
 export interface TranscriptItem {
   id: number
@@ -106,12 +107,35 @@ async function fetchEvents(
   return newestFirst ? rows.reverse() : rows
 }
 
-/** The session and up to 500 raw events after `afterId`: GET /api/local-agent/sessions/[id]. */
+/**
+ * The model the session's coding agent last said it runs on (its adapter's
+ * newest `model` event, written when a launch opens its session), or null: no
+ * such event (Native Intelligence's own agent, an older desktop app). A failed
+ * read is null too: the panel then leaves the line out.
+ */
+async function readAgentModel(svc: SupabaseClient, userId: string, sessionId: string): Promise<AgentModel | null> {
+  const { data, error } = await svc
+    .from('local_agent_event')
+    .select('payload')
+    .eq('session_id', sessionId)
+    .eq('user_id', userId)
+    .eq('source', 'device')
+    .eq('kind', MODEL_EVENT_KIND)
+    .order('id', { ascending: false })
+    .limit(1)
+  if (error) return null
+  return agentModelOf((data?.[0] as { payload?: Record<string, unknown> | null } | undefined)?.payload)
+}
+
+/**
+ * The session and up to 500 raw events after `afterId`: GET /api/local-agent/sessions/[id].
+ * `withModel`: the session also says its coding agent's model and effort (one more read).
+ */
 export async function readEvents(
   svc: SupabaseClient,
   userId: string,
   sessionId: string,
-  opts: { afterId?: number; limit?: number } = {},
+  opts: { afterId?: number; limit?: number; withModel?: boolean } = {},
 ): Promise<{ session: SessionRow; events: StoredEvent[]; lastId: number } | null> {
   const row = await loadSession(svc, userId, sessionId)
   if (!row) return null
@@ -120,8 +144,11 @@ export async function readEvents(
     limit: clampLimit(opts.limit, EVENTS_PAGE_MAX),
   })
   const lastId = events.length > 0 ? events[events.length - 1].id : Math.max(0, Math.floor(Number(opts.afterId)) || 0)
+  const session = toSessionRow(row)
+  // Only for the read that asks (a panel's first), and only a coding agent's session: the catch-up poll never pays for it.
+  const model = opts.withModel && session.worker ? await readAgentModel(svc, userId, sessionId) : null
   return {
-    session: toSessionRow(row),
+    session: opts.withModel ? { ...session, model: model?.model ?? null, effort: model?.effort ?? null } : session,
     events: events.map((e) => ({
       id: e.id,
       at: e.created_at,

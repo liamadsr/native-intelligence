@@ -279,6 +279,23 @@ describe('a session', () => {
     expect(t.events()).toContainEqual({ kind: 'finish', summary: 'Done.' })
   })
 
+  it('shows the model the link names once, again only when it changes, and never a nameless one', async () => {
+    const t = await setup()
+    await t.driver.initialize()
+    t.driver.start('WAIT')
+    await t.until(() => t.seen.prompts.length === 1)
+    const say = t.link.events().model
+    say({ model: 'gpt-fake', effort: 'high' })
+    say({ model: 'gpt-fake', effort: 'high' })
+    say({ model: '', effort: 'low' })
+    say({ model: 'gpt-fake', effort: null })
+    await t.waiting(1)
+    expect(t.events().filter((e) => e.kind === 'model')).toEqual([
+      { kind: 'model', model: 'gpt-fake', effort: 'high' },
+      { kind: 'model', model: 'gpt-fake' },
+    ])
+  })
+
   it('says why the link could not start: its own sentence as is, anything else after the label', async () => {
     const own = await setup({ link: { initError: new SentenceError('Codex 0.34.0 on this Mac could not start its app server. Update Codex.') } })
     await expect(own.driver.initialize()).rejects.toThrow(/^Codex 0\.34\.0 on this Mac could not start its app server\. Update Codex\.$/)
