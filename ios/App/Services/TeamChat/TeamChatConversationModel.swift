@@ -306,6 +306,8 @@ final class TeamChatConversationModel: ObservableObject {
         Task {
             do {
                 try await api.delete(messageId: m.id)
+            } catch TeamChatAPIError.http(status: 404, _) {
+                // Already gone (someone else deleted it first: any member may delete a guest's message): it stays deleted.
             } catch {
                 state.receive(before)
                 errorMessage = error.localizedDescription
