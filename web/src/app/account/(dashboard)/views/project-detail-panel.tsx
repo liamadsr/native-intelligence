@@ -585,8 +585,14 @@ export function ProjectDetailPanel({
         }}
       />
 
-      {/* Sub-header toolbar */}
-      <div className="flex h-10 shrink-0 items-center px-3">
+      {/* Sub-header toolbar. Its tabs on the lists' line (the list's 12px
+          inset plus a row's gutter, components/views/list/entity-row.tsx
+          ROW_GUTTER_PX): a list tab's own view tabs and rows start where
+          these do (Liam, 11-20: "where the tables start doesn't match").
+          Fixed there for every tab, the centered overview's too, so a tab
+          never moves under the pointer when another is picked. Its buttons
+          end on the card header's close button. */}
+      <div data-detail-tabs="" className="flex h-10 shrink-0 items-center pl-10 pr-3.5">
         <div className="flex items-center gap-1">
           {PROJECT_SECTIONS.map(tab => (
             <button
@@ -596,7 +602,7 @@ export function ProjectDetailPanel({
                 'inline-flex shrink-0 items-center px-3 py-1 text-xs rounded-full border transition-colors whitespace-nowrap',
                 activeTab === tab
                   ? 'bg-foreground text-background border-foreground font-medium'
-                  : 'bg-background text-muted-foreground border-border hover:bg-muted hover:text-foreground',
+                  : 'bg-transparent text-muted-foreground border-border hover:bg-muted hover:text-foreground',
               )}
             >
               {tab.charAt(0).toUpperCase() + tab.slice(1)}
@@ -918,7 +924,7 @@ export function ProjectDetailPanel({
               )}
 
               {activeTab === 'agents' && (
-                <div className="min-h-0 flex-1 overflow-y-auto px-5">
+                <div className="min-h-0 flex-1 overflow-y-auto pl-10 pr-3.5">
                   <EntityActivitySection entityType="project" entityId={projectId} />
                 </div>
               )}
@@ -1476,7 +1482,7 @@ function ProjectDocumentsList({ projectId }: { projectId: string }) {
     <ProjectFileDropZone projectId={projectId}>
     <div className="h-full overflow-y-auto pt-4">
       {/* Column headers */}
-      <div className="sticky top-0 z-10 flex items-center gap-5 bg-background px-4 pb-2 text-[11px] font-medium text-muted-foreground uppercase tracking-wide whitespace-nowrap">
+      <div className="sticky top-0 z-10 flex items-center gap-5 bg-background pl-10 pr-3.5 pb-2 text-[11px] font-medium text-muted-foreground uppercase tracking-wide whitespace-nowrap">
         <span className="flex-1 min-w-0">Name</span>
         <span className="w-24 text-center shrink-0">Author</span>
         <span className="w-20 text-center shrink-0">Updated</span>
@@ -1486,7 +1492,7 @@ function ProjectDocumentsList({ projectId }: { projectId: string }) {
         {documents.map(doc => (
           <div
             key={doc.id}
-            className="flex items-center gap-5 px-4 py-1.5 text-sm hover:bg-muted/50 transition-colors whitespace-nowrap"
+            className="flex items-center gap-5 pl-10 pr-3.5 py-1.5 text-sm hover:bg-muted/50 transition-colors whitespace-nowrap"
           >
             {/* Name */}
             <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -1718,11 +1724,11 @@ function ProjectFilesList({ projectId, onOpenCapture }: { projectId: string; onO
       />
       <div className="h-full overflow-y-auto pt-2">
         {/* Toolbar */}
-        <div className="flex items-center justify-end px-4 pb-2">
+        <div className="flex items-center justify-end pl-10 pr-3.5 pb-2">
           {uploadButton}
         </div>
         {/* Column headers */}
-        <div className="sticky top-0 z-10 flex items-center gap-5 bg-background px-4 pb-2 text-[11px] font-medium text-muted-foreground uppercase tracking-wide whitespace-nowrap">
+        <div className="sticky top-0 z-10 flex items-center gap-5 bg-background pl-10 pr-3.5 pb-2 text-[11px] font-medium text-muted-foreground uppercase tracking-wide whitespace-nowrap">
           <span className="flex-1 min-w-0">Name</span>
           <span className="w-24 text-center shrink-0">Source</span>
           <span className="w-16 text-center shrink-0">Size</span>
@@ -1737,7 +1743,7 @@ function ProjectFilesList({ projectId, onOpenCapture }: { projectId: string; onO
             return (
               <div
                 key={item.id}
-                className="flex items-center gap-5 px-4 py-1.5 text-sm hover:bg-muted/50 transition-colors whitespace-nowrap group"
+                className="flex items-center gap-5 pl-10 pr-3.5 py-1.5 text-sm hover:bg-muted/50 transition-colors whitespace-nowrap group"
               >
                 {/* Preview + Name */}
                 <div className="flex items-center gap-2.5 flex-1 min-w-0">

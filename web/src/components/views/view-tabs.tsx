@@ -6,7 +6,7 @@ import {
 } from '@/components/ui/context-menu'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
-import { Plus, Copy, Trash2, Pencil, Filter as FilterIcon, Users, Lock } from 'lucide-react'
+import { Plus, Copy, Trash2, Pencil, Filter as FilterIcon, Users, Lock, Save } from 'lucide-react'
 import {
   FILTERABLE_FIELDS, operatorLabel as describeOperator,
   type View, type ViewEntityType, type ViewFilter, type CrmScope, type LibraryScope,
@@ -150,6 +150,19 @@ interface ViewTabsProps {
   editingViewId?: string | null
   draftName?: string
   onStartCreate?: () => void
+  /**
+   * The page's own tabs (a scope's: Assigned to me / All / Created by me…)
+   * only below `md`, in CSS: from there up a page's sub-nav beside the rail
+   * holds them. The saved views and the create button stay at every width.
+   */
+  scopeTabsBelowMdOnly?: boolean
+  /**
+   * The open view's unsaved changes (its filters, layout…) saved into it: a
+   * menu item on that view's tab while it has them (Liam, 11-20: "right click
+   * the views name and see available options like delete or update"), the
+   * same as the ribbon's Update button.
+   */
+  onUpdateActiveView?: () => void
 }
 
 export function ViewTabs({
@@ -158,7 +171,8 @@ export function ViewTabs({
   captureScope, onCaptureScopeChange,
   libraryScope, onLibraryScopeChange,
   prospectStage, prospectStageCounts, onProspectStageChange,
-  editMode, editingViewId, draftName, onStartCreate,
+  editMode, editingViewId, draftName, onStartCreate, scopeTabsBelowMdOnly = false,
+  onUpdateActiveView,
 }: ViewTabsProps) {
   const isEditing = editMode !== null
 
@@ -166,13 +180,14 @@ export function ViewTabs({
     'inline-flex shrink-0 items-center gap-1.5 px-3 py-1 text-xs rounded-full border transition-colors whitespace-nowrap',
     active
       ? 'bg-foreground text-background border-foreground font-medium'
-      : 'bg-background text-muted-foreground border-border hover:bg-muted hover:text-foreground',
+      : 'bg-transparent text-muted-foreground border-border hover:bg-muted hover:text-foreground',
   )
 
   return (
     <TooltipProvider delayDuration={800} skipDelayDuration={300}>
       <div className="flex items-center gap-1 flex-nowrap">
-        {/* Default tabs */}
+        {/* Default tabs: below `md` only where a page's sub-nav holds them from there up (scopeTabsBelowMdOnly). */}
+        <div data-view-scope-tabs="" className={scopeTabsBelowMdOnly ? 'contents md:hidden' : 'contents'}>
         {(entityType === 'agent' || entityType === 'skill') && onLibraryScopeChange ? (
           (['all', 'mine', 'workspace', 'discover'] as const).map(scope => (
             <button
@@ -284,6 +299,7 @@ export function ViewTabs({
             All {ENTITY_PLURAL[entityType]}
           </button>
         )}
+        </div>
 
         {/* Saved view tabs */}
         {views.map(view => {
@@ -322,9 +338,14 @@ export function ViewTabs({
                   </Tooltip>
                 ) : tab}
               </ContextMenuTrigger>
-              <ContextMenuContent>
+              <ContextMenuContent data-view-tab-menu={view.id}>
+                {onUpdateActiveView && view.id === activeViewId && !isEditing && (
+                  <ContextMenuItem onClick={onUpdateActiveView}>
+                    <Save className="h-4 w-4 mr-2" /> Update view
+                  </ContextMenuItem>
+                )}
                 <ContextMenuItem onClick={() => onEditView(view.id)}>
-                  <Pencil className="h-4 w-4 mr-2" /> Edit
+                  <Pencil className="h-4 w-4 mr-2" /> Edit view
                 </ContextMenuItem>
                 <ContextMenuItem onClick={() => onDuplicateView(view.id)}>
                   <Copy className="h-4 w-4 mr-2" /> Duplicate
@@ -362,8 +383,9 @@ export function ViewTabs({
           <button
             type="button"
             aria-label="Create view"
+            title="Create view"
             onClick={() => onStartCreate?.()}
-            className="inline-flex shrink-0 items-center justify-center h-7 w-7 rounded-full border border-dashed border-border text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            className="inline-flex shrink-0 items-center justify-center h-[26px] w-[26px] rounded-full text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
           >
             <Plus className="h-3.5 w-3.5" />
           </button>

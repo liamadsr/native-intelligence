@@ -1643,7 +1643,11 @@ export function ActionDetailPanel({
       )}
       {/* Sub-header toolbar — action buttons (matches left panel toolbar height) */}
       {/* A container: the Start's "with" label shortens when the toolbar is tight. */}
-      <div className="@container/actiontoolbar flex h-10 shrink-0 items-center px-3">
+      {/* In the page's own column (the body's 736px, px-8, below): its tabs
+          start on the title's line and its buttons end on the body's right
+          edge (Liam, 11-20: "when you click into an action item that header
+          section needs to be cleaned up too"). */}
+      <div data-action-toolbar="" className="@container/actiontoolbar mx-auto flex h-10 w-full max-w-[736px] shrink-0 items-center px-8">
         {/* View switcher — pill tabs matching the project detail panel. Offered
             whenever this action can carry a server-side run: an AI assignee
             (coding run), a workspace-kind run (Loops v3 work run — reachable even
@@ -1658,7 +1662,7 @@ export function ActionDetailPanel({
                 'inline-flex shrink-0 items-center px-3 py-1 text-xs rounded-full border transition-colors whitespace-nowrap',
                 panelView === 'details'
                   ? 'bg-foreground text-background border-foreground font-medium'
-                  : 'bg-background text-muted-foreground border-border hover:bg-muted hover:text-foreground',
+                  : 'bg-transparent text-muted-foreground border-border hover:bg-muted hover:text-foreground',
               )}
             >
               Details
@@ -1670,7 +1674,7 @@ export function ActionDetailPanel({
                 'inline-flex shrink-0 items-center gap-1.5 px-3 py-1 text-xs rounded-full border transition-colors whitespace-nowrap',
                 panelView === 'cloud'
                   ? 'bg-foreground text-background border-foreground font-medium'
-                  : 'bg-background text-muted-foreground border-border hover:bg-muted hover:text-foreground',
+                  : 'bg-transparent text-muted-foreground border-border hover:bg-muted hover:text-foreground',
               )}
             >
               <Cloud className="h-3 w-3" />
@@ -1700,7 +1704,7 @@ export function ActionDetailPanel({
                   'inline-flex shrink-0 items-center gap-1.5 px-3 py-1 text-xs rounded-full border transition-colors whitespace-nowrap',
                   panelView === 'mac'
                     ? 'bg-foreground text-background border-foreground font-medium'
-                    : 'bg-background text-muted-foreground border-border hover:bg-muted hover:text-foreground',
+                    : 'bg-transparent text-muted-foreground border-border hover:bg-muted hover:text-foreground',
                 )}
               >
                 <Laptop className="h-3 w-3" />
@@ -1715,7 +1719,7 @@ export function ActionDetailPanel({
                 'inline-flex shrink-0 items-center gap-1.5 px-3 py-1 text-xs rounded-full border transition-colors whitespace-nowrap',
                 panelView === 'agents'
                   ? 'bg-foreground text-background border-foreground font-medium'
-                  : 'bg-background text-muted-foreground border-border hover:bg-muted hover:text-foreground',
+                  : 'bg-transparent text-muted-foreground border-border hover:bg-muted hover:text-foreground',
               )}
             >
               <Boxes className="h-3 w-3" />
@@ -1989,7 +1993,8 @@ export function ActionDetailPanel({
         </div>
       ) : panelView === 'agents' ? (
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-[736px] px-5">
+          {/* The same inset as Details' reading column and the toolbar above. */}
+          <div className="mx-auto w-full max-w-[736px] px-8">
             <EntityActivitySection entityType="action" entityId={actionId} />
           </div>
         </div>

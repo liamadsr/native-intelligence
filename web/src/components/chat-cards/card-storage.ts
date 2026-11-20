@@ -21,6 +21,8 @@ export interface CardOpenRecord {
   type: CardOpenType
   id: string
   label?: string
+  /** Its short reference, when its row had one (an action's GEN-25): the card's header shows it before the label. */
+  ref?: string
   /** An action's inner view (its Cloud run, its agents). */
   section?: 'cloud' | 'agents'
 }

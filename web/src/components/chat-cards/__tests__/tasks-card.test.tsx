@@ -4,9 +4,10 @@
  * "one todo icon on the main nav and when you click it the sub-nav would
  * show things like milestone and projects that way it's nested and clean and
  * not at the top level"): its list lights "Assigned to me" on the page (its
- * default), tells the sub-nav where it is and hands it the moves its own tabs
- * make (tasks-card-controls.ts); hides its tab strip only while the sub-nav
- * is on screen beside it in front; opens Projects, Initiatives and
+ * default), tells the sub-nav where it is and hands it the moves its own
+ * scope tabs make (tasks-card-controls.ts); hides those scope tabs (never
+ * its saved views) only while the sub-nav is on screen beside it in front;
+ * opens Projects, Initiatives and
  * Milestones inside itself, a step in its own history each (Back returns to
  * the list, the card in front never changes). Any other list card is as
  * before. Fixtures are made up.
@@ -57,12 +58,12 @@ vi.mock('@/app/account/teams-context', () => ({
 vi.mock('@/components/views/unified-view-layout', async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>
   // A stand-in list: shows what it was given, and records it.
-  function ProbeList(props: Record<string, unknown> & { entityType: string; obscured?: boolean; viewTabsBelowMdOnly?: boolean }) {
+  function ProbeList(props: Record<string, unknown> & { entityType: string; obscured?: boolean; scopeTabsBelowMdOnly?: boolean }) {
     seen.push(props)
     return React.createElement('div', {
       'data-probe-list': props.entityType,
       'data-obscured': props.obscured ? 'yes' : 'no',
-      'data-tabs': props.viewTabsBelowMdOnly ? 'below-md' : 'shown',
+      'data-tabs': props.scopeTabsBelowMdOnly ? 'below-md' : 'shown',
     })
   }
   return { ...actual, UnifiedViewLayout: ProbeList }
@@ -75,7 +76,6 @@ import { ChatCardStore } from '../card-store'
 import { CardHistoryProvider } from '../card-history'
 import { __resetTasksCardsForTests, tasksCardFor } from '../tasks-card-controls'
 import type { CardListNav, CardLayoutOptions } from '@/components/views/unified-view-layout'
-import type { View } from '@/lib/views/types'
 import { CARD_PAGES } from '@/lib/chat-cards/page-menu'
 import type { CardSpec } from '@/lib/chat-cards/kinds'
 import { seedCardState } from '../card-storage'
@@ -126,14 +126,11 @@ async function render(spec: CardSpec, fullScreen = true) {
 const lists = () => [...container.querySelectorAll<HTMLElement>('[data-probe-list]')]
 const ownList = () => seen.filter((p) => p.entityType === 'action' && (p.card as CardLayoutOptions | undefined)?.onStateChange).at(-1)!
 
-/** The list says where it is among its views, as the real layout does. */
+/** The list says which scope tab it is on, as the real layout does. */
 function report(over: Partial<CardListNav> = {}) {
   const nav: CardListNav = {
     scope: 'assigned',
-    viewId: null,
-    views: [{ id: 'v-1', name: 'Fernhill launch' } as View],
     setScope: (s) => navCalls.push(`scope:${s}`),
-    setView: (id) => navCalls.push(`view:${id}`),
     ...over,
   }
   act(() => (ownList().card as CardLayoutOptions).onNav!(nav))
@@ -150,18 +147,20 @@ describe('the My Actions card', () => {
     expect(tasksCardFor(ID)).toBeNull()
     report()
     const card = tasksCardFor(ID)!
-    expect(card).toMatchObject({ cardId: ID, scope: 'assigned', viewId: null, place: null, views: [{ id: 'v-1', name: 'Fernhill launch' }] })
+    expect(card).toMatchObject({ cardId: ID, scope: 'assigned', place: null })
+    // Saved views are the toolbar's own (Liam, 11-20): nothing of them goes to the sub-nav.
+    expect(card).not.toHaveProperty('views')
+    expect(card).not.toHaveProperty('setView')
     act(() => card.setScope('created'))
-    act(() => tasksCardFor(ID)!.setView('v-1'))
-    expect(navCalls).toEqual(['scope:created', 'view:v-1'])
-    // Its own tabs moved it: the sub-nav hears it.
-    report({ scope: null, viewId: 'v-1' })
-    expect(tasksCardFor(ID)).toMatchObject({ scope: null, viewId: 'v-1' })
+    expect(navCalls).toEqual(['scope:created'])
+    // Its own toolbar moved it onto a saved view: the sub-nav hears no scope.
+    report({ scope: null })
+    expect(tasksCardFor(ID)).toMatchObject({ scope: null })
   })
 
-  it('full screen, its tab strip is only below `md` (the sub-nav’s from there up), from the first render; inline, as today', async () => {
+  it('full screen, its scope tabs are only below `md` (the sub-nav’s from there up), from the first render; inline, as today', async () => {
     await render(pageSpec('actions'))
-    expect(seen[0].viewTabsBelowMdOnly).toBe(true)
+    expect(seen[0].scopeTabsBelowMdOnly).toBe(true)
     expect(lists()[0].dataset.tabs).toBe('below-md')
     // Inline in the chat (not full screen), no sub-nav beside it: tabs as today.
     await render(pageSpec('actions'), false)

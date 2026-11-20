@@ -32,10 +32,22 @@ interface ViewToolbarProps {
   embedded?: boolean
   /** A chat card: no view tabs (it is its own view), just the filter and settings buttons. */
   hideTabs?: boolean
-  /** The view tabs only below `md` (CSS): from there up a page's sub-nav beside the rail holds them. */
-  tabsBelowMdOnly?: boolean
+  /** The page's own view tabs (a scope's) only below `md` (CSS): from there up a page's sub-nav beside the rail holds them. Saved views and the create button stay. */
+  scopeTabsBelowMdOnly?: boolean
   /** A slimmer row, for a card inline in the chat. */
   compact?: boolean
+  /**
+   * Over a views layout (UnifiedViewLayout's list, board or graph): the view
+   * tabs start on its content line, 40px in (a list's 12px inset plus a row's
+   * gutter, list/entity-row.tsx ROW_GUTTER_PX; a board's first column,
+   * view-board.tsx), whatever the layout, so they never move when a view
+   * with another layout is picked (Liam, 11-20: "where the tables start
+   * doesn't match"; "when I switch between the views then the views get
+   * indented and move to the right, that shouldn't happen"). The last
+   * button's glyph ends on the card header's close glyph; the ribbon and the
+   * view editor's box line up with a list's row boxes.
+   */
+  alignToContent?: boolean
   entityType: ViewEntityType
   teamId?: string
   views: View[]
@@ -105,7 +117,7 @@ const getSnapshot = () => true
 const getServerSnapshot = () => false
 
 export function ViewToolbar({
-  embedded = false, hideTabs = false, tabsBelowMdOnly = false, compact = false, entityType, teamId, views, activeViewId, onViewChange,
+  embedded = false, hideTabs = false, scopeTabsBelowMdOnly = false, compact = false, alignToContent = false, entityType, teamId, views, activeViewId, onViewChange,
   onCreateView, onUpdateView, onDuplicateView, onDeleteView,
   config, onConfigChange, onScopeReset, crmScopesEnabled = true, captureScopesEnabled = true,
   lockedScopeFields,
@@ -515,14 +527,20 @@ export function ViewToolbar({
   return (
     <div className="flex flex-col">
       {/* Row 1: tabs + filter button + settings */}
-      <div className={cn('flex shrink-0 items-center justify-between', compact ? 'h-8' : 'h-10', embedded ? 'px-3' : 'px-4')}>
+      <div
+        data-view-toolbar-row=""
+        className={cn('flex shrink-0 items-center justify-between', compact ? 'h-8' : 'h-10', alignToContent ? 'pl-10 pr-3.5' : embedded ? 'px-3' : 'px-4')}
+      >
         {/* In a card the tabs scroll sideways rather than being cut off: an
             inline card is narrower than a window was. */}
         <div className={cn('flex items-center gap-1 min-w-0 flex-1', compact ? 'overflow-x-auto scrollbar-hide' : 'overflow-hidden')}>
-          {/* Below `md` only where a page's sub-nav beside the rail holds them from there up (tabsBelowMdOnly). */}
+          {/* Saved views always here; a page's own tabs below `md` only where its sub-nav beside the rail holds them from there up (scopeTabsBelowMdOnly). */}
           {!hideTabs && (
-            <div data-view-tabs="" className={tabsBelowMdOnly ? 'contents md:hidden' : 'contents'}>
+            <div data-view-tabs="" className="contents">
               <ViewTabs
+                scopeTabsBelowMdOnly={scopeTabsBelowMdOnly}
+                // The ribbon's Update, on the open view's own tab too, while it has unsaved changes.
+                onUpdateActiveView={isDirty && activeView && !isInEditPanel ? handleOverlayUpdateView : undefined}
                 views={views}
                 activeViewId={activeViewId}
                 onViewChange={handleViewChange}
@@ -594,7 +612,7 @@ export function ViewToolbar({
             - Save as new view → opens the create panel pre-filled with overrides
           On the implicit default (no activeView) only Save-as-new is shown. */}
       {isDirty && !isInEditPanel && (
-        <div className="px-4 py-1.5">
+        <div className={cn('py-1.5', alignToContent ? 'px-3' : 'px-4')}>
           {/* Wraps: on a narrow card (a phone, an inline card) the chips take
               the row and the buttons drop under them, never over them. */}
           <div data-filter-ribbon="" className="flex flex-wrap items-center gap-1.5 rounded-lg bg-muted/50 border px-2.5 py-1.5">
@@ -637,7 +655,7 @@ export function ViewToolbar({
 
       {/* Edit/Create panel (name + filters in unified card) */}
       {isInEditPanel && (
-        <div className="px-4 pb-2">
+        <div className={cn('pb-2', alignToContent ? 'px-3' : 'px-4')}>
           <div className="rounded-lg border bg-muted/30">
             {/* Name row */}
             <div className="flex items-center h-10 px-3">

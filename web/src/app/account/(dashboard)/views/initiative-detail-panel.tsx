@@ -495,8 +495,14 @@ export function InitiativeDetailPanel({
     <div className="flex h-full flex-col">
       {listenBrief}
 
-      {/* Sub-header toolbar */}
-      <div className="flex h-10 shrink-0 items-center px-3">
+      {/* Sub-header toolbar. Its tabs on the lists' line (the list's 12px
+          inset plus a row's gutter, components/views/list/entity-row.tsx
+          ROW_GUTTER_PX): a list tab's own view tabs and rows start where
+          these do (Liam, 11-20: "where the tables start doesn't match").
+          Fixed there for every tab, the centered overview's too, so a tab
+          never moves under the pointer when another is picked. Its buttons
+          end on the card header's close button. */}
+      <div data-detail-tabs="" className="flex h-10 shrink-0 items-center pl-10 pr-3.5">
         <div className="flex items-center gap-1">
           {INITIATIVE_SECTIONS.map(tab => (
             <button
@@ -506,7 +512,7 @@ export function InitiativeDetailPanel({
                 'inline-flex shrink-0 items-center px-3 py-1 text-xs rounded-full border transition-colors whitespace-nowrap',
                 activeTab === tab
                   ? 'bg-foreground text-background border-foreground font-medium'
-                  : 'bg-background text-muted-foreground border-border hover:bg-muted hover:text-foreground',
+                  : 'bg-transparent text-muted-foreground border-border hover:bg-muted hover:text-foreground',
               )}
             >
               {tab.charAt(0).toUpperCase() + tab.slice(1)}
@@ -652,7 +658,7 @@ export function InitiativeDetailPanel({
 
           {activeTab === 'agents' && (
             <ScrollArea className="h-full">
-              <div className="px-5">
+              <div className="pl-10 pr-3.5">
                 <EntityActivitySection entityType="initiative" entityId={initiativeId} />
               </div>
             </ScrollArea>

@@ -33,7 +33,7 @@ export function LinkedDealsList({ deals, onOpen }: { deals: readonly LinkedDeal[
   const open = deals.filter((d) => d.status === 'open')
   const pipelines = new Set(deals.map((d) => d.pipeline_id))
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6" data-linked-deals="">
+    <div className="min-h-0 flex-1 overflow-y-auto pl-10 pr-3.5 pb-6" data-linked-deals="">
       {open.length > 0 && (
         <p className="py-2 text-xs text-muted-foreground">
           {open.length} open{formatDealTotals(open) ? ` · ${formatDealTotals(open)}` : ''}

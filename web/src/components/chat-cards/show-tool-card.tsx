@@ -61,7 +61,8 @@
 import * as React from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
-import { Bookmark, CalendarDays, Clapperboard, LayoutList, Mail, Maximize2, Minimize2, X } from 'lucide-react'
+import { Bookmark, CalendarDays, ChevronRight, Clapperboard, LayoutList, Mail, Maximize2, Minimize2, X } from 'lucide-react'
+import type { CardOpenRecord } from './card-storage'
 import { cn } from '@/lib/utils'
 import { countLabel, type CardSpec } from '@/lib/chat-cards/kinds'
 import type { EditionDefinition } from '@/lib/editions/manifest'
@@ -785,6 +786,16 @@ export function ShowToolCard({
   // card's id, so a remount (a card opened during a turn joining the thread
   // once it settles) keeps its steps.
   const history = store.history(toolCallId)
+  // The record open over the card's page (an action opened from My Actions:
+  // the `open` channel of card-body.tsx useOpenRecords, read where its Back
+  // reads it): the header names it after the page's title, as a trail
+  // (Liam, 11-20: "when you click into an action item that header section
+  // needs to be cleaned up too").
+  const openRecord = React.useSyncExternalStore(
+    history.subscribe,
+    () => history.read<CardOpenRecord | null>('open', () => store.state(toolCallId).open ?? null),
+    () => null,
+  )
   // The header's slots for the page's own controls (the Properties button).
   const [slots, setSlots] = React.useState<CardHeaderSlots>({ left: null, right: null })
   const leftSlotRef = React.useCallback((left: HTMLElement | null) => setSlots((s) => (s.left === left ? s : { ...s, left })), [])
@@ -990,10 +1001,21 @@ export function ShowToolCard({
       </div>
       <div ref={leftSlotRef} data-card-header-slot="left" className="flex shrink-0 items-center empty:hidden" />
       <KindIcon spec={spec} className="size-3.5 shrink-0 text-muted-foreground" />
-      <span className="min-w-[6rem] flex-1 truncate text-[13px] font-medium sm:flex-none">{spec.title}</span>
+      {openRecord?.label ? (
+        // A record open over the page: the page, then the record, one line.
+        <div data-card-header-trail="" className="flex min-w-0 flex-1 items-center gap-1.5 text-[13px]">
+          <span className="max-w-[40%] shrink-0 truncate text-muted-foreground">{spec.title}</span>
+          <ChevronRight aria-hidden className="size-3.5 shrink-0 text-muted-foreground/60" strokeWidth={1.75} />
+          {openRecord.ref && <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{openRecord.ref}</span>}
+          <span className="min-w-0 truncate font-medium">{openRecord.label}</span>
+        </div>
+      ) : (
+        <span className="min-w-[6rem] flex-1 truncate text-[13px] font-medium sm:flex-none">{spec.title}</span>
+      )}
       <div className="ml-auto flex items-center gap-0.5">
         <div ref={rightSlotRef} data-card-header-slot="right" className="flex shrink-0 items-center empty:hidden" />
-        <SaveAsView spec={spec} configRef={configRef} />
+        {/* Saving a view saves the list: not while a record is open over it. */}
+        {!openRecord && <SaveAsView spec={spec} configRef={configRef} />}
         {/* A page the person opened (the app rail, `/`): its one close, here
             in its own header (Liam, 11-09: the floating X "feels so out of
             place", and Minimize did the same as it). */}
