@@ -78,16 +78,16 @@ export function WeekViewMultiDayEventsRow({ selectedDate, multiDayEvents }: IPro
   }
 
   return (
-    <div className="hidden overflow-hidden sm:flex">
-      <div className="w-18 shrink-0 border-b"></div>
-      <div className="grid min-w-0 flex-1 grid-cols-7 divide-x border-b border-l">
+    <div className="hidden overflow-hidden border-b border-border/60 sm:flex">
+      <div className="flex w-18 shrink-0 items-start justify-end pr-2 pt-1.5 text-[10px] text-muted-foreground/70">all-day</div>
+      <div className="grid min-w-0 flex-1 grid-cols-7 border-l border-border/60">
         {weekDays.map((day, dayIndex) => (
-          <div key={day.toISOString()} className="flex h-full min-w-0 flex-col gap-1 py-1">
+          <div key={day.toISOString()} className="flex h-full min-w-0 flex-col gap-0.5 py-1">
             {eventRows.map((row, rowIndex) => {
               const event = row.find(e => e.startIndex <= dayIndex && e.endIndex >= dayIndex);
 
               if (!event) {
-                return <div key={`${rowIndex}-${dayIndex}`} className="h-6.5" />;
+                return <div key={`${rowIndex}-${dayIndex}`} className="h-5.5" />;
               }
 
               let position: "first" | "middle" | "last" | "none" = "none";
@@ -102,7 +102,7 @@ export function WeekViewMultiDayEventsRow({ selectedDate, multiDayEvents }: IPro
                 position = "middle";
               }
 
-              return <MonthEventBadge key={`${event.id}-${dayIndex}`} event={event} cellDate={startOfDay(day)} position={position} />;
+              return <MonthEventBadge key={`${event.id}-${dayIndex}`} event={event} cellDate={startOfDay(day)} position={position} slim />;
             })}
           </div>
         ))}

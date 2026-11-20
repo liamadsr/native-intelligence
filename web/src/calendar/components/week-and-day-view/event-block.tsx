@@ -1,6 +1,5 @@
 import { memo } from "react";
-import { cva } from "class-variance-authority";
-import { format, differenceInMinutes, parseISO } from "date-fns";
+import { differenceInMinutes, parseISO } from "date-fns";
 import { Disc, Loader2 } from "lucide-react";
 
 import { useCalendarSettings } from "@/calendar/contexts/calendar-context";
@@ -10,42 +9,17 @@ import { EventDetailsDialog } from "@/calendar/components/dialogs/event-details-
 import { CaptureStatusIndicator } from "@/calendar/components/capture-status-indicator";
 import { useStartMeetingFromEvent } from "@/calendar/hooks/use-start-meeting";
 import { cn } from "@/lib/utils";
+import { eventToneClass } from "@/calendar/event-colors";
+import { compactTime, compactTimeRange } from "@/calendar/helpers";
 
 import type { HTMLAttributes } from "react";
 import type { IEvent } from "@/calendar/interfaces";
-import type { VariantProps } from "class-variance-authority";
 
-const calendarWeekEventCardVariants = cva(
-  "flex select-none flex-col gap-0.5 truncate whitespace-nowrap rounded-md border px-2 py-1.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-  {
-    variants: {
-      color: {
-        // Colored and mixed variants
-        blue: "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300 [&_.event-dot]:fill-blue-600",
-        green: "border-green-200 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300 [&_.event-dot]:fill-green-600",
-        red: "border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300 [&_.event-dot]:fill-red-600",
-        yellow: "border-yellow-200 bg-yellow-50 text-yellow-700 dark:border-yellow-800 dark:bg-yellow-950 dark:text-yellow-300 [&_.event-dot]:fill-yellow-600",
-        purple: "border-purple-200 bg-purple-50 text-purple-700 dark:border-purple-800 dark:bg-purple-950 dark:text-purple-300 [&_.event-dot]:fill-purple-600",
-        orange: "border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-800 dark:bg-orange-950 dark:text-orange-300 [&_.event-dot]:fill-orange-600",
-        gray: "border-neutral-200 bg-neutral-50 text-neutral-700 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300 [&_.event-dot]:fill-neutral-600",
+/** The block: a soft fill in its calendar's colour (event-colors), small type, no border of its own. */
+const eventBlockClass =
+  "flex select-none flex-col overflow-hidden rounded-md px-1.5 py-[3px] text-xs leading-tight focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
 
-        // Dot variants
-        "blue-dot": "bg-neutral-50 dark:bg-neutral-900 [&_.event-dot]:fill-blue-600",
-        "green-dot": "bg-neutral-50 dark:bg-neutral-900 [&_.event-dot]:fill-green-600",
-        "red-dot": "bg-neutral-50 dark:bg-neutral-900 [&_.event-dot]:fill-red-600",
-        "orange-dot": "bg-neutral-50 dark:bg-neutral-900 [&_.event-dot]:fill-orange-600",
-        "purple-dot": "bg-neutral-50 dark:bg-neutral-900 [&_.event-dot]:fill-purple-600",
-        "yellow-dot": "bg-neutral-50 dark:bg-neutral-900 [&_.event-dot]:fill-yellow-600",
-        "gray-dot": "bg-neutral-50 dark:bg-neutral-900 [&_.event-dot]:fill-neutral-600",
-      },
-    },
-    defaultVariants: {
-      color: "blue-dot",
-    },
-  }
-);
-
-interface IProps extends HTMLAttributes<HTMLDivElement>, Omit<VariantProps<typeof calendarWeekEventCardVariants>, "color"> {
+interface IProps extends HTMLAttributes<HTMLDivElement> {
   event: IEvent;
   /** Read-only presentation: no grab cursor, no resize handle. Used by the
    *  Capture button's calendar, which has no drag/resize machinery. The main
@@ -79,11 +53,18 @@ export const EventBlock = memo(function EventBlock({ event, className, readOnly 
     if (!starting) startMeeting(event);
   };
 
-  const color = (badgeVariant === "dot" ? `${event.color}-dot` : event.color) as VariantProps<typeof calendarWeekEventCardVariants>["color"];
+  // Under half an hour there is one line: the title, then when it starts.
+  const short = durationInMinutes < 30;
 
-  const calendarWeekEventCardClasses = cn(calendarWeekEventCardVariants({ color, className }), durationInMinutes < 35 && "py-0 justify-center");
-
-  const heightInPixels = (durationInMinutes / 60) * 96 - 8;
+  const calendarWeekEventCardClasses = cn(
+    eventBlockClass,
+    eventToneClass(event.color, badgeVariant),
+    short && "justify-center py-0",
+    // Not answered yet: lighter, with a dashed edge. Declined: faded and struck through.
+    (event.response === "pending" || event.response === "tentative") && "opacity-80 outline-dashed outline-1 -outline-offset-1 outline-current/40",
+    event.response === "declined" && "opacity-55",
+    className
+  );
 
   const card = (
     <div
@@ -101,14 +82,15 @@ export const EventBlock = memo(function EventBlock({ event, className, readOnly 
         },
       })}
     >
-      <div className="flex items-center gap-1.5 truncate">
+      <div className="flex min-w-0 items-center gap-1.5">
         {["mixed", "dot"].includes(badgeVariant) && (
-          <svg width="8" height="8" viewBox="0 0 8 8" className="event-dot shrink-0">
+          <svg width="8" height="8" viewBox="0 0 8 8" className="cal-dot shrink-0">
             <circle cx="4" cy="4" r="4" />
           </svg>
         )}
 
-        <p className="truncate font-semibold">{event.title}</p>
+        <p className={cn("min-w-0 truncate font-medium", event.response === "declined" && "line-through")}>{event.title}</p>
+        {short && !event.isAction && <span className="shrink-0 text-[11px] tabular-nums opacity-75">{compactTime(start)}</span>}
         {clickStarts && starting ? (
           <Loader2 className="size-3 shrink-0 animate-spin" />
         ) : (
@@ -116,11 +98,7 @@ export const EventBlock = memo(function EventBlock({ event, className, readOnly 
         )}
       </div>
 
-      {durationInMinutes > 25 && (
-        <p>
-          {format(start, "h:mm a")} - {format(end, "h:mm a")}
-        </p>
-      )}
+      {!short && <p className="truncate text-[11px] tabular-nums opacity-80">{compactTimeRange(start, end)}</p>}
 
       {/* Start-capture button — reveals on hover, always visible while the
           meeting is happening now. Shows "Recording" when a linked capture
@@ -144,14 +122,17 @@ export const EventBlock = memo(function EventBlock({ event, className, readOnly 
           disabled={starting || isRecording}
           title={isRecording ? "A capture is already in progress" : "Start a linked capture"}
           className={cn(
-            "absolute right-1 top-1 z-20 inline-flex h-5 items-center gap-1 rounded-full border border-border bg-white px-1.5 text-[10px] font-medium shadow-sm transition-all dark:bg-black dark:shadow-none",
+            "absolute right-0.5 top-0.5 z-20 inline-flex h-[18px] items-center gap-1 rounded-full border border-border bg-white px-1.5 text-[10px] font-medium shadow-sm transition-all dark:bg-black dark:shadow-none",
             "text-sidebar-foreground/70 hover:bg-muted hover:text-sidebar-foreground",
             "disabled:cursor-not-allowed disabled:opacity-50",
             live ? "opacity-100" : "opacity-0 group-hover/event:opacity-100 focus-visible:opacity-100",
           )}
         >
           {starting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Disc className="h-3 w-3" />}
-          Start
+          {/* While the meeting is on, the button stays in view as its icon and
+              opens to the word on hover: in a stack of overlapping meetings a
+              row of full buttons covered the titles. */}
+          <span className={cn(live && "hidden group-hover/event:inline group-focus-within/event:inline")}>Start</span>
         </button>
       )}
 
@@ -173,10 +154,10 @@ export const EventBlock = memo(function EventBlock({ event, className, readOnly 
       data-event-id={event.id}
       data-event-block
       className={cn(
-        "group/event relative",
+        // Fills the slot its view positions it in (helpers' positionDayEvents).
+        "group/event relative h-full",
         readOnly ? "cursor-pointer" : "cursor-grab active:cursor-grabbing",
       )}
-      style={{ height: `${heightInPixels}px` }}
     >
       {clickStarts ? card : <EventDetailsDialog event={event}>{card}</EventDetailsDialog>}
     </div>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { Calendar, Clock } from "lucide-react";
-import { parseISO, areIntervalsOverlapping, format } from "date-fns";
+import { parseISO, format } from "date-fns";
 
 import { useCalendar } from "@/calendar/contexts/calendar-context";
 
@@ -14,7 +14,8 @@ import { TimeGridDragLayer } from "@/calendar/components/week-and-day-view/time-
 import { EventInteractionLayer } from "@/calendar/components/week-and-day-view/event-interaction-layer";
 
 import { cn } from "@/lib/utils";
-import { groupEvents, getEventBlockStyle, isWorkingHour, getCurrentEvents, getVisibleHours } from "@/calendar/helpers";
+import { positionDayEvents, isWorkingHour, getCurrentEvents, getVisibleHours, compactTime } from "@/calendar/helpers";
+import { DayHeading, EVENT_SLOT_CLASS } from "@/calendar/components/week-and-day-view/calendar-week-view";
 
 import type { IEvent } from "@/calendar/interfaces";
 
@@ -28,8 +29,7 @@ export function CalendarDayView({ singleDayEvents, multiDayEvents }: IProps) {
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const { selectedDate, visibleHours, workingHours } = useCalendar();
 
-  // Event positioning is O(n²) in overlap checks with date parsing throughout —
-  // compute it once per (events, day) instead of on every render.
+  // The day's layout (overlap-layout): once per (events, day), not on every render.
   const { hours, earliestEventHour, latestEventHour, positionedEvents } = useMemo(() => {
     const visible = getVisibleHours(visibleHours, singleDayEvents);
 
@@ -42,28 +42,7 @@ export function CalendarDayView({ singleDayEvents, multiDayEvents }: IProps) {
       );
     });
 
-    const groupedEvents = groupEvents(dayEvents);
-
-    // Parse each event's bounds once up front: the overlap scan below is O(n²)
-    // in comparisons, and re-parsing both ISO strings inside it meant the same
-    // event was parsed over and over.
-    const bounds = new Map(dayEvents.map(e => [e.id, { start: parseISO(e.startDate), end: parseISO(e.endDate) }]));
-
-    const positioned = groupedEvents.flatMap((group, groupIndex) =>
-      group.map(event => {
-        let style = getEventBlockStyle(event, selectedDate, groupIndex, groupedEvents.length, { from: visible.earliestEventHour, to: visible.latestEventHour });
-        const eventBounds = bounds.get(event.id)!;
-        const hasOverlap = groupedEvents.some(
-          (otherGroup, otherIndex) =>
-            otherIndex !== groupIndex &&
-            otherGroup.some(otherEvent => areIntervalsOverlapping(eventBounds, bounds.get(otherEvent.id)!))
-        );
-
-        if (!hasOverlap) style = { ...style, width: "100%", left: "0%" };
-
-        return { event, style };
-      })
-    );
+    const positioned = positionDayEvents(dayEvents, selectedDate, { from: visible.earliestEventHour, to: visible.latestEventHour });
 
     return { ...visible, positionedEvents: positioned };
   }, [singleDayEvents, selectedDate, visibleHours]);
@@ -96,14 +75,14 @@ export function CalendarDayView({ singleDayEvents, multiDayEvents }: IProps) {
     <div className="flex min-h-0 min-w-0 flex-1">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <div className="min-w-0">
-          <DayViewMultiDayEventsRow selectedDate={selectedDate} multiDayEvents={multiDayEvents} />
-
-          <div className="relative z-20 flex border-b">
+          <div className="relative z-20 flex border-b border-border/60">
             <div className="w-18"></div>
-            <span className="flex-1 border-l py-2 text-center text-xs font-medium text-muted-foreground">
-              {format(selectedDate, "EE")} <span className="font-semibold text-foreground">{format(selectedDate, "d")}</span>
-            </span>
+            <div className="flex-1">
+              <DayHeading day={selectedDate} />
+            </div>
           </div>
+
+          <DayViewMultiDayEventsRow selectedDate={selectedDate} multiDayEvents={multiDayEvents} />
         </div>
 
         <ScrollArea ref={scrollAreaRef} className="flex-1" type="always">
@@ -117,20 +96,20 @@ export function CalendarDayView({ singleDayEvents, multiDayEvents }: IProps) {
               {hours.map((hour, index) => (
                 <div key={hour} className="relative" style={{ height: "96px" }}>
                   <div className="absolute -top-3 right-2 flex h-6 items-center">
-                    {index !== 0 && <span className="text-xs text-muted-foreground">{format(new Date().setHours(hour, 0, 0, 0), "hh a")}</span>}
+                    {index !== 0 && <span className="text-[11px] tabular-nums text-muted-foreground/80">{compactTime(new Date(new Date().setHours(hour, 0, 0, 0)))}</span>}
                   </div>
                 </div>
               ))}
             </div>
 
-            <div ref={gridRef} className="relative flex-1 border-l">
+            <div ref={gridRef} className="relative flex-1 border-l border-border/60">
               <div data-day-column className="relative">
                 {hours.map((hour, index) => {
                   const isDisabled = !isWorkingHour(selectedDate, hour, workingHours);
 
                   return (
                     <div key={hour} className={cn("relative", isDisabled && "bg-muted/30")} style={{ height: "96px" }}>
-                      {index !== 0 && <div className="pointer-events-none absolute inset-x-0 top-0 border-b"></div>}
+                      {index !== 0 && <div className="pointer-events-none absolute inset-x-0 top-0 border-b border-border/60"></div>}
 
                       <HourSlots day={selectedDate} hour={hour} />
                     </div>
@@ -138,7 +117,7 @@ export function CalendarDayView({ singleDayEvents, multiDayEvents }: IProps) {
                 })}
 
                 {positionedEvents.map(({ event, style }) => (
-                  <div key={`${event.id}-${event.startDate}-${event.endDate}`} className="absolute p-1" style={style}>
+                  <div key={`${event.id}-${event.startDate}-${event.endDate}`} className={EVENT_SLOT_CLASS} style={style}>
                     <EventBlock event={event} />
                   </div>
                 ))}
