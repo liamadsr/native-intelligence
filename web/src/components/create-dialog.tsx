@@ -71,7 +71,8 @@ import { EmailRecipientInput } from '@/components/email/email-recipient-input'
 import { SendLaterButton } from '@/components/email/send-later-button'
 import { scheduleSend } from '@/lib/email/send-later'
 import { cn } from '@/lib/utils'
-import { useModKeyLabel } from '@/lib/hotkeys'
+import { useHotkeys, useModKeyLabel } from '@/lib/hotkeys'
+import { OPEN_CREATE_EVENT, createKeyAllowed, type OpenCreateRequest } from '@/lib/create/open-create'
 import { useTeams } from '@/app/account/teams-context'
 import { openTarget } from '@/lib/chat-cards/open-card'
 import { useTeamCalls } from '@/components/team-calls/team-calls-provider'
@@ -313,11 +314,20 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
   const effectiveTeamId = teamId || teams[0]?.id
   const currentTeam = teams.find((t) => t.id === effectiveTeamId)
 
-  // ── Open triggers: custom events ──
-  // Mail's New email (its button and its `c` key) opens the dialog on Email.
-  // There is no app-wide Create button or `c` shortcut any more (removed
-  // 2026-10-20, Liam): the agent creates things on request.
+  // ── Open triggers ──
+  // The rail's + and the app-wide `c` (Liam, 11-20: back after 10-20's
+  // removal, "so anything can be created from one place again") open it on
+  // Action, or on the type a caller names (`open-create`, lib/create/open-create.ts).
+  // Mail's New email (its button and its own `c` key) opens it on Email, and
+  // `open-create-contact` on Contact, as before.
+  const openRef = useRef(open)
+  openRef.current = open
   useEffect(() => {
+    function handleOpen(e: Event) {
+      const type = (e as CustomEvent<OpenCreateRequest | null>).detail?.type
+      setEntityType(type && isCreateTypeId(type) ? type : 'action')
+      setOpen(true)
+    }
     function handleOpenEmail() {
       setEntityType('email')
       setOpen(true)
@@ -326,13 +336,32 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
       setEntityType('contact')
       setOpen(true)
     }
+    document.addEventListener(OPEN_CREATE_EVENT, handleOpen)
     document.addEventListener('open-create-email', handleOpenEmail)
     document.addEventListener('open-create-contact', handleOpenContact)
     return () => {
+      document.removeEventListener(OPEN_CREATE_EVENT, handleOpen)
       document.removeEventListener('open-create-email', handleOpenEmail)
       document.removeEventListener('open-create-contact', handleOpenContact)
     }
   }, [])
+
+  // `c`, anywhere in the app: not while typing (the helper skips fields and
+  // contenteditables), nor while another dialog or menu has the focus
+  // (createKeyAllowed). Not prevented: Mail's own `c`, a window listener that
+  // runs after this one and skips a prevented key, then opens it on Email, so
+  // on Mail `c` is still New email. Nothing else in the app binds a bare `c`.
+  useHotkeys([
+    {
+      key: 'c',
+      preventDefault: false,
+      handler: (e) => {
+        if (openRef.current || !createKeyAllowed(e.target)) return
+        setEntityType('action')
+        setOpen(true)
+      },
+    },
+  ])
 
   // ── Fetch shared options when dialog opens ──
   useEffect(() => {
