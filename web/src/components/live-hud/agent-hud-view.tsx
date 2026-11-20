@@ -7,8 +7,9 @@
  * actions (./hud-feed.ts); the view never talks to Tauri or to the recording.
  *
  * A glass pop-up chat (Liam, 10-15: "style it like a nicer, full version of
- * those bot chats"): one glass sheet (components/agent-ui GlassBackdrop), a
- * glass pill on top, and the live chat's conversation and composer
+ * those bot chats"): one sheet (components/agent-ui GlassBackdrop: glass in
+ * the desktop's window; on web the app's popover surface, the ⌘K search
+ * panel's, 11-20), a glass pill on top, and the live chat's conversation and composer
  * (components/live-chat). Top to bottom:
  *   - the header pill (live sidekick plan, Phase 2, 10-17: the agent's face
  *     and name are gone): on its left what the host puts there (the desktop
@@ -165,7 +166,7 @@ export function AgentHudView({
       )}
       data-host={host}
     >
-      <GlassBackdrop desktop={host === 'window'} />
+      <GlassBackdrop desktop={host === 'window'} surface={host === 'page' ? 'popover' : 'glass'} />
       <div
         data-hud-header=""
         className={cn(
