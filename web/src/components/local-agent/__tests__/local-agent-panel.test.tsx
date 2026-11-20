@@ -134,7 +134,7 @@ async function settle(ms = 0) {
 }
 
 /** `events`: what the session holds; the page read serves them newest first, the route after an id. */
-async function mount(session: SessionRow = sessionRow(), events: unknown[] = EVENTS) {
+async function mount(session: SessionRow = sessionRow(), events: unknown[] = EVENTS, props: { hideFinish?: boolean } = {}) {
   db.events = events as Array<{ id: number }>
   db.reads = []
   routes = {
@@ -146,7 +146,7 @@ async function mount(session: SessionRow = sessionRow(), events: unknown[] = EVE
     post: () => json({ ok: true }),
   }
   await act(async () => {
-    root.render(h(LocalAgentPanel, { sessionId: SID }))
+    root.render(h(LocalAgentPanel, { sessionId: SID, ...props }))
   })
   await settle()
   await settle()
@@ -203,6 +203,15 @@ describe('LocalAgentPanel', () => {
     expect(q('[data-local-agent-highlight="finish"]')?.textContent).toContain('Mapped the app.')
     expect(q('[data-local-agent-branch]')?.textContent).toContain('dial8/native-intelligence-1a2b')
     expect(q('[data-local-agent-branch]')?.textContent).toContain('3 files changed · +10 −2')
+  })
+
+  it('hideFinish (the Code view, with the record beside it): no finish card, everything else as ever', async () => {
+    await mount(sessionRow(), EVENTS, { hideFinish: true })
+    expect(q('[data-local-agent-highlight="finish"]')).toBeNull()
+    expect(text()).not.toContain('Mapped the app.')
+    expect(q('[data-local-agent-highlight="ask"]')?.textContent).toContain('Should I look at the desktop repo too?')
+    expect(q('[data-local-agent-text]')?.textContent).toContain('It is a Next.js app.')
+    expect(q('[data-local-agent-branch]')?.textContent).toContain('dial8/native-intelligence-1a2b')
   })
 
   it('tool calls are collapsed to one line until opened', async () => {

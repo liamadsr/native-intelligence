@@ -22,6 +22,12 @@
  * view in the same commit, and is never a stale copy of a big file (Liam,
  * 11-16: "the main chat and the agents chats are showing at the same time").
  * Mounted in the thread's stage (chat-panel.tsx).
+ *
+ * Its turn's summary (the `finish` card) is not drawn while the right panel
+ * shows the job's record (Liam, 11-20: "remove that finished message from the
+ * main chat and just keep the one on the side panel"): the Review card's
+ * "What happened" says the same, its action ids as live chips. With the panel
+ * closed, or no record yet, the card is drawn as everywhere else.
  */
 import { useCallback, useEffect } from 'react'
 import { ChevronLeft } from 'lucide-react'
@@ -35,11 +41,14 @@ import { selectCodeChat, setCodeChatError, setCodeChatLive, syncCodeViewWorkspac
 import { rightShown } from '../side-panels/side-panel-store'
 import { CodeChatsRows, useCodeChats } from '../page-panel/code-chats'
 import { useCodeView } from './use-code-view'
+import { useOptionalAgentWorkShared } from '@/components/work/agent-work-provider'
 
 export function CodeChatStage() {
   const state = useSidePanelState()
   const { codeView } = state
-  const { selected, attempt } = useCodeView()
+  const { selected, attempt, live } = useCodeView()
+  // As code-chat-sections.tsx decides it: the Review card is drawn only in the shell, once the job has its record.
+  const inShell = useOptionalAgentWorkShared() !== null
   // The selection belongs to the window's workspace (the store's own check: this
   // panel remounts on a workspace switch, so it could not see one): another
   // workspace's chat never shows here, and this one's last chat comes back.
@@ -66,11 +75,13 @@ export function CodeChatStage() {
   const listHere = !state.pagePanelShown
   // The right panel shows the chat's agent, folder, status and Stop: the conversation's own header would say them twice.
   const detailsShown = rightShown(state)
+  // The right panel's Review card carries the summary: the conversation doesn't repeat it.
+  const summaryBeside = detailsShown && inShell && !!live?.session.trackedJobId
   return (
     <>
       <style data-code-view-style="">{HIDE_THREAD_CSS}</style>
       {selected ? (
-        <Stage key={attempt} selected={selected} onLive={onLive} onError={onError} header={!detailsShown} back={listHere} />
+        <Stage key={attempt} selected={selected} onLive={onLive} onError={onError} header={!detailsShown} back={listHere} hideFinish={summaryBeside} />
       ) : listHere ? (
         <ListHere />
       ) : null}
@@ -88,7 +99,21 @@ export const HIDE_THREAD_CSS =
 
 const STAGE = 'absolute inset-x-0 bottom-[var(--chat-bottom-inset,0px)] top-[var(--chat-top-inset,0px)] z-20 flex min-h-0 justify-center'
 
-function Stage({ selected, onLive, onError, header, back }: { selected: string; onLive: (live: CodeChatLive | null) => void; onError: (message: string) => void; header: boolean; back: boolean }) {
+function Stage({
+  selected,
+  onLive,
+  onError,
+  header,
+  back,
+  hideFinish,
+}: {
+  selected: string
+  onLive: (live: CodeChatLive | null) => void
+  onError: (message: string) => void
+  header: boolean
+  back: boolean
+  hideFinish: boolean
+}) {
   return (
     <div data-code-chat-stage={selected} className={STAGE}>
       <div className="chat-reading-col flex h-full min-h-0 w-full flex-col px-5 pb-2 pt-1">
@@ -104,7 +129,7 @@ function Stage({ selected, onLive, onError, header, back }: { selected: string; 
           </button>
         )}
         {/* Keyed by the chat: another one is another conversation, read afresh. */}
-        <LocalAgentPanel key={selected} sessionId={selected} composer={false} header={header} onLive={onLive} onError={onError} hideScrollbar className="min-h-0 flex-1" />
+        <LocalAgentPanel key={selected} sessionId={selected} composer={false} header={header} onLive={onLive} onError={onError} hideScrollbar hideFinish={hideFinish} className="min-h-0 flex-1" />
       </div>
     </div>
   )

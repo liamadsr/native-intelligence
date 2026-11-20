@@ -225,8 +225,15 @@ export function LocalAgentPanel({
   onLive,
   onError,
   hideScrollbar = false,
+  hideFinish = false,
 }: {
   sessionId: string
+  /**
+   * Leave out its `finish` summary card: for a host that shows the job's
+   * record, with the same summary, beside the conversation (the Code view, with
+   * its right panel's Review card on screen). Everything else draws as ever.
+   */
+  hideFinish?: boolean
   className?: string
   /** No scrollbar on the conversation, as the main chat has none (the Code view, which stands in its place). It scrolls the same. */
   hideScrollbar?: boolean
@@ -256,7 +263,7 @@ export function LocalAgentPanel({
   const [drawn, setDrawn] = useState(RENDER_WINDOW)
   const shown = useMemo(() => (items.length > drawn ? items.slice(items.length - drawn) : items), [items, drawn])
   const hidden = items.length - shown.length
-  const rows = useMemo(() => drawnRows(shown), [shown])
+  const rows = useMemo(() => drawnRows(hideFinish ? shown.filter((it) => it.type !== 'finish') : shown), [shown, hideFinish])
 
   // Follow the stream while the reader is at the bottom; keep the place when earlier items come in above.
   const scrollRef = useRef<HTMLDivElement>(null)
