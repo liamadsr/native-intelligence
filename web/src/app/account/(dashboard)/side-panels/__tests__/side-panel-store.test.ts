@@ -42,6 +42,11 @@ import {
   registerChatScrollHold,
   restoreChatAnchor,
   setCaptureDockOpen,
+  setCodeChatSelected,
+  setCodeDetailsOpen,
+  setCodeForYouContent,
+  setCodeForYouOpen,
+  setCodeView,
   setPagePanelContent,
   setPagePanelOpen,
   setPagePanelShown,
@@ -303,6 +308,69 @@ describe('one panel, two views (Liam, 11-11: “you can’t see both at the same
     expect(getSidePanelState().view).toBe('forYou')
     expect(heard).toHaveBeenCalledTimes(1)
     off()
+  })
+})
+
+describe('on Code: the Code view’s own For you and the coding chat’s details (Liam, 11-20)', () => {
+  /** On Code with a coding chat selected, its details open (their default). */
+  const onCode = () => {
+    setCodeView(true)
+    setCodeChatSelected(true)
+  }
+
+  it('For you’s button opens a coding agent’s cards over the details and closes them again, the details back', () => {
+    onCode()
+    setCodeForYouContent(true)
+    expect(shownView(getSidePanelState())).toBe('panel')
+    toggleSidePanelView('forYou')
+    expect(shownView(getSidePanelState())).toBe('forYou')
+    expect(rightShown(getSidePanelState())).toBe(true)
+    toggleSidePanelView('forYou')
+    expect(shownView(getSidePanelState())).toBe('panel')
+  })
+
+  it('the details’ button swaps back to them from For you, opened if they were closed', () => {
+    onCode()
+    setCodeForYouContent(true)
+    setCodeDetailsOpen(false)
+    expect(shownView(getSidePanelState())).toBeNull()
+    toggleSidePanelView('forYou')
+    expect(shownView(getSidePanelState())).toBe('forYou')
+    toggleSidePanelView('panel')
+    expect(getSidePanelState()).toMatchObject({ codeForYou: false, codeDetailsOpen: true })
+    expect(shownView(getSidePanelState())).toBe('panel')
+  })
+
+  it('with no chat selected the cards alone fill the panel; closed, nothing is on screen', () => {
+    setCodeView(true)
+    setCodeForYouContent(true)
+    expect(rightShown(getSidePanelState())).toBe(false)
+    toggleSidePanelView('forYou')
+    expect(shownView(getSidePanelState())).toBe('forYou')
+    toggleRightPanel()
+    expect(rightShown(getSidePanelState())).toBe(false)
+  })
+
+  it('its last card settled, it closes: the next card never opens it over the details unasked', () => {
+    onCode()
+    setCodeForYouContent(true)
+    setCodeForYouOpen(true)
+    setCodeForYouContent(false)
+    expect(getSidePanelState().codeForYou).toBe(false)
+    expect(shownView(getSidePanelState())).toBe('panel')
+    setCodeForYouContent(true)
+    expect(shownView(getSidePanelState())).toBe('panel')
+  })
+
+  it('the agent’s own panel and For you are left as they were, and come back with the agent’s tab', () => {
+    setForYouContent(true)
+    toggleSidePanelView('forYou')
+    onCode()
+    setCodeForYouContent(true)
+    toggleSidePanelView('forYou')
+    expect(getSidePanelState()).toMatchObject({ rightOpen: true, view: 'forYou' })
+    setCodeView(false)
+    expect(shownView(getSidePanelState())).toBe('forYou')
   })
 })
 

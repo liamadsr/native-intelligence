@@ -471,6 +471,20 @@ it('in its own window, nothing paints past the sheet’s round corners (no squar
   expect(sheet().classList.contains('shadow-none')).toBe(false)
 })
 
+it('on web the sheet is the app’s popover surface (the ⌘K search panel’s), opaque and flat; the desktop window keeps its glass', async () => {
+  const props = { feed: EMPTY_HUD_FEED, actions: { sendVoiceIdAction: () => {} } }
+  const sheet = () => container.querySelector<HTMLElement>('[data-bot-bubble-backdrop]')!
+  await act(async () => root.render(h(AgentHudView, { host: 'page', ...props })))
+  expect(sheet().dataset.sheetSurface).toBe('popover')
+  for (const c of ['bg-popover', 'text-popover-foreground', 'border-border']) expect(sheet().classList.contains(c)).toBe(true)
+  // No glass left on it: no translucent tint, no sheen, no blur.
+  expect(sheet().className).not.toMatch(/bot-glass|backdrop-blur|linear-gradient|bg-white\/|rgb\(24_24_28/)
+  await act(async () => root.render(h(AgentHudView, { host: 'window', ...props })))
+  expect(sheet().dataset.sheetSurface).toBe('glass')
+  expect(sheet().classList.contains('bot-glass')).toBe(true)
+  expect(sheet().classList.contains('bg-popover')).toBe(false)
+})
+
 it('an empty feed waits for the call', async () => {
   await act(async () => root.render(h(AgentHudView, { host: 'window', feed: EMPTY_HUD_FEED, actions: { sendVoiceIdAction: () => {} } })))
   await flush()

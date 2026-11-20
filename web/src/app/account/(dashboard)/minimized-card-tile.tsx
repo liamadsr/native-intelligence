@@ -305,6 +305,18 @@ const TILE_BOX = 'fixed hidden aspect-[16/10] rounded-3xl md:[html[data-app-rail
  */
 const TILE_LOOK = cn('overflow-hidden border border-border/60', TILE_BOX, COLUMN_CARD_SKIN, 'bg-clip-padding shadow-md shadow-black/[0.08] dark:shadow-black/40')
 
+/**
+ * The blur just inside the tile's edge, over its preview: a backdrop blur
+ * masked to a band along each side (two crossed gradients, added: full at the
+ * edge and in the corners, easing out over 44px so no line shows where it
+ * ends; Liam, 11-20: "more spread out so it doesn't feel so visible"), in the
+ * tile's own rounding.
+ */
+const TILE_EDGE_BLUR = cn(
+  'pointer-events-none absolute inset-0 rounded-[inherit] backdrop-blur-[4px]',
+  '[mask-image:linear-gradient(to_right,#000,rgb(0_0_0/0.55)_12px,rgb(0_0_0/0.2)_28px,transparent_44px,transparent_calc(100%-44px),rgb(0_0_0/0.2)_calc(100%-28px),rgb(0_0_0/0.55)_calc(100%-12px),#000),linear-gradient(to_bottom,#000,rgb(0_0_0/0.55)_12px,rgb(0_0_0/0.2)_28px,transparent_44px,transparent_calc(100%-44px),rgb(0_0_0/0.2)_calc(100%-28px),rgb(0_0_0/0.55)_calc(100%-12px),#000)]',
+)
+
 /** A card that left before its flight began: how long home stays clear while the window flies off it, ms (the palette's curve has it out of the chat's column by then). */
 const HOME_AFTER_WINDOW_MS = 90
 
@@ -361,6 +373,12 @@ function Tile({
         className="absolute inset-0 z-10 rounded-[inherit] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
       />
       <TilePreview preview={card.preview ?? null} spec={card.spec} />
+      {/* A soft blur just inside the tile's edge (Liam, 11-20: "add a blur on
+          the inner so you don't really see the content that's cut off because
+          of the way it's rounded"): the copy's rows cut by the edge and the
+          24px corners go soft, its middle stays sharp. One small blur over the
+          still copy (the copy's own blurs stay off), masked to a band that eases out. */}
+      {card.preview && <div aria-hidden data-minimized-card-edge-blur="" className={TILE_EDGE_BLUR} />}
       {/* Clear it: the open view's header close (show-tool-card.tsx
           `data-card-header-close`: a 28px circle, the X at size-4 and 1.75,
           muted to foreground, the same hover tint), on a round backing of the

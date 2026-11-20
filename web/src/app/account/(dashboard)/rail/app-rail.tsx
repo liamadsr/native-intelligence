@@ -13,8 +13,8 @@
  *               panel lets put it to the right of the search button";
  *               page-panel/page-panel-toggle.tsx), there only while the
  *               panel has something to show.
- *   the bar     down the left, just under the header: Home first, a
- *               hairline, then the pages the person has pinned, in their
+ *   the bar     down the left, just under the header: Create (the +)
+ *               first, then Home, a hairline, then the pages the person has pinned, in their
  *               order (./rail-pages.ts railLayout; by default every page the
  *               workspace has on, a hairline between its groups: your work,
  *               customers, agents), then Customize bar's icon. Where
@@ -37,6 +37,12 @@
  * page. Hiding an icon never turns its page off: it still opens from `/`,
  * Search and links. A custom order is one list, no hairlines.
  *
+ *   Create   (Liam, 11-20: "a + Create button, first in the app's left
+ *            rail … please don't add anything else to the side panel other
+ *            than the + button"): the Create dialog (create-dialog.tsx), as
+ *            `c` opens it (lib/create/open-create.ts). Fixed at the bar's
+ *            very top, above Home: not in Customize bar, never dragged,
+ *            unpinned or counted in the person's saved order.
  *   Search   the `/` palette, as ⌘K and `/` open it (the top bar's own
  *            Search is a phone's only now: Liam, 11-09).
  *   Home     (Liam, 11-11: "I think we should add a homepage icon on the
@@ -44,7 +50,7 @@
  *            button"): the chat. Puts away whatever card is in front, as a
  *            page's X and Esc do (front-card.ts minimizeFrontCards: into the tile). Fixed at
  *            the bar's top: not in Customize bar, never dragged, unpinned or
- *            counted in the person's saved order. Still no New button.
+ *            counted in the person's saved order.
  *   a page   opens as `/` opens it (openTarget `page`): full screen in the
  *            main chat, the same card brought back when it was opened before.
  *            Another page open already is switched in place.
@@ -77,7 +83,7 @@
  * changes, or the workspace's edition changes.
  */
 import { useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { House, LayoutList, Search, Settings2 } from 'lucide-react'
+import { House, LayoutList, Plus, Search, Settings2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getMountedServerSnapshot, getMountedSnapshot, subscribeMounted, useHasTrafficLights, useIsDesktop } from '@/components/desktop-titlebar'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -89,7 +95,9 @@ import { WorkspaceSwitcher, useIsWorkspaceGuest, useWorkspaceEdition } from '@/a
 import { pagesFor } from '@/lib/chat-cards/page-menu'
 import { openTarget } from '@/lib/chat-cards/open-card'
 import { openSearch } from '@/lib/chat/open-search'
+import { openCreateDialog } from '@/lib/create/open-create'
 import { useModKeyLabel } from '@/lib/hotkeys'
+import { goToFor, goToKeys, keysChips } from '@/lib/shortcuts'
 import { minimizeFrontCards } from '@/components/chat-cards/front-card'
 import { COLUMN_CARD_SKIN } from '@/components/attention/card-skin'
 import { isDefaultRailPrefs, type RailPrefs } from '@/lib/rail-prefs'
@@ -142,6 +150,22 @@ const ITEM_ACTIVE = 'bg-foreground/[0.08] text-sidebar-foreground hover:bg-foreg
 const TIP = 'flex items-center gap-1.5 rounded-lg border bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-md'
 const KBD = 'inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-[4px] border bg-muted/60 px-1 text-[10px] font-medium text-muted-foreground'
 
+/**
+ * A rail item's go-to (lib/shortcuts.ts) in its tooltip: G, then its letter.
+ * A group's own (SEO), else the page its icon opens by default.
+ */
+function GoToHint({ home, group, slug }: { home?: boolean; group?: string; slug?: string }) {
+  const def = home ? goToFor({ home: true }) : ((group && goToFor({ group })) || goToFor({ slug }))
+  if (!def) return null
+  const [[first], [second]] = keysChips(goToKeys(def.letter), false)
+  return (
+    <span data-app-rail-shortcut={def.letter} aria-label={`Shortcut: G then ${def.letter.toUpperCase()}`} className="flex items-center gap-0.5">
+      <kbd className={KBD}>{first}</kbd>
+      <kbd className={KBD}>{second}</kbd>
+    </span>
+  )
+}
+
 /** The page in front takes the keys (its own: mail's j/k, Esc). */
 function focusFrontPage(): void {
   const layer = document.querySelector<HTMLElement>('[data-chat-card-fullscreen]')
@@ -155,6 +179,7 @@ function RailButton({
   onClick,
   buttonRef,
   data,
+  className,
   children,
 }: {
   label: string
@@ -163,6 +188,7 @@ function RailButton({
   onClick: () => void
   buttonRef?: React.Ref<HTMLButtonElement>
   data?: Record<string, string>
+  className?: string
   children: ReactNode
 }) {
   return (
@@ -174,7 +200,7 @@ function RailButton({
           aria-label={label}
           aria-current={active ? 'page' : undefined}
           onClick={onClick}
-          className={cn(ITEM, active && ITEM_ACTIVE)}
+          className={cn(ITEM, active && ITEM_ACTIVE, className)}
           {...data}
         >
           {children}
@@ -250,6 +276,7 @@ function PageButton({
         </TooltipTrigger>
         <TooltipContent side="right" sideOffset={8} collisionPadding={8} className={TIP}>
           <span>{label}</span>
+          <GoToHint group={isPageGroupId(def.id) ? def.id : undefined} slug={entry.page.slug} />
         </TooltipContent>
       </Tooltip>
       <ContextMenuContent data-app-rail-menu={def.id} className="min-w-44" onCloseAutoFocus={onMenuClosed}>
@@ -536,8 +563,19 @@ export function AppRail() {
             <div className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto overflow-x-hidden pb-2 [scrollbar-width:none]">
               <div className="flex flex-col items-start gap-1.5 pl-2">
                 <div data-app-rail-pill="pages" className={PILL}>
+                  {/* Create (Liam, 11-20), fixed above Home: the Create dialog, as `c` opens it. A filled
+                      circle, so it reads as the one action in a bar of places. Not one of the person's pages. */}
+                  <RailButton
+                    label="Create"
+                    hint={<kbd className={KBD}>C</kbd>}
+                    onClick={() => openCreateDialog()}
+                    className="bg-foreground/[0.07] text-sidebar-foreground ring-1 ring-inset ring-foreground/10 hover:bg-foreground/[0.12]"
+                    data={{ 'data-app-rail-item': 'create', 'aria-keyshortcuts': 'C' }}
+                  >
+                    <Plus className="size-[18px]" strokeWidth={2} />
+                  </RailButton>
                   {/* Home (Liam, 11-11), fixed at the top: the chat, every card in front put away. Not one of the person's pages. */}
-                  <RailButton label="Home" active={active === 'home'} onClick={minimizeFrontCards} data={{ 'data-app-rail-item': 'home' }}>
+                  <RailButton label="Home" hint={<GoToHint home />} active={active === 'home'} onClick={minimizeFrontCards} data={{ 'data-app-rail-item': 'home' }}>
                     <House className="size-[18px]" strokeWidth={1.75} />
                   </RailButton>
                   <div aria-hidden data-app-rail-home-line="" className={HAIRLINE} />

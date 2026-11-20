@@ -1,12 +1,26 @@
 'use client'
 
 import { useEffect, useRef, useCallback } from 'react'
-import { sanitizeEmailHtml, processEmailForDisplay } from './email-sanitize'
+import { prepareEmailForDisplay } from './email-sanitize'
+import { adaptEmailColors } from './email-colors'
 import { isOpenableUrl, openExternalUrl, openInSystemBrowser } from '@/lib/open-external'
 
 interface EmailContentProps {
   html: string
   senderEmail?: string
+}
+
+/**
+ * Put an email on the page: sanitized, drawn on its own canvas or on the
+ * theme (email-colors' two modes), and in the second case re-coloured against
+ * the theme's background now that its styles can be computed. Always from the
+ * original HTML, so a theme switch never compounds an earlier re-colouring.
+ */
+function renderEmail(root: ShadowRoot, html: string, dark: boolean) {
+  const display = prepareEmailForDisplay(html, dark)
+  root.innerHTML = display.html
+  ;(root.host as HTMLElement).dataset.emailMode = display.mode
+  if (display.mode === 'adapt') adaptEmailColors(root, display.pageBackground)
 }
 
 /**
@@ -32,12 +46,8 @@ export function EmailContent({ html, senderEmail }: EmailContentProps) {
   useEffect(() => {
     if (!shadowRootRef.current || !html) return
 
-    const dark = isDarkMode()
-    const sanitized = sanitizeEmailHtml(html)
-    const processed = processEmailForDisplay(sanitized, dark)
-
-    shadowRootRef.current.innerHTML = processed
     const root = shadowRootRef.current
+    renderEmail(root, html, isDarkMode())
 
     // Intercept link clicks: a web link opens in the user's own browser. On
     // desktop, window.open is dropped, so a web link must go through
@@ -85,10 +95,7 @@ export function EmailContent({ html, senderEmail }: EmailContentProps) {
   useEffect(() => {
     const observer = new MutationObserver(() => {
       if (!shadowRootRef.current || !html) return
-      const dark = isDarkMode()
-      const sanitized = sanitizeEmailHtml(html)
-      const processed = processEmailForDisplay(sanitized, dark)
-      shadowRootRef.current.innerHTML = processed
+      renderEmail(shadowRootRef.current, html, isDarkMode())
     })
 
     observer.observe(document.documentElement, {

@@ -104,6 +104,14 @@ export interface SidePanelState {
    * default): closing them there never closes the agent's own panel, nor the other way round.
    */
   codeDetailsOpen: boolean
+  /**
+   * On Code, the Code view's own For you is open (the top bar's For you button there; Liam, 11-20:
+   * a coding agent's work lives in the Code view, not the agent's For you): its cards show in the
+   * details' place, the details back when it closes. Never saved; closed with its last card.
+   */
+  codeForYou: boolean
+  /** The Code view's For you has cards to show (told by the panel). */
+  codeForYouContent: boolean
   /** The page panel has something to show beside the navigation (page-panel/page-panel.tsx). */
   pagePanel: boolean
   /** What the page panel shows is a page's sub-nav, with that page's card in front: it shows while open, room or not. Never saved. */
@@ -165,6 +173,8 @@ const SERVER: SidePanelState = {
   codeView: false,
   codeChat: false,
   codeDetailsOpen: true,
+  codeForYou: false,
+  codeForYouContent: false,
   pagePanel: false,
   pagePanelPage: false,
   pagePanelOpen: true,
@@ -263,6 +273,8 @@ function readSaved(): SidePanelState {
     codeView: false,
     codeChat: false,
     codeDetailsOpen: readKey(CODE_DETAILS_OPEN_KEY) !== '0',
+    codeForYou: false,
+    codeForYouContent: false,
     pagePanel: false,
     pagePanelPage: false,
     pagePanelOpen: readKey(PAGE_PANEL_OPEN_KEY) !== '0',
@@ -276,17 +288,25 @@ function readSaved(): SidePanelState {
  * Open on For you with none, it waits off screen (rightOpen and the view
  * kept), and the space plan gives the chat its room back.
  */
-export function rightShown(s: Pick<SidePanelState, 'rightOpen' | 'view' | 'forYouContent'> & Partial<Pick<SidePanelState, 'codeView' | 'codeChat' | 'codeDetailsOpen'>>): boolean {
-  // On Code the panel holds the selected coding chat's details (none selected: off screen), open or
-  // closed by its own switch; the agent's own panel waits, as it was, for the way back.
-  if (s.codeView) return !!s.codeChat && s.codeDetailsOpen !== false
+type CodePanelFields = 'codeView' | 'codeChat' | 'codeDetailsOpen' | 'codeForYou' | 'codeForYouContent'
+
+/** On Code: the Code view's own For you is on screen (opened by its button, and it has cards). */
+function codeForYouShown(s: Partial<Pick<SidePanelState, CodePanelFields>>): boolean {
+  return !!s.codeForYou && !!s.codeForYouContent
+}
+
+export function rightShown(s: Pick<SidePanelState, 'rightOpen' | 'view' | 'forYouContent'> & Partial<Pick<SidePanelState, CodePanelFields>>): boolean {
+  // On Code the panel holds the Code view's For you while it's open, else the selected coding
+  // chat's details (none selected: off screen), open or closed by their own switch; the agent's own
+  // panel waits, as it was, for the way back.
+  if (s.codeView) return codeForYouShown(s) || (!!s.codeChat && s.codeDetailsOpen !== false)
   return s.rightOpen && (s.view === 'panel' || s.forYouContent)
 }
 
 /** The view on screen now, or null with the panel off screen: what lights its button. */
-export function shownView(s: Pick<SidePanelState, 'rightOpen' | 'view' | 'forYouContent'> & Partial<Pick<SidePanelState, 'codeView' | 'codeChat' | 'codeDetailsOpen'>>): SidePanelView | null {
-  // On Code the panel has one view, the coding chat's details: the side panel's button is its button.
-  if (s.codeView) return rightShown(s) ? 'panel' : null
+export function shownView(s: Pick<SidePanelState, 'rightOpen' | 'view' | 'forYouContent'> & Partial<Pick<SidePanelState, CodePanelFields>>): SidePanelView | null {
+  // On Code the panel's two views are the Code view's For you and the coding chat's details (the side panel's button is theirs).
+  if (s.codeView) return codeForYouShown(s) ? 'forYou' : rightShown(s) ? 'panel' : null
   return rightShown(s) ? s.view : null
 }
 
@@ -365,9 +385,11 @@ export function setSidePanelView(view: SidePanelView): void {
  */
 export function toggleRightPanel(): void {
   const current = getSidePanelState()
-  // On Code: the coding chat's details open or close (their own switch); the agent's panel is left as it was.
+  // On Code: the Code view's For you closes while it shows (the details back if they were open), else
+  // the coding chat's details open or close (their own switch); the agent's panel is left as it was.
   if (current.codeView) {
-    toggleCodeDetails()
+    if (shownView(current) === 'forYou') setCodeForYouOpen(false)
+    else toggleCodeDetails()
     return
   }
   if (rightShown(current)) {
@@ -385,9 +407,17 @@ export function toggleRightPanel(): void {
  * with cards.
  */
 export function toggleSidePanelView(view: SidePanelView): void {
-  // On Code there is one view (the coding chat's details): its button opens or closes it, the agent's panel left as it was.
-  if (getSidePanelState().codeView) {
-    toggleCodeDetails()
+  const current = getSidePanelState()
+  // On Code the two views are the Code view's For you and the coding chat's details, the agent's panel left as it was.
+  if (current.codeView) {
+    const shown = shownView(current)
+    // For you: opens over the details, or closes while it shows (the details back if they were open).
+    if (view === 'forYou') setCodeForYouOpen(shown !== 'forYou')
+    // The details' button: from For you, back to the details, open; else they open or close.
+    else if (shown === 'forYou') {
+      setCodeForYouOpen(false)
+      setCodeDetailsOpen(true)
+    } else toggleCodeDetails()
     return
   }
   if (shownView(getSidePanelState()) === view) {
@@ -476,6 +506,19 @@ export function setCodeDetailsOpen(open: boolean): void {
 
 function toggleCodeDetails(): void {
   setCodeDetailsOpen(!getSidePanelState().codeDetailsOpen)
+}
+
+/** Open or close the Code view's own For you (its button on Code). */
+export function setCodeForYouOpen(open: boolean): void {
+  set({ codeForYou: open })
+}
+
+/**
+ * The panel says whether the Code view's For you has cards. With none it
+ * closes, so the next card never opens it over the details unasked.
+ */
+export function setCodeForYouContent(has: boolean): void {
+  set(has ? { codeForYouContent: true } : { codeForYouContent: false, codeForYou: false })
 }
 
 /** A coding chat is selected in the Code view, or none (chat/code-view-store.ts). */

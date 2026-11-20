@@ -34,9 +34,9 @@ export function DayViewMultiDayEventsRow({ selectedDate, multiDayEvents }: IProp
   if (multiDayEventsInDay.length === 0) return null;
 
   return (
-    <div className="flex min-w-0 border-b">
-      <div className="w-18 shrink-0"></div>
-      <div className="flex min-w-0 flex-1 flex-col gap-1 border-l py-1">
+    <div className="flex min-w-0 border-b border-border/60">
+      <div className="flex w-18 shrink-0 items-start justify-end pr-2 pt-1.5 text-[10px] text-muted-foreground/70">all-day</div>
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5 border-l border-border/60 py-1">
         {multiDayEventsInDay.map(event => {
           const eventStart = startOfDay(parseISO(event.startDate));
           const eventEnd = startOfDay(parseISO(event.endDate));
@@ -45,7 +45,7 @@ export function DayViewMultiDayEventsRow({ selectedDate, multiDayEvents }: IProp
           const eventTotalDays = differenceInDays(eventEnd, eventStart) + 1;
           const eventCurrentDay = differenceInDays(currentDate, eventStart) + 1;
 
-          return <MonthEventBadge key={event.id} event={event} cellDate={selectedDate} eventCurrentDay={eventCurrentDay} eventTotalDays={eventTotalDays} />;
+          return <MonthEventBadge key={event.id} event={event} cellDate={selectedDate} eventCurrentDay={eventCurrentDay} eventTotalDays={eventTotalDays} slim />;
         })}
       </div>
     </div>

@@ -1,6 +1,5 @@
 'use client'
 
-import { PreferenceActionButton } from '@/components/views/preference-action'
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
@@ -31,6 +30,8 @@ import { usePropertiesVisible } from '@/components/views/use-properties-visible'
 import { WindowProperties, WindowActions } from '@/components/views/window-properties'
 import { UnifiedViewLayout } from '@/components/views/unified-view-layout'
 import { PropertyGroup } from '@/components/views/property-group'
+import { OptionalProperty, PropertyRow, PropertyRows } from '@/components/views/property-layout'
+import { OptionalTextProperty } from '@/components/views/properties/optional-text-property'
 import {
   EnrichButton,
   EnrichedBadge,
@@ -333,21 +334,17 @@ export function CompanyDetailPanel({
           {/* Enrich from web — fills empty fields from public sources and files
                     the provenance under Enrichment in the properties sidebar. */}
           {company && <EnrichButton onClick={enrich} busy={enriching} />}
-          {company && <EntityActionsMenu entity={{ type: 'company', id: companyId, label: company.name }} omit={PANEL_OMIT} />}
           {/* Share with people, teams and channels (migrations 492, 512): only
                     an owner or admin may share a company, so no one else sees it. */}
           {company && canShareCompanies && <ShareDialog shareableType="company" shareableId={companyId} />}
-          {/* Delete — cascades to every person at the company, so the dialog
-                    dry-runs the delete and shows the exact people count first. */}
-          <PreferenceActionButton
-            label="Delete company"
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0 text-muted-foreground hover:text-red-500"
-            onClick={() => setDeleteOpen(true)}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </PreferenceActionButton>
+          {/* More, last (docs/plans/properties-panels.md): the kind's menu, then
+                    Delete, which cascades to every person at the company, so the
+                    dialog dry-runs the delete and shows the exact people count first. */}
+          <EntityActionsMenu
+            entity={{ type: 'company', id: companyId, label: company?.name ?? '' }}
+            omit={PANEL_OMIT}
+            extra={[{ id: 'delete', label: 'Delete company', icon: Trash2, danger: true, onSelect: () => setDeleteOpen(true) }]}
+          />
         </WindowActions>
       </div>
 
@@ -487,10 +484,16 @@ export function CompanyDetailPanel({
             {/* Page-level properties inspector. */}
             <WindowProperties key={companyId} title={company.name || 'Company'} fallbackVisible={propertiesOpen}>
                     <div className="p-4 space-y-4">
-                      <PropertyGroup title="Properties">
+                      {/* The shared frame (docs/plans/properties-panels.md): the
+                          domain is the core row; every other field is a row
+                          when it has a value and a chip in the add strip when
+                          it has none. */}
+                      <PropertyGroup>
+                        <PropertyRows>
                         {/* Every text row is a TextPropertyRow: icon, inline
                             input, hover copy button, then the enrichment mark
                             for columns the web run can write. */}
+                        <PropertyRow>
                         <TextPropertyRow
                           icon={<Globe className="h-4 w-4 shrink-0 text-muted-foreground" />}
                           value={company.domain}
@@ -498,7 +501,8 @@ export function CompanyDetailPanel({
                           onCommit={(v) => patchCompany({ domain: v || null })}
                           placeholder="Domain"
                         />
-                        <TextPropertyRow
+                        </PropertyRow>
+                        <OptionalTextProperty
                           icon={<LinkIcon className="h-4 w-4 shrink-0 text-muted-foreground" />}
                           value={company.website}
                           onChange={(v) => setCompany({ ...company, website: v })}
@@ -508,7 +512,7 @@ export function CompanyDetailPanel({
                             <EnrichedFieldMark enrichment={company.metadata?.enrichment} field="website" />
                           }
                         />
-                        <TextPropertyRow
+                        <OptionalTextProperty
                           icon={<Mail className="h-4 w-4 shrink-0 text-muted-foreground" />}
                           value={company.contact_email}
                           onChange={(v) => setCompany({ ...company, contact_email: v })}
@@ -518,7 +522,7 @@ export function CompanyDetailPanel({
                             <EnrichedFieldMark enrichment={company.metadata?.enrichment} field="contact_email" />
                           }
                         />
-                        <TextPropertyRow
+                        <OptionalTextProperty
                           icon={<Phone className="h-4 w-4 shrink-0 text-muted-foreground" />}
                           value={company.phone}
                           onChange={(v) => setCompany({ ...company, phone: v })}
@@ -528,7 +532,7 @@ export function CompanyDetailPanel({
                             <EnrichedFieldMark enrichment={company.metadata?.enrichment} field="phone" />
                           }
                         />
-                        <TextPropertyRow
+                        <OptionalTextProperty
                           icon={<Factory className="h-4 w-4 shrink-0 text-muted-foreground" />}
                           value={company.industry}
                           onChange={(v) => setCompany({ ...company, industry: v })}
@@ -543,6 +547,8 @@ export function CompanyDetailPanel({
                             h-8 row, so the copy button and enrichment mark ride
                             alongside it in a flex wrapper rather than inside the
                             trigger — the shared picker keeps no adornment slot. */}
+                        <OptionalProperty set={!!company.employee_count_range}>
+                        {company.employee_count_range ? (
                         <div className="group/row flex items-center gap-1 pr-2">
                           <div className="min-w-0 flex-1">
                             <EnumPanelField
@@ -559,8 +565,18 @@ export function CompanyDetailPanel({
                             field="employee_count_range"
                           />
                         </div>
+                        ) : (
+                          <EnumPanelField
+                            value={company.employee_count_range}
+                            options={EMPLOYEE_COUNT_OPTIONS.map((value) => ({ value, label: value }))}
+                            onChange={(v) => patchCompany({ employee_count_range: v })}
+                            placeholder="Employee count"
+                            icon={<Users className="h-4 w-4 shrink-0 text-muted-foreground" />}
+                          />
+                        )}
+                        </OptionalProperty>
 
-                        <TextPropertyRow
+                        <OptionalTextProperty
                           icon={<MapPin className="h-4 w-4 shrink-0 text-muted-foreground" />}
                           value={company.address}
                           onChange={(v) => setCompany({ ...company, address: v })}
@@ -570,7 +586,7 @@ export function CompanyDetailPanel({
                             <EnrichedFieldMark enrichment={company.metadata?.enrichment} field="address" />
                           }
                         />
-                        <TextPropertyRow
+                        <OptionalTextProperty
                           icon={<MapPin className="h-4 w-4 shrink-0 text-muted-foreground/50" />}
                           value={company.city}
                           onChange={(v) => setCompany({ ...company, city: v })}
@@ -580,7 +596,7 @@ export function CompanyDetailPanel({
                             <EnrichedFieldMark enrichment={company.metadata?.enrichment} field="city" />
                           }
                         />
-                        <TextPropertyRow
+                        <OptionalTextProperty
                           icon={<MapPin className="h-4 w-4 shrink-0 text-muted-foreground/50" />}
                           value={company.state}
                           onChange={(v) => setCompany({ ...company, state: v })}
@@ -590,7 +606,7 @@ export function CompanyDetailPanel({
                             <EnrichedFieldMark enrichment={company.metadata?.enrichment} field="state" />
                           }
                         />
-                        <TextPropertyRow
+                        <OptionalTextProperty
                           icon={<MapPin className="h-4 w-4 shrink-0 text-muted-foreground/50" />}
                           value={company.country}
                           onChange={(v) => setCompany({ ...company, country: v })}
@@ -605,6 +621,7 @@ export function CompanyDetailPanel({
                             the `tags` column, API and filtering stay, but the
                             UI waits for CRM to move onto the shared Labels
                             system. */}
+                        </PropertyRows>
                       </PropertyGroup>
 
                       {/* Enrichment status + summary. The structured fields

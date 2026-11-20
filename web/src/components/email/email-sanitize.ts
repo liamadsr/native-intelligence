@@ -1,6 +1,27 @@
 'use client'
 
 import DOMPurify from 'dompurify'
+import { emailCanvasMode, luminance, parseCssColor, readBodyPaint, type BodyPaint, type EmailCanvasMode } from './email-colors'
+
+/**
+ * CSS an email may not bring, in a <style> block or a style attribute:
+ *  - `@import`: a stylesheet fetched from the sender's server, which says the
+ *    mail was opened and can change after delivery;
+ *  - rules aimed at the shadow host (`:host`, `::slotted`), which would style
+ *    our own element instead of the email's;
+ *  - `position: fixed | sticky`, which would let it draw over the app (the
+ *    host also contains its layout, in buildThemeStyles);
+ *  - `behavior`, `-moz-binding` and `expression()`, old script hooks.
+ * Everything else stays as the sender wrote it.
+ */
+export function sanitizeEmailCss(css: string): string {
+  return css
+    .replace(/@import\b[^;]*;?/gi, '')
+    .replace(/[^{}]*(?::host\b|::slotted\b)[^{}]*\{[^{}]*\}/gi, '')
+    .replace(/position\s*:\s*(?:fixed|sticky)/gi, 'position: static')
+    .replace(/(?:behavior|-moz-binding)\s*:[^;}]*/gi, '')
+    .replace(/expression\s*\([^)]*\)/gi, '')
+}
 
 /**
  * Sanitize raw email HTML with DOMPurify — removes scripts, event handlers, etc.
@@ -8,7 +29,7 @@ import DOMPurify from 'dompurify'
 export function sanitizeEmailHtml(html: string): string {
   if (typeof window === 'undefined') return html
 
-  return DOMPurify.sanitize(html, {
+  const clean = DOMPurify.sanitize(html, {
     ALLOWED_TAGS: [
       'p', 'div', 'span', 'a', 'br', 'hr', 'table', 'thead', 'tbody',
       'tr', 'td', 'th', 'img', 'b', 'strong', 'i', 'em', 'u', 'ul', 'ol', 'li',
@@ -26,6 +47,51 @@ export function sanitizeEmailHtml(html: string): string {
     // the parser puts it in the head, and only the body comes back.
     FORCE_BODY: true,
   })
+  return tightenEmailCss(clean)
+}
+
+/** Run every <style> block and style attribute through sanitizeEmailCss. */
+function tightenEmailCss(html: string): string {
+  if (!/style|@import|position/i.test(html)) return html
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  let touched = false
+  doc.querySelectorAll('style').forEach((el) => {
+    const css = el.textContent || ''
+    const next = sanitizeEmailCss(css)
+    if (next !== css) {
+      el.textContent = next
+      touched = true
+    }
+  })
+  doc.querySelectorAll('[style]').forEach((el) => {
+    const css = el.getAttribute('style') || ''
+    const next = sanitizeEmailCss(css)
+    if (next !== css) {
+      el.setAttribute('style', next)
+      touched = true
+    }
+  })
+  if (!touched) return html
+  const headStyles = Array.from(doc.head.querySelectorAll('style'), (el) => el.outerHTML).join('')
+  return headStyles + doc.body.innerHTML
+}
+
+export interface EmailDisplayOptions {
+  /** The page colours the email's own <body> asked for (readBodyPaint, from the raw HTML). */
+  bodyPaint?: BodyPaint
+}
+
+export interface EmailDisplay {
+  html: string
+  /** "canvas": drawn as authored on its own page. "adapt": on the theme, to be re-coloured once mounted. */
+  mode: EmailCanvasMode
+  /** The background the email's text sits on: what adaptEmailColors measures against. */
+  pageBackground: string
+}
+
+/** Sanitize a raw email and prepare it for the page, in one go. */
+export function prepareEmailForDisplay(rawHtml: string, isDark: boolean): EmailDisplay {
+  return processEmailDisplay(sanitizeEmailHtml(rawHtml), isDark, { bodyPaint: readBodyPaint(rawHtml) })
 }
 
 /**
@@ -35,7 +101,11 @@ export function sanitizeEmailHtml(html: string): string {
  * - Force links to open externally
  * - Inject theme-aware CSS via :host
  */
-export function processEmailForDisplay(sanitizedHtml: string, isDark: boolean): string {
+export function processEmailForDisplay(sanitizedHtml: string, isDark: boolean, options: EmailDisplayOptions = {}): string {
+  return processEmailDisplay(sanitizedHtml, isDark, options).html
+}
+
+function processEmailDisplay(sanitizedHtml: string, isDark: boolean, options: EmailDisplayOptions): EmailDisplay {
   const parser = new DOMParser()
   const doc = parser.parseFromString(sanitizedHtml, 'text/html')
 
@@ -92,18 +162,40 @@ export function processEmailForDisplay(sanitizedHtml: string, isDark: boolean): 
     quote.replaceWith(details)
   })
 
-  // 5. Build theme-aware CSS for :host (Shadow DOM root)
-  const themeStyles = buildThemeStyles(isDark)
+  // 5. Which way it is drawn (email-colors): a designed email, or one whose
+  // <body> set a page colour, keeps its own page; a plain one takes the theme's.
+  const paint = options.bodyPaint ?? {}
+  const mode: EmailCanvasMode = paint.background ? 'canvas' : emailCanvasMode(doc)
+  const canvas = mode === 'canvas' ? { background: paint.background ?? '#ffffff', color: paint.color } : null
+  // The palette follows the page the text is on: the canvas's, else the theme's.
+  const canvasColor = canvas ? parseCssColor(canvas.background) : null
+  const darkPalette = canvasColor ? luminance(canvasColor) < 0.4 : isDark
+
+  // 6. Build theme-aware CSS for :host (Shadow DOM root)
+  const themeStyles = buildThemeStyles(darkPalette, canvas ? { ...canvas, framed: isDark !== darkPalette || !!paint.background } : null)
   // A leading <style> parses into the head; keep the email's own CSS.
   const headStyles = Array.from(doc.head.querySelectorAll('style'), (el) => el.outerHTML).join('')
   const bodyHtml = doc.body.innerHTML
 
-  return `${themeStyles}${headStyles}${bodyHtml}`
+  return {
+    html: `${themeStyles}${headStyles}${bodyHtml}`,
+    mode,
+    pageBackground: canvas?.background ?? (isDark ? THEME_DARK_BG : THEME_LIGHT_BG),
+  }
 }
 
-function buildThemeStyles(isDark: boolean): string {
-  const bg = isDark ? '#1a1a1a' : '#ffffff'
-  const fg = isDark ? '#e5e5e5' : '#1a1a1a'
+const THEME_DARK_BG = '#1a1a1a'
+const THEME_LIGHT_BG = '#ffffff'
+
+/**
+ * The base stylesheet. `canvas`: the email's own page (its background, its
+ * text colour when it set one), framed with a little padding and rounded
+ * corners when it differs from the app's theme, so it reads as a sheet of
+ * paper and not as a broken panel.
+ */
+function buildThemeStyles(isDark: boolean, canvas: { background: string; color?: string; framed: boolean } | null = null): string {
+  const bg = canvas?.background ?? (isDark ? THEME_DARK_BG : THEME_LIGHT_BG)
+  const fg = canvas?.color ?? (isDark ? '#e5e5e5' : '#1a1a1a')
   const fgMuted = isDark ? '#a3a3a3' : '#6b7280'
   const linkColor = isDark ? '#60a5fa' : '#2563eb'
   const borderColor = isDark ? '#374151' : '#d1d5db'
@@ -114,7 +206,8 @@ function buildThemeStyles(isDark: boolean): string {
   return `<style>
   :host {
     display: block;
-    background-color: ${bg};
+    /* A plain email sits straight on the message card; only a canvas paints a page. */
+    background-color: ${canvas ? bg : 'transparent'};
     color: ${fg};
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
     font-size: 14px;
@@ -122,7 +215,13 @@ function buildThemeStyles(isDark: boolean): string {
     word-break: break-word;
     overflow-wrap: break-word;
     -webkit-font-smoothing: antialiased;
-    padding: 0;
+    padding: ${canvas?.framed ? '16px' : '0'};
+    border-radius: ${canvas?.framed ? '8px' : '0'};
+    /* The email lays out and paints inside this box: nothing in it can be
+       positioned over the app, and its form controls and scrollbars follow
+       the page it is on, not the app's theme. */
+    contain: content;
+    color-scheme: ${isDark ? 'dark' : 'light'};
   }
 
   /* Reset email styles that may conflict */

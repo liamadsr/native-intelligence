@@ -10,7 +10,10 @@
  *     closes the panel while For you shows; aria-controls the panel;
  *   • the side panel's: opens it on the sections, swaps to them, or closes
  *     it while they show;
- *   • each lit only while its own view is on screen: never both.
+ *   • each lit only while its own view is on screen: never both;
+ *   • on Code (Liam, 11-20) For you's button is the Code view's own: a coding
+ *     agent's work only, with its count; it opens those cards over the
+ *     coding chat's details and closes them again, the details back.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, createElement as h } from 'react'
@@ -18,8 +21,11 @@ import { createRoot, type Root } from 'react-dom/client'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
-const { entries } = vi.hoisted(() => ({ entries: { count: 3 } }))
-vi.mock('../../chat/for-you-column', () => ({ useForYouEntries: () => Array.from({ length: entries.count }, (_, i) => ({ id: `e${i}` })) }))
+const { entries } = vi.hoisted(() => ({ entries: { count: 3, codeCount: 0 } }))
+vi.mock('../../chat/for-you-column', () => ({
+  useForYouEntries: () => Array.from({ length: entries.count }, (_, i) => ({ id: `e${i}` })),
+  useCodeForYouEntries: () => Array.from({ length: entries.codeCount }, (_, i) => ({ id: `c${i}` })),
+}))
 vi.mock('../../chat/chat-widgets', () => ({ useAgentsSummary: () => ({ running: 0 }) }))
 vi.mock('../side-panels', async () => {
   const React = await import('react')
@@ -40,6 +46,7 @@ beforeEach(() => {
   window.localStorage.clear()
   store.resetSidePanelStore()
   entries.count = 3
+  entries.codeCount = 0
   // The panel tells the store For you has cards (side-panels.tsx); here, by hand.
   store.setForYouContent(true)
   container = document.createElement('div')
@@ -160,5 +167,53 @@ describe('the side panel’s button', () => {
   it('in the header, a 32px circle with nothing running (not a 34×32 oval)', () => {
     act(() => root.render(<TooltipProvider><SidePanelToggle variant="header" /></TooltipProvider>))
     expect(side()!.className.split(' ')).toContain('w-8')
+  })
+})
+
+describe('on Code: the Code view’s own For you (Liam, 11-20)', () => {
+  /** On Code with a coding chat selected, its details open (their default), the coding cards told to the store. */
+  const onCode = (codeCards: number) => {
+    entries.codeCount = codeCards
+    act(() => {
+      store.setCodeView(true)
+      store.setCodeChatSelected(true)
+      store.setCodeForYouContent(codeCards > 0)
+    })
+  }
+
+  it('counts a coding agent’s work only, never the agent’s cards; none with none', () => {
+    onCode(2)
+    renderHeader()
+    expect(toggle()?.getAttribute('aria-label')).toBe('For you, 2')
+    act(() => {
+      entries.codeCount = 0
+      store.setCodeForYouContent(false)
+    })
+    renderHeader()
+    expect(toggle()).toBeNull()
+  })
+
+  it('opens the coding cards over the details and closes them again, the details back; one button lit at a time', () => {
+    onCode(2)
+    renderHeader()
+    expect(store.shownView(store.getSidePanelState())).toBe('panel')
+    act(() => toggle()!.click())
+    expect(store.shownView(store.getSidePanelState())).toBe('forYou')
+    expect(toggle()?.getAttribute('aria-expanded')).toBe('true')
+    expect(side()?.getAttribute('aria-expanded')).toBe('false')
+    act(() => toggle()!.click())
+    expect(store.shownView(store.getSidePanelState())).toBe('panel')
+    // From the cards, the details' button swaps back to them.
+    act(() => toggle()!.click())
+    act(() => side()!.click())
+    expect(store.shownView(store.getSidePanelState())).toBe('panel')
+    expect(side()?.getAttribute('aria-expanded')).toBe('true')
+  })
+
+  it('the agent’s panel is left as it was', () => {
+    onCode(1)
+    renderHeader()
+    act(() => toggle()!.click())
+    expect(store.getSidePanelState()).toMatchObject({ rightOpen: false, view: 'panel' })
   })
 })

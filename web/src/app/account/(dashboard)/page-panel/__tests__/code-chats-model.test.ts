@@ -40,15 +40,31 @@ const session = (over: Partial<PanelSession> & { id: string }): PanelSession =>
   }) as PanelSession
 
 describe('codeChatsOf', () => {
-  it('keeps the Code jobs only (a send’s request id), newest first by when they last moved', () => {
+  it('lists every coding job, newest first by when it last moved: the Code tab’s and any other (Liam, 11-20)', () => {
     const items = codeChatsOf([
       session({ id: 'a', updatedAt: '2026-11-16T10:05:00.000Z' }),
       session({ id: 'b', updatedAt: '2026-11-16T12:00:00.000Z', request: 'Add a dark theme\n\nwith details' }),
-      // Started by the agent, not from the Code tab: not a coding chat.
-      session({ id: 'c', codeRequestId: undefined, updatedAt: '2026-11-16T13:00:00.000Z' }),
+      // Started by the chat agent, not from the Code tab: listed too.
+      session({ id: 'c', codeRequestId: undefined, updatedAt: '2026-11-16T13:00:00.000Z', request: 'Look into the flaky test' }),
     ])
-    expect(items.map((i) => i.key)).toEqual(['b', 'a'])
-    expect(items[0]).toMatchObject({ title: 'Add a dark theme', folder: 'web-app', workItemId: 'w1' })
+    expect(items.map((i) => i.key)).toEqual(['c', 'b', 'a'])
+    expect(items[1]).toMatchObject({ title: 'Add a dark theme', folder: 'web-app', workItemId: 'w1', action: null })
+  })
+
+  it('an action’s job goes by its action (identifier and title), never by the agent’s long brief', () => {
+    const [job] = codeChatsOf([
+      session({
+        id: 'a',
+        codeRequestId: undefined,
+        request: '[From one of your actions] Work on the card below.\n\nTitle: Fix the board pagination…',
+        actionId: 'act-1',
+        action: { id: 'act-1', identifier: 'ENG-42', title: 'Fix the board pagination' },
+      }),
+    ])
+    expect(job).toMatchObject({ title: 'Fix the board pagination', action: { id: 'act-1', identifier: 'ENG-42' } })
+    // An action with no title goes by its identifier; one the list couldn't name, by the request.
+    expect(codeChatsOf([session({ id: 'b', action: { id: 'x', identifier: 'ENG-7', title: '' } })])[0].title).toBe('ENG-7')
+    expect(codeChatsOf([session({ id: 'c', actionId: 'gone', request: 'Do the thing' })])[0]).toMatchObject({ title: 'Do the thing', action: null })
   })
 
   it('says which work now and which wait on the person’s answer', () => {

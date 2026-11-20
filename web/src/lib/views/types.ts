@@ -2,6 +2,7 @@
 // View System Types
 // ============================================================
 
+import type { CompletedFilter } from '@/lib/views/completed-window'
 import type { EntityTypeSubset } from '@/lib/knowledge/entity-registry'
 
 /**
@@ -186,7 +187,7 @@ export interface View {
   board_group_by: string | null
 
   show_completed: boolean
-  completed_filter: 'all' | 'recent' | 'none'
+  completed_filter: CompletedFilter
 
   show_sub_items: boolean
   nested_sub_items: boolean
@@ -1403,7 +1404,7 @@ export interface CreateViewBody {
   display_properties?: string[]
   board_group_by?: string
   show_completed?: boolean
-  completed_filter?: 'all' | 'recent' | 'none'
+  completed_filter?: CompletedFilter
   show_sub_items?: boolean
   nested_sub_items?: boolean
   show_empty_groups?: boolean

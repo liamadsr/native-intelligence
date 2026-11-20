@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
-import { startOfWeek, addDays, format, parseISO, isSameDay, areIntervalsOverlapping } from "date-fns";
+import { startOfWeek, addDays, format, parseISO, isSameDay, isToday } from "date-fns";
 
 import { useCalendar } from "@/calendar/contexts/calendar-context";
 
@@ -13,13 +13,38 @@ import { TimeGridDragLayer } from "@/calendar/components/week-and-day-view/time-
 import { EventInteractionLayer } from "@/calendar/components/week-and-day-view/event-interaction-layer";
 
 import { cn } from "@/lib/utils";
-import { groupEvents, getEventBlockStyle, isWorkingHour, getVisibleHours } from "@/calendar/helpers";
+import { positionDayEvents, isWorkingHour, getVisibleHours, compactTime } from "@/calendar/helpers";
 
 import type { IEvent } from "@/calendar/interfaces";
 
 interface IProps {
   singleDayEvents: IEvent[];
   multiDayEvents: IEvent[];
+}
+
+/**
+ * The slot an event block is drawn in: a hair of space around it, in its
+ * layer's paint order, and raised to the top while the pointer or the keyboard
+ * is on it, so a block that is partly covered can be read in full.
+ */
+export const EVENT_SLOT_CLASS = "absolute z-[var(--event-z)] px-px pb-0.5 hover:z-[9] focus-within:z-[9]";
+
+/** A day's heading: the weekday over its date, today's date in a filled circle. */
+export function DayHeading({ day }: { day: Date }) {
+  const today = isToday(day);
+  return (
+    <div className="flex flex-col items-center gap-0.5 py-1.5">
+      <span className={cn("text-[11px] font-medium uppercase tracking-wide", today ? "text-foreground" : "text-muted-foreground")}>{format(day, "EEE")}</span>
+      <span
+        className={cn(
+          "flex size-7 items-center justify-center rounded-full text-sm tabular-nums",
+          today ? "bg-foreground font-semibold text-background" : "text-foreground"
+        )}
+      >
+        {format(day, "d")}
+      </span>
+    </div>
+  );
 }
 
 export function CalendarWeekView({ singleDayEvents, multiDayEvents }: IProps) {
@@ -41,8 +66,8 @@ export function CalendarWeekView({ singleDayEvents, multiDayEvents }: IProps) {
     viewport.scrollTop = offsetFromViewportTop - viewport.clientHeight / 2;
   }, []);
 
-  // 7 columns × per-day grouping + O(n²) overlap checks with date parsing —
-  // compute once per (events, week) instead of on every render.
+  // Seven columns, each laid out (overlap-layout): once per (events, week), not
+  // on every render.
   const { hours, earliestEventHour, latestEventHour, weekDays, dayColumns } = useMemo(() => {
     const visible = getVisibleHours(visibleHours, singleDayEvents);
 
@@ -51,29 +76,7 @@ export function CalendarWeekView({ singleDayEvents, multiDayEvents }: IProps) {
 
     const columns = days.map(day => {
       const dayEvents = singleDayEvents.filter(event => isSameDay(parseISO(event.startDate), day) || isSameDay(parseISO(event.endDate), day));
-      const groupedEvents = groupEvents(dayEvents);
-
-      // Parse each event's bounds once per column (see calendar-day-view note):
-      // the overlap scan is O(n²) and was re-parsing both ISO strings per pair.
-      const bounds = new Map(dayEvents.map(e => [e.id, { start: parseISO(e.startDate), end: parseISO(e.endDate) }]));
-
-      const positionedEvents = groupedEvents.flatMap((group, groupIndex) =>
-        group.map(event => {
-          let style = getEventBlockStyle(event, day, groupIndex, groupedEvents.length, { from: visible.earliestEventHour, to: visible.latestEventHour });
-          const eventBounds = bounds.get(event.id)!;
-          const hasOverlap = groupedEvents.some(
-            (otherGroup, otherIndex) =>
-              otherIndex !== groupIndex &&
-              otherGroup.some(otherEvent => areIntervalsOverlapping(eventBounds, bounds.get(otherEvent.id)!))
-          );
-
-          if (!hasOverlap) style = { ...style, width: "100%", left: "0%" };
-
-          return { event, style };
-        })
-      );
-
-      return { day, positionedEvents };
+      return { day, positionedEvents: positionDayEvents(dayEvents, day, { from: visible.earliestEventHour, to: visible.latestEventHour }) };
     });
 
     return { ...visible, weekDays: days, dayColumns: columns };
@@ -88,18 +91,16 @@ export function CalendarWeekView({ singleDayEvents, multiDayEvents }: IProps) {
 
       <div className="hidden min-h-0 flex-1 flex-col sm:flex">
         <div>
-          <WeekViewMultiDayEventsRow selectedDate={selectedDate} multiDayEvents={multiDayEvents} />
-
-          <div className="relative z-20 flex border-b">
+          <div className="relative z-20 flex border-b border-border/60">
             <div className="w-18"></div>
-            <div className="grid flex-1 grid-cols-7 divide-x border-l">
+            <div className="grid flex-1 grid-cols-7">
               {weekDays.map((day, index) => (
-                <span key={index} className="py-2 text-center text-xs font-medium text-muted-foreground">
-                  {format(day, "EE")} <span className="ml-1 font-semibold text-foreground">{format(day, "d")}</span>
-                </span>
+                <DayHeading key={index} day={day} />
               ))}
             </div>
           </div>
+
+          <WeekViewMultiDayEventsRow selectedDate={selectedDate} multiDayEvents={multiDayEvents} />
         </div>
 
         <ScrollArea ref={scrollAreaRef} className="flex-1" type="always">
@@ -110,14 +111,14 @@ export function CalendarWeekView({ singleDayEvents, multiDayEvents }: IProps) {
               {hours.map((hour, index) => (
                 <div key={hour} className="relative" style={{ height: "96px" }}>
                   <div className="absolute -top-3 right-2 flex h-6 items-center">
-                    {index !== 0 && <span className="text-xs text-muted-foreground">{format(new Date().setHours(hour, 0, 0, 0), "hh a")}</span>}
+                    {index !== 0 && <span className="text-[11px] tabular-nums text-muted-foreground/80">{compactTime(new Date(new Date().setHours(hour, 0, 0, 0)))}</span>}
                   </div>
                 </div>
               ))}
             </div>
 
-            <div className="relative flex-1 border-l">
-              <div ref={gridRef} className="grid grid-cols-7 divide-x">
+            <div className="relative flex-1 border-l border-border/60">
+              <div ref={gridRef} className="grid grid-cols-7 divide-x divide-border/60">
                 {dayColumns.map(({ day, positionedEvents }, dayIndex) => (
                   <div key={dayIndex} data-day-column className="relative">
                     {hours.map((hour, index) => {
@@ -125,7 +126,7 @@ export function CalendarWeekView({ singleDayEvents, multiDayEvents }: IProps) {
 
                       return (
                         <div key={hour} className={cn("relative", isDisabled && "bg-muted/30")} style={{ height: "96px" }}>
-                          {index !== 0 && <div className="pointer-events-none absolute inset-x-0 top-0 border-b"></div>}
+                          {index !== 0 && <div className="pointer-events-none absolute inset-x-0 top-0 border-b border-border/60"></div>}
 
                           <HourSlots day={day} hour={hour} />
                         </div>
@@ -133,7 +134,7 @@ export function CalendarWeekView({ singleDayEvents, multiDayEvents }: IProps) {
                     })}
 
                     {positionedEvents.map(({ event, style }) => (
-                      <div key={`${event.id}-${event.startDate}-${event.endDate}`} className="absolute p-1" style={style}>
+                      <div key={`${event.id}-${event.startDate}-${event.endDate}`} className={EVENT_SLOT_CLASS} style={style}>
                         <EventBlock event={event} />
                       </div>
                     ))}

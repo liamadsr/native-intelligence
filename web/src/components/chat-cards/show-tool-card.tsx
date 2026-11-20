@@ -1016,6 +1016,21 @@ export function ShowToolCard({
         <div ref={rightSlotRef} data-card-header-slot="right" className="flex shrink-0 items-center empty:hidden" />
         {/* Saving a view saves the list: not while a record is open over it. */}
         {!openRecord && <SaveAsView spec={spec} configRef={configRef} />}
+        {/* The live capture's notepad: Full screen here in its header, not
+            round over its corner (Liam, 11-20: nothing floats at the foot of
+            the capture's page; its corner sat on the page's last row). */}
+        {dockMatch && !fullScreen && (
+          <button
+            type="button"
+            onClick={() => store.enterFullScreen(toolCallId)}
+            aria-label="Full screen"
+            title="Full screen"
+            data-card-header-fullscreen=""
+            className={cn('ml-1 grid size-7 shrink-0 place-items-center', CARD_HEADER_ICON_BUTTON)}
+          >
+            <Maximize2 className="size-3.5" strokeWidth={1.75} />
+          </button>
+        )}
         {/* A page the person opened (the app rail, `/`): its one close, here
             in its own header (Liam, 11-09: the floating X "feels so out of
             place", and Minimize did the same as it). */}
@@ -1141,7 +1156,8 @@ export function ShowToolCard({
   // (Back and Forward, the title, the page's controls in its slots, Save as
   // view), its page and its round Full screen and Close over its corner. In
   // the live capture's notepad (`inDock`) the same card fills the dock's spot,
-  // without Close: it leaves only when the capture ends.
+  // without Close (it leaves only when the capture ends) and with Full screen
+  // in its header instead of over its corner.
   const frame = (inDock: boolean) => (
     <div
       ref={frameRef}
@@ -1182,16 +1198,17 @@ export function ShowToolCard({
           {pulse}
           {/* Over the pulse; between them, the page underneath still takes
               its clicks. */}
-          <div className="pointer-events-none absolute bottom-3 right-3 z-30 flex items-center gap-2">
-            <OverlayButton label="Full screen" onClick={() => store.enterFullScreen(toolCallId)}>
-              <Maximize2 className="size-4" strokeWidth={2} />
-            </OverlayButton>
-            {!inDock && (
+          {/* Docked, Full screen is in the header and there is no Close. */}
+          {!inDock && (
+            <div className="pointer-events-none absolute bottom-3 right-3 z-30 flex items-center gap-2">
+              <OverlayButton label="Full screen" onClick={() => store.enterFullScreen(toolCallId)}>
+                <Maximize2 className="size-4" strokeWidth={2} />
+              </OverlayButton>
               <OverlayButton label="Close" onClick={() => store.collapse(toolCallId)} testId="card-close">
                 <X className="size-4" strokeWidth={2} />
               </OverlayButton>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -4,11 +4,14 @@ import { join } from 'node:path'
 import ts from 'typescript'
 
 /**
- * The capture's controls live at the foot of its own card (CaptureControlsBar,
- * one-chat Slice 3), never in the chat composer, which is the main agent's.
- * Built inside WindowProperties, they'd live and die with the preferences
- * popover (or its standalone sidebar fallback). Closing preferences must not
- * remove them, just as narrowing the old sidebar must not.
+ * Where a capture's live controls are (Liam, 11-20: the row of floating pills
+ * at the foot of its card "looks ugly"; nothing floats at the bottom now):
+ *   - the agent and its context packages are PROPERTIES, rows in the
+ *     properties panel (WindowProperties), like Set project and Link event;
+ *   - Transcripts and Tools are TABS beside Overview and Agents, Tools only
+ *     while the capture records (capture-live-sections.tsx);
+ *   - Voice ID heads the Transcripts tab, the system-audio notice above it.
+ * Never in the chat composer, which is the main agent's.
  *
  * CaptureDetailPanel can't be mounted in a unit test (it drags in the editor
  * stack — see detail-step-prefetch.test.ts), so this pins the placement in the
@@ -68,101 +71,102 @@ function propertiesGate(node: ts.Node): ts.Node | undefined {
   return undefined
 }
 
-describe('where CaptureDetailPanel builds the Live Agent controls', () => {
-  it('builds them exactly once, on the card: no composer portal, no pinned card', () => {
-    expect(elementsNamed('CaptureControlsBar')).toHaveLength(1)
-    expect(elementsNamed('LiveAgentComposerPortal')).toHaveLength(0)
-    expect(elementsNamed('FloatingLiveAgentPanel')).toHaveLength(0)
+function insideProperties(node: ts.Node): boolean {
+  for (let n: ts.Node | undefined = node.parent; n; n = n.parent) {
+    if (ts.isJsxElement(n) && n.openingElement.tagName.getText(file) === 'WindowProperties') return true
+  }
+  return false
+}
+
+function attrOf(el: ts.Node, name: string): ts.JsxAttribute | undefined {
+  const attributes = ts.isJsxSelfClosingElement(el) || ts.isJsxOpeningElement(el) ? el.attributes : undefined
+  return attributes?.properties.find(
+    (p): p is ts.JsxAttribute => ts.isJsxAttribute(p) && p.name.getText(file) === name,
+  )
+}
+
+describe('where CaptureDetailPanel puts the live capture controls', () => {
+  it('has no bar at the foot of the card: no controls bar, no pills, no composer portal', () => {
+    for (const tag of ['CaptureControlsBar', 'LiveCapturePills', 'LiveTranscriptsPill', 'LiveToolsPill', 'LiveAgentComposerPortal', 'FloatingLiveAgentPanel']) {
+      expect(elementsNamed(tag), tag).toHaveLength(0)
+    }
     expect(source).not.toContain('composer-capture-slots')
+    expect(source).not.toContain('capture-controls-bar')
+    expect(source).not.toContain('live-capture-pills')
   })
 
-  it('builds them outside the preferences popover and sidebar visibility gates', () => {
-    const [portal] = elementsNamed('CaptureControlsBar')
-    expect(propertiesGate(portal)?.getText(file).slice(0, 40)).toBeUndefined()
-  })
-
-  it('puts every control on the card', () => {
-    // Voice ID above the top row; the agent picker in it, and Transcripts and
-    // Tools (LiveCapturePills) beside Capture. (What each does is the leaves'
-    // own tests' business.) No Live switch: every capture is live.
-    const insidePortal = (node: ts.Node) => {
-      for (let n: ts.Node | undefined = node.parent; n; n = n.parent) {
-        const tag = ts.isJsxElement(n)
-          ? n.openingElement.tagName.getText(file)
-          : ts.isJsxSelfClosingElement(n)
-            ? n.tagName.getText(file)
-            : null
-        if (tag === 'CaptureControlsBar') return true
-      }
-      return false
+  it('makes the agent a property row, opening the same agent list', () => {
+    const triggers = elementsNamed('SelectTrigger').filter((t) => attrOf(t, 'data-capture-agent-row'))
+    expect(triggers).toHaveLength(1)
+    const [trigger] = triggers
+    expect(insideProperties(trigger)).toBe(true)
+    expect(propertiesGate(trigger)).toBeDefined()
+    expect(attrOf(trigger, 'data-capture-agent-row')).toBeDefined()
+    // A row like the panel's others (h-8, px-3, text-sm, hover:bg-muted/50),
+    // not the old 36px pill with its ring and shadow.
+    const classes = (attrOf(trigger, 'className')!.initializer as ts.StringLiteral).text.split(/\s+/)
+    for (const cls of ['h-8', 'px-3', 'text-sm', 'hover:bg-muted/50', 'border-0', 'shadow-none']) {
+      expect(classes, cls).toContain(cls)
     }
-    for (const tag of ['LiveVoiceIdRow', 'SelectTrigger', 'LiveCapturePills', 'SystemAudioWarning']) {
-      expect(elementsNamed(tag).some(insidePortal), tag).toBe(true)
+    for (const cls of ['h-9', 'rounded-full', 'shadow-sm']) {
+      expect(classes, cls).not.toContain(cls)
     }
-    expect(elementsNamed('Switch'), 'the Live switch is back').toHaveLength(0)
+    // The list: Assistant and every agent, or only the live persona while it's locked.
+    const select = trigger.parent.parent as ts.JsxElement
+    const text = select.getText(file)
+    expect(text).toContain('ASSISTANT_SENTINEL')
+    expect(text).toContain('agents.map')
+    expect(text).toContain('liveLockAgent')
+    expect(attrOf(select.openingElement, 'disabled')!.getText(file)).toContain('liveLocked && !!liveLockAgent')
   })
 
-  it('leaves Voice ID off the card while it is in the live agent HUD (this capture recording live)', () => {
-    const [portal] = elementsNamed('CaptureControlsBar') as ts.JsxSelfClosingElement[]
-    const voiceId = portal.attributes.properties.find(
-      (p): p is ts.JsxAttribute => ts.isJsxAttribute(p) && p.name.getText(file) === 'voiceId',
-    )
-    const expr = (voiceId!.initializer as ts.JsxExpression).expression!
-    expect(ts.isConditionalExpression(expr), 'voiceId is no longer gated on the HUD').toBe(true)
+  it('makes Packages a property row opening the context-packages checklist, live mode only', () => {
+    const rowAt = source.indexOf('data-capture-packages-row')
+    expect(rowAt).toBeGreaterThan(-1)
+    const checklistAt = source.indexOf('Context packages for this call')
+    expect(checklistAt).toBeGreaterThan(rowAt)
+    // Both inside the properties panel.
+    const props = elementsNamed('WindowProperties')[0].parent as ts.JsxElement
+    expect(rowAt).toBeGreaterThan(props.getStart(file))
+    expect(checklistAt).toBeLessThan(props.getEnd())
+    // The gate is unchanged: live mode, before or during the call.
+    const before = source.slice(Math.max(0, rowAt - 2500), rowAt)
+    expect(before).toContain('recording.liveModeEnabled && (isActiveRecording || !capture?.ended_at)')
+  })
+
+  it('has Transcripts and Tools as tabs, Tools only while the capture records', () => {
+    expect(source).toMatch(/CAPTURE_SECTIONS = \['overview', 'transcripts', 'tools', 'agents', 'live-chat'\] as const/)
+    expect(source).toContain("tab === 'tools' ? isActiveRecording")
+    expect(source).toContain('sectionShown(pickedSection) ? pickedSection')
+    expect(elementsNamed('TranscriptsTabLabel')).toHaveLength(1)
+    expect(elementsNamed('ToolsTabLabel')).toHaveLength(1)
+    expect(elementsNamed('TranscriptsSection')).toHaveLength(1)
+    expect(elementsNamed('ToolsSection')).toHaveLength(1)
+    for (const tag of ['TranscriptsSection', 'ToolsSection', 'TranscriptsTabLabel']) {
+      expect(insideProperties(elementsNamed(tag)[0]), tag).toBe(false)
+    }
+  })
+
+  it('heads the Transcripts tab with the system-audio notice and Voice ID, not while Voice ID is in the HUD', () => {
+    const [section] = elementsNamed('TranscriptsSection')
+    expect(attrOf(section, 'notice')!.getText(file)).toContain('SystemAudioWarning')
+    const voiceId = attrOf(section, 'voiceId')!
+    const expr = (voiceId.initializer as ts.JsxExpression).expression!
+    expect(ts.isConditionalExpression(expr)).toBe(true)
     const cond = expr as ts.ConditionalExpression
     expect(cond.condition.getText(file)).toBe('voiceIdInHud && isActiveRecording')
     expect(cond.whenTrue.getText(file)).toBe('null')
     expect(cond.whenFalse.getText(file)).toContain('LiveVoiceIdRow')
-  })
-
-  it('hands the pills their own place at the row end, apart from the controls', () => {
-    const [bar] = elementsNamed('CaptureControlsBar') as ts.JsxSelfClosingElement[]
-    const attr = (name: string) =>
-      bar.attributes.properties.find(
-        (p): p is ts.JsxAttribute => ts.isJsxAttribute(p) && p.name.getText(file) === name,
-      )
-    const pillsProp = attr('pills')
-    expect(pillsProp).toBeDefined()
-    expect(pillsProp!.getText(file)).toContain('LiveCapturePills')
-    expect(attr('controls')!.getText(file)).not.toContain('LiveCapturePills')
-    expect(attr('controls')!.getText(file)).not.toContain('LiveTranscriptsPill')
-    // Overview only: the other sections have a foot of their own.
-    expect(attr('className')!.getText(file)).toContain("activeSection !== 'overview'")
-  })
-
-  it('leaves Tools to LiveCapturePills, which shows it only while recording', () => {
-    // The page no longer places either pill itself, so nothing here can show
-    // Tools after the recording. (The rule is LiveCapturePills' own test's.)
-    expect(elementsNamed('LiveToolsPill')).toHaveLength(0)
-    expect(elementsNamed('LiveTranscriptsPill')).toHaveLength(0)
-    expect(elementsNamed('LiveCapturePills')).toHaveLength(1)
-  })
-
-  it('makes the agent picker a pill like the rest of the controls row', () => {
-    // 36px (h-9) and overhanging the row's py-0.5, rounded, ringed, on the
-    // app's own background with the row's type — as Transcripts, Tools and
-    // Capture are.
-    const trigger = elementsNamed('SelectTrigger').find((node) => {
-      for (let n: ts.Node | undefined = node.parent; n; n = n.parent) {
-        if (ts.isJsxSelfClosingElement(n) && n.tagName.getText(file) === 'CaptureControlsBar') return true
-      }
-      return false
-    }) as ts.JsxOpeningElement
-    const classAttr = trigger.attributes.properties.find(
-      (p): p is ts.JsxAttribute => ts.isJsxAttribute(p) && p.name.getText(file) === 'className',
-    )
-    const classes = (classAttr!.initializer as ts.StringLiteral).text.split(/\s+/)
-    for (const cls of ['h-9', '-my-0.5', 'rounded-full', 'border', 'border-border', 'bg-background', 'text-[12px]', 'px-3']) {
-      expect(classes, cls).toContain(cls)
-    }
-    expect(classes).not.toContain('h-7')
+    expect(elementsNamed('LiveVoiceIdRow')).toHaveLength(1)
+    expect(elementsNamed('SystemAudioWarning')).toHaveLength(1)
   })
 
   it('recognises the properties host (control: a property row sits inside it)', () => {
     // Keep a positive control so changes to the preferences host cannot make
-    // the card placement assertion pass vacuously.
+    // the placement assertions pass vacuously.
     const [row] = elementsNamed('ActivityRow')
     expect(row).toBeDefined()
     expect(propertiesGate(row)).toBeDefined()
+    expect(insideProperties(row)).toBe(true)
   })
 })

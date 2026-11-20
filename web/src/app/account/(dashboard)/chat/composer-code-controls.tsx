@@ -6,7 +6,9 @@
  *   ComposerTabs      under the box, first: the agent's name (the chat) and Code. The repo's
  *                     ToggleGroup (Radix, type single): one radio group with
  *                     roving focus, so the arrow keys move between the two and
- *                     the one in front is announced as checked.
+ *                     the one in front is announced as checked. Code wears an
+ *                     orange dot while a coding agent's work waits on your
+ *                     review (Liam, 11-20), the Code view's own For you.
  *   CodeAgentPicker   in the box's controls row, before the mic (Code only):
  *                     who you work with. Native Intelligence, then "Your
  *                     agents" (what the chat's Mac offers), then "Needs
@@ -26,7 +28,7 @@
  */
 import type { SyntheticEvent } from 'react'
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu'
-import { Check, ChevronDown, FolderGit2, FolderOpen, Plus } from 'lucide-react'
+import { Check, ChevronDown, Clock, FolderGit2, FolderOpen, Plus } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import {
@@ -42,7 +44,9 @@ import { AgentIcon } from '@/components/agents/agent-icon'
 import { codingAgentConnectHint } from '@/lib/environments/types'
 import type { ComposerTab } from '@/lib/local-agent/code-tab'
 import { useAssistantName } from '@/lib/voice/assistant-name-store'
-import type { ComposerCode } from './composer-code'
+import type { CodeHeldMessage, ComposerCode } from './composer-code'
+import { Button } from '@/components/ui/button'
+import { useCodeForYouEntries } from './for-you-column'
 
 const stop = (e: SyntheticEvent) => e.stopPropagation()
 
@@ -65,6 +69,8 @@ const ROW =
 
 export function ComposerTabs({ tab, onTab }: { tab: ComposerTab; onTab: (tab: ComposerTab) => void }) {
   const { name: agentName } = useAssistantName()
+  // A coding agent's work waiting on your review: the Code tab's orange dot (Liam, 11-20), listed in the Code view's own For you.
+  const waiting = useCodeForYouEntries().length
   return (
     <ToggleGroup
       type="single"
@@ -83,40 +89,57 @@ export function ComposerTabs({ tab, onTab }: { tab: ComposerTab; onTab: (tab: Co
       <ToggleGroupItem value="chat" data-composer-tab="chat" className={TAB} title={`Chat with ${agentName}`} aria-label={`Chat with ${agentName}`}>
         <span className="max-w-[9rem] truncate">{agentName}</span>
       </ToggleGroupItem>
-      <ToggleGroupItem value="code" data-composer-tab="code" className={TAB} title="Work with a coding agent directly, in a folder on your Mac">
+      <ToggleGroupItem
+        value="code"
+        data-composer-tab="code"
+        className={cn(TAB, waiting > 0 && 'gap-1.5')}
+        title={waiting > 0 ? `Code: ${waiting} waiting on your review` : 'Work with a coding agent directly, in a folder on your Mac'}
+      >
         Code
+        {waiting > 0 && (
+          <span data-composer-tab-attention="" className="size-1.5 shrink-0 rounded-full bg-orange-500">
+            <span className="sr-only">, {waiting} waiting on your review</span>
+          </span>
+        )}
       </ToggleGroupItem>
     </ToggleGroup>
   )
 }
 
 /**
- * How a message to the open coding chat lands while its agent works (the
- * conversation's own choice, local-agent-composer.tsx): Steer, now, or Queue,
- * when this turn ends. Under the box, in the tabs' look. Only while it works:
- * idle, either starts its next turn.
+ * A message sent while the open coding chat's agent works (composer-code.tsx
+ * CodeHeldMessage; Liam, 11-20: "the same as the main chat view where we
+ * don't show those as an option"): above the box, in the main chat's waiting
+ * row's look (queued-turn-row.tsx). It goes when the turn ends; Send now hands
+ * it to the agent mid-turn; Edit takes it back into the box. A refused send
+ * says why and waits for either.
  */
-export function CodePolicyToggle({ messaging }: { messaging: NonNullable<ComposerCode['messaging']> }) {
+export function CodeHeldRow({ held, onSendNow, onEdit }: { held: CodeHeldMessage; onSendNow: () => void; onEdit: () => void }) {
   return (
-    <ToggleGroup
-      type="single"
-      size="sm"
-      value={messaging.policy}
-      onValueChange={(v) => {
-        if (v === 'steer' || v === 'queue') messaging.setPolicy(v)
-      }}
-      role="radiogroup"
-      aria-label="How your message lands"
-      data-code-policy=""
-      className={TRACK}
-    >
-      <ToggleGroupItem value="steer" data-code-policy-option="steer" className={TAB} title="Lands while it works">
-        Steer
-      </ToggleGroupItem>
-      <ToggleGroupItem value="queue" data-code-policy-option="queue" className={TAB} title="Waits for this turn to end">
-        Queue
-      </ToggleGroupItem>
-    </ToggleGroup>
+    <div className="relative px-2 pb-1" data-code-held={held.failed ? 'failed' : 'waiting'}>
+      <div className="flex items-start gap-2 rounded-xl border border-border/60 bg-muted/40 px-3 py-2 text-xs">
+        <Clock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+        <div className="min-w-0 flex-1">
+          <div className={cn('text-muted-foreground', held.failed && 'text-destructive')} role="status" aria-live="polite">
+            {held.failed ? `Not sent: ${held.failed}` : 'Sends when this turn finishes'}
+          </div>
+          <div className="line-clamp-3 whitespace-pre-wrap break-words text-foreground" data-code-held-text="">
+            {held.text}
+          </div>
+          <button
+            type="button"
+            data-code-held-send-now=""
+            className="mt-0.5 rounded-sm text-xs font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:text-foreground focus-visible:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+            onClick={onSendNow}
+          >
+            Send now
+          </button>
+        </div>
+        <Button variant="ghost" size="sm" className="h-7 shrink-0 px-2 text-xs" onClick={onEdit} data-code-held-edit="">
+          Edit
+        </Button>
+      </div>
+    </div>
   )
 }
 

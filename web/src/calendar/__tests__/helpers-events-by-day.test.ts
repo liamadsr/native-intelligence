@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { isSameDay, parseISO } from 'date-fns'
 
-import { buildEventsByDay, getEventsForDay } from '@/calendar/helpers'
+import { buildEventsByDay, compactTime, compactTimeRange, getEventsForDay, positionDayEvents } from '@/calendar/helpers'
 import type { IEvent } from '@/calendar/interfaces'
 
 /**
@@ -123,5 +123,33 @@ describe('buildEventsByDay', () => {
         }
       }
     }
+  })
+})
+
+describe('positionDayEvents and the compact clock', () => {
+  const day = new Date(2026, 10, 20)
+  const at = (h: number, m = 0) => new Date(2026, 10, 20, h, m).toISOString()
+  const ev = (id: string, start: string, end: string): IEvent => ({ id, title: id, description: '', color: 'blue', startDate: start, endDate: end })
+
+  it('places a later meeting on top of an earlier one, further in, both reaching the same right edge', () => {
+    const placed = positionDayEvents([ev('long', at(10), at(12)), ev('late', at(10, 30), at(11))], day, { from: 8, to: 18 })
+    const style = (id: string) => placed.find((p) => p.event.id === id)!.style as Record<string, string | number>
+    expect(style('long').left).toBe('0%')
+    expect(parseFloat(String(style('late').left))).toBeGreaterThan(0)
+    expect(parseFloat(String(style('late').left)) + parseFloat(String(style('late').width))).toBeCloseTo(parseFloat(String(style('long').width)))
+    expect(Number(style('late')['--event-z'])).toBeGreaterThan(Number(style('long')['--event-z']))
+    expect(style('long').top).toBe('20%')
+    expect(style('long').height).toBe('192px')
+  })
+
+  it('draws a five-minute event a quarter of an hour tall', () => {
+    const [placed] = positionDayEvents([ev('ping', at(9), at(9, 5))], day, { from: 8, to: 18 })
+    expect(placed.style.height).toBe('24px')
+  })
+
+  it('says a time range with am/pm once when both ends share it', () => {
+    expect(compactTimeRange(new Date(2026, 10, 20, 10), new Date(2026, 10, 20, 11, 30))).toBe('10 – 11:30am')
+    expect(compactTimeRange(new Date(2026, 10, 20, 11, 30), new Date(2026, 10, 20, 13))).toBe('11:30am – 1pm')
+    expect(compactTime(new Date(2026, 10, 20, 9))).toBe('9am')
   })
 })

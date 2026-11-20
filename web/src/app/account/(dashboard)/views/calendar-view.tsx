@@ -8,6 +8,7 @@ import { CalendarProvider } from '@/calendar/contexts/calendar-context'
 import { ClientContainer } from '@/calendar/components/client-container'
 import { useCalendarEvents, useCalendarRangeEvents } from '@/calendar/hooks/use-calendar-events'
 import type { IEvent } from '@/calendar/interfaces'
+import { withCalendarColors } from '@/calendar/event-colors'
 import type { TCalendarView } from '@/calendar/types'
 import { Button } from '@/components/ui/button'
 import { useOptionalSettingsOverlay } from '../settings-overlay'
@@ -149,6 +150,8 @@ function CalendarSurface({
 }) {
   const settingsOverlay = useOptionalSettingsOverlay()
   const router = useRouter()
+  // One colour per calendar on screen (adapters' withCalendarColors).
+  const coloredEvents = useMemo(() => withCalendarColors(events), [events])
 
   // Open the integrations settings where Google/Microsoft calendars connect.
   // Prefer the in-app overlay (no navigation, keeps the dashboard mounted);
@@ -195,7 +198,7 @@ function CalendarSurface({
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <CalendarProvider
-        events={events}
+        events={coloredEvents}
         onSelectAction={onSelectAction}
         onSelectEvent={onSelectEvent}
         initialDate={card?.initialDate}

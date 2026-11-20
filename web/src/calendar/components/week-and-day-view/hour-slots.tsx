@@ -32,7 +32,7 @@ export const HourSlots = memo(function HourSlots({ day, hour }: { day: Date; hou
       <div onClick={handleSlotClick(0)} className="absolute inset-x-0 top-0 h-[24px] cursor-pointer transition-colors hover:bg-accent" />
       <div onClick={handleSlotClick(15)} className="absolute inset-x-0 top-[24px] h-[24px] cursor-pointer transition-colors hover:bg-accent" />
 
-      <div className="pointer-events-none absolute inset-x-0 top-1/2 border-b border-dashed"></div>
+      <div className="pointer-events-none absolute inset-x-0 top-1/2 border-b border-dashed border-border/30"></div>
 
       <div onClick={handleSlotClick(30)} className="absolute inset-x-0 top-[48px] h-[24px] cursor-pointer transition-colors hover:bg-accent" />
       <div onClick={handleSlotClick(45)} className="absolute inset-x-0 top-[72px] h-[24px] cursor-pointer transition-colors hover:bg-accent" />

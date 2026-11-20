@@ -223,8 +223,9 @@ describe('CaptureLiveChatSection', () => {
 describe('CaptureDetailPanel wires it in', () => {
   const source = readFileSync(join(process.cwd(), 'src/app/account/(dashboard)/views/capture-detail-panel.tsx'), 'utf8')
   it('offers the tab only with a thread, and draws the section from it', () => {
-    expect(source).toContain("const CAPTURE_SECTIONS = ['overview', 'agents', 'live-chat'] as const")
-    expect(source).toContain("CAPTURE_SECTIONS.filter((tab) => tab !== 'live-chat' || liveChatConversationId)")
+    expect(source).toContain("const CAPTURE_SECTIONS = ['overview', 'transcripts', 'tools', 'agents', 'live-chat'] as const")
+    expect(source).toContain("tab === 'live-chat' ? !!liveChatConversationId")
+    expect(source).toContain('CAPTURE_SECTIONS.filter(sectionShown)')
     expect(source).toContain('useCaptureLiveChat(captureId, isActiveRecording)')
     expect(source).toContain("activeSection === 'live-chat' && liveChatConversationId && (")
     expect(source).toContain('<CaptureLiveChatSection conversationId={liveChatConversationId} />')

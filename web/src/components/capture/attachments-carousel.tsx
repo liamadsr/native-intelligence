@@ -38,9 +38,18 @@ interface AttachmentsCarouselProps {
    * (capture, document) and `px-2` (action, initiative, contact).
    */
   padding?: 'px-2' | 'px-3'
+  /**
+   * The `row` variant with nothing attached: `row` (default) keeps the "No
+   * attachments" row and its add button; `add` is ONE button, "Attach file",
+   * that opens the picker: the shape the properties panel's add strip wants
+   * (components/views/property-layout.tsx), where an empty property is a chip.
+   */
+  emptyAs?: 'row' | 'add'
+  /** How many are attached, once known (the panel decides row or chip by it). */
+  onCountChange?: (count: number) => void
 }
 
-export function AttachmentsCarousel({ captureId, actionId, refreshKey = 0, onAddClick, uploading, variant = 'card', padding = 'px-2' }: AttachmentsCarouselProps) {
+export function AttachmentsCarousel({ captureId, actionId, refreshKey = 0, onAddClick, uploading, variant = 'card', padding = 'px-2', emptyAs = 'row', onCountChange }: AttachmentsCarouselProps) {
   const [expanded, setExpanded] = useState(false)
   const [attachments, setAttachments] = useState<AttachmentItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -97,6 +106,11 @@ export function AttachmentsCarousel({ captureId, actionId, refreshKey = 0, onAdd
       cancelled = true
     }
   }, [captureId, actionId, refreshKey])
+
+  // Pass a stable function (a state setter): it is called again whenever it changes.
+  useEffect(() => {
+    if (!loading) onCountChange?.(attachments.length)
+  }, [loading, attachments.length, onCountChange])
 
   // Only images for the lightbox
   const imageAttachments = attachments.filter((a) => a.file_category === 'image')
@@ -234,7 +248,20 @@ export function AttachmentsCarousel({ captureId, actionId, refreshKey = 0, onAdd
 
   return (
     <>
-      {variant === 'row' ? (
+      {variant === 'row' && emptyAs === 'add' && onAddClick && attachments.length === 0 ? (
+        <button
+          onClick={onAddClick}
+          disabled={uploading}
+          title="Add attachment"
+          className={cn(
+            'flex h-8 w-full items-center gap-2 rounded-md text-sm text-muted-foreground transition-colors hover:bg-muted/50 disabled:opacity-50',
+            padding,
+          )}
+        >
+          {uploading ? <Loader2 className="h-4 w-4 shrink-0 animate-spin" /> : <Paperclip className="h-4 w-4 shrink-0" />}
+          <span>Attach file</span>
+        </button>
+      ) : variant === 'row' ? (
         /* Property row — mirrors Participants: a expand/collapse toggle on the
            left, an add button on the right, thumbnails revealed below. */
         <div>

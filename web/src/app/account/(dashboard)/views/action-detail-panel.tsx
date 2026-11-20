@@ -21,6 +21,7 @@ import { usePropertiesVisible } from '@/components/views/use-properties-visible'
 import { WindowProperties, WindowActions } from '@/components/views/window-properties'
 import { SubActionComposer, type SubActionDraft } from '@/components/views/sub-action-composer'
 import { PropertyGroup } from '@/components/views/property-group'
+import { OptionalProperty, PropertyRow, PropertyRows } from '@/components/views/property-layout'
 import {
   StatusPanelField,
   PriorityPanelField,
@@ -187,7 +188,7 @@ import { Comments } from '../components/comments'
 import { EntityActionsMenu, PANEL_OMIT } from '@/components/entities/entity-actions-menu'
 import { ListenBrief } from '@/components/read-aloud/listen-brief'
 import { plainLine } from '@/lib/read-aloud/listen-briefs'
-import { MoveToWorkspaceButton } from '@/components/move/move-to-workspace-button'
+import { useMoveToWorkspaceItem } from '@/components/move/move-to-workspace-button'
 import {
   PushToTrackerMenu,
   type ExternalTaskLink,
@@ -360,6 +361,13 @@ export function ActionDetailPanel({
   const [saving, setSaving] = useState(false)
   const panelBodyRef = useRef<HTMLDivElement>(null)
   const [deleteConfirm, setDeleteConfirm] = useState(false)
+  // Move to another workspace: an item in the More menu, and the dialog it opens.
+  const moveToWorkspace = useMoveToWorkspaceItem({
+    entityType: 'action',
+    id: actionId,
+    entityLabel: action?.title || undefined,
+    onMoved: onClose,
+  })
   const [deleting, setDeleting] = useState(false)
   const currentMemberId = useCurrentMemberId()
 
@@ -696,6 +704,8 @@ export function ActionDetailPanel({
   const suppressEchoRef = useRef(false)
   const [uploading, setUploading] = useState(false)
   const [attachmentRefreshKey, setAttachmentRefreshKey] = useState(0)
+  // How many files are attached, once the row knows: a row when there are some, an "Attach file" chip when none.
+  const [attachmentCount, setAttachmentCount] = useState(0)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
 
@@ -1751,9 +1761,6 @@ export function ActionDetailPanel({
           {action && (
             <ListenBrief kind="action" id={action.id} fallback={() => plainLine(action.title)} />
           )}
-          {/* The one entity actions menu: Copy link, Copy ID ("action <uuid>",
-                    for AI prompts / MCP), Share, and the rest the kind offers. */}
-          {action && <EntityActionsMenu entity={{ type: 'action', id: action.id, label: action.title ?? '' }} omit={PANEL_OMIT} />}
           {/* Remind me — the same picker ⇧H opens, anchored on its own button so
                     the popover has somewhere to point when the hotkey fires. */}
           <ReminderPickerPopover
@@ -1945,39 +1952,28 @@ export function ActionDetailPanel({
               }}
             />
           )}
-          {/* Relations icon */}
-          <PreferenceActionButton label="Relations" variant="ghost" size="sm" className="h-7 w-7 p-0">
-            <GitBranch className="h-3.5 w-3.5" />
-          </PreferenceActionButton>
-          {/* Move to another workspace — the dialog emits the delete event and
-                    drops the detail cache, so here we only have to close. */}
-          <MoveToWorkspaceButton
-            entityType="action"
-            id={actionId}
-            entityLabel={action?.title || undefined}
-            onMoved={onClose}
-          />
-          {/* Delete action */}
-          <PreferenceActionButton
-            label="Delete action"
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-            onClick={() => setDeleteConfirm(true)}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </PreferenceActionButton>
-          {/* Copy as prompt — the action as a self-contained prompt for any coding tool. */}
-          <PreferenceActionButton
-            label="Copy as prompt"
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
-            onClick={handleCopyAsPrompt}
-            disabled={!action}
-          >
-            <Copy className="h-3.5 w-3.5" />
-          </PreferenceActionButton>
+          {/* MORE, last on every detail page (docs/plans/properties-panels.md):
+                    the one entity actions menu (Copy link, Copy ID ("action
+                    <uuid>", for AI prompts / MCP), Share, and the rest the kind
+                    offers), and under them this page's own secondary verbs,
+                    which were a button apiece: Copy as prompt (the action as a
+                    self-contained prompt for any coding tool), Relations, Move
+                    to workspace (the dialog emits the delete event and drops
+                    the detail cache, so here we only have to close) and
+                    Delete. */}
+          {action && (
+            <EntityActionsMenu
+              entity={{ type: 'action', id: action.id, label: action.title ?? '' }}
+              omit={PANEL_OMIT}
+              extra={[
+                { id: 'copy_as_prompt', label: 'Copy as prompt', icon: Copy, onSelect: handleCopyAsPrompt },
+                // It had no behaviour as a button either: kept, so nothing is lost, until it gets one.
+                { id: 'relations', label: 'Relations', icon: GitBranch, onSelect: () => {}, disabled: true, title: 'Not available yet' },
+                moveToWorkspace.item,
+                { id: 'delete', label: 'Delete action', icon: Trash2, danger: true, onSelect: () => setDeleteConfirm(true) },
+              ]}
+            />
+          )}
         </WindowActions>
       </div>
 
@@ -2304,17 +2300,27 @@ export function ActionDetailPanel({
                   `stack` layout, which is the same labelled-column shape the
                   Native Intelligence fields below use. Every OTHER group in this sidebar is
                   untouched by the lens. */}
-              <PropertyGroup title="Properties">
+              {/* THE FRAME every properties panel shares (docs/plans/properties-panels.md,
+                  components/views/property-layout.tsx): the core rows (status,
+                  priority, who), then the optional properties that have a value
+                  as rows, then the ones that have none as one strip of add
+                  chips. No "Properties" heading: the rows say what they are
+                  (property-group.tsx). */}
+              <PropertyGroup>
+                <PropertyRows>
                 {lensProvider ? (
+                  <PropertyRow>
                   <TaskLens
                     actionId={actionId}
                     provider={lensProvider}
                     layout="stack"
                     onOpenSettings={settingsOverlay.openSettings}
                   />
+                  </PropertyRow>
                 ) : (
                 <>
                 {/* Status */}
+                <PropertyRow>
                 <div ref={statusFieldRef}>
                   <StatusPanelField
                     value={action.status_id}
@@ -2322,14 +2328,18 @@ export function ActionDetailPanel({
                     onChange={(v) => patchAction({ status_id: v })}
                   />
                 </div>
+                </PropertyRow>
 
                 {/* Priority */}
+                <PropertyRow>
                 <PriorityPanelField
                   value={action.priority}
                   onChange={(v) => patchAction({ priority: v })}
                 />
+                </PropertyRow>
 
                 {/* Assignees (multi-select) */}
+                <PropertyRow>
                 <Popover>
                   <PopoverTrigger asChild>
                     <button className="flex h-8 w-full items-center gap-2 rounded-md border-none bg-transparent px-2 text-sm hover:bg-muted/50 text-left">
@@ -2472,6 +2482,7 @@ export function ActionDetailPanel({
                     </div>
                   </PopoverContent>
                 </Popover>
+                </PropertyRow>
 
                 {/* The failed-run signal is a red ! on the Cloud-run tab, not a
                     note here: the tab is where the logs that explain the
@@ -2480,14 +2491,17 @@ export function ActionDetailPanel({
                     tab available — see cloud-run-gate.ts. */}
 
                 {/* Due date */}
+                <OptionalProperty set={!!action.due_at}>
                 <DatePanelField
                   value={action.due_at}
                   onChange={(iso) => patchAction({ due_at: iso })}
                   placeholder="Due date"
                   overdueSensitive={action.status_category !== 'completed'}
                 />
+                </OptionalProperty>
 
                 {/* Estimate */}
+                <OptionalProperty set={action.estimate != null}>
                 <Popover>
                   <PopoverTrigger asChild>
                     <button className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm text-muted-foreground transition-colors hover:bg-muted/50">
@@ -2515,9 +2529,11 @@ export function ActionDetailPanel({
                     </div>
                   </PopoverContent>
                 </Popover>
+                </OptionalProperty>
 
                 {/* Cycle */}
                 {teamCycles.length > 0 && (
+                  <OptionalProperty set={!!action.cycle_id}>
                   <Select
                     value={action.cycle_id || '_none'}
                     onValueChange={(v) => patchAction({ cycle_id: v === '_none' ? null : v })}
@@ -2545,13 +2561,17 @@ export function ActionDetailPanel({
                       ))}
                     </SelectContent>
                   </Select>
+                  </OptionalProperty>
                 )}
                 </>
                 )}
 
-                {/* Labels — part of Properties rather than its own group */}
+                {/* Labels — part of Properties rather than its own group. The
+                    attached ones are a row; "Add label" is always a chip in the
+                    add strip, attached or not. */}
                 {(action.labels?.length ?? 0) > 0 && (
-                  <div className="space-y-1 px-2">
+                  <PropertyRow className="order-2">
+                  <div className="space-y-1 px-2 py-1">
                     {(action.labels ?? []).map((l) => (
                       <div key={l.id} className="flex min-w-0 items-center gap-2 text-sm">
                         <span className="inline-block h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: l.color }} />
@@ -2562,7 +2582,9 @@ export function ActionDetailPanel({
                       </div>
                     ))}
                   </div>
+                  </PropertyRow>
                 )}
+                <OptionalProperty set={false}>
                 <Popover>
                   <PopoverTrigger asChild>
                     <button className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm text-muted-foreground transition-colors hover:bg-muted/50">
@@ -2578,19 +2600,12 @@ export function ActionDetailPanel({
                     />
                   </PopoverContent>
                 </Popover>
-
-                {/* Attachments — a property row, like Participants */}
-                <AttachmentsCarousel
-                  variant="row"
-                  actionId={actionId}
-                  refreshKey={attachmentRefreshKey}
-                  onAddClick={handleAddAttachment}
-                  uploading={uploading}
-                />
+                </OptionalProperty>
 
                 {/* Project — a property row rather than its own group. The
                     milestone below stays nested under it: it is scoped to the
                     selected project, not a sibling property. */}
+                <OptionalProperty set={!!action.project_id}>
                 <ProjectPanelField
                   value={action.project_id}
                   projects={projectOptions}
@@ -2629,9 +2644,43 @@ export function ActionDetailPanel({
                     </Select>
                   </div>
                 )}
+                </OptionalProperty>
+
+                {/* Repository (inherited from project) — a read-only row: it
+                    follows the project, so there is nothing to set here. */}
+                {projectRepo?.github_repo && (
+                  <PropertyRow className="order-2">
+                  <a
+                    href={`https://github.com/${projectRepo.github_repo}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="group flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm transition-colors hover:bg-muted/50"
+                  >
+                    <SiGithub className="h-4 w-4 shrink-0 text-black dark:text-white" />
+                    <span className="min-w-0 flex-1 truncate">{projectRepo.github_repo}</span>
+                    <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100" />
+                  </a>
+                  </PropertyRow>
+                )}
+
+                {/* Attachments — a property row, like Participants; with none
+                    attached, an "Attach file" chip that opens the picker. */}
+                <OptionalProperty set={attachmentCount > 0}>
+                <AttachmentsCarousel
+                  variant="row"
+                  emptyAs="add"
+                  onCountChange={setAttachmentCount}
+                  actionId={actionId}
+                  refreshKey={attachmentRefreshKey}
+                  onAddClick={handleAddAttachment}
+                  uploading={uploading}
+                />
+                </OptionalProperty>
 
                 {/* Links — a property row, like Attachments: a count that
-                    expands to the list plus the paste-URL input. */}
+                    expands to the list plus the paste-URL input. With none, a
+                    chip; clicking it opens the row with the input focused. */}
+                <OptionalProperty set={(action.links || []).length > 0 || linksExpanded}>
                 <div>
                   <button
                     onClick={() => setLinksExpanded((v) => !v)}
@@ -2686,6 +2735,7 @@ export function ActionDetailPanel({
                           }}
                           placeholder="Paste URL..."
                           className="h-7 flex-1 text-xs"
+                          autoFocus={(action.links || []).length === 0}
                         />
                         <Button
                           variant="ghost"
@@ -2700,10 +2750,13 @@ export function ActionDetailPanel({
                     </div>
                   )}
                 </div>
+                </OptionalProperty>
 
                 {/* Documents — a property row, like Links: a count that expands
-                    to the linked docs, with the picker as its own row. */}
+                    to the linked docs. The picker ("Link document") is always a
+                    chip in the add strip. */}
                 {linkedDocs.length > 0 && (
+                  <PropertyRow className="order-2">
                   <div>
                     <button
                       onClick={() => setDocsExpanded((v) => !v)}
@@ -2739,31 +2792,20 @@ export function ActionDetailPanel({
                       </div>
                     )}
                   </div>
+                  </PropertyRow>
                 )}
+                <OptionalProperty set={false}>
                 <DocumentSearchPicker
                   open={docSearchOpen}
                   onOpenChange={setDocSearchOpen}
                   documents={allDocuments.filter((d) => !linkedDocs.some((ld) => ld.id === d.id))}
                   onSelect={handleLinkDocument}
                 />
-
-                {/* Repository (inherited from project) — a read-only row: it
-                    follows the project, so there is nothing to set here. */}
-                {projectRepo?.github_repo && (
-                  <a
-                    href={`https://github.com/${projectRepo.github_repo}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="group flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm transition-colors hover:bg-muted/50"
-                  >
-                    <SiGithub className="h-4 w-4 shrink-0 text-black dark:text-white" />
-                    <span className="min-w-0 flex-1 truncate">{projectRepo.github_repo}</span>
-                    <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100" />
-                  </a>
-                )}
+                </OptionalProperty>
 
                 {/* Pull requests — a property row, like Links: a count that
                     expands to the PRs plus the paste-URL input. */}
+                <OptionalProperty set={linkedPrs.length > 0 || prsExpanded}>
                 <div>
                   <button
                     onClick={() => setPrsExpanded((v) => !v)}
@@ -2827,6 +2869,7 @@ export function ActionDetailPanel({
                           placeholder="Paste PR URL..."
                           className="h-7 flex-1 text-xs"
                           disabled={linkingPr}
+                          autoFocus={linkedPrs.length === 0}
                         />
                         <Button
                           variant="ghost"
@@ -2845,6 +2888,8 @@ export function ActionDetailPanel({
                     </div>
                   )}
                 </div>
+                </OptionalProperty>
+                </PropertyRows>
               </PropertyGroup>
 
               {/* PUSH TO {PROVIDER} — inline compose, where the properties are.
@@ -2902,6 +2947,7 @@ export function ActionDetailPanel({
       </div>
       </ContentTransition>
 
+      {moveToWorkspace.dialog}
       <AlertDialog open={deleteConfirm} onOpenChange={setDeleteConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>

@@ -27,6 +27,7 @@ import { copyTextToClipboard } from '@/lib/clipboard'
 import { PROFILE_HANDLE_RE } from '@/lib/booking-links/types'
 import { cn } from '@/lib/utils'
 import { BookingLinkDialog, type LinkMember } from './booking-link-dialog'
+import { usePageCreate } from '@/lib/create/page-create'
 import { createBody, draftOf, linkSummary, newDraft, patchBody, type LinkDraft, type SettingsLink } from './booking-link-form'
 
 interface ListBody {
@@ -69,6 +70,8 @@ export function BookingLinksSection() {
   const [handle, setHandle] = useState('')
   const [savingHandle, setSavingHandle] = useState(false)
   const [dialog, setDialog] = useState<DialogState>(null)
+  // The Create dialog's Booking link (Liam, 11-20): this section's own dialog, on a new link.
+  usePageCreate('booking_link', () => setDialog({ kind: 'new' }))
   const [saving, setSaving] = useState(false)
   // Links deleted in this session whose toast is still up: hidden, gone for good when it closes.
   const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set())

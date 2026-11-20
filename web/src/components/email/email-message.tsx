@@ -11,6 +11,9 @@ import { SendLaterButton } from './send-later-button'
 import { scheduledForLabel } from '@/lib/email/send-later'
 import { EmailContent } from './email-content'
 import { Linkify } from '@/components/ui/linkify'
+import { EmailAttachments } from './email-attachments'
+import { EmailInviteCard } from './email-invite-card'
+import type { CalendarInvite } from '@/lib/email/calendar-invite'
 
 interface EmailAddress {
   name: string | null
@@ -43,6 +46,8 @@ interface EmailMessageData {
   draftStale?: boolean
   hasAttachments: boolean
   attachments: EmailAttachment[]
+  /** The calendar invitation the message carries, when it has one (drawn as a card above the body). */
+  invite?: CalendarInvite
 }
 
 function getInitials(name: string): string {
@@ -69,14 +74,6 @@ function formatDate(dateStr: string): string {
   })
 }
 
-function formatFileSize(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`
-}
-
 interface EmailMessageProps {
   message: EmailMessageData
   defaultExpanded: boolean
@@ -98,6 +95,8 @@ interface EmailMessageProps {
   discarding?: boolean
   /** Where an attachment downloads from (a shared thread's, through its share); none: listed only. */
   attachmentHref?: (attachment: EmailAttachment) => string | null
+  /** The person's own addresses (lowercase): which guest of an invitation they are. */
+  ownAddresses?: ReadonlySet<string>
 }
 
 export function EmailMessage({
@@ -111,6 +110,7 @@ export function EmailMessage({
   onDiscard,
   discarding = false,
   attachmentHref,
+  ownAddresses,
 }: EmailMessageProps) {
   const [expanded, setExpanded] = useState(defaultExpanded)
   const [editing, setEditing] = useState(false)
@@ -254,6 +254,8 @@ export function EmailMessage({
             )}
           </div>
 
+          {message.invite && !message.isDraft && <EmailInviteCard invite={message.invite} ownAddresses={ownAddresses} />}
+
           <div className="email-body">
             {message.bodyHtml ? (
               <EmailContent
@@ -268,40 +270,7 @@ export function EmailMessage({
           </div>
 
           {message.attachments && message.attachments.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {message.attachments.map((att, i) => {
-                const href = attachmentHref?.(att) ?? null
-                const inner = (
-                  <>
-                    <Paperclip className="h-3 w-3" />
-                    <span className="truncate max-w-[200px]">{att.name}</span>
-                    <span className="text-muted-foreground">
-                      {formatFileSize(att.size)}
-                    </span>
-                  </>
-                )
-                return href ? (
-                  <a
-                    key={i}
-                    href={href}
-                    download={att.name}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    data-email-attachment-link=""
-                    className="flex items-center gap-2 text-xs border rounded-md px-2 py-1.5 bg-muted/30 hover:bg-muted"
-                  >
-                    {inner}
-                  </a>
-                ) : (
-                  <div
-                    key={i}
-                    className="flex items-center gap-2 text-xs border rounded-md px-2 py-1.5 bg-muted/30"
-                  >
-                    {inner}
-                  </div>
-                )
-              })}
-            </div>
+            <EmailAttachments attachments={message.attachments} hrefFor={attachmentHref} />
           )}
 
           {message.isDraft && onSend && (

@@ -22,6 +22,7 @@ export function TextPropertyRow({
   onCommit,
   placeholder,
   adornment,
+  autoFocus,
 }: {
   icon: React.ReactNode
   value: string | null | undefined
@@ -30,6 +31,8 @@ export function TextPropertyRow({
   placeholder: string
   /** Rendered after the copy button — e.g. `<EnrichedFieldMark />`. */
   adornment?: React.ReactNode
+  /** Focus the input as the row mounts (a row opened from the add strip's chip). */
+  autoFocus?: boolean
 }) {
   return (
     <div className="group/row flex h-8 items-center gap-2 px-2">
@@ -40,6 +43,7 @@ export function TextPropertyRow({
         onChange={(e) => onChange(e.target.value)}
         onBlur={(e) => onCommit(e.target.value)}
         placeholder={placeholder}
+        autoFocus={autoFocus}
       />
       <CopyValueButton value={value} label={placeholder} />
       {adornment}

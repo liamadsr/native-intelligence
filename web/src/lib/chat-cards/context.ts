@@ -28,6 +28,7 @@
  * Client-safe and pure: the client builds entries with buildCardContextEntry,
  * the server parses and renders them.
  */
+import { COMPLETED_FILTER_LABELS, normalizeCompletedFilter, type CompletedFilter } from '@/lib/views/completed-window'
 import { FILTERABLE_FIELDS, isUnsetFilterValue, type GroupConfig, type SortConfig, type ViewEntityType } from '@/lib/views/types'
 import {
   CALENDAR_CARD_VIEWS,
@@ -163,7 +164,7 @@ export interface CardViewConfigLike {
   grouping: GroupConfig | null
   layout: string
   display_properties: string[]
-  completed_filter?: 'all' | 'recent' | 'none'
+  completed_filter?: CompletedFilter
   show_completed?: boolean
 }
 
@@ -416,7 +417,7 @@ function parseQuery(entity: ViewEntityType, value: unknown): CardQuery | null {
     ...(columns?.length ? { columns } : {}),
     ...(search ? { search } : {}),
     ...completedOf({
-      completed_filter: q.completed_filter === 'recent' || q.completed_filter === 'none' ? q.completed_filter : 'all',
+      completed_filter: normalizeCompletedFilter(q.completed_filter),
       show_completed: q.show_completed !== false,
     }),
   }
@@ -675,7 +676,8 @@ function describeAspect(q: CardQuery | undefined, aspect: QueryAspect): string {
       return q?.layout === 'board' ? 'board' : 'list'
     case 'completed': {
       if (q?.show_completed === false || q?.completed_filter === 'none') return 'completed hidden'
-      return q?.completed_filter === 'recent' ? 'completed: last 2 weeks' : 'completed shown'
+      const filter = normalizeCompletedFilter(q?.completed_filter)
+      return filter === 'all' ? 'completed shown' : `completed: ${COMPLETED_FILTER_LABELS[filter].toLowerCase()}`
     }
     case 'columns':
       return q?.columns?.length ? `columns ${q.columns.join(',')}` : 'default columns'

@@ -298,6 +298,26 @@ export function RenameEntityDialog({ entity, onClose }: { entity: EntityRef; onC
   )
 }
 
+// ── A page's own verbs, in the same menu ────────────────────────────────────
+
+/**
+ * A verb the page itself owns (Move to workspace, Copy as prompt, Delete…),
+ * shown in the record's ⋯ menu under the kind's own actions, so every
+ * detail page keeps its secondary verbs in ONE place, "More", instead of a
+ * button apiece (docs/plans/properties-panels.md). `danger` items come last,
+ * after a separator, in the destructive colour.
+ */
+export interface EntityMenuExtraItem {
+  id: string
+  label: string
+  icon: React.ComponentType<{ className?: string }>
+  onSelect: () => void
+  danger?: boolean
+  disabled?: boolean
+  /** Why (a disabled item's reason, or what the verb does). */
+  title?: string
+}
+
 // ── The two frames ──────────────────────────────────────────────────────────
 
 /**
@@ -310,16 +330,37 @@ export function EntityActionsMenu({
   omit,
   className,
   align = 'end',
+  extra,
 }: {
   entity: EntityRef
   state?: EntityMenuState
   omit?: readonly EntityActionId[]
   className?: string
   align?: 'start' | 'end'
+  /** The page's own verbs, under the kind's actions (falsy entries are skipped). */
+  extra?: readonly (EntityMenuExtraItem | null | false | undefined)[]
 }) {
   const actions = useEntityActions(entity, state)
   const { openRename, renameDialog } = useEntityRenameDialog(entity)
-  if (actions.filter((a) => !omit?.includes(a)).length === 0) return null
+  const own = (extra ?? []).filter((x): x is EntityMenuExtraItem => !!x)
+  const kindActions = actions.filter((a) => !omit?.includes(a)).length
+  if (kindActions === 0 && own.length === 0) return null
+  const plain = own.filter((x) => !x.danger)
+  const danger = own.filter((x) => x.danger)
+  const extraItem = (x: EntityMenuExtraItem) => (
+    <DropdownMenuItem
+      key={x.id}
+      data-entity-extra-action={x.id}
+      disabled={x.disabled}
+      title={x.title}
+      className={x.danger ? 'text-destructive focus:text-destructive' : undefined}
+      // After the menu has closed: a dialog the verb opens keeps its focus (as Rename… does).
+      onSelect={() => setTimeout(x.onSelect, 0)}
+    >
+      <x.icon className={x.danger ? 'mr-2 h-3.5 w-3.5' : 'mr-2 h-3.5 w-3.5 text-muted-foreground'} />
+      {x.label}
+    </DropdownMenuItem>
+  )
   return (
     <>
       <DropdownMenu modal={false}>
@@ -336,6 +377,10 @@ export function EntityActionsMenu({
         </DropdownMenuTrigger>
         <DropdownMenuContent align={align} className="w-52">
           <EntityActionsMenuItems entity={entity} state={state} omit={omit} variant="dropdown" onRename={openRename} />
+          {plain.length > 0 && kindActions > 0 && <DropdownMenuSeparator />}
+          {plain.map(extraItem)}
+          {danger.length > 0 && (kindActions > 0 || plain.length > 0) && <DropdownMenuSeparator />}
+          {danger.map(extraItem)}
         </DropdownMenuContent>
       </DropdownMenu>
       {renameDialog}

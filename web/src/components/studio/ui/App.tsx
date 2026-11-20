@@ -64,6 +64,7 @@ import { preferredPresenterStyle } from './PresenterPanel';
 import { presenterRadius } from '@/lib/studio/engine/presenter';
 import { useManualRecording, type RecordingSession, type RecordingStart } from './useManualRecording';
 import { canAutoOpenManual, manualContextUnchanged, manualOriginMatches, type ManualOpenIntent } from './manual-open';
+import { usePageCreate } from '@/lib/create/page-create';
 
 type History = { past: EditorProject[]; current: EditorProject; future: EditorProject[]; group?: number|null };
 type Dialog = 'projects'|'presets'|'record'|'export'|'navigate'|'new-project'|null;
@@ -88,6 +89,8 @@ export function App({ openVideoId = null, openPage, openAsk, onPlace, onLive }: 
   const [projects,setProjects]=useState<{id:string;title:string}[]>([]), [presets,setPresets]=useState<EditorPreset[]>([]);
   const [saved,setSaved]=useState(''),savedRef=useRef(''), projectDigest=useRef<string|null|undefined>(undefined), saveInFlight=useRef<Promise<boolean>|null>(null), failedSaveSignature=useRef(''), [saveError,setSaveError]=useState<string|null>(null), [savingProject,setSavingProject]=useState(false), [chooserOpen,setChooserOpen]=useState(false), [busy,setBusy]=useState<string|null>('Opening video');
   const [dialog,setDialog]=useState<Dialog>(null), [pendingProject,setPendingProject]=useState<string|null>(null),[pendingRecording,setPendingRecording]=useState<EditorProject|null>(null);
+  // The Create dialog's Studio video (Liam, 11-20): the Studio's own New video.
+  usePageCreate('studio_video',()=>setDialog('new-project'));
   /** Unsaved edits kept in this browser from an earlier session, offered in a slim banner (never a blocking dialog). */
   const [recoveryOffer,setRecoveryOffer]=useState<RecoveryOffer|null>(null);
   /** The agent saved this video while it had unsaved edits here: load its version or keep these. */

@@ -3,7 +3,8 @@
  * The Code view's middle (code-chat-stage.tsx): on Code the agent's thread
  * stops painting by the stage's own <style> (never the app's stylesheet),
  * with a chat selected or not, and the selected chat's conversation draws
- * without a box of its own.
+ * without a box of its own. Its `finish` card is left out while the right
+ * panel's Review card shows the job's record, and only then.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createRoot, type Root } from 'react-dom/client'
@@ -11,8 +12,13 @@ import { act, createElement as h } from 'react'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
-const panel = vi.fn((props: { sessionId: string; composer?: boolean; header?: boolean }) => h('div', { 'data-fake-panel': props.sessionId, 'data-composer': String(props.composer), 'data-header': String(props.header) }))
-vi.mock('@/components/local-agent/local-agent-panel', () => ({ LocalAgentPanel: (props: { sessionId: string; composer?: boolean; header?: boolean }) => panel(props) }))
+type FakePanelProps = { sessionId: string; composer?: boolean; header?: boolean; hideFinish?: boolean }
+const panel = vi.fn((props: FakePanelProps) =>
+  h('div', { 'data-fake-panel': props.sessionId, 'data-composer': String(props.composer), 'data-header': String(props.header), 'data-hide-finish': String(props.hideFinish) }),
+)
+vi.mock('@/components/local-agent/local-agent-panel', () => ({ LocalAgentPanel: (props: FakePanelProps) => panel(props) }))
+const shell = { shared: {} as object | null }
+vi.mock('@/components/work/agent-work-provider', () => ({ useOptionalAgentWorkShared: () => shell.shared }))
 vi.mock('@/lib/workspace-fetch', () => ({ getClientWorkspaceId: () => 'ws-1' }))
 const chats = { items: [] as Array<Record<string, unknown>>, readAt: null as Date | null }
 vi.mock('../../page-panel/code-chats', () => ({
@@ -26,7 +32,7 @@ vi.mock('../../side-panels/side-panels', async () => {
 })
 
 import { CodeChatStage, HIDE_THREAD_CSS } from '../code-chat-stage'
-import { __resetCodeViewForTests, selectCodeChat } from '../code-view-store'
+import { __resetCodeViewForTests, selectCodeChat, setCodeChatLive, type CodeChatLive } from '../code-view-store'
 import { setCodeDetailsOpen, setCodeView, setPagePanelShown, setRightPanelOpen } from '../../side-panels/side-panel-store'
 
 let container: HTMLDivElement
@@ -48,7 +54,19 @@ afterEach(() => {
   window.localStorage.clear()
   chats.items = []
   chats.readAt = null
+  shell.shared = {}
 })
+
+/** The conversation's reader has read the chat: its turn's record named, or none yet. */
+function readChat(trackedJobId: string | null) {
+  const live = {
+    session: { id: 'sess-1', trackedJobId },
+    stopping: false,
+    send: async () => ({ ok: true }),
+    stop: async () => ({ ok: true }),
+  } as unknown as CodeChatLive
+  act(() => setCodeChatLive('sess-1', live))
+}
 
 describe('CodeChatStage', () => {
   it('is nothing on the agent’s tab, even with a chat selected', () => {
@@ -112,5 +130,39 @@ describe('CodeChatStage', () => {
     expect(container.querySelector('[data-code-chat-stage]')).toBeNull()
     act(() => selectCodeChat('sess-1'))
     expect(container.querySelector('[data-code-chat-back]')).toBeNull()
+  })
+
+  it('leaves out the finish card only while the right panel shows the job’s record', () => {
+    act(() => root.render(h(CodeChatStage)))
+    act(() => {
+      setPagePanelShown(true)
+      setCodeView(true)
+      selectCodeChat('sess-1')
+    })
+    const hideFinish = () => container.querySelector('[data-fake-panel]')?.getAttribute('data-hide-finish')
+    // Not read yet, then read with no record: nothing beside it says the summary.
+    expect(hideFinish()).toBe('false')
+    readChat(null)
+    expect(hideFinish()).toBe('false')
+    // Its record, in the open details: the Review card's What happened says it.
+    readChat('job-1')
+    expect(hideFinish()).toBe('true')
+    // The details closed: the conversation is the only place it reads.
+    act(() => setCodeDetailsOpen(false))
+    expect(hideFinish()).toBe('false')
+    act(() => setCodeDetailsOpen(true))
+    expect(hideFinish()).toBe('true')
+  })
+
+  it('draws the finish card outside the shell, where the right panel has no Review card', () => {
+    shell.shared = null
+    act(() => root.render(h(CodeChatStage)))
+    act(() => {
+      setPagePanelShown(true)
+      setCodeView(true)
+      selectCodeChat('sess-1')
+    })
+    readChat('job-1')
+    expect(container.querySelector('[data-fake-panel]')?.getAttribute('data-hide-finish')).toBe('false')
   })
 })

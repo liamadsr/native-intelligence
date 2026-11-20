@@ -66,7 +66,7 @@ describe('recentCallNames', () => {
 describe('lint_post’s screen with the person’s calls', () => {
   it('catches a private call’s guest (in no CRM) in a post that cites only shipped work: no post link', async () => {
     const { client } = lensFakeDb(seed())
-    const screen = await screenPostSources(client, 'ws-1', [{ kind: 'action', id: 'a-1' }], { userId: 'u-1' })
+    const screen = await screenPostSources(client, 'ws-1', [{ kind: 'action', id: 'a-1' }], { userId: 'u-1', now: NOW })
     expect(screen.blockedPhrases).toContain('northwind partners')
     expect(screen.problems).toEqual([])
     const args = { surface: 'x' as const, sourceCount: screen.verifiedCount, blockedPhrases: screen.blockedPhrases, blockedWords: screen.blockedWords, sourceProblems: screen.problems }

@@ -26,7 +26,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createRoot, type Root } from 'react-dom/client'
 import { act, createElement as h, useEffect, useState } from 'react'
 import type { UIMessage } from '@ai-sdk/react'
-import { __resetCodeViewForTests, getCodeView, selectCodeChat } from '../code-view-store'
+import { __resetCodeViewForTests, getCodeView, selectCodeChat, setCodeChatLive } from '../code-view-store'
+import { CodeHeldRow } from '../composer-code-controls'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 ;(globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
@@ -105,6 +106,17 @@ function Host({ initial = [] as UIMessage[], layout = 'inline' as 'inline' | 'st
     'div',
     null,
     h(ChatMessageList, { messages, latestUserMessageId: null, userAvatarUrl: null, userInitials: 'AR', codeThread: code.thread }),
+    // As chat-panel.tsx draws it: the Code message held while its chat works, Edit putting it back.
+    code.active && code.held
+      ? h(CodeHeldRow, {
+          held: code.held,
+          onSendNow: code.sendHeldNow,
+          onEdit: () => {
+            const text = code.takeHeld()
+            if (text) setValue(text)
+          },
+        })
+      : null,
     h(ChatInput, {
       value,
       onChange: setValue,
@@ -711,5 +723,88 @@ describe('finding a Code message costs little while a reply streams', () => {
     // Another conversation: read again from the start.
     render([msg('x0'), msg('x1')])
     expect(seen.at(-1)).toBe(false)
+  })
+})
+
+describe('a message to the open chat while its agent works (Liam, 11-20: as the main chat, no Steer / Queue)', () => {
+  const MESSAGES = '/api/local-agent/sessions/sess-open/messages'
+  /** The Code view on an open chat whose agent is `status`, its reader's send a spy. */
+  async function onOpenChat(status: string, routes: FakeRoute[] = []) {
+    await mount({ list: [STUDIO], chatEnv: STUDIO, routes })
+    press(q('[data-composer-tab="code"]')!)
+    await flush()
+    const live = { session: session({ id: 'sess-open', status }), stopping: false, send: vi.fn(async () => ({ ok: true as const })), stop: vi.fn() }
+    act(() => {
+      selectCodeChat('sess-open')
+      setCodeChatLive('sess-open', live as never)
+    })
+    await flush()
+    return live
+  }
+  const turnEnds = async (live: { session: Record<string, unknown> }) => {
+    act(() => setCodeChatLive('sess-open', { ...live, session: { ...live.session, status: 'waiting' } } as never))
+    await flush()
+  }
+
+  it('no Steer / Queue choice; sent while it works, it waits under the box, then goes as the next turn when the turn ends', async () => {
+    const live = await onOpenChat('running')
+    expect(q('[data-code-policy]')).toBeNull()
+    type('Also cover the empty state')
+    await send()
+    expect(live.send).not.toHaveBeenCalled()
+    expect(host.value).toBe('')
+    expect(q('[data-code-held]')!.getAttribute('data-code-held')).toBe('waiting')
+    expect(q('[data-code-held]')!.textContent).toContain('Sends when this turn finishes')
+    expect(q('[data-code-held-text]')!.textContent).toBe('Also cover the empty state')
+    // A second one joins it.
+    type('And the error state')
+    await send()
+    expect(q('[data-code-held-text]')!.textContent).toBe('Also cover the empty state\n\nAnd the error state')
+    await turnEnds(live)
+    expect(live.send).toHaveBeenCalledTimes(1)
+    expect(live.send).toHaveBeenCalledWith('Also cover the empty state\n\nAnd the error state', 'queue', expect.any(String))
+    expect(q('[data-code-held]')).toBeNull()
+  })
+
+  it('Send now hands it to the agent mid-turn (a steer)', async () => {
+    const live = await onOpenChat('running')
+    type('Use the new token instead')
+    await send()
+    press(q('[data-code-held-send-now]')!)
+    await flush()
+    expect(live.send).toHaveBeenCalledWith('Use the new token instead', 'steer', expect.any(String))
+    expect(q('[data-code-held]')).toBeNull()
+    // The turn ending later sends nothing more.
+    await turnEnds(live)
+    expect(live.send).toHaveBeenCalledTimes(1)
+  })
+
+  it('Edit takes it back into the box, and nothing is sent', async () => {
+    const live = await onOpenChat('running')
+    type('Rename the helper')
+    await send()
+    press(q('[data-code-held-edit]')!)
+    await flush()
+    expect(host.value).toBe('Rename the helper')
+    expect(q('[data-code-held]')).toBeNull()
+    await turnEnds(live)
+    expect(live.send).not.toHaveBeenCalled()
+  })
+
+  it('leaving the chat hands it to the server to wait for the turn’s end there: never lost', async () => {
+    await onOpenChat('running', [{ method: 'POST', url: MESSAGES, reply: () => json({ messageId: 'm1', requeued: false }) }])
+    type('Then update the docs')
+    await send()
+    act(() => selectCodeChat(null))
+    await flush()
+    expect(posts().find((c) => c.url === MESSAGES)!.body).toMatchObject({ text: 'Then update the docs', policy: 'queue' })
+  })
+
+  it('idle, a message starts its next turn at once, as before', async () => {
+    const live = await onOpenChat('waiting')
+    type('Now the tests')
+    await send()
+    expect(live.send).toHaveBeenCalledWith('Now the tests', 'steer', expect.any(String))
+    expect(q('[data-code-held]')).toBeNull()
   })
 })

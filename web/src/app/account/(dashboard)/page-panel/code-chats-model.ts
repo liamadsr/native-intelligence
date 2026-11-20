@@ -1,13 +1,18 @@
 /**
  * The Code view's list, as plain data (Liam, 11-16: "if you start a new
  * coding chat you'd see it in the recent panel on the side"): the person's
- * coding chats, the Code jobs they started from the composer's Code tab
- * (lib/local-agent/code-tab.ts codeJobOf), newest first, each once.
+ * coding chats, newest first, each once. Every coding job of theirs in the
+ * workspace (Liam, 11-20: "shows any chat/agent that's working on something
+ * including the ones that were started from an action item"): the Code jobs
+ * they started from the composer's Code tab, an action's Start, the chat
+ * agent's, a loop's. A job working on an action is named by the action (its
+ * identifier and title), so the list shows which actions are being worked on.
  *
  * Pure: no clock, no reads.
  */
 import { codeJobOpen, codeJobWorking } from '@/lib/local-agent/code-tab'
 import type { PanelSession } from '@/components/local-agent/session-api'
+import type { SessionAction } from '@/lib/local-agent/store'
 
 export interface CodeChatItem {
   /** The job's session id: its one key. */
@@ -25,6 +30,8 @@ export interface CodeChatItem {
   working: boolean
   /** Its agent asked the person something and waits for the answer: the dot. */
   needsYou: boolean
+  /** The action it works (an action's Start), named; null for every other job. */
+  action: SessionAction | null
 }
 
 const TITLE_MAX = 120
@@ -41,21 +48,28 @@ const ms = (iso: string | null | undefined): number => {
   return Number.isNaN(t) ? -Infinity : t
 }
 
-/** The person's coding chats from their local agents' list: the Code jobs only, newest first. */
+/** A job's action, as the list names it: its title (or identifier) to go by, else nothing. */
+function actionOf(s: PanelSession): SessionAction | null {
+  const a = s.action
+  return a && (a.title.trim() || a.identifier) ? a : null
+}
+
+/** The person's coding chats from the Code view's list (every coding job in the workspace), newest first. */
 export function codeChatsOf(sessions: readonly PanelSession[]): CodeChatItem[] {
   const out: CodeChatItem[] = []
   for (const s of sessions) {
-    // A Code job is one the person started from the composer's Code tab (its send's request id).
-    if (typeof s.codeRequestId !== 'string' || !s.codeRequestId) continue
+    const action = actionOf(s)
     out.push({
       key: s.id,
       sessionId: s.id,
       workItemId: s.trackedJobId ?? null,
-      title: codeChatTitle(s.request),
+      // An action's job goes by its action (its request is the agent's long brief), every other by what was asked.
+      title: action ? codeChatTitle(action.title || action.identifier) : codeChatTitle(s.request),
       folder: s.folderLabel ?? '',
       at: s.updatedAt || s.createdAt,
       working: codeJobWorking(s.status),
       needsYou: codeJobOpen(s.status) && s.lastSignal === 'ask',
+      action,
     })
   }
   return out.sort((a, b) => ms(b.at) - ms(a.at) || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))

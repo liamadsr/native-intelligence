@@ -43,6 +43,7 @@ import { type ProspectListPurpose } from '@/lib/prospecting/types'
 import { ViewHeader } from '../views/view-header'
 import { BetaPill } from './beta-pill'
 import { ListDetail } from './list-detail'
+import { usePageCreate } from '@/lib/create/page-create'
 import {
   EXPERIMENTAL_PURPOSES,
   ExperimentalTag,
@@ -766,6 +767,11 @@ export function ProspectingView({
    */
   const [establishedNonce, setEstablishedNonce] = useState(0)
   const [sheetPurpose, setSheetPurpose] = useState<ProspectListPurpose | null>(null)
+  // The Create dialog's Prospect list (Liam, 11-20): this page's New list, from the index.
+  usePageCreate('prospect_list', () => {
+    if (listId) onCloseDetail()
+    setSheetPurpose('buyers')
+  })
   /**
    * The workspace's monthly prospecting ceiling.
    *

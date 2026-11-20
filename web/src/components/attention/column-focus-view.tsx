@@ -5,22 +5,25 @@
  * this"): the card stays where it stood and grows in place (its sentence,
  * then a divider and its details, or its full card when a menu row asks for
  * the controls), everything else on screen goes soft behind a blur, and a
- * narrower menu card floats just below it with the card's other verbs. Esc,
- * a click on the blur, or a verb that settles the card closes it.
+ * narrower menu card floats beside it with the card's other verbs: on its
+ * left, level with its header, so it stands in the same place whatever the
+ * card's height (Liam, 11-20). Esc, a click on the blur, or a verb that
+ * settles the card closes it.
  *
  * A dialog (labelled with the card's words) with its focus kept inside while
  * open, given back to the card after. Placed from the card's box when it
  * opens, again when the window resizes or the card or menu change size (a
- * full card mounting), never per frame: the card keeps its top unless it
- * would run off the bottom, and the menu goes above the card when there is
- * no room below.
+ * full card mounting), never per frame: the card keeps its top unless it or
+ * its menu would run off the bottom. Where there is no room on the card's
+ * left (a narrow window), the menu goes below the card, or above it when
+ * there is no room below.
  *
  * Mounted only while open. The blur over the whole page is a full-viewport
  * backdrop-filter, costly over the moving sky in WebKit (card-skin.ts), so
  * the sky is held still meanwhile (a sky-activity hold, released on close).
  * Reduced motion: no lift.
  */
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { skyActivity } from '@/lib/sky/sky-activity'
 import { cn } from '@/lib/utils'
@@ -29,6 +32,8 @@ import { cn } from '@/lib/utils'
 export const FOCUS_EDGE_PX = 12
 /** The gap between the card and its menu, px. */
 export const FOCUS_MENU_GAP_PX = 8
+/** The menu's width when it stands on the card's left, px (`w-60`, 15rem). */
+export const FOCUS_MENU_WIDTH_PX = 240
 /**
  * Room round the card inside its scroll box for the card's own shadow, px
  * (taken back by a negative margin, so the card stands where it did): a scroll
@@ -44,22 +49,26 @@ export const FOCUS_BACKDROP_CLASS =
 
 const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
+/** Where the menu stands: on the card's left, level with its header; else below it, or above it. */
+export type FocusMenuSide = 'left' | 'below' | 'above'
+
 export interface FocusPlace {
   top: number
   left: number
   width: number
-  /** The menu goes above the card. */
-  menuAbove: boolean
+  menu: FocusMenuSide
   /** The tallest the card may be (it scrolls past it), so card and menu stay on screen. */
   maxHeight: number
 }
 
 /**
  * Where the focused card and its menu go, from the card's box in the column
- * (`anchor`), their measured heights and the window's height: the card at its
- * own top unless card and menu would run off the bottom; then the menu above
- * when it fits there, else the card moved up just enough (never past the top
- * edge). Pure, for the tests.
+ * (`anchor`), their measured heights and the window's height. The menu on the
+ * card's left, level with its top, when it fits there: the card at its own
+ * top unless it or the menu would run off the bottom, then moved up just
+ * enough. Else stacked: the card at its own top unless card and menu would
+ * run off the bottom; then the menu above when it fits there, else the card
+ * moved up just enough (never past the top edge). Pure, for the tests.
  */
 export function placeFocus(
   anchor: { top: number; left: number; width: number },
@@ -68,17 +77,31 @@ export function placeFocus(
   viewportHeight: number,
 ): FocusPlace {
   const bottomEdge = viewportHeight - FOCUS_EDGE_PX
+  if (menuHeight > 0 && anchor.left - FOCUS_MENU_GAP_PX - FOCUS_MENU_WIDTH_PX >= FOCUS_EDGE_PX) {
+    // Beside the card, the menu takes none of its height.
+    const maxHeight = Math.max(0, viewportHeight - FOCUS_EDGE_PX * 2)
+    const tallest = Math.max(Math.min(cardHeight, maxHeight), menuHeight)
+    const top = Math.max(FOCUS_EDGE_PX, Math.min(anchor.top, bottomEdge - tallest))
+    return { top, left: anchor.left, width: anchor.width, menu: 'left', maxHeight }
+  }
   const menu = menuHeight > 0 ? menuHeight + FOCUS_MENU_GAP_PX : 0
   const maxHeight = Math.max(0, viewportHeight - FOCUS_EDGE_PX * 2 - menu)
   const height = Math.min(cardHeight, maxHeight)
   const at = { left: anchor.left, width: anchor.width, maxHeight }
   const top = Math.max(FOCUS_EDGE_PX, anchor.top)
-  if (top + height + menu <= bottomEdge) return { ...at, top, menuAbove: false }
+  if (top + height + menu <= bottomEdge) return { ...at, top, menu: 'below' }
   // The menu above, when the card stays on screen and the menu fits over it.
   const cardTop = Math.max(FOCUS_EDGE_PX, Math.min(top, bottomEdge - height))
-  if (menu > 0 && cardTop - menu >= FOCUS_EDGE_PX) return { ...at, top: cardTop, menuAbove: true }
+  if (menu > 0 && cardTop - menu >= FOCUS_EDGE_PX) return { ...at, top: cardTop, menu: 'above' }
   // Neither fits as it stands: the card moves up so the menu fits below.
-  return { ...at, top: Math.max(FOCUS_EDGE_PX, bottomEdge - height - menu), menuAbove: false }
+  return { ...at, top: Math.max(FOCUS_EDGE_PX, bottomEdge - height - menu), menu: 'below' }
+}
+
+/** The menu's box against the dialog's (the card's): beside it on the left, level with its top; or under or over it. */
+function menuStyle(side: FocusMenuSide | undefined): CSSProperties {
+  if (side === 'left') return { top: 0, right: `calc(100% + ${FOCUS_MENU_GAP_PX}px)`, width: FOCUS_MENU_WIDTH_PX }
+  if (side === 'above') return { left: 0, bottom: `calc(100% + ${FOCUS_MENU_GAP_PX}px)` }
+  return { left: 0, top: `calc(100% + ${FOCUS_MENU_GAP_PX}px)` }
 }
 
 export function ColumnFocusView({
@@ -114,7 +137,7 @@ export function ColumnFocusView({
       window.innerHeight,
     )
     setPlace((was) =>
-      was && was.top === next.top && was.left === next.left && was.width === next.width && was.menuAbove === next.menuAbove && was.maxHeight === next.maxHeight
+      was && was.top === next.top && was.left === next.left && was.width === next.width && was.menu === next.menu && was.maxHeight === next.maxHeight
         ? was
         : next,
     )
@@ -224,9 +247,9 @@ export function ColumnFocusView({
         {menu && (
           <div
             ref={menuRef}
-            data-column-focus-menu={place?.menuAbove ? 'above' : 'below'}
-            className="absolute left-0 w-[min(15rem,100%)] motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-150"
-            style={place?.menuAbove ? { bottom: `calc(100% + ${FOCUS_MENU_GAP_PX}px)` } : { top: `calc(100% + ${FOCUS_MENU_GAP_PX}px)` }}
+            data-column-focus-menu={place?.menu ?? 'below'}
+            className="absolute w-[min(15rem,100%)] motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-150"
+            style={menuStyle(place?.menu)}
           >
             {menu}
           </div>
