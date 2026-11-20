@@ -71,6 +71,13 @@ import { CHATGPT_PLAN_NO_CODING_REASON } from '@/lib/chatgpt/plan-models'
  * Mac: an id for any other is refused (409 MAC_NEEDS_CODING). Nothing is
  * stored: the run records where it ran (lastActionPlace reads it back).
  *
+ * `folderId`: when no folder on the Mac is linked to the project's repo,
+ * the folder the person picked at the Start to hold it. startActionOnMac
+ * links it (the same write as Edit environment) and starts there, only for
+ * a git folder of that Mac with edits allowed; without one it is refused
+ * (NO_LINKED_FOLDER) as before. Ignored when a folder is already linked,
+ * and on a cloud Start.
+ *
  * `worker` (migration 658): who does the work when it runs on the person's Mac.
  *   no body, or no `worker`  Native Intelligence's own agent, exactly as
  *                 before this existed (every caller that doesn't choose:
@@ -148,7 +155,7 @@ export async function POST(
   const { id } = await params
   const body = await readStartBody(request)
   if (body instanceof Response) return body
-  const { asked, place } = body
+  const { asked, place, folderId } = body
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -355,6 +362,8 @@ export async function POST(
       onMac = await startActionOnMac(service, {
         // A person's own click that named who does the work; none named: Native Intelligence's own agent.
         ...(asked ? { agent: asked } : {}),
+        // The folder they picked to hold the repo when none is linked (only one of this Mac's).
+        ...(folderId ? { folderId } : {}),
         userId: user.id,
         workspaceId,
         environmentId: macEnvironmentId,
@@ -423,9 +432,9 @@ export async function POST(
  */
 async function readStartBody(
   request: Request,
-): Promise<{ asked: PersonAgentChoice | undefined; place: { environmentId: string | null } | undefined } | Response> {
+): Promise<{ asked: PersonAgentChoice | undefined; place: { environmentId: string | null } | undefined; folderId: string | undefined } | Response> {
   const text = await request.text().catch(() => '')
-  if (!text.trim()) return { asked: undefined, place: undefined }
+  if (!text.trim()) return { asked: undefined, place: undefined, folderId: undefined }
   let body: unknown
   try {
     body = JSON.parse(text)
@@ -448,7 +457,14 @@ async function readStartBody(
     else if (isUuid(environmentId)) place = { environmentId }
     else return badRequest('environmentId must be one of your Macs’ environment ids, or null for the cloud')
   }
-  return { asked, place }
+  // A folder picked at the Start to hold the repo (startActionOnMac takes it only on that Mac).
+  let folderId: string | undefined
+  if ('folderId' in body && (body as { folderId?: unknown }).folderId != null) {
+    const id = (body as { folderId?: unknown }).folderId
+    if (!isUuid(id)) return badRequest('folderId must be one of your Mac’s folder ids')
+    folderId = id
+  }
+  return { asked, place, folderId }
 }
 
 /**

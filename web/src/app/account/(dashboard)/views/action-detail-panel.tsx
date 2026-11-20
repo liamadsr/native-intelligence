@@ -60,6 +60,8 @@ const CloudRunView = dynamic(() => import('./cloud-run-view').then((m) => m.Clou
 import { canShowCloudRunTab, cloudRunTabMarker } from './cloud-run-gate'
 import { StartAgentWith, startPlaceLabel, useStartOnMac } from '@/components/environments/start-agent-with'
 import { StartAgentWhere, unlinkedFolderSentence } from '@/components/environments/start-agent-where'
+import { StartFolderAnchor, StartFolderChoice } from '@/components/environments/start-folder-choice'
+import { applyFolderSetting } from '@/lib/local-agent/environment-client'
 // Lazy too: the Mac job's panel mounts its transcript stream only when opened.
 const LocalAgentPanel = dynamic(() => import('@/components/local-agent/local-agent-panel').then((m) => m.LocalAgentPanel), {
   ssr: false,
@@ -630,6 +632,8 @@ export function ActionDetailPanel({
   // last ran, else on the project default, else the cloud.
   const startPlace = useStartOnMac(action?.id ?? null, !!action?.assignee_ai_member_id, `${action?.assignee_ai_member_id ?? ''}:${action?.project_id ?? ''}`)
   const startLabel = startPlaceLabel(startPlace, startWorker)
+  // No folder on the picked Mac holds the repo: the Start asks which one (and links it) instead of being refused.
+  const [startFolderOpen, setStartFolderOpen] = useState(false)
   // The person's own job for this action on their Mac, when a Start put one there.
   const [macJob, setMacJob] = useState<ActionMacJob | null>(null)
   // Detail panel view switcher. 'cloud' shows the run surface (coding logs or a
@@ -1464,8 +1468,13 @@ export function ActionDetailPanel({
 
   // Start the assigned agent's coding run on this action, server-side (the eve
   // coding agent); it opens a PR and the run status syncs back.
-  async function handleStartAgent() {
+  async function handleStartAgent(folderId?: string) {
     if (!action || !action.assignee_ai_member_id) return
+    // On a Mac with no folder linked to the repo: ask which folder first (StartFolderChoice), never a refusal.
+    if (!folderId && unlinkedFolderSentence(startPlace.mac, startPlace.coding?.repo)) {
+      setStartFolderOpen(true)
+      return
+    }
     setStartingAgent(true)
     try {
       const res = await fetch(`/api/account/actions/${actionId}/start-agent`, {
@@ -1479,6 +1488,8 @@ export function ActionDetailPanel({
               body: JSON.stringify({
                 ...(startPlace.coding ? { environmentId: startPlace.macId } : {}),
                 ...(startWorker !== undefined ? { worker: startWorker } : {}),
+                // The folder picked to hold the repo: the server links it (only one of that Mac's) and starts there.
+                ...(folderId && startPlace.macId ? { folderId } : {}),
               }),
             }
           : {}),
@@ -1506,6 +1517,8 @@ export function ActionDetailPanel({
       // view. The server marks it working itself (read back here, the
       // entity bus brings it too).
       if (started?.mode === 'mac') {
+        // It is linked now: the question doesn't come back.
+        if (folderId && startPlace.coding) applyFolderSetting(folderId, { baseBranch: startPlace.mac?.folders.find((f) => f.id === folderId)?.baseBranch ?? null, repoFullName: startPlace.coding.repo })
         if (started.sessionId) {
           setMacJob({
             sessionId: started.sessionId,
@@ -1774,6 +1787,14 @@ export function ActionDetailPanel({
             />
           )}
           {action?.assignee_ai_member_id && (
+            <StartFolderChoice
+              open={startFolderOpen}
+              onOpenChange={setStartFolderOpen}
+              mac={startPlace.mac}
+              repo={startPlace.coding?.repo ?? null}
+              mode="start"
+              onStart={(folderId) => void handleStartAgent(folderId)}
+            >
             <TooltipProvider delayDuration={200}>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -1796,6 +1817,7 @@ export function ActionDetailPanel({
                       <GitPullRequest className="h-3.5 w-3.5" />
                     </PreferenceActionButton>
                   ) : (
+                    <StartFolderAnchor asChild>
                     <PreferenceActionButton
                       label={startLabel}
                       data-start-agent-place={startPlace.macId ? 'mac' : 'cloud'}
@@ -1812,6 +1834,7 @@ export function ActionDetailPanel({
                         <Play className="h-3.5 w-3.5" />
                       )}
                     </PreferenceActionButton>
+                    </StartFolderAnchor>
                   )}
                 </TooltipTrigger>
                 <TooltipContent
@@ -1825,14 +1848,16 @@ export function ActionDetailPanel({
                       ? `PR opened by ${action.assignee_ai_member_name || 'agent'}`
                       : [
                           `${startLabel}: ${action.agent_run_status === 'failed' ? 'retry, launching' : 'launch'} ${action.assignee_ai_member_name || 'the agent'} to work on this task.`,
-                          // The Start would be refused for it: say so before the press.
-                          unlinkedFolderSentence(startPlace.mac, startPlace.coding?.repo),
+                          // No folder holds the repo yet: say so, and that the Start asks which one.
+                          unlinkedFolderSentence(startPlace.mac, startPlace.coding?.repo) &&
+                            `${unlinkedFolderSentence(startPlace.mac, startPlace.coding?.repo)} Start asks which folder holds it.`,
                         ]
                           .filter(Boolean)
                           .join(' ')}
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
+            </StartFolderChoice>
           )}
           {/* Push to an external task tracker (Asana &c.). Replaces the old
                     "Asana" properties section.

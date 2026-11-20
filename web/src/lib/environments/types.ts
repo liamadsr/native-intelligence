@@ -315,3 +315,12 @@ export const ENVIRONMENT_IN_USE_CODE = 'ENVIRONMENT_IN_USE'
 export const MAC_BUSY_CODE = 'MAC_BUSY'
 /** A run whose own environment was archived or can't be used any more: it fails rather than run elsewhere. */
 export const RUN_ENVIRONMENT_UNUSABLE_CODE = 'RUN_ENVIRONMENT_UNUSABLE'
+
+/**
+ * The sentence for a read-only folder (EDITS_NOT_ALLOWED): only the Mac's
+ * own confirm allows edits, never the web. The Start's refusal and its folder
+ * choice say the same words.
+ */
+export function editsNotAllowedReason(folder: Pick<MacFolder, 'label'>, macName: string): string {
+  return `${folder.label} on ${macName} is read-only. Allow edits for it on your Mac, then press Start again.`
+}

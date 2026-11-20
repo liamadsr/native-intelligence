@@ -279,6 +279,45 @@ describe('startActionOnMac', () => {
     expect(db.tables.local_agent_session).toHaveLength(0)
   })
 
+  describe('a folder picked at the Start when none is linked (folderId)', () => {
+    const RO_GIT = '88888888-8888-4888-8888-888888888883'
+    const OTHER_MAC_FOLDER = '88888888-8888-4888-8888-888888888884'
+    beforeEach(() => {
+      db.tables.device_folder_setting = []
+      db.tables.device_folder.push(
+        { id: RO_GIT, user_id: ME, device_id: MAC, grant_id: 'g3', label: 'site', path: '/Users/l/code/site', mode: 'read', is_git: true, revoked_at: null },
+        // Someone else's folder, on their own Mac.
+        { id: OTHER_MAC_FOLDER, user_id: '22222222-2222-4222-8222-222222222222', device_id: '77777777-7777-4777-8777-777777777778', grant_id: 'g4', label: 'core', path: '/x/core', mode: 'edit', is_git: true, revoked_at: null },
+      )
+    })
+
+    it('links that folder to the repo (the Edit environment write) and starts there; from then on it is linked', async () => {
+      expect(await run({ folderId: FOLDER })).toMatchObject({ status: 'started', folder: 'core' })
+      expect(db.tables.device_folder_setting).toEqual([expect.objectContaining({ device_folder_id: FOLDER, repo_full_name: 'acme/core' })])
+      expect(db.tables.local_agent_session[0]).toMatchObject({ folder_id: FOLDER })
+      // The next Start needs no folder named.
+      Object.assign(db.tables.local_agent_session[0], { status: 'done' })
+      expect((await run()).status).toBe('started')
+    })
+
+    it('a folder that isn’t a git folder, isn’t on this Mac (another person’s), or is read-only: refused, nothing linked or started', async () => {
+      expect(await run({ folderId: NOTES })).toMatchObject({ status: 'refused', code: 'FOLDER_NOT_USABLE', reason: expect.stringContaining('isn’t a git folder') })
+      expect(await run({ folderId: OTHER_MAC_FOLDER })).toMatchObject({ status: 'refused', code: 'FOLDER_NOT_USABLE', reason: expect.stringContaining('isn’t shared from Liam’s MacBook') })
+      expect(await run({ folderId: RO_GIT })).toEqual({
+        status: 'refused', code: 'EDITS_NOT_ALLOWED', httpStatus: 403, reason: 'site on Liam’s MacBook is read-only. Allow edits for it on your Mac, then press Start again.',
+      })
+      expect(db.tables.device_folder_setting).toEqual([])
+      expect(db.tables.local_agent_session).toHaveLength(0)
+    })
+
+    it('a folder already linked to the repo wins: a named folder is ignored, and nothing else is linked', async () => {
+      db.tables.device_folder_setting = [{ device_folder_id: FOLDER, base_branch: null, repo_full_name: 'acme/core' }]
+      db.tables.device_folder.push({ id: '88888888-8888-4888-8888-888888888885', user_id: ME, device_id: MAC, grant_id: 'g5', label: 'core-2', path: '/Users/l/code/core-2', mode: 'edit', is_git: true, revoked_at: null })
+      expect(await run({ folderId: '88888888-8888-4888-8888-888888888885' })).toMatchObject({ status: 'started', folder: 'core' })
+      expect(db.tables.device_folder_setting).toHaveLength(1)
+    })
+  })
+
   it('a read-only linked folder, an offline Mac, the reviewer in shadow, the agent paused: refused, never moved to the cloud', async () => {
     db.tables.device_folder_setting = [{ device_folder_id: NOTES, base_branch: null, repo_full_name: 'acme/core' }]
     expect(await run()).toMatchObject({ status: 'refused', code: 'EDITS_NOT_ALLOWED', httpStatus: 403 })
