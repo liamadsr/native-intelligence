@@ -22,7 +22,7 @@
  * from the browser's cache.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { DEMO_READY_MESSAGE, DEMO_SCREEN_MESSAGE, DEMO_WINDOWS, type DemoScreen } from './demo-screens'
+import { DEMO_CUTS, DEMO_READY_MESSAGE, DEMO_SCREEN_MESSAGE, DEMO_WINDOWS, type DemoScreen } from './demo-screens'
 
 /** How close the slot comes before the app is loaded, and how far it goes before the app is let go. */
 const NEAR = '600px 0px'
@@ -48,6 +48,7 @@ export function DemoFrame({
   height = DEMO_WINDOWS[screen].height,
   wanted = true,
   poster = true,
+  cut = false,
   className,
 }: {
   /** The screen to show. Changing it asks the loaded app to switch; it does not load the app again. */
@@ -58,10 +59,18 @@ export function DemoFrame({
   height?: number
   /** False holds the load back until the screen is first asked for. */
   wanted?: boolean
+  /**
+   * Show only the screen's open window (DEMO_CUTS), for a slot too narrow for the whole app at a
+   * readable size. The app still runs in its full window; the frame and the picture are both
+   * moved and clipped to that part.
+   */
+  cut?: boolean
   /** False when the page already draws a picture under this frame. */
   poster?: boolean
   className?: string
 }) {
+  // What of the app's window the slot shows: all of it, or the screen's cut.
+  const view = (cut ? DEMO_CUTS[screen] : undefined) ?? { x: 0, y: 0, width, height }
   const ref = useRef<HTMLDivElement>(null)
   const frameRef = useRef<HTMLIFrameElement>(null)
   // The screen the frame was loaded on; later ones are sent to it.
@@ -77,12 +86,12 @@ export function DemoFrame({
   useLayoutEffect(() => {
     const el = ref.current
     if (!el) return
-    const fit = () => setScale(el.clientWidth / width)
+    const fit = () => setScale(el.clientWidth / view.width)
     fit()
     const observer = new ResizeObserver(fit)
     observer.observe(el)
     return () => observer.disconnect()
-  }, [width])
+  }, [view.width])
 
   // The page first: the app's code waits for the page's own load and an idle moment after it.
   useEffect(() => {
@@ -155,9 +164,9 @@ export function DemoFrame({
   useEffect(send, [screen])
 
   return (
-    <div ref={ref} role="img" aria-label={label} className={className} style={{ position: 'relative', width: '100%', aspectRatio: `${width} / ${height}`, overflow: 'hidden' }}>
+    <div ref={ref} role="img" aria-label={label} className={className} style={{ position: 'relative', width: '100%', aspectRatio: `${view.width} / ${view.height}`, overflow: 'hidden' }}>
       {poster && (
-        <img src={demoPoster(screen)} alt="" aria-hidden loading="lazy" decoding="async" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top left' }} />
+        <img src={demoPoster(screen)} alt="" aria-hidden loading="lazy" decoding="async" style={{ position: 'absolute', left: `${(-view.x / view.width) * 100}%`, top: `${(-view.y / view.height) * 100}%`, width: `${(width / view.width) * 100}%`, height: `${(height / view.height) * 100}%`, maxWidth: 'none' }} />
       )}
       {settled && near && everWanted && scale > 0 && (
         <iframe
@@ -168,7 +177,7 @@ export function DemoFrame({
           aria-hidden
           inert
           onLoad={send}
-          style={{ position: 'absolute', left: 0, top: 0, width, height, border: 0, transformOrigin: 'top left', transform: `scale(${scale})`, pointerEvents: 'none', opacity: drawn ? 1 : 0, transition: 'opacity 0.4s ease' }}
+          style={{ position: 'absolute', left: 0, top: 0, width, height, border: 0, transformOrigin: 'top left', transform: `translate(${-view.x * scale}px, ${-view.y * scale}px) scale(${scale})`, pointerEvents: 'none', opacity: drawn ? 1 : 0, transition: 'opacity 0.4s ease' }}
         />
       )}
     </div>

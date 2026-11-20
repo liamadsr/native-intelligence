@@ -20,6 +20,7 @@ const LABELS: Record<AppScreenName, string> = {
   contact: 'A customer’s record in the app: notes, recent activity and what the workspace knows about them',
 }
 
-export function AppScreen({ screen, className }: { screen: AppScreenName; className?: string }) {
-  return <DemoFrame screen={screen} label={LABELS[screen]} className={cn('rounded-2xl shadow-2xl ring-1 ring-foreground/10', className)} />
+/** `cut`: only the screen's open window, for a slot too narrow for the whole app (a half-width panel). */
+export function AppScreen({ screen, cut, className }: { screen: AppScreenName; cut?: boolean; className?: string }) {
+  return <DemoFrame screen={screen} label={LABELS[screen]} cut={cut} className={cn('rounded-2xl shadow-2xl ring-1 ring-foreground/10', className)} />
 }

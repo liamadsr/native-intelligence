@@ -30,3 +30,19 @@ export const DEMO_WINDOWS: Record<DemoScreen, { width: number; height: number }>
   notes: COLUMN_WINDOW,
   transcript: COLUMN_WINDOW,
 }
+
+/**
+ * The part of a screen that is its open window (or, for the chat, the conversation), in the
+ * screen's own window's pixels, with a little of the sky around it. A frame in a narrow slot shows
+ * only this (`cut` on components/demo/demo-frame.tsx), so the app is not shrunk past reading to
+ * fit its rail and panel in too. Measured on /demo/app at each screen's window size; measure
+ * again if the app's layout moves (the picture and the app are cut alike, so a stale number
+ * shows the wrong part of both, never a mismatch between them).
+ */
+export const DEMO_CUTS: Partial<Record<DemoScreen, { x: number; y: number; width: number; height: number }>> = {
+  contact: { x: 416, y: 38, width: 612, height: 594 },
+  notes: { x: 416, y: 38, width: 612, height: 594 },
+  transcript: { x: 416, y: 38, width: 612, height: 594 },
+  list: { x: 416, y: 38, width: 812, height: 654 },
+  chat: { x: 390, y: 96, width: 624, height: 644 },
+}

@@ -249,24 +249,24 @@ function FeaturesSection() {
         <FeaturePanel
           title="Meticulous, organized notes"
           description="Structured notes a perfectionist would be proud of — written for you automatically the moment the meeting ends."
-          visual={<AppScreen screen="notes" />}
+          visual={<AppScreen screen="notes" cut />}
         />
         <FeaturePanel
           flip
           title="Turn meetings into action"
           description="Action items are captured, assigned, and tracked after every meeting — and sent to Linear, Jira, or Asana automatically. Nothing you said you’d do gets dropped."
-          visual={<AppScreen screen="list" />}
+          visual={<AppScreen screen="list" cut />}
         />
         <FeaturePanel
           title="Ask anything, across every meeting"
           description="Ask questions and get answers drawn from every conversation you’ve ever had."
-          visual={<AppScreen screen="chat" />}
+          visual={<AppScreen screen="chat" cut />}
         />
         <FeaturePanel
           flip
           title="Accurate, speaker-by-speaker transcription"
           description="Every speaker identified by name — Native Intelligence recognizes voices it has met before. Technical terms handled, recording kept alongside the notes."
-          visual={<AppScreen screen="transcript" />}
+          visual={<AppScreen screen="transcript" cut />}
         />
       </div>
     </SectionContainer>
