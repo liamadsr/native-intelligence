@@ -41,6 +41,7 @@ import {
   type CompanyApiRow,
   type ContactApiRow,
   type MenuFileRow,
+  type MenuNamedKind,
   type MenuSearchKind,
   type MenuSearchRow,
 } from '@/lib/search/menu-search'
@@ -624,6 +625,176 @@ async function searchStudioKind(ctx: MenuQueryContext, kind: 'studio_video' | 's
 const searchStudioVideos = (ctx: MenuQueryContext) => searchStudioKind(ctx, 'studio_video')
 const searchStudioProjects = (ctx: MenuQueryContext) => searchStudioKind(ctx, 'studio_project')
 
+// ── The kinds found by a name (docs/plans/mentions-everywhere.md) ────────────
+//
+// Campaigns, sequences, prospect lists, tables and their rows, channels,
+// decisions, teams and knowledge packages: each by its name on the CALLER's
+// client, so its table's own read rule decides (a private table to its owner
+// and grantees, a channel to who may read it, a private team to its members, a
+// package by its visibility, a decision through its capture).
+
+interface NameSearch {
+  kind: MenuNamedKind
+  table: string
+  /** The column its name is in. */
+  name: string
+  /** Everything read (the name included). */
+  columns: string
+  /** What an unnamed one is called. */
+  fallback: string
+  /** Most recent first, by this column. */
+  recent: string
+  /** The table's own narrowing (not archived, a channel that is not a DM…). */
+  narrow?: (q: any) => any
+  /** No `workspace_id` column of its own: `narrow` fences it through its parent. */
+  unscoped?: boolean
+  status?: (row: Record<string, unknown>) => string | null
+  parentId?: (row: Record<string, unknown>) => string | null
+}
+
+const text = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null)
+/** An embedded parent (PostgREST answers one as an object, or a one-item list). */
+const parent = (v: unknown): Record<string, unknown> | null => {
+  const p = Array.isArray(v) ? v[0] : v
+  return p && typeof p === 'object' ? (p as Record<string, unknown>) : null
+}
+
+function nameSearch(spec: NameSearch): (ctx: MenuQueryContext) => Promise<MenuSearchRow[]> {
+  return async ({ supabase, workspaceId, query, limit }) => {
+    const words = matchWords(query)
+    let base = supabase.from(spec.table).select(spec.columns)
+    if (!spec.unscoped) base = base.eq('workspace_id', workspaceId)
+    if (spec.narrow) base = spec.narrow(base)
+    const rows = await rowsOf<Record<string, unknown>>(
+      spec.kind,
+      words.reduce((b, w) => b.ilike(spec.name, `%${w}%`), base).order(spec.recent, { ascending: false }).limit(words.length ? FETCH : limit),
+    )
+    return rank(
+      rows
+        .filter((r) => typeof r.id === 'string')
+        .map((r) => ({
+          kind: spec.kind,
+          id: r.id as string,
+          title: (text(r[spec.name]) ?? spec.fallback).replace(/\s+/g, ' ').slice(0, 200),
+          status: spec.status?.(r) ?? null,
+          parentId: spec.parentId?.(r) ?? null,
+          score: scoreText(text(r[spec.name]), query),
+        })),
+      limit,
+    )
+  }
+}
+
+const searchCampaigns = nameSearch({
+  kind: 'campaign',
+  table: 'campaign',
+  name: 'name',
+  columns: 'id, name, status',
+  fallback: 'Untitled campaign',
+  recent: 'updated_at',
+  narrow: (q) => q.neq('status', 'archived'),
+  status: (r) => text(r.status),
+})
+
+const searchSequences = nameSearch({
+  kind: 'sequence',
+  table: 'sequence',
+  name: 'name',
+  columns: 'id, name, status',
+  fallback: 'Untitled sequence',
+  recent: 'updated_at',
+  narrow: (q) => q.neq('status', 'archived'),
+  status: (r) => text(r.status),
+})
+
+const searchProspectLists = nameSearch({
+  kind: 'prospect_list',
+  table: 'prospect_list',
+  name: 'name',
+  columns: 'id, name, status',
+  fallback: 'Untitled list',
+  recent: 'updated_at',
+  narrow: (q) => q.neq('status', 'archived'),
+  status: (r) => text(r.status),
+})
+
+/** Tables that are not pipelines (a pipeline is the Deals page's, and its rows are deals). */
+const searchTables = nameSearch({
+  kind: 'data_table',
+  table: 'data_table',
+  name: 'name',
+  columns: 'id, name, visibility',
+  fallback: 'Untitled table',
+  recent: 'updated_at',
+  narrow: (q) => q.is('archived_at', null).neq('table_kind', 'pipeline'),
+  status: (r) => (r.visibility === 'private' ? 'Private' : null),
+})
+
+/** Rows of the tables that are not pipelines, each saying its table. */
+const searchTableRows = nameSearch({
+  kind: 'data_row',
+  table: 'data_row',
+  name: 'title',
+  columns: 'id, title, table_id, data_table!inner(name, table_kind, archived_at)',
+  fallback: 'Untitled row',
+  recent: 'updated_at',
+  narrow: (q) => q.is('archived_at', null).neq('data_table.table_kind', 'pipeline').is('data_table.archived_at', null),
+  status: (r) => text(parent(r.data_table)?.name),
+  parentId: (r) => text(r.table_id),
+})
+
+/** Channels by name (a DM has none): the ones the caller may read. */
+const searchChannels = nameSearch({
+  kind: 'team_chat_channel',
+  table: 'team_chat_channel',
+  name: 'name',
+  columns: 'id, name, topic',
+  fallback: 'A channel',
+  recent: 'last_message_at',
+  narrow: (q) => q.eq('kind', 'channel').is('archived_at', null),
+  status: (r) => text(r.topic),
+})
+
+/**
+ * Decisions by their words, not the dismissed ones. No workspace column: each
+ * is fenced through its capture (this workspace's, not archived), and read as
+ * the decision table's rule lets the caller.
+ */
+function searchDecisions(ctx: MenuQueryContext): Promise<MenuSearchRow[]> {
+  return nameSearch({
+    kind: 'decision',
+    table: 'decision',
+    name: 'content',
+    columns: 'id, content, capture_id, captures!inner(title, workspace_id, status)',
+    fallback: 'A decision',
+    recent: 'created_at',
+    unscoped: true,
+    narrow: (q) => q.eq('captures.workspace_id', ctx.workspaceId).neq('captures.status', 'archived').neq('confirmation', 'dismissed'),
+    status: (r) => text(parent(r.captures)?.title),
+    parentId: (r) => text(r.capture_id),
+  })(ctx)
+}
+
+const searchTeams = nameSearch({
+  kind: 'team',
+  table: 'team',
+  name: 'name',
+  columns: 'id, name, is_private',
+  fallback: 'A team',
+  recent: 'updated_at',
+  status: (r) => (r.is_private === true ? 'Private' : null),
+})
+
+const searchPackages = nameSearch({
+  kind: 'package',
+  table: 'knowledge_package',
+  name: 'name',
+  columns: 'id, name, description',
+  fallback: 'Untitled package',
+  recent: 'updated_at',
+  status: (r) => text(r.description)?.slice(0, 120) ?? null,
+})
+
 export const MENU_QUERIES: Record<MenuSearchKind, (ctx: MenuQueryContext) => Promise<MenuSearchRow[]>> = {
   action: searchActions,
   document: searchDocuments,
@@ -640,4 +811,13 @@ export const MENU_QUERIES: Record<MenuSearchKind, (ctx: MenuQueryContext) => Pro
   team_chat_message: searchTeamChatMessages,
   studio_video: searchStudioVideos,
   studio_project: searchStudioProjects,
+  campaign: searchCampaigns,
+  sequence: searchSequences,
+  prospect_list: searchProspectLists,
+  data_table: searchTables,
+  data_row: searchTableRows,
+  team_chat_channel: searchChannels,
+  decision: searchDecisions,
+  team: searchTeams,
+  package: searchPackages,
 }

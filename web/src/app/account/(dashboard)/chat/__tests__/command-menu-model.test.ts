@@ -225,9 +225,10 @@ describe('buildMenu', () => {
   it('`/` and `@` offer the same things, less what `@` can’t attach (pages, agents)', () => {
     // `/` also finds team chat messages (migration 561); `@` never attaches one.
     // The Studio's videos and Studio projects (the server finds them only for a member who may use the Studio).
-    expect(offeredKinds('/', MAIN)).toEqual(['pages', 'skills', 'people', 'actions', 'docs', 'projects', 'initiatives', 'captures', 'companies', 'deals', 'flows', 'files', 'events', 'videos', 'studio_projects', 'agents', 'messages'])
-    // Records first, the skills last (a tie goes to the record).
-    expect(offeredKinds('@', MAIN)).toEqual(['people', 'actions', 'docs', 'projects', 'initiatives', 'captures', 'companies', 'deals', 'flows', 'files', 'events', 'videos', 'studio_projects', 'skills'])
+    expect(offeredKinds('/', MAIN)).toEqual(['pages', 'skills', 'people', 'actions', 'docs', 'projects', 'initiatives', 'captures', 'companies', 'deals', 'flows', 'files', 'events', 'videos', 'studio_projects', 'campaigns', 'sequences', 'prospect_lists', 'tables', 'rows', 'channels', 'decisions', 'teams', 'packages', 'agents', 'messages'])
+    // Records first, the skills last (a tie goes to the record). What no mention can store yet
+    // (sequences, prospect lists, teams, packages: src/lib/search/findable-registry.ts) is `/`'s only.
+    expect(offeredKinds('@', MAIN)).toEqual(['people', 'actions', 'docs', 'projects', 'initiatives', 'captures', 'companies', 'deals', 'flows', 'files', 'events', 'videos', 'studio_projects', 'campaigns', 'tables', 'rows', 'channels', 'decisions', 'skills'])
     expect(offeredKinds('@', RUN)).toEqual(['people', 'captures', 'companies', 'skills'])
   })
 
@@ -265,7 +266,7 @@ describe('serverSearch', () => {
     expect(serverSearch('/', 'all', '', offeredKinds('/', MAIN))).toEqual({ kinds: ['contact'], limit: 8 })
     expect(serverSearch('@', 'all', '', offeredKinds('@', MAIN))).toEqual({ kinds: ['contact'], limit: 8 })
     expect(serverSearch('/', 'all', 't', offeredKinds('/', MAIN))).toEqual({
-      kinds: ['contact', 'action', 'document', 'project', 'initiative', 'capture', 'company', 'deal', 'flow', 'attachment', 'calendar_event', 'studio_video', 'studio_project', 'agent', 'team_chat_message'],
+      kinds: ['contact', 'action', 'document', 'project', 'initiative', 'capture', 'company', 'deal', 'flow', 'attachment', 'calendar_event', 'studio_video', 'studio_project', 'campaign', 'sequence', 'prospect_list', 'data_table', 'data_row', 'team_chat_channel', 'decision', 'team', 'package', 'agent', 'team_chat_message'],
       limit: 8,
     })
     // `@` never asks for agents or messages: nothing attaches them.

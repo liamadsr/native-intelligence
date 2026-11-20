@@ -28,6 +28,16 @@ import type { EditionDefinition, EditionTerm } from '@/lib/editions/manifest'
 import { editionWords } from '@/lib/editions/words'
 import { filterPages, type OfferedPage } from '@/lib/chat-cards/page-menu'
 import { normalizeQuery, scoreText, type MenuSearchKind, type MenuSearchRow } from '@/lib/search/menu-search'
+import {
+  FINDABLE,
+  FINDABLE_BY_ORDER,
+  FINDABLE_KINDS,
+  FINDABLE_SECTION,
+  MENTION_FINDABLE_KINDS,
+  SECTION_FINDABLE,
+  type FindableDescriptor,
+  type FindableSection,
+} from '@/lib/search/findable-registry'
 import type { SkillCommand } from './chat-panel'
 import type { DirectEntityActionId, EntityRef } from '@/lib/entities/actions'
 import type { FeedEntry } from '@/lib/entities/feed-model'
@@ -190,7 +200,7 @@ export function appendMention(value: string, text: string): { value: string; car
 // ── What the menu lists ─────────────────────────────────────────────────────
 
 /** The record kinds, as the menu's sections name them. */
-export type RecordMenuKind = 'actions' | 'docs' | 'projects' | 'initiatives' | 'captures' | 'people' | 'companies' | 'deals' | 'flows' | 'files' | 'events' | 'videos' | 'studio_projects' | 'agents' | 'messages'
+export type RecordMenuKind = FindableSection
 /**
  * `record_actions`: the actions on the record whose card is in front. `inbox`
  * and `recent`: the palette's first view, from the activity feed (what
@@ -207,34 +217,17 @@ export const TAB_LABELS: Record<MenuTab, string> = {
   record_actions: 'This record',
   inbox: 'Inbox',
   recent: 'Recent',
-  actions: 'Actions',
-  docs: 'Docs',
-  projects: 'Projects',
-  initiatives: 'Initiatives',
-  captures: 'Captures',
-  people: 'People',
-  companies: 'Companies',
-  deals: 'Deals',
-  flows: 'Flows',
-  files: 'Files',
-  events: 'Events',
-  videos: 'Videos',
-  studio_projects: 'Studio projects',
-  agents: 'Agents',
-  messages: 'Messages',
+  // Each found kind's tab, named by the findable registry.
+  ...(Object.fromEntries(FINDABLE_KINDS.map((k) => [FINDABLE[k].section, FINDABLE[k].label])) as Record<RecordMenuKind, string>),
 }
 
 /** The app term behind each record kind (src/lib/editions/words.ts), for its name in an edition's words. */
-const KIND_TERM: Partial<Record<RecordMenuKind, EditionTerm>> = {
-  actions: 'action',
-  docs: 'document',
-  projects: 'project',
-  initiatives: 'initiative',
-  captures: 'capture',
-  people: 'contact',
-  companies: 'company',
-  deals: 'deal',
-}
+const KIND_TERM: Partial<Record<RecordMenuKind, EditionTerm>> = Object.fromEntries(
+  FINDABLE_KINDS.flatMap((k) => {
+    const d: FindableDescriptor = FINDABLE[k]
+    return d.term ? [[d.section, d.term]] : []
+  }),
+)
 
 /**
  * A tab's or section's name: the edition's word where it renames that kind
@@ -248,40 +241,8 @@ export function menuTabLabel(tab: MenuTab, edition?: Pick<EditionDefinition, 'wo
 }
 
 /** The search kind behind each record section, and back. */
-export const SEARCH_KIND: Record<RecordMenuKind, MenuSearchKind> = {
-  actions: 'action',
-  docs: 'document',
-  projects: 'project',
-  initiatives: 'initiative',
-  captures: 'capture',
-  people: 'contact',
-  companies: 'company',
-  deals: 'deal',
-  flows: 'flow',
-  files: 'attachment',
-  events: 'calendar_event',
-  videos: 'studio_video',
-  studio_projects: 'studio_project',
-  agents: 'agent',
-  messages: 'team_chat_message',
-}
-export const MENU_KIND: Record<MenuSearchKind, RecordMenuKind> = {
-  action: 'actions',
-  document: 'docs',
-  project: 'projects',
-  initiative: 'initiatives',
-  capture: 'captures',
-  contact: 'people',
-  company: 'companies',
-  deal: 'deals',
-  flow: 'flows',
-  attachment: 'files',
-  calendar_event: 'events',
-  studio_video: 'videos',
-  studio_project: 'studio_projects',
-  agent: 'agents',
-  team_chat_message: 'messages',
-}
+export const SEARCH_KIND: Record<RecordMenuKind, MenuSearchKind> = SECTION_FINDABLE
+export const MENU_KIND: Record<MenuSearchKind, RecordMenuKind> = FINDABLE_SECTION
 
 export function isRecordKind(kind: MenuKind): kind is RecordMenuKind {
   return kind !== 'pages' && kind !== 'skills' && kind !== 'record_actions' && kind !== 'inbox' && kind !== 'recent'
@@ -416,9 +377,10 @@ export function verbFor(trigger: MenuTrigger, item: MenuItem): MenuVerb {
 }
 
 /** The kinds in order: tabs keep these places, and a tie between two kinds' best rows keeps it. */
-const ORDER: readonly MenuKind[] = ['pages', 'skills', 'people', 'actions', 'docs', 'projects', 'initiatives', 'captures', 'companies', 'deals', 'flows', 'files', 'events', 'videos', 'studio_projects', 'agents', 'messages']
+const RECORD_ORDER: readonly RecordMenuKind[] = FINDABLE_BY_ORDER.map((k) => FINDABLE[k].section)
+const ORDER: readonly MenuKind[] = ['pages', 'skills', ...RECORD_ORDER]
 /** `@`'s: the records first (`@ma` is Maya before a skill named like her), its skills last. */
-const AT_ORDER: readonly MenuKind[] = ['people', 'actions', 'docs', 'projects', 'initiatives', 'captures', 'companies', 'deals', 'flows', 'files', 'events', 'videos', 'studio_projects', 'skills']
+const AT_ORDER: readonly MenuKind[] = [...MENTION_FINDABLE_KINDS.map((k) => FINDABLE[k].section), 'skills']
 /** What each shows before anything is typed, in this order: recent people first. */
 const LEADS: Record<MenuTrigger, readonly MenuKind[]> = {
   '/': ['people', 'pages', 'skills'],
