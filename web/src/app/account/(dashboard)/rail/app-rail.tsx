@@ -97,6 +97,7 @@ import { openTarget } from '@/lib/chat-cards/open-card'
 import { openSearch } from '@/lib/chat/open-search'
 import { openCreateDialog } from '@/lib/create/open-create'
 import { useModKeyLabel } from '@/lib/hotkeys'
+import { goToFor, goToKeys, keysChips } from '@/lib/shortcuts'
 import { minimizeFrontCards } from '@/components/chat-cards/front-card'
 import { COLUMN_CARD_SKIN } from '@/components/attention/card-skin'
 import { isDefaultRailPrefs, type RailPrefs } from '@/lib/rail-prefs'
@@ -148,6 +149,22 @@ const ITEM =
 const ITEM_ACTIVE = 'bg-foreground/[0.08] text-sidebar-foreground hover:bg-foreground/[0.08]'
 const TIP = 'flex items-center gap-1.5 rounded-lg border bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-md'
 const KBD = 'inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-[4px] border bg-muted/60 px-1 text-[10px] font-medium text-muted-foreground'
+
+/**
+ * A rail item's go-to (lib/shortcuts.ts) in its tooltip: G, then its letter.
+ * A group's own (SEO), else the page its icon opens by default.
+ */
+function GoToHint({ home, group, slug }: { home?: boolean; group?: string; slug?: string }) {
+  const def = home ? goToFor({ home: true }) : ((group && goToFor({ group })) || goToFor({ slug }))
+  if (!def) return null
+  const [[first], [second]] = keysChips(goToKeys(def.letter), false)
+  return (
+    <span data-app-rail-shortcut={def.letter} aria-label={`Shortcut: G then ${def.letter.toUpperCase()}`} className="flex items-center gap-0.5">
+      <kbd className={KBD}>{first}</kbd>
+      <kbd className={KBD}>{second}</kbd>
+    </span>
+  )
+}
 
 /** The page in front takes the keys (its own: mail's j/k, Esc). */
 function focusFrontPage(): void {
@@ -259,6 +276,7 @@ function PageButton({
         </TooltipTrigger>
         <TooltipContent side="right" sideOffset={8} collisionPadding={8} className={TIP}>
           <span>{label}</span>
+          <GoToHint group={isPageGroupId(def.id) ? def.id : undefined} slug={entry.page.slug} />
         </TooltipContent>
       </Tooltip>
       <ContextMenuContent data-app-rail-menu={def.id} className="min-w-44" onCloseAutoFocus={onMenuClosed}>
@@ -557,7 +575,7 @@ export function AppRail() {
                     <Plus className="size-[18px]" strokeWidth={2} />
                   </RailButton>
                   {/* Home (Liam, 11-11), fixed at the top: the chat, every card in front put away. Not one of the person's pages. */}
-                  <RailButton label="Home" active={active === 'home'} onClick={minimizeFrontCards} data={{ 'data-app-rail-item': 'home' }}>
+                  <RailButton label="Home" hint={<GoToHint home />} active={active === 'home'} onClick={minimizeFrontCards} data={{ 'data-app-rail-item': 'home' }}>
                     <House className="size-[18px]" strokeWidth={1.75} />
                   </RailButton>
                   <div aria-hidden data-app-rail-home-line="" className={HAIRLINE} />

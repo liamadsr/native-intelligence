@@ -1,0 +1,261 @@
+/**
+ * The app's keyboard shortcuts, in one place (owner, 11-20: "Like Linear,
+ * everything has a shortcut. You should be able to open any page with a
+ * dedicated shortcut that makes sense … use and prioritize [the well
+ * established ones] … I think Linear does the G+M kind of thing").
+ * The map and the reasoning for each letter: docs/plans/keyboard-shortcuts.md.
+ *
+ *   GO_TO       G then a letter opens a page, as the app rail opens it
+ *               (rail/app-rail.tsx: openTarget `page`, a group on its member
+ *               last used). Every `/` page has one (the tests say so).
+ *   SHORTCUTS   every shortcut the app has, for the sheet on `?`
+ *               (shortcuts/shortcuts-sheet.tsx) and for the conflict test
+ *               (__tests__/shortcuts-registry.test.ts): two shortcuts on the
+ *               same keys where both can fire is a failing test, as is one
+ *               on a key the browser, the OS or the desktop app keeps.
+ *
+ * Where a shortcut is handled stays where it was (lib/hotkeys.ts useHotkeys,
+ * or a page's own listener: Mail's): this is its entry, so a new one is
+ * added here too, or the test can't see it.
+ *
+ * Client-safe and pure.
+ */
+
+/** Where a shortcut can fire: anywhere in the app, or only on one page or panel. */
+export type ShortcutScope = 'global' | 'mail' | 'detail-panel' | 'page-card' | 'palette'
+
+/** The sheet's sections, in its order. */
+export type ShortcutSection = 'General' | 'Go to' | 'Mail' | 'Tasks, projects and initiatives'
+
+/**
+ * One shortcut's keys, as the sheet writes them: `mod+k` (⌘K on a Mac, Ctrl+K
+ * elsewhere), `shift+h`, `?`, `escape`, or a sequence `g m` (G, then M).
+ */
+export type ShortcutKeys = string
+
+export interface ShortcutDef {
+  id: string
+  /** Its keys; several when more than one does the same (`/` and ⌘K). */
+  keys: readonly ShortcutKeys[]
+  label: string
+  section: ShortcutSection
+  scope: ShortcutScope
+  /**
+   * A page's own shortcut that takes the place of an app-wide one on the
+   * same keys while that page has the keyboard (Mail's C writes an email
+   * where C elsewhere opens Create): the id it stands in for. The only
+   * allowed overlap.
+   */
+  overrides?: string
+}
+
+// ── G then a letter ────────────────────────────────────────
+
+/** Where a go-to letter leads: a `/` page (its slug), home (the chat), or a rail page group (its member last used). */
+export type GoToTarget = { type: 'home' } | { type: 'page'; slug: string } | { type: 'group'; id: 'seo' }
+
+export interface GoToDef {
+  /** The second key, a lower-case letter (G is the first). */
+  letter: string
+  target: GoToTarget
+  /** What the sheet calls it where the workspace offers no label of its own (home, a group). */
+  label: string
+  /** Why this letter (docs/plans/keyboard-shortcuts.md has the same). */
+  why: string
+}
+
+/** The sequences' first key. */
+export const GO_TO_PREFIX = 'g'
+
+const page = (letter: string, slug: string, label: string, why: string): GoToDef => ({ letter, target: { type: 'page', slug }, label, why })
+
+/**
+ * G then a letter: the rail's own icons first, on their initials where they
+ * are free (the owner's G M Mail, G C Calendar, G H Home), Linear's where it
+ * has one (G P Projects), then each page under them.
+ */
+export const GO_TO: readonly GoToDef[] = [
+  { letter: 'h', target: { type: 'home' }, label: 'Home', why: 'Home (the owner’s example)' },
+  page('m', 'mail', 'Mail', 'Mail (the owner’s example; Gmail and Superhuman use M for mail too)'),
+  page('c', 'calendar', 'Calendar', 'Calendar (the owner’s example), so Contacts, Captures, Companies and Campaigns take another letter'),
+  page('a', 'actions', 'My Actions', 'Actions'),
+  page('t', 'team-chat', 'Team chat', 'Team chat (on the rail, used daily; Teams takes E)'),
+  page('d', 'docs', 'Docs', 'Docs, the Drive group’s first page'),
+  page('k', 'knowledge', 'Knowledge', 'Knowledge'),
+  page('f', 'files', 'Files', 'Files'),
+  page('l', 'tables', 'Tables', 'Lists (Tables’ own keyword); T is Team chat'),
+  page('o', 'contacts', 'Contacts', 'cOntacts: C is Calendar and P is Projects (Linear’s)'),
+  page('b', 'companies', 'Companies', 'Businesses: C and O are taken'),
+  page('e', 'deals', 'Deals', 'dEals: D is Docs'),
+  page('p', 'projects', 'Projects', 'Projects (Linear’s G P)'),
+  page('n', 'initiatives', 'Initiatives', 'iNitiatives: I is the agents'),
+  page('u', 'teams', 'Teams', 'teams, as in "users": T is Team chat, E is Deals (the least used of the three; the owner can swap)'),
+  page('r', 'captures', 'Captures', 'Recordings: C is Calendar'),
+  page('y', 'availability', 'Availability', 'availabilitY: A is Actions, V the Studio'),
+  page('x', 'prospecting', 'Prospecting', 'prospects, eXplored: P is Projects and every other letter in the word is taken (the owner can swap)'),
+  page('q', 'sequences', 'Sequences', 'seQuences: S is SEO'),
+  page('j', 'campaigns', 'Campaigns', 'a leftover letter: every one in the word is taken (the owner can swap)'),
+  page('v', 'studio', 'Studio', 'Video: S is SEO'),
+  { letter: 's', target: { type: 'group', id: 'seo' }, label: 'SEO', why: 'SEO, on its section last used, as the rail opens it' },
+  page('i', 'agents', 'Agents & skills', 'the AI: A is Actions'),
+  page('w', 'flows', 'Flows', 'Workflows: F is Files'),
+  page('z', 'evals', 'Evals', 'a leftover letter: E, V, A, L and S are taken (the owner can swap)'),
+]
+
+/** A go-to's keys in the registry's notation (`g m`). */
+export const goToKeys = (letter: string): ShortcutKeys => `${GO_TO_PREFIX} ${letter}`
+
+// ── Every shortcut ─────────────────────────────────────────
+
+/** The shortcuts other than G then a letter. */
+export const SHORTCUTS_BESIDES_GO_TO: readonly ShortcutDef[] = [
+  // General
+  { id: 'search', keys: ['mod+k', '/'], label: 'Search and open anything', section: 'General', scope: 'global' },
+  { id: 'create', keys: ['c'], label: 'Create', section: 'General', scope: 'global' },
+  { id: 'shortcuts', keys: ['?'], label: 'Keyboard shortcuts', section: 'General', scope: 'global' },
+  { id: 'side-panel', keys: ['mod+\\'], label: 'Show or hide the side panel', section: 'General', scope: 'global' },
+  { id: 'settings', keys: ['mod+,'], label: 'Settings', section: 'General', scope: 'global' },
+  { id: 'record', keys: ['mod+n'], label: 'Start recording', section: 'General', scope: 'global' },
+  { id: 'close-page', keys: ['escape'], label: 'Put away the page in front', section: 'General', scope: 'page-card' },
+  { id: 'card-back', keys: ['mod+['], label: 'Back, in the page in front', section: 'General', scope: 'page-card' },
+  { id: 'card-forward', keys: ['mod+]'], label: 'Forward, in the page in front', section: 'General', scope: 'page-card' },
+  // Mail
+  { id: 'mail-compose', keys: ['c'], label: 'Write an email', section: 'Mail', scope: 'mail', overrides: 'create' },
+  { id: 'mail-search', keys: ['/'], label: 'Search mail', section: 'Mail', scope: 'mail', overrides: 'search' },
+  { id: 'mail-next', keys: ['j'], label: 'Next thread', section: 'Mail', scope: 'mail' },
+  { id: 'mail-previous', keys: ['k'], label: 'Previous thread', section: 'Mail', scope: 'mail' },
+  { id: 'mail-close', keys: ['escape'], label: 'Close the thread', section: 'Mail', scope: 'mail', overrides: 'close-page' },
+  // Tasks, projects and initiatives
+  { id: 'remind', keys: ['shift+h'], label: 'Remind me', section: 'Tasks, projects and initiatives', scope: 'detail-panel' },
+]
+
+/** Every shortcut: the go-to letters, then the rest. */
+export const SHORTCUTS: readonly ShortcutDef[] = [
+  ...GO_TO.map(
+    (g): ShortcutDef => ({ id: `go-${g.letter}`, keys: [goToKeys(g.letter)], label: g.label, section: 'Go to', scope: 'global' }),
+  ),
+  ...SHORTCUTS_BESIDES_GO_TO,
+]
+
+/**
+ * Keys the browser, the OS or the desktop app (desktop/src-tauri: its
+ * default menu) keep: no shortcut of ours may take them. ⌘N, ⌘[ and ⌘] were
+ * ours before this list (recording; a page's history) and stay.
+ */
+export const RESERVED_KEYS: readonly ShortcutKeys[] = [
+  'mod+a', 'mod+c', 'mod+v', 'mod+x', 'mod+z', 'mod+shift+z', 'mod+f', 'mod+g', 'mod+p', 'mod+s', 'mod+r', 'mod+l',
+  'mod+t', 'mod+w', 'mod+q', 'mod+h', 'mod+m', 'mod+d', 'mod+o', 'mod+shift+t', 'mod+shift+n', 'mod+=', 'mod+-', 'mod+0',
+  'mod+1', 'mod+2', 'mod+3', 'mod+4', 'mod+5', 'mod+6', 'mod+7', 'mod+8', 'mod+9', 'mod+alt+i', 'mod+shift+i',
+  // The desktop app's read-aloud hotkey and its presets (desktop/src-tauri/src/read_selection.rs).
+  'ctrl+alt+r', 'ctrl+alt+s', 'ctrl+alt+space', 'ctrl+escape',
+]
+
+// ── Reading keys ───────────────────────────────────────────
+
+export interface ParsedCombo {
+  key: string
+  mod: boolean
+  ctrl: boolean
+  shift: boolean
+  alt: boolean
+}
+
+/** `mod+shift+k` → its parts (one key of a sequence). `+` alone, or as the key, is the key. */
+export function parseCombo(combo: string): ParsedCombo {
+  const parts = combo === '+' ? ['+'] : combo.toLowerCase().split('+')
+  const key = parts[parts.length - 1] === '' ? '+' : parts[parts.length - 1]
+  const mods = new Set(parts.slice(0, -1))
+  return { key, mod: mods.has('mod'), ctrl: mods.has('ctrl'), shift: mods.has('shift'), alt: mods.has('alt') }
+}
+
+/** A combo written one way: `shift+mod+K` and `mod+shift+k` are the same keys. */
+export function normalizeKeys(keys: ShortcutKeys): string {
+  return keys
+    .trim()
+    .split(/\s+/)
+    .map((step) => {
+      const c = parseCombo(step)
+      return [c.mod && 'mod', c.ctrl && 'ctrl', c.alt && 'alt', c.shift && 'shift', c.key].filter(Boolean).join('+')
+    })
+    .join(' ')
+}
+
+const KEY_NAMES: Record<string, string> = { escape: 'Esc', enter: '↵', arrowup: '↑', arrowdown: '↓', arrowleft: '←', arrowright: '→', space: 'Space' }
+
+/**
+ * One key of a combo as a kbd chip reads: `mod+k` → ['⌘', 'K'] on a Mac,
+ * ['Ctrl', 'K'] elsewhere; `shift+h` → ['⇧', 'H'].
+ */
+export function comboChips(combo: string, mac: boolean): string[] {
+  const c = parseCombo(combo)
+  const out: string[] = []
+  if (c.ctrl) out.push(mac ? '⌃' : 'Ctrl')
+  if (c.mod) out.push(mac ? '⌘' : 'Ctrl')
+  if (c.alt) out.push(mac ? '⌥' : 'Alt')
+  if (c.shift) out.push(mac ? '⇧' : 'Shift')
+  out.push(KEY_NAMES[c.key] ?? (c.key.length === 1 ? c.key.toUpperCase() : c.key))
+  return out
+}
+
+/** A sequence's steps as chips: `g m` → [['G'], ['M']]. */
+export function keysChips(keys: ShortcutKeys, mac: boolean): string[][] {
+  return keys.trim().split(/\s+/).map((step) => comboChips(step, mac))
+}
+
+/** Plain words for a tooltip or a label: `g m` → "G then M", `mod+k` → "⌘K". */
+export function keysText(keys: ShortcutKeys, mac: boolean): string {
+  return keysChips(keys, mac)
+    .map((chips) => (mac ? chips.join('') : chips.join('+')))
+    .join(' then ')
+}
+
+/** The go-to for a page (its slug), a rail group (its id) or home, if it has one. */
+export function goToFor(target: { slug?: string; group?: string; home?: boolean }): GoToDef | null {
+  return (
+    GO_TO.find((g) =>
+      target.home ? g.target.type === 'home' : target.group ? g.target.type === 'group' && g.target.id === target.group : g.target.type === 'page' && g.target.slug === target.slug,
+    ) ?? null
+  )
+}
+
+// ── Conflicts ──────────────────────────────────────────────
+
+/** Can two scopes fire on the same key press? The app-wide one with any; a page's own with its own. */
+function scopesMeet(a: ShortcutScope, b: ShortcutScope): boolean {
+  return a === 'global' || b === 'global' || a === b
+}
+
+export interface ShortcutConflict {
+  keys: string
+  ids: [string, string]
+  why: string
+}
+
+/**
+ * Every pair of shortcuts that could fire on the same key press (an
+ * `overrides` pair aside), every bare key that is also a sequence's first key
+ * (it would fire before the second is pressed), and every shortcut on a
+ * reserved key. Empty: the registry is coherent.
+ */
+export function findShortcutConflicts(
+  shortcuts: readonly ShortcutDef[] = SHORTCUTS,
+  reserved: readonly ShortcutKeys[] = RESERVED_KEYS,
+): ShortcutConflict[] {
+  const out: ShortcutConflict[] = []
+  const flat = shortcuts.flatMap((s) => s.keys.map((k) => ({ s, keys: normalizeKeys(k) })))
+  for (let i = 0; i < flat.length; i++) {
+    for (let j = i + 1; j < flat.length; j++) {
+      const a = flat[i]
+      const b = flat[j]
+      if (a.s.id === b.s.id || !scopesMeet(a.s.scope, b.s.scope)) continue
+      if (a.s.overrides === b.s.id || b.s.overrides === a.s.id) continue
+      if (a.keys === b.keys) out.push({ keys: a.keys, ids: [a.s.id, b.s.id], why: 'same keys' })
+      else if (b.keys.startsWith(`${a.keys} `) || a.keys.startsWith(`${b.keys} `)) out.push({ keys: a.keys, ids: [a.s.id, b.s.id], why: 'one starts the other' })
+    }
+  }
+  const kept = new Set(reserved.map(normalizeKeys))
+  for (const { s, keys } of flat) {
+    if (kept.has(keys)) out.push({ keys, ids: [s.id, s.id], why: 'kept by the browser, the OS or the desktop app' })
+  }
+  return out
+}
