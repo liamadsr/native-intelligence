@@ -60,8 +60,8 @@
  *              completely and reappears every time" … "it's only on first
  *              load"): its rows are what it knows without its card (Tasks'
  *              views, Mail's folders, Team chat's switch and headings, a
- *              group's members); what only the card knows (saved views,
- *              counts, conversations, the lit row) fills in when it says. A
+ *              group's members); what only the card knows (counts,
+ *              conversations, the lit row) fills in when it says. A
  *              press before then waits for the card (pending-move.ts). And a
  *              page change never leaves the slot empty: the last panel is
  *              held, inert, while the next has nothing known yet, at most
@@ -113,7 +113,8 @@ type PagePanel = ComponentType<PagePanelProps>
  * sub-nav would show things like milestone and projects that way it's
  * nested and clean and not at the top level"): `actions`, the Tasks sub-nav
  * (tasks-panel.tsx: the page's views, projects, milestones, initiatives and
- * saved views, nested under My Actions). A page's panel wears
+ * teams, nested under My Actions; saved views stay in the card's toolbar).
+ * A page's panel wears
  * KEEP_PLACE_ATTR (rail/selected-place.ts) so what it opens keeps the page
  * selected.
  *

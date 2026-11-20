@@ -32,8 +32,8 @@
  * Initiatives, Milestones, All teams and each team's board: a step in its
  * history each, the list under them),
  * and tells the sub-nav where it is (./tasks-card-controls.ts). Full screen
- * from `md` up the sub-nav is its one set of views: its own view tabs exist
- * only below `md` (CSS, no waiting on the panel). A detail panel's
+ * from `md` up the sub-nav holds its scope tabs: those exist only below `md`
+ * (CSS, no waiting on the panel); its saved views stay in its toolbar. A detail panel's
  * properties and actions go in the card header's
  * Properties popover (window-properties.tsx), as they went in a window's.
  */
@@ -226,19 +226,19 @@ function ListCardBody(props: CardBodyProps & { spec: ListCardSpec }) {
   return <ListCardFrame {...props} records={records} />
 }
 
-/** What a page's own list card adds (TasksCardBody): a place over the list, the nav it reports, its tabs only below `md`. */
+/** What a page's own list card adds (TasksCardBody): a place over the list, the nav it reports, its scope tabs only below `md`. */
 interface ListCardExtras {
   records: ReturnType<typeof useOpenRecords>
   /** A list opened over the card's own (a place inside the page), or null. */
   over?: TasksPlaceList | null
   onNav?: (nav: CardListNav) => void
-  /** Its view tabs only below `md` (UnifiedViewLayout viewTabsBelowMdOnly): from there up the page's sub-nav holds them. */
-  viewTabsBelowMdOnly?: boolean
+  /** Its scope tabs only below `md` (UnifiedViewLayout scopeTabsBelowMdOnly): from there up the page's sub-nav holds them. Saved views stay. */
+  scopeTabsBelowMdOnly?: boolean
   /** A place over the list that is not a list (All teams, a team's board), or null. */
   overlay?: { key: string; node: React.ReactNode } | null
 }
 
-function ListCardFrame({ toolCallId, spec, store, fullScreen, onCount, onConfig, records, over = null, onNav, viewTabsBelowMdOnly, overlay = null }: CardBodyProps & { spec: ListCardSpec } & ListCardExtras) {
+function ListCardFrame({ toolCallId, spec, store, fullScreen, onCount, onConfig, records, over = null, onNav, scopeTabsBelowMdOnly, overlay = null }: CardBodyProps & { spec: ListCardSpec } & ListCardExtras) {
   const kept = React.useMemo(() => store.state(toolCallId), [store, toolCallId])
   const baseline = React.useMemo(() => baselineOf(spec), [spec])
   const onCountRef = React.useRef(onCount)
@@ -297,8 +297,10 @@ function ListCardFrame({ toolCallId, spec, store, fullScreen, onCount, onConfig,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [overKey, fullScreen, store, toolCallId])
 
-  const openRow = (type: string, id: string, title: string) => {
-    if (isRecordType(type)) records.open({ type, id, label: title })
+  // A row's own reference (an action's GEN-25) goes with it, for the card's header.
+  const openRow = (type: string, id: string, title: string, item?: Record<string, unknown>) => {
+    const ref = typeof item?.identifier === 'string' && item.identifier ? item.identifier : undefined
+    if (isRecordType(type)) records.open({ type, id, label: title, ...(ref ? { ref } : {}) })
   }
   return (
     <div className="relative h-full min-h-0">
@@ -306,9 +308,9 @@ function ListCardFrame({ toolCallId, spec, store, fullScreen, onCount, onConfig,
         <UnifiedViewLayout
           entityType={spec.entity_type as ViewEntityType}
           card={card}
-          viewTabsBelowMdOnly={viewTabsBelowMdOnly}
+          scopeTabsBelowMdOnly={scopeTabsBelowMdOnly}
           obscured={!!records.current || !!over || !!overlay}
-          onItemSelect={(id, title, _event, _item, entityType) => openRow(entityType ?? spec.entity_type, id, title)}
+          onItemSelect={(id, title, _event, item, entityType) => openRow(entityType ?? spec.entity_type, id, title, item)}
         />
       </CardCovered>
       {over && overCard && (
@@ -319,7 +321,7 @@ function ListCardFrame({ toolCallId, spec, store, fullScreen, onCount, onConfig,
                 entityType={over.entityType}
                 card={overCard}
                 obscured={!!records.current}
-                onItemSelect={(id, title, _event, _item, entityType) => openRow(entityType ?? over.entityType, id, title)}
+                onItemSelect={(id, title, _event, item, entityType) => openRow(entityType ?? over.entityType, id, title, item)}
               />
             </CardCovered>
           </div>
@@ -388,16 +390,10 @@ function TasksCardBody(props: CardBodyProps & { spec: ListCardSpec }) {
     publishTasksCard({
       cardId: toolCallId,
       scope: nav.scope,
-      viewId: nav.viewId,
-      views: nav.views.map((v) => ({ id: v.id, name: v.name })),
       place: place.value,
       setScope: (scope) => {
         toList()
         nav.setScope(scope)
-      },
-      setView: (viewId) => {
-        toList()
-        nav.setView(viewId)
       },
       go: (next) => {
         if (recordsRef.current.current) recordsRef.current.close()
@@ -436,14 +432,17 @@ function TasksCardBody(props: CardBodyProps & { spec: ListCardSpec }) {
       over={place.value ? tasksPlaceList(place.value) : null}
       overlay={teamsAt ? { key: `tasks:${teamsAt}`, node: teamsNode } : null}
       onNav={setNav}
-      // Full screen from `md` up the sub-nav beside the rail is the card's
-      // one set of views (Liam, 11-11: "did you actually clean up the old
+      // Full screen from `md` up the sub-nav beside the rail holds the
+      // card's scope tabs (Liam, 11-11: "did you actually clean up the old
       // one and remove it from the panel complely or did you do something
-      // the lazy way?"): its tabs only below `md`, in CSS, from the first
+      // the lazy way?"): those only below `md`, in CSS, from the first
       // paint, while that sub-nav is on screen (not with a capture's notepad
       // on the left or the panel closed: page-panel/subnav-on-screen.ts;
-      // Liam, 11-11). Inline in the chat it shows no tabs anyway (a card's list).
-      viewTabsBelowMdOnly={fullScreen && subnavShown}
+      // Liam, 11-11). Its saved views and the create button stay in its
+      // toolbar at every width (Liam, 11-20: "saved views used to show up
+      // over here on the left side"). Inline in the chat it shows no tabs
+      // anyway (a card's list).
+      scopeTabsBelowMdOnly={fullScreen && subnavShown}
     />
   )
 }

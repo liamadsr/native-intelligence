@@ -105,6 +105,14 @@ export type PatchItemFn = (id: string, fields: Record<string, unknown>) => void
  */
 const REMINDABLE_ROW_TYPES = ['action', 'project', 'initiative'] as const
 
+/**
+ * A row's left padding (`pl-7`): its gutter, where the checkbox sits, so the
+ * row's content starts on one line with the toolbar's view tabs above the
+ * list (view-toolbar.tsx, the list's 12px inset plus this). A nested row
+ * indents 20px a level past it.
+ */
+export const ROW_GUTTER_PX = 28
+
 function remindableEntityType(entityType: ViewEntityType): ReminderEntityType | null {
   return (REMINDABLE_ROW_TYPES as readonly string[]).includes(entityType)
     ? (entityType as ReminderEntityType)
@@ -369,9 +377,13 @@ function EntityRowImpl({
       // costs at most one request per session.
       onMouseEnter={() => prefetchDetailOnHoverIntent(entityType, item)}
       onMouseLeave={() => cancelHoverPrefetch(item)}
-      style={depth > 0 ? { paddingLeft: `${16 + depth * 20}px` } : undefined}
+      // The left padding is the row's gutter: the checkbox sits in it (below),
+      // so the row's own content starts on the same line as the toolbar's
+      // view tabs above the list (ROW_GUTTER_PX; Liam, 11-20: "where the
+      // tables start doesn't match"). A nested row indents past it.
+      style={depth > 0 ? { paddingLeft: `${ROW_GUTTER_PX + depth * 20}px` } : undefined}
       className={cn(
-        'group flex items-center gap-2 px-4 py-2 transition-colors text-sm rounded-lg',
+        'group relative flex items-center gap-2 pl-7 pr-4 py-2 transition-colors text-sm rounded-lg',
         // The row is only a click target while it is a ROW. In compose mode the
         // pointer belongs to the fields, and a grab cursor over a date input is
         // a lie about what the click will do.
@@ -401,10 +413,12 @@ function EntityRowImpl({
         </div>
       )}
 
-      {/* Checkbox: visible on hover or when selection is active */}
+      {/* Checkbox: in the row's gutter, so it takes no room from the row's
+          content (nothing shifts when it shows); visible on hover or when
+          selection is active. */}
       <div
         className={cn(
-          'shrink-0 flex items-center justify-center w-5 h-5 -ml-1',
+          'absolute left-1.5 top-1/2 -translate-y-1/2 flex items-center justify-center w-4 h-4',
           showCheckbox ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
         )}
         onClick={(e) => {

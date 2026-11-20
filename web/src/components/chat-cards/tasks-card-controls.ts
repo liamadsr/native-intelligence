@@ -6,18 +6,19 @@
  * level"; app/account/(dashboard)/page-panel/tasks-panel.tsx).
  *
  * The card (card-body.tsx TasksCardBody) says where it is, the panel reads
- * it and moves it: which of the page's views it shows (its view tabs' state,
- * components/views/hooks/use-view.ts), the saved view picked, the place
- * inside the card (Projects, Initiatives… a step in the card's own history,
+ * it and moves it: which of the page's scope tabs it shows (its view tabs'
+ * state, components/views/hooks/use-view.ts), the place inside the card
+ * (Projects, Initiatives… a step in the card's own history,
  * card-history.tsx), and what moves each. The panel lights a row from what
  * the card says, never from its own clicks, so Back and the page's own
- * controls keep it right.
+ * controls keep it right. Saved views are not here: they are the card's
+ * toolbar's own, at every width (Liam, 11-20).
  *
- * Nothing goes the other way: the full-screen card has no view tabs of its
- * own from `md` up (CSS, unified-view-layout.tsx viewTabsBelowMdOnly), so it
- * never waits on the panel to know (Liam, 11-11: "did you actually clean up
- * the old one and remove it from the panel complely or did you do something
- * the lazy way?").
+ * Nothing goes the other way: the full-screen card has no scope tabs of its
+ * own from `md` up (CSS, unified-view-layout.tsx scopeTabsBelowMdOnly), so
+ * it never waits on the panel to know (Liam, 11-11: "did you actually clean
+ * up the old one and remove it from the panel complely or did you do
+ * something the lazy way?").
  *
  * Flat cost: one module-level list, written when a card's place changes; no
  * timer.
@@ -30,27 +31,15 @@ import type { TasksPlace } from '@/lib/chat-cards/tasks-places'
 
 export type { TasksPlace } from '@/lib/chat-cards/tasks-places'
 
-/** A saved view, as the sub-nav lists it. */
-export interface TasksSavedView {
-  id: string
-  name: string
-}
-
 export interface TasksCardControls {
   /** The card's id (its tool call or opened-card id): the front card's, when it is in front. */
   cardId: string
-  /** The view tab the card's list is on; null while a saved view is. */
+  /** The view tab the card's list is on; null while a saved view (its toolbar's) is. */
   scope: ActionScope | null
-  /** The saved view picked; null: none. */
-  viewId: string | null
-  /** The person's saved views for actions, as the card's list read them. */
-  views: readonly TasksSavedView[]
   /** Where inside the card: null its own list, else a place over it. */
   place: TasksPlace | null
   /** Back to the card's list (a step, when it was elsewhere), on that view. */
   setScope: (scope: ActionScope) => void
-  /** Back to the card's list, on that saved view. */
-  setView: (viewId: string) => void
   /** To a place inside the card: a step in its history. */
   go: (place: TasksPlace) => void
   /** Put the card full screen (a record opened over the page as its own card is in front). */

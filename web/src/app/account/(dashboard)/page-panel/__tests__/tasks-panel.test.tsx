@@ -7,10 +7,11 @@
  * different"). Registered for `actions`: it holds the slot while the page's
  * own card is in front. Its rows move the card through what the card says
  * (tasks-card-controls.ts), the lit row follows where the card is, not the
- * click. The full-screen card has no tabs of its own from `md` up (Liam,
- * 11-11), so the sub-nav asks for the left as the page's one navigation
- * (pagePanelPage: shown while open, room or not). A press in it keeps the
- * page selected. Fixtures are made up.
+ * click. The full-screen card has no scope tabs of its own from `md` up
+ * (Liam, 11-11), so the sub-nav asks for the left as the page's one
+ * navigation (pagePanelPage: shown while open, room or not). Saved views
+ * are never here: they are the card's toolbar's own (Liam, 11-20). A press
+ * in it keeps the page selected. Fixtures are made up.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createRoot, type Root } from 'react-dom/client'
@@ -63,11 +64,8 @@ function controls(over: Partial<TasksCardControls> = {}): TasksCardControls {
   return {
     cardId: ACTIONS_CARD,
     scope: 'assigned',
-    viewId: null,
-    views: [],
     place: null,
     setScope: (s) => calls.push(`scope:${s}`),
-    setView: (id) => calls.push(`view:${id}`),
     go: (p) => calls.push(`go:${p}`),
     show: () => calls.push('show'),
     ...over,
@@ -123,7 +121,7 @@ describe('the Tasks sub-nav', () => {
     expect(PAGE_PANELS.actions).toBe(TasksPanel)
   })
 
-  it('holds the slot on the My Actions page from its first commit, before its card says anything; the views, then Projects; saved views come with the card', async () => {
+  it('holds the slot on the My Actions page from its first commit, before its card says anything; the views, then Projects; the card adds only the lit row', async () => {
     act(() => root.render(<Row />))
     await openActionsPage()
     expect(selectedPlace()).toBe('actions')
@@ -136,9 +134,6 @@ describe('the Tasks sub-nav', () => {
       'My projects', 'All projects', 'Milestones', 'Initiatives',
     ])
     expect(lit()).toEqual(['Assigned to me'])
-    act(() => publishTasksCard(controls({ views: [{ id: 'v-1', name: 'Fernhill launch' }] })))
-    await flush()
-    expect(headings()).toEqual(['Projects', 'Saved views'])
     act(() => publishTasksCard(controls()))
     await flush()
     expect(panel()).not.toBeNull()
@@ -177,11 +172,10 @@ describe('the Tasks sub-nav', () => {
     expect(store.getSidePanelState().pagePanelPage).toBe(false)
   })
 
-  it('exactly one row lit, following where the card says it is (not the click)', async () => {
+  it('at most one row lit, following where the card says it is (not the click)', async () => {
     act(() => root.render(<Row />))
     await openActionsPage()
-    const views = [{ id: 'v-1', name: 'Fernhill launch' }]
-    act(() => publishTasksCard(controls({ views })))
+    act(() => publishTasksCard(controls()))
     await flush()
     expect(lit()).toEqual(['Assigned to me'])
     // A click alone lights nothing new: the card hasn't moved.
@@ -189,18 +183,19 @@ describe('the Tasks sub-nav', () => {
     expect(calls).toEqual(['scope:all'])
     expect(lit()).toEqual(['Assigned to me'])
     // The card moved (by the panel, its own tabs, or Back): the row follows.
-    act(() => publishTasksCard(controls({ views, scope: 'all' })))
+    act(() => publishTasksCard(controls({ scope: 'all' })))
     expect(lit()).toEqual(['All issues'])
-    act(() => publishTasksCard(controls({ views, scope: null, viewId: 'v-1' })))
-    expect(lit()).toEqual(['Fernhill launch'])
-    act(() => publishTasksCard(controls({ views, scope: null, viewId: 'v-1', place: 'projects' })))
+    // A saved view picked in the card's toolbar: no scope, nothing lit here.
+    act(() => publishTasksCard(controls({ scope: null })))
+    expect(lit()).toEqual([])
+    act(() => publishTasksCard(controls({ scope: null, place: 'projects' })))
     expect(lit()).toEqual(['All projects'])
   })
 
-  it('rows move the card: a view, a place inside it, a saved view; the lit row does nothing more', async () => {
+  it('rows move the card: a view, a place inside it; the lit row does nothing more', async () => {
     act(() => root.render(<Row />))
     await openActionsPage()
-    act(() => publishTasksCard(controls({ views: [{ id: 'v-1', name: 'Fernhill launch' }] })))
+    act(() => publishTasksCard(controls()))
     await flush()
     act(() => row('Assigned to me').click())
     act(() => row('Created by me').click())
@@ -208,32 +203,30 @@ describe('the Tasks sub-nav', () => {
     act(() => row('My projects').click())
     act(() => row('Milestones').click())
     act(() => row('Initiatives').click())
-    act(() => row('Fernhill launch').click())
-    expect(calls).toEqual(['scope:created', 'go:projects', 'go:my-projects', 'go:milestones', 'go:initiatives', 'view:v-1'])
+    expect(calls).toEqual(['scope:created', 'go:projects', 'go:my-projects', 'go:milestones', 'go:initiatives'])
   })
 
-  it('saved views: their section only when the person has any', async () => {
+  it('never lists saved views: they are the card’s toolbar’s own (Liam, 11-20)', async () => {
     act(() => root.render(<Row />))
     await openActionsPage()
-    act(() => publishTasksCard(controls()))
+    act(() => publishTasksCard(controls({ scope: null })))
     await flush()
     expect(headings()).toEqual(['Projects'])
-    act(() => publishTasksCard(controls({ views: [{ id: 'v-2', name: 'Bugs this week' }] })))
-    expect(headings()).toEqual(['Projects', 'Saved views'])
+    expect(container.querySelector('[data-tasks-section="saved"]')).toBeNull()
   })
 
   it('Teams (Liam, 11-11: "Teams should be under action items"): each team then All teams, only when there are teams; a row opens it in the card, lit from where the card is', async () => {
     act(() => root.render(<Row />))
     await openActionsPage()
-    act(() => publishTasksCard(controls({ views: [{ id: 'v-2', name: 'Bugs this week' }] })))
+    act(() => publishTasksCard(controls()))
     await flush()
-    expect(headings()).toEqual(['Projects', 'Saved views'])
+    expect(headings()).toEqual(['Projects'])
     act(() => root.unmount())
     root = createRoot(container)
     teamsMock.teams = [{ id: 't-core', name: 'Core' }, { id: 't-field', name: 'Field crew' }]
     act(() => root.render(<Row />))
     await flush()
-    expect(headings()).toEqual(['Projects', 'Teams', 'Saved views'])
+    expect(headings()).toEqual(['Projects', 'Teams'])
     const section = [...container.querySelectorAll<HTMLElement>('[data-tasks-section="teams"] [data-tasks-row]')].map((r) => r.textContent)
     expect(section).toEqual(['Core', 'Field crew', 'All teams'])
     act(() => row('Field crew').click())
@@ -268,7 +261,7 @@ describe('the Tasks sub-nav', () => {
   it('the card gone (its page still selected): the rows it knows without it stay, the default lit', async () => {
     act(() => root.render(<Row />))
     await openActionsPage()
-    act(() => publishTasksCard(controls({ scope: 'all', views: [{ id: 'v-1', name: 'Fernhill launch' }] })))
+    act(() => publishTasksCard(controls({ scope: 'all' })))
     await flush()
     expect(lit()).toEqual(['All issues'])
     act(() => unpublishTasksCard(ACTIONS_CARD))

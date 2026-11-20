@@ -326,6 +326,9 @@ function FlatList({
     () => buildVisualRows(items, { treeEnabled: !!treeEnabled, expanded, collapsed, childrenByParent }),
     [items, treeEnabled, expanded, collapsed, childrenByParent],
   )
+  // The rows' expand column only while one of them has sub-items: an empty
+  // column would push every title right of the toolbar's line for nothing.
+  const anyParent = React.useMemo(() => visualRows.some((r) => r.hasChildren), [visualRows])
 
   /**
    * WHICH ROW IS COMPOSING, and therefore how tall it is.
@@ -407,7 +410,7 @@ function FlatList({
                 hasChildren={hasChildren}
                 onComposeChange={handleRowComposeChange}
                 isExpanded={isTreeRowOpen(item, expanded, collapsed)}
-                onToggleExpand={treeEnabled ? toggleExpand : undefined}
+                onToggleExpand={treeEnabled && anyParent ? toggleExpand : undefined}
               />
             </div>
           )
@@ -454,7 +457,8 @@ function GroupSection({
 
   return (
     <div>
-      <div className="flex items-center w-full px-4 py-2 hover:bg-muted/30 transition-colors group">
+      {/* Its chevron in the rows' checkbox gutter, its label on the rows' line (entity-row.tsx ROW_GUTTER_PX). */}
+      <div className="flex items-center w-full pl-[18px] pr-4 py-2 hover:bg-muted/30 transition-colors group">
         <button
           onClick={() => setCollapsed(!collapsed)}
           className="flex items-center gap-2 text-left"

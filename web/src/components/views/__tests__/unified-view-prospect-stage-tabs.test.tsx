@@ -216,7 +216,7 @@ describe('UnifiedViewLayout — the prospect stage tabs through the real toolbar
 
   it('"+" pressed on the Saved tab seeds the new view with a visible "Stage is saved" chip', () => {
     mount({ stage: 'saved' })
-    const plus = container.querySelector('button.border-dashed') as HTMLButtonElement | null
+    const plus = container.querySelector('button[aria-label="Create view"]') as HTMLButtonElement | null
     expect(plus).toBeTruthy()
     click(plus!)
 
@@ -229,7 +229,7 @@ describe('UnifiedViewLayout — the prospect stage tabs through the real toolbar
 
   it('"+" pressed on All seeds nothing — the server already scopes to what is still on the list', () => {
     mount({ stage: 'all' })
-    click(container.querySelector('button.border-dashed')!)
+    click(container.querySelector('button[aria-label="Create view"]')!)
     expect(updateConfigSpy).toHaveBeenCalledWith(expect.objectContaining({ filters: [] }))
   })
 

@@ -18,15 +18,18 @@
  *                inside the card, All teams the Teams page inside it
  *                (Liam, 11-11: "Teams should be under action items"; "yes
  *                thats what I meant for teams"); only when there are teams
- *   Saved views  the person's saved views for actions, only when they have
- *                any
+ *
+ * Saved views are not listed: they are the card's toolbar's own, left of
+ * its filter button, at every width (Liam, 11-20: "saved views used to show
+ * up over here on the left side … can you remove it from the left hand side
+ * panel").
  *
  * No empty section: one with no rows isn't listed (Liam's "hide empty
  * widgets"). In the workspace's words (src/lib/editions/words.ts): "All
  * jobs", "Goals" where the edition says so.
  *
- * Lit: exactly one row, from where the card is (a place, else a saved view,
- * else a view tab), never from a click.
+ * Lit: at most one row, from where the card is (a place, else a view tab),
+ * never from a click. None while a saved view is on (its toolbar tab is lit).
  *
  * Pure and client-safe.
  */
@@ -34,30 +37,28 @@ import { isViewAllowed, type EditionDefinition } from '@/lib/editions/manifest'
 import { editionWords, termWords } from '@/lib/editions/words'
 import { ACTION_SCOPE_NAV_ORDER, actionScopeLabel, type ActionScope } from '@/lib/views/action-scopes'
 import { ALL_TEAMS_PLACE, teamPlace, type TasksPlace } from '@/lib/chat-cards/tasks-places'
-import type { TasksSavedView } from '@/components/chat-cards/tasks-card-controls'
 
-/** What a row does: a view tab's view, a place inside the card, a saved view. */
+/** What a row does: a view tab's view, or a place inside the card. */
 export type TasksRowAct =
   | { kind: 'scope'; scope: ActionScope }
   | { kind: 'place'; place: TasksPlace }
-  | { kind: 'view'; id: string }
 
 export interface TasksRow {
-  /** `scope:assigned`, `place:projects`, `view:<id>`. */
+  /** `scope:assigned`, `place:projects`. */
   key: string
   label: string
   act: TasksRowAct
 }
 
 export interface TasksSection {
-  key: 'views' | 'projects' | 'teams' | 'saved'
+  key: 'views' | 'projects' | 'teams'
   /** Null: the first group, which has none. */
   heading: string | null
   rows: TasksRow[]
 }
 
 export const rowKeyOf = (act: TasksRowAct): string =>
-  act.kind === 'scope' ? `scope:${act.scope}` : act.kind === 'place' ? `place:${act.place}` : `view:${act.id}`
+  act.kind === 'scope' ? `scope:${act.scope}` : `place:${act.place}`
 
 const capital = (word: string) => word.charAt(0).toUpperCase() + word.slice(1)
 
@@ -70,7 +71,7 @@ export interface TasksTeam {
 }
 
 /** The sub-nav's sections, top to bottom; a section with no rows isn't there. */
-export function tasksPanelSections(edition: EditionDefinition, views: readonly TasksSavedView[], teams: readonly TasksTeam[] = []): TasksSection[] {
+export function tasksPanelSections(edition: EditionDefinition, teams: readonly TasksTeam[] = []): TasksSection[] {
   // "All jobs" where the edition has its own word for actions; else the tab's own ("All issues").
   const allWord = editionWords(edition).terms.action?.many
   const projects = termWords(edition, 'project').many
@@ -103,19 +104,13 @@ export function tasksPanelSections(edition: EditionDefinition, views: readonly T
           ? [...teams.map((t) => row({ kind: 'place', place: teamPlace(t.id) }, t.name)), row({ kind: 'place', place: ALL_TEAMS_PLACE }, 'All teams')]
           : [],
     },
-    {
-      key: 'saved',
-      heading: 'Saved views',
-      rows: views.map((v) => row({ kind: 'view', id: v.id }, v.name)),
-    },
   ]
   return sections.filter((s) => s.rows.length > 0)
 }
 
-/** The row lit for where the card is: its place, else its saved view, else its view tab; null for none of these. */
-export function litTasksRow(card: { place: TasksPlace | null; viewId: string | null; scope: ActionScope | null }): string | null {
+/** The row lit for where the card is: its place, else its view tab; null for neither (a saved view is on). */
+export function litTasksRow(card: { place: TasksPlace | null; scope: ActionScope | null }): string | null {
   if (card.place) return rowKeyOf({ kind: 'place', place: card.place })
-  if (card.viewId) return rowKeyOf({ kind: 'view', id: card.viewId })
   if (card.scope) return rowKeyOf({ kind: 'scope', scope: card.scope })
   return null
 }

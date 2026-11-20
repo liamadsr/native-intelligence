@@ -11,10 +11,13 @@
  *
  *   What    ./tasks-panel-model.ts: the page's views (Assigned to me, All
  *           <actions>, Created by me), then Projects (My projects, All
- *           projects, Milestones, Initiatives), then the person's saved
- *           views when they have any. No empty section, no empty state.
- *           Then Teams (Liam, 11-11: "Teams should be under action items"):
- *           each team the person can see, then All teams, before Saved views.
+ *           projects, Milestones, Initiatives), then Teams (Liam, 11-11:
+ *           "Teams should be under action items"): each team the person
+ *           can see, then All teams. No empty section, no empty state.
+ *           Saved views are not here: they are the card's toolbar's own, at
+ *           every width (Liam, 11-20: "saved views used to show up over
+ *           here on the left side … can you remove it from the left hand
+ *           side panel").
  *   Look    the Recent panel's (home-recents.tsx): the same floating card
  *           (page-panel-frame.tsx), small muted headings, rows of the same
  *           height and type, a plain muted glyph, no tile. No title row:
@@ -23,36 +26,31 @@
  *           stays the page's own + and the chat.
  *   A row   moves the open My Actions card, as its own controls do
  *           (components/chat-cards/tasks-card-controls.ts): a view is the
- *           state its view tabs set (the full-screen card has no tabs of
- *           its own from `md` up: this is its one control, so it shows
- *           while open, room or not; Liam, 11-11); Projects, Milestones and
- *           Initiatives, a team's board and All teams open inside the card,
- *           a step in its history (its
- *           Back returns to the list), so the card in front never changes
- *           and My Actions stays selected and lit; a saved view is applied
- *           on the card, as its tab would.
- *   Lit     exactly one row, from where the card is, never from a click
+ *           state its scope tabs set (the full-screen card has no scope
+ *           tabs of its own from `md` up: this is their one control, so it
+ *           shows while open, room or not; Liam, 11-11); Projects,
+ *           Milestones and Initiatives, a team's board and All teams open
+ *           inside the card, a step in its history (its Back returns to the
+ *           list), so the card in front never changes and My Actions stays
+ *           selected and lit.
+ *   Lit     at most one row, from where the card is, never from a click
  *           (the rail's tint, `aria-current`): Back and the page's own
- *           controls keep it right.
+ *           controls keep it right. None while a saved view is on.
  *   Kept    it wears KEEP_PLACE_ATTR (rail/selected-place.ts): what a press
  *           in it opens keeps the page selected.
  *
  *   At once its rows come with the page, before the card has loaded (Liam,
  *           11-11: "it goes away completely and reappears every time" … "only
- *           on first load"): the views, Projects and Teams are known without
- *           it; the saved views and the lit row come when it says where it
- *           is (until then the page's default view, Assigned to me, is lit).
- *           A row pressed before then moves the card once it says
- *           (pending-move.ts).
+ *           on first load"): every row is known without it; the lit row
+ *           comes when it says where it is (until then the page's default
+ *           view, Assigned to me, is lit). A row pressed before then moves
+ *           the card once it says (pending-move.ts).
  *
- * Flat cost: no read of its own, no timer. What the card's list already
- * read (its saved views, reloaded when one is saved anywhere: use-view.ts
- * VIEWS_CHANGED_EVENT) comes with where the card is; the teams are the
- * shell's own list (teams-context.tsx: read once, refreshed by team events).
+ * Flat cost: no read of its own, no timer. The teams are the shell's own
+ * list (teams-context.tsx: read once, refreshed by team events).
  */
 import { useLayoutEffect, useMemo, useRef } from 'react'
 import {
-  Bookmark,
   CircleUserRound,
   FolderKanban,
   Folders,
@@ -75,7 +73,7 @@ import { PAGE_PANEL_LABELS, type PagePanelProps } from './page-panel-types'
 import { litTasksRow, rowKeyOf, tasksPanelSections, type TasksRow, type TasksRowAct } from './tasks-panel-model'
 import { usePendingMove } from './pending-move'
 
-/** Each row's glyph: muted, no tile, as the Recent panel's. By the scope or place; a saved view's by `view`. */
+/** Each row's glyph: muted, no tile, as the Recent panel's. By the scope or place. */
 const ROW_ICONS: Record<string, LucideIcon> = {
   assigned: CircleUserRound,
   all: ListTodo,
@@ -87,11 +85,10 @@ const ROW_ICONS: Record<string, LucideIcon> = {
   // A team (teams have no icon or colour of their own to show), and All teams as the board's "View all teams".
   team: Users,
   teams: LayoutGrid,
-  view: Bookmark,
 }
 
 const iconKey = (act: TasksRowAct): string =>
-  act.kind === 'scope' ? act.scope : act.kind === 'place' ? (teamOfPlace(act.place) ? 'team' : act.place) : 'view'
+  act.kind === 'scope' ? act.scope : teamOfPlace(act.place) ? 'team' : act.place
 
 /** The rail's lit tint (rail/app-rail.tsx ITEM_ACTIVE), as home-recents.tsx's ROW_LIT. */
 const ROW_LIT = 'bg-foreground/[0.08] hover:bg-foreground/[0.08]'
@@ -107,9 +104,8 @@ export function TasksPanel({ active, mode, front, onContent }: PagePanelProps) {
     onContent('actions', true)
   }, [onContent])
 
-  const views = card?.views
   const { teams } = useTeams()
-  const sections = useMemo(() => tasksPanelSections(edition, views ?? [], teams), [edition, views, teams])
+  const sections = useMemo(() => tasksPanelSections(edition, teams), [edition, teams])
   const lit = card ? litTasksRow(card) : DEFAULT_LIT
   const frontRef = useRef(front)
   frontRef.current = front
@@ -123,8 +119,7 @@ export function TasksPanel({ active, mode, front, onContent }: PagePanelProps) {
       // A record opened over the page as its own card is in front: the page's card comes back first.
       if (!inFront) c.show()
       if (act.kind === 'scope') c.setScope(act.scope)
-      else if (act.kind === 'place') c.go(act.place)
-      else c.setView(act.id)
+      else c.go(act.place)
     })
 
   return (
@@ -165,7 +160,7 @@ export function TasksPanel({ active, mode, front, onContent }: PagePanelProps) {
 }
 
 function TasksRowButton({ row, lit, onPress }: { row: TasksRow; lit: boolean; onPress: (act: TasksRowAct, key: string) => void }) {
-  const Icon = ROW_ICONS[iconKey(row.act)] ?? Bookmark
+  const Icon = ROW_ICONS[iconKey(row.act)] ?? ListTodo
   return (
     <button
       type="button"

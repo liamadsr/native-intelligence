@@ -61,7 +61,7 @@ export function ViewBoard({
 }: ViewBoardProps) {
   if (loading) {
     return (
-      <div className="flex gap-4 p-4">
+      <div className="flex gap-4 py-4 pl-10 pr-4">
         {Array.from({ length: 4 }).map((_, i) => (
           <div key={i} className="w-72 space-y-2">
             <Skeleton className="h-8 w-full" />
@@ -223,7 +223,8 @@ function BoardInner({
   return (
     <div
       ref={boardScrollRef}
-      className="flex gap-4 p-4 overflow-x-auto flex-1 min-h-0 h-full scrollbar-hide-deep"
+      // Its first column starts on the view tabs' line above it (view-toolbar.tsx alignToContent).
+      className="flex gap-4 py-4 pl-10 pr-4 overflow-x-auto flex-1 min-h-0 h-full scrollbar-hide-deep"
     >
       {orderedGroups.map(group => (
         <BoardColumn
