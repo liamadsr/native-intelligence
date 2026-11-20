@@ -731,7 +731,7 @@ fi
 step "Step 7/7 — Create DMG"
 
 mkdir -p "$OUTPUT_DIR"
-DMG_NAME="Dial8_${VERSION}_aarch64.dmg"
+DMG_NAME="NativeIntelligence_${VERSION}_aarch64.dmg"
 DMG_PATH="$OUTPUT_DIR/$DMG_NAME"
 
 # Remove existing DMG
@@ -856,7 +856,10 @@ else
     if [ "$PUBLISH_OK" = true ]; then
         R2_ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
         UPDATER_R2_KEY="Dial8_${VERSION}.app.tar.gz"
+        # The key keeps its old name: production's APP_DOWNLOAD_URL (built into the
+        # image) points at it. Content-Disposition names the file people save.
         DMG_R2_KEY="Dial8.dmg"
+        DMG_SAVE_AS="NativeIntelligence.dmg"
 
         # Upload updater bundle (.tar.gz)
         log "Uploading updater bundle to R2..."
@@ -875,6 +878,7 @@ else
         AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY" \
         aws s3 cp "$DMG_PATH" \
             "s3://${R2_BUCKET}/${DMG_R2_KEY}" \
+            --content-disposition "attachment; filename=\"${DMG_SAVE_AS}\"" \
             --endpoint-url "$R2_ENDPOINT" \
             --region auto \
             2>&1
@@ -894,6 +898,7 @@ else
                && AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID" \
                 AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY" \
                 aws s3 cp "$WINDOWS_EXE" "s3://${R2_BUCKET}/Dial8-setup.exe" \
+                    --content-disposition "attachment; filename=\"NativeIntelligence-setup.exe\"" \
                     --endpoint-url "$R2_ENDPOINT" --region auto 2>&1; then
                 WINDOWS_UPDATER_URL="${R2_PUBLIC_URL}/${WINDOWS_UPDATER_R2_KEY}"
                 WINDOWS_SIG_CONTENT=$(cat "$WINDOWS_SIG")
