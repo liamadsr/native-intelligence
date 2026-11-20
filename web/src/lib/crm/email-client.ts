@@ -8,6 +8,7 @@ import { materializeSearchHit } from '@/lib/email/materialize-thread'
 import { resolveWorkForDeliverable } from '@/lib/work/resolve'
 import { deleteProviderDraft } from '@/lib/email/provider-drafts'
 import { outlookDeletedItemsId } from './email-sync'
+import { htmlToPlainText } from '@/lib/email/plain-text-to-html'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1304,31 +1305,42 @@ export function buildRawEmail(params: {
   ].filter(Boolean).join('\r\n')
 
   const plainText = params.bodyText || htmlToPlainText(params.bodyHtml)
+  // Quoted-printable, as mail clients send: a body line may not pass 998
+  // characters (RFC 5322 §2.1.1), and a server on the way that meets a longer
+  // one breaks it wherever it likes, mid-word or mid-tag. UTF-8 bytes are
+  // declared too, rather than left as undeclared 8-bit.
+  const part = (type: 'text/plain' | 'text/html', content: string) =>
+    `--${boundary}\r\n` +
+    `Content-Type: ${type}; charset=UTF-8\r\n` +
+    `Content-Transfer-Encoding: quoted-printable\r\n\r\n` +
+    `${encodeQuotedPrintable(content)}\r\n`
 
-  return (
-    `${headers}\r\n\r\n` +
-    `--${boundary}\r\n` +
-    `Content-Type: text/plain; charset=UTF-8\r\n\r\n` +
-    `${plainText}\r\n` +
-    `--${boundary}\r\n` +
-    `Content-Type: text/html; charset=UTF-8\r\n\r\n` +
-    `${params.bodyHtml}\r\n` +
-    `--${boundary}--`
-  )
+  return `${headers}\r\n\r\n` + part('text/plain', plainText) + part('text/html', params.bodyHtml) + `--${boundary}--`
 }
 
-function htmlToPlainText(html: string): string {
-  return html
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/p>/gi, '\n\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
+/**
+ * RFC 2045 §6.7 quoted-printable: UTF-8 bytes outside printable ASCII (and
+ * `=`) as `=XX`, every encoded line at most 76 characters (a soft break `=`
+ * ends a long one), line breaks as CRLF.
+ */
+export function encodeQuotedPrintable(text: string): string {
+  const lines: string[] = []
+  for (const line of text.split(/\r\n|\r|\n/)) {
+    const bytes = Buffer.from(line, 'utf8')
+    let encoded = ''
+    bytes.forEach((byte, i) => {
+      // A space or tab is itself, except at the end of a line (where it would be lost).
+      const plain = (byte >= 33 && byte <= 126 && byte !== 61) || ((byte === 32 || byte === 9) && i < bytes.length - 1)
+      const token = plain ? String.fromCharCode(byte) : `=${byte.toString(16).toUpperCase().padStart(2, '0')}`
+      if (encoded.length + token.length > 75) {
+        lines.push(`${encoded}=`)
+        encoded = ''
+      }
+      encoded += token
+    })
+    lines.push(encoded)
+  }
+  return lines.join('\r\n')
 }
 
 // ---------------------------------------------------------------------------

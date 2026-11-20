@@ -1,6 +1,6 @@
 import { getValidToken, getValidTokenForCapability, getAllValidTokens, getValidTokenForAccount } from '@/lib/oauth/token-manager'
 import { getServiceClient } from '@/lib/admin'
-import { buildRawEmail, encodeHeaderValue, logSentEmailInteractions, parseEmailAddresses } from '@/lib/crm/email-client'
+import { buildRawEmail, encodeHeaderValue, encodeQuotedPrintable, logSentEmailInteractions, parseEmailAddresses } from '@/lib/crm/email-client'
 import { isDraftAddress, parseDraftEdits, type DraftEdits } from '@/lib/email/draft-edits'
 import { plainTextToHtml } from '@/lib/email/plain-text-to-html'
 import { mapGmailLabelsToFolder, outlookDeletedItemsId } from '@/lib/crm/email-sync'
@@ -1081,7 +1081,10 @@ async function createGmailDraft(
   const headers = [
     `To: ${draft.to.join(', ')}`,
     `Subject: ${encodeHeaderValue(draft.subject)}`,
+    'MIME-Version: 1.0',
     `Content-Type: text/plain; charset="UTF-8"`,
+    // As buildRawEmail encodes its parts: no line past the 998-character limit.
+    'Content-Transfer-Encoding: quoted-printable',
   ]
   if (draft.cc?.length) headers.push(`Cc: ${draft.cc.join(', ')}`)
   if (draft.bcc?.length) headers.push(`Bcc: ${draft.bcc.join(', ')}`)
@@ -1090,7 +1093,7 @@ async function createGmailDraft(
     headers.push(`References: <${rfcMessageId}>`)
   }
 
-  const rawMessage = [...headers, '', draft.body].join('\r\n')
+  const rawMessage = [...headers, '', encodeQuotedPrintable(draft.body)].join('\r\n')
   const encoded = Buffer.from(rawMessage)
     .toString('base64')
     .replace(/\+/g, '-')
