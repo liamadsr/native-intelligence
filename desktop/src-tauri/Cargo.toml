@@ -1,6 +1,6 @@
 [package]
 name = "dial8-desktop"
-version = "0.2.103"
+version = "0.2.115"
 description = "Native Intelligence Desktop — Cross-platform audio capture and transcription"
 authors = ["Native Intelligence"]
 edition = "2021"
