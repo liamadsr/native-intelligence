@@ -1,7 +1,6 @@
 'use client'
 
 import { Footer } from '@/components/footer'
-import { Navbar } from '@/components/navbar'
 import { ContentSection, PageHeader, PageLayout, type Section } from '@/components/page-layout'
 import { appUrl } from '@/lib/app-url'
 
@@ -32,7 +31,6 @@ export default function Privacy() {
   return (
     <PageLayout sections={sections}>
       <div>
-        <Navbar />
         <PageHeader
           title="Privacy Policy"
           meta="Last Updated: October 24, 2026"

@@ -411,7 +411,8 @@ export function SiteShell({ children, outline = [] }: { children: React.ReactNod
           <BarMenus />
         </div>
         <div className="flex items-center gap-2">
-          <SigninButton location="site_bar" className="hidden h-8 px-3.5 text-sm md:inline-flex" />
+          {/* `max-md:hidden`, not `hidden`: the button's own `inline-flex` wins over a bare `hidden`. */}
+          <SigninButton location="site_bar" className="h-8 px-3.5 text-sm max-md:hidden" />
           <SignupButton location="site_bar" className="h-8 px-3.5 text-sm [&>svg]:hidden" />
           <button
             type="button"

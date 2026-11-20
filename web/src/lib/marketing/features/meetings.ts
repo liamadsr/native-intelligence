@@ -48,14 +48,14 @@ export const meetings: FeaturePage = {
     {
       id: 'hud',
       nav: 'Heads-up display',
-      title: 'A small window that keeps you prepared.',
+      title: 'A heads-up display over your call.',
       body: 'On the Mac, a heads-up display floats over your call. It shows who is on the call, your goal for the meeting and a short briefing, and the agent drops in what you need to know as the conversation turns.',
       demo: 'hud-tips',
     },
     {
       id: 'speakers',
       nav: 'Who said what',
-      title: 'Every line has a name on it.',
+      title: 'Speaker names on every line.',
       body: 'Voice ID learns the voices of the people you meet and links each speaker to their contact. When it is not sure, it suggests a name, and once you accept, every line from that voice is relabelled.',
       points: [
         'Reassign any line it got wrong',
@@ -67,7 +67,7 @@ export const meetings: FeaturePage = {
     {
       id: 'before',
       nav: 'Before the call',
-      title: 'Walk in knowing what happened last time.',
+      title: 'Prep before the call, from your earlier calls and open tasks.',
       body: 'Ask the agent to prepare you for a meeting and it pulls the earlier calls, open tasks, decisions and what is known about the people coming. Tell it what you want out of the call, and the goal shows on your screen once the meeting starts.',
     },
     {

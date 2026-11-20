@@ -1,7 +1,6 @@
 'use client'
 
 import { Footer } from '@/components/footer'
-import { Navbar } from '@/components/navbar'
 import { ContentSection, PageHeader, PageLayout, type Section } from '@/components/page-layout'
 import { clsx } from 'clsx'
 import { motion } from 'framer-motion'
@@ -164,7 +163,6 @@ export default function About() {
   return (
     <PageLayout sections={sections}>
       <div>
-        <Navbar />
         <PageHeader
           eyebrow="About Native Intelligence"
           title="Your information should work for you, not the other way around."

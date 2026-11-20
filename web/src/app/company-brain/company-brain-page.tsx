@@ -1,7 +1,6 @@
 'use client'
 
 import { Footer } from '@/components/footer'
-import { Navbar } from '@/components/navbar'
 import { PageLayout, type Section } from '@/components/page-layout'
 import { EarlyAccessForm } from '@/components/early-access-form'
 import { useSignupHref } from '@/components/signup-href'
@@ -123,12 +122,7 @@ function Hero() {
 
   return (
     <section id="hero" className="relative min-h-[85vh] flex flex-col">
-      {/* Navbar self-positions as a `fixed z-50` header — don't wrap it in a
-          `relative z-10` div, that traps its z-50 inside a lower stacking context
-          and the hero content (also z-10) ends up painting over it. */}
-      <Navbar />
-
-      <div className="relative z-10 flex-1 flex flex-col px-6 lg:px-8 pt-48 sm:pt-44 pb-8">
+      <div className="relative z-10 flex-1 flex flex-col px-6 lg:px-8 pt-20 sm:pt-24 pb-8">
         <div className="mx-auto w-full max-w-6xl">
           <div className="flex flex-col lg:flex-row lg:items-center lg:gap-10">
             {/* Left: text content */}

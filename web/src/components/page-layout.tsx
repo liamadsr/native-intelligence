@@ -4,7 +4,8 @@ import { clsx } from 'clsx'
 import { motion, AnimatePresence } from 'framer-motion'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { SiteShell } from '@/components/site/site-shell'
 
 export interface Section {
   id: string
@@ -15,7 +16,11 @@ export interface Section {
 interface PageLayoutProps {
   children: React.ReactNode
   sections?: Section[]
-  /** Leaves out the app icon, which is the new name's mark. Only /sms passes it (src/app/sms/client.tsx). */
+  /**
+   * The held name, on /sms only (src/app/sms/client.tsx). That page keeps the
+   * frame below, which shows no Native Intelligence mark; every other page
+   * gets the public site's shared frame (components/site/site-shell.tsx).
+   */
   brandName?: string
 }
 
@@ -29,7 +34,9 @@ interface PageHeaderProps {
 
 export function PageHeader({ eyebrow, title, description, meta }: PageHeaderProps) {
   return (
-    <div className="pt-32 pb-16 lg:pt-40 lg:pb-20 px-6 lg:px-8">
+    // The /sms page still sits under the old floating bar, so its header keeps
+    // that bar's clearance (see PageLayout).
+    <div className="pt-16 pb-16 lg:pt-20 lg:pb-20 px-6 lg:px-8 [[data-held-brand]_&]:pt-32 lg:[[data-held-brand]_&]:pt-40">
       <div className="mx-auto max-w-4xl">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -422,8 +429,16 @@ function MobileNavWrapper({ sections }: { sections?: Section[] }) {
 }
 
 export function PageLayout({ children, sections, brandName }: PageLayoutProps) {
+  // Every page but /sms: the same panel, bar and rail as the homepage. The
+  // page's own sections become the rail's "On this page" (a section with an
+  // `href` is a link to another page, which the panel already lists).
+  const outline = useMemo(
+    () => (sections ?? []).filter((section) => !section.href).map(({ id, label }) => ({ id, label })),
+    [sections]
+  )
+  if (!brandName) return <SiteShell outline={outline}>{children}</SiteShell>
   return (
-    <div className="overflow-hidden">
+    <div data-held-brand className="overflow-hidden">
       {/* Left sidebar with vertical line. No fill: the public sky
           (components/sky/public-sky.tsx) shows through it like the rest of
           the page (Liam: no vertical bands or column scrims). */}

@@ -11,7 +11,7 @@ export const mcp: FeaturePage = {
     'Connect Claude, ChatGPT, Cursor and other MCP clients to your workspace. Sign in with your account, choose read or write, revoke access any time.',
   intro: [
     'Many people already have an AI tool they like. The trouble is that it knows nothing about the company: not the call from Tuesday, not the open tasks, not the customer’s last email. Every question starts with a paste.',
-    'The workspace’s MCP server closes that gap. Connect the tool you use, sign in with your Native Intelligence account, and it can search the shared memory, read and update tasks and docs, and save what it learns back with its source.',
+    'The workspace’s MCP server gives it that knowledge. Connect the tool you use, sign in with your Native Intelligence account, and it can search the shared memory, read and update tasks and docs, and save what it learns back with its source.',
   ],
   sections: [
     {

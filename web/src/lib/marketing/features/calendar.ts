@@ -36,7 +36,7 @@ export const calendar: FeaturePage = {
     {
       id: 'prep',
       nav: 'Prep',
-      title: 'Ready for every meeting before it starts.',
+      title: 'Meeting prep on request.',
       body: 'Ask the agent to prepare you for a meeting and it gathers the earlier calls, open tasks, decisions and what is known about the people coming. You can also have a spoken prep read to you as you open the meeting.',
     },
     {

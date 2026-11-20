@@ -28,7 +28,7 @@ export const tasks: FeaturePage = {
     {
       id: 'details',
       nav: 'Task details',
-      title: 'Everything a task needs, in one place.',
+      title: 'Status, priority, owner and due date on every task.',
       body: 'Every task gets an identifier like ENG-42, a status, a priority, an assignee, a due date and an estimate. Break it into sub-tasks, mark what blocks what, label it, and discuss it in comments with @mentions.',
       points: ['Blocks, blocked by, related and duplicate links', 'Update many tasks at once', 'Custom fields for what your team tracks'],
     },
@@ -48,7 +48,7 @@ export const tasks: FeaturePage = {
     {
       id: 'views',
       nav: 'Views',
-      title: 'Saved views for the way you look at work.',
+      title: 'Saved views, private or shared.',
       body: 'Filter by status, assignee, priority, label, project, cycle or due date, then sort, group and save it as a view. Keep a view to yourself, or share it with your team or the whole workspace.',
     },
     {

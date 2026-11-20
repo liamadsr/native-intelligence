@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react'
 import { Container } from '@/components/container'
-import { Navbar } from '@/components/navbar'
 import { Heading } from '@/components/text'
 
 export default function Welcome() {
@@ -120,7 +119,6 @@ export default function Welcome() {
 
   return (
     <main className="flex min-h-screen flex-col bg-black">
-      <Navbar />
       <Container className="flex flex-1 items-center justify-center pb-24">
         <div className="mx-auto max-w-2xl text-center">
           <div className="mb-8 flex justify-center">

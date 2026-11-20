@@ -29,7 +29,7 @@ export const crm: FeaturePage = {
     {
       id: 'companies',
       nav: 'Companies',
-      title: 'Companies that gather their people.',
+      title: 'Companies and the people in them.',
       body: 'Contacts group under their company, matched by its web domain, so one page shows every relationship you have there. A company keeps its industry, size and description beside the activity of everyone who works there.',
     },
     {

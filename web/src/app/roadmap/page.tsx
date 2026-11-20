@@ -1,7 +1,6 @@
 import type { Metadata } from 'next'
 import { ArrowUpRight } from 'lucide-react'
 import { Footer } from '@/components/footer'
-import { Navbar } from '@/components/navbar'
 import { PageLayout } from '@/components/page-layout'
 import { RoadmapTimeline } from '@/components/roadmap/roadmap-timeline'
 import { ROADMAP_ISSUES_URL, ROADMAP_PROJECT_URL, ROADMAP_SUGGEST_URL } from '@/lib/roadmap/constants'
@@ -33,10 +32,9 @@ export default async function RoadmapPage() {
 
   return (
     <PageLayout>
-      <Navbar />
       <main>
         {/* Intro */}
-        <div className="pt-36 pb-12 px-6 lg:px-8">
+        <div className="pt-16 pb-12 px-6 lg:pt-20 lg:px-8">
           <div className="mx-auto max-w-4xl text-center">
             <span className="inline-block rounded-full bg-secondary px-3 py-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
               Roadmap

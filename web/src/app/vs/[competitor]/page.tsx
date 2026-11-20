@@ -3,7 +3,6 @@ import { notFound } from 'next/navigation'
 import { Check, Minus } from 'lucide-react'
 import { Footer } from '@/components/footer'
 import { Link } from '@/components/link'
-import { Navbar } from '@/components/navbar'
 import { PageLayout } from '@/components/page-layout'
 import { CompareLinks } from '@/components/compare-links'
 import { StructuredData } from '@/components/structured-data'
@@ -79,7 +78,7 @@ function CellContent({ value }: { value: Cell }) {
 
 function Hero({ competitor }: { competitor: Competitor }) {
   return (
-    <section className="relative flex items-center pt-40 pb-16 px-6 lg:px-8">
+    <section className="relative flex items-center pt-16 pb-16 lg:pt-24 px-6 lg:px-8">
       <div className="mx-auto max-w-4xl w-full">
         <p className="font-mono text-xs/5 font-semibold uppercase tracking-widest text-muted-foreground">
           Native Intelligence vs {competitor.name}
@@ -357,7 +356,6 @@ export default async function VsCompetitorPage({
 
   return (
     <PageLayout>
-      <Navbar />
       <StructuredData
         id={`faq-vs-${competitor.slug}`}
         data={faqSchema(competitor)}

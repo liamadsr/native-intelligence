@@ -1,7 +1,6 @@
 'use client'
 
 import { Footer } from '@/components/footer'
-import { Navbar } from '@/components/navbar'
 import { ContentSection, PageHeader, PageLayout, type Section } from '@/components/page-layout'
 import { appUrl, appHost } from '@/lib/app-url'
 
@@ -39,7 +38,6 @@ export default function Terms() {
   return (
     <PageLayout sections={sections}>
       <div>
-        <Navbar />
         <PageHeader title="Terms of Service" meta="Last Updated: October 24, 2026" />
 
         <main className="pb-24">

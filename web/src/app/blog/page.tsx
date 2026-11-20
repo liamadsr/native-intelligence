@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { blog } from '@/lib/source';
 import { PageLayout } from '@/components/page-layout';
-import { Navbar } from '@/components/navbar';
 import { Footer } from '@/components/footer';
 import type { Metadata } from 'next';
 import { appUrl } from '@/lib/app-url'
@@ -30,8 +29,7 @@ export default function BlogIndex() {
 
   return (
     <PageLayout sections={sections}>
-      <Navbar />
-      <div className="min-h-screen pt-28">
+      <div className="min-h-screen pt-6 lg:pt-10">
         <main className="mx-auto w-full max-w-4xl px-6 py-12">
           <h1 className="text-4xl font-bold tracking-tight text-foreground">
             Blog

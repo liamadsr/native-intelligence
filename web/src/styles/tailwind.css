@@ -370,10 +370,14 @@ a:hover .lucide,
   }
 }
 
-/* Tighten Fumadocs docs layout — eliminate left gutter so sidebar hugs the edge */
-#nd-docs-layout {
-  --fd-sidebar-width: 220px;
-  grid-template-columns: 0px var(--fd-sidebar-col) minmax(0, calc(var(--fd-layout-width, 97rem) - var(--fd-sidebar-width) - var(--fd-toc-width))) var(--fd-toc-width) minmax(min-content, 1fr) !important;
+/* Tighten Fumadocs docs layout — eliminate left gutter so sidebar hugs the edge.
+   From `md` up only: below it the sidebar is a drawer and takes no column, and
+   setting its width there left a 220px empty column beside the page on a phone. */
+@media (min-width: 48rem) {
+  #nd-docs-layout {
+    --fd-sidebar-width: 220px;
+    grid-template-columns: 0px var(--fd-sidebar-col) minmax(0, calc(var(--fd-layout-width, 97rem) - var(--fd-sidebar-width) - var(--fd-toc-width))) var(--fd-toc-width) minmax(min-content, 1fr) !important;
+  }
 }
 
 /* The app's default scrollbars, in the base layer so a utility on an element

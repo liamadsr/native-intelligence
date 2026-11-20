@@ -39,7 +39,7 @@ export const drive: FeaturePage = {
     {
       id: 'tables',
       nav: 'Tables',
-      title: 'Tables of anything.',
+      title: 'Tables for lists and trackers.',
       body: 'Rows under typed columns: text, numbers, dates, choices, people, money, links to other records, formulas and rollups. Look at the same table as a grid, a board, a calendar or a gallery.',
       points: [
         'Bring in a CSV, TSV or Excel file and map its columns',
@@ -56,7 +56,7 @@ export const drive: FeaturePage = {
     {
       id: 'knowledge',
       nav: 'Knowledge',
-      title: 'What the workspace knows.',
+      title: 'Facts and decisions, each with its source.',
       body: 'Knowledge shows the facts, decisions and open questions drawn from your calls, mail and docs, each with the place it came from. It is the memory every agent reads before it acts.',
       demo: 'intelligence-loop',
     },

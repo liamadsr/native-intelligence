@@ -59,7 +59,7 @@ export const coding: FeaturePage = {
     {
       id: 'linked-prs',
       nav: 'Linked PRs',
-      title: 'Every pull request finds its task.',
+      title: 'Pull requests link to their task.',
       body: 'Connect GitHub and a pull request that mentions a task’s identifier, like ENG-42, links itself to that task. When it opens, merges, closes or reopens, the task shows it.',
       points: [
         'Pull requests from people and agents alike',

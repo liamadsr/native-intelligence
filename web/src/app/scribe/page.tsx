@@ -1,6 +1,5 @@
 import { Footer } from '@/components/footer'
 import { Link } from '@/components/link'
-import { Navbar } from '@/components/navbar'
 import { PageLayout } from '@/components/page-layout'
 import { GitHubStars } from '@/components/github-stars'
 import { StructuredData, scribeSoftwareApplicationSchema } from '@/components/structured-data'
@@ -90,10 +89,9 @@ export default function ScribePage() {
   return (
     <PageLayout>
       <StructuredData id="scribe-software-schema" data={scribeSoftwareApplicationSchema} />
-      <Navbar />
       <main>
         {/* Hero */}
-        <section className="relative min-h-[80vh] flex items-center pt-40 pb-20 px-6 lg:px-8">
+        <section className="relative min-h-[80vh] flex items-center pt-20 pb-20 px-6 lg:px-8">
           <div className="mx-auto max-w-5xl w-full">
             <div className="text-center">
               <span className="inline-block rounded-full bg-foreground/10 backdrop-blur-xs border border-foreground/20 px-4 py-1.5 text-sm font-medium text-foreground mb-6">
