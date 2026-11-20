@@ -39,6 +39,8 @@ interface Recording {
   open: unknown
   /** What to hand `openTarget` when the screen's own steps sent no such event. */
   target: OpenTarget | null
+  /** Controls to press once the screen is open, each by its label or its text (the Transcripts pill on a meeting). */
+  then?: string[]
   answers: DemoSnapshot
 }
 
@@ -48,6 +50,10 @@ const RECORDINGS: Record<DemoScreen, () => Promise<Recording>> = {
   meeting: () => import('@/lib/demo/snapshots/app/meeting.json').then((m) => m.default as unknown as Recording),
   knowledge: () => import('@/lib/demo/snapshots/app/knowledge.json').then((m) => m.default as unknown as Recording),
   contact: () => import('@/lib/demo/snapshots/app/contact.json').then((m) => m.default as unknown as Recording),
+  chat: () => import('@/lib/demo/snapshots/app/chat.json').then((m) => m.default as unknown as Recording),
+  list: () => import('@/lib/demo/snapshots/app/list.json').then((m) => m.default as unknown as Recording),
+  notes: () => import('@/lib/demo/snapshots/app/notes.json').then((m) => m.default as unknown as Recording),
+  transcript: () => import('@/lib/demo/snapshots/app/transcript.json').then((m) => m.default as unknown as Recording),
 }
 
 interface Profile {
@@ -56,6 +62,14 @@ interface Profile {
   name?: string | null
 }
 
+
+/** Press a control by its label or its text. The page is inert to a person; this is the demo's own hand. */
+function press(name: string): boolean {
+  const controls = [...document.querySelectorAll<HTMLElement>('button,[role="button"],[role="tab"]')]
+  const control = controls.find((el) => el.getAttribute('aria-label') === name) ?? controls.find((el) => el.textContent?.trim().startsWith(name))
+  control?.click()
+  return Boolean(control)
+}
 
 function tellReady(screen: DemoScreen) {
   if (window.parent !== window) window.parent.postMessage({ type: DEMO_READY_MESSAGE, screen }, window.location.origin)
@@ -119,9 +133,13 @@ export function DemoShell({ screen: first }: { screen: DemoScreen }) {
       return () => window.clearTimeout(drawn)
     }
     let tries = 0
+    // What is left to press once the window is up; a control not drawn yet is tried again on the next turn.
+    const then = [...(current.then ?? [])]
     const ask = () => {
       const root = document.documentElement
       if (root.dataset.demoOpened === screen && document.querySelector(`[${CARD_FRAME_ATTR}]`)) {
+        while (then.length && press(then[0])) then.shift()
+        if (then.length) return false
         // Its rows arrive a beat after its window.
         window.setTimeout(() => tellReady(screen), 900)
         return true

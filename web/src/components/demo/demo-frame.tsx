@@ -16,9 +16,17 @@
  *   - only near the viewport, and only once the screen is first `wanted`;
  *   - never on a narrow screen or for someone who asked to save data. They
  *     keep the picture.
+ * And it is let go again once its slot is far behind or ahead (FAR), so a
+ * page with several of these runs one or two apps at a time, not all of
+ * them. The picture is back under it by then; scrolling back loads it again
+ * from the browser's cache.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { DEMO_READY_MESSAGE, DEMO_SCREEN_MESSAGE, type DemoScreen } from './demo-screens'
+import { DEMO_READY_MESSAGE, DEMO_SCREEN_MESSAGE, DEMO_WINDOWS, type DemoScreen } from './demo-screens'
+
+/** How close the slot comes before the app is loaded, and how far it goes before the app is let go. */
+const NEAR = '600px 0px'
+const FAR = '2400px 0px'
 
 /** Below this the app is not loaded: a phone gets the picture. */
 const MIN_WIDTH = 1024
@@ -36,8 +44,8 @@ export function wantsLiveDemo(win: Pick<Window, 'innerWidth' | 'navigator'>): bo
 export function DemoFrame({
   screen,
   label,
-  width = 1440,
-  height = 900,
+  width = DEMO_WINDOWS[screen].width,
+  height = DEMO_WINDOWS[screen].height,
   wanted = true,
   poster = true,
   className,
@@ -45,7 +53,7 @@ export function DemoFrame({
   /** The screen to show. Changing it asks the loaded app to switch; it does not load the app again. */
   screen: DemoScreen
   label: string
-  /** The app's window size before scaling: a narrower window for a narrow slot keeps its text readable. */
+  /** The app's window size before scaling. It defaults to the window the screen was recorded in, which is its picture's shape. */
   width?: number
   height?: number
   /** False holds the load back until the screen is first asked for. */
@@ -121,7 +129,24 @@ export function DemoFrame({
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) setNear(true)
       },
-      { rootMargin: '600px 0px' }
+      { rootMargin: NEAR }
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [near])
+
+  // Let go once it is far away: the frame is taken down, and the picture shows until it comes near again.
+  useEffect(() => {
+    const el = ref.current
+    if (!el || !near || typeof IntersectionObserver === 'undefined') return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.every((entry) => !entry.isIntersecting)) {
+          setDrawn(false)
+          setNear(false)
+        }
+      },
+      { rootMargin: FAR }
     )
     observer.observe(el)
     return () => observer.disconnect()

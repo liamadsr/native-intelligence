@@ -52,12 +52,10 @@ import { FaqList } from '@/components/site/faq'
 import { SWITCHING_GUIDE } from '@/lib/marketing/site-nav'
 import { DEFAULT_SELECTION, NI_PRICE_PER_SEAT, stackCost } from '@/lib/marketing/replace-apps'
 import type { Section } from '@/components/page-layout'
-import { ActionStreamDemo, ChatDemo, ExecutionDemo, LiveAgentDemo } from '@/components/landing/lazy-demos'
-import type { ChatDemoExchange } from '@/components/landing/chat-demo'
-import type { StreamAction } from '@/components/landing/action-stream-demo'
+import { ExecutionDemo, LiveAgentDemo } from '@/components/landing/lazy-demos'
 import type { LiveAgentScenario } from '@/components/landing/live-agent-demo'
 import { WorkspaceHub } from '@/components/landing/workspace-grid'
-import { DemoFrame } from '@/components/demo/demo-frame'
+import { AppScreen } from '@/components/demo/app-screen'
 import { HeroDay } from '@/components/landing/hero-day'
 import { AgentTextThread } from '@/components/landing/agent-text-thread'
 import { StackCalculator } from '@/components/site/stack-calculator'
@@ -89,21 +87,6 @@ export const sections: Section[] = [
 const OUTLINE = sections.filter((section) => section.id !== 'hero')
 
 // ─── Demo content (FICTIONAL: made-up people and companies) ────────────────
-
-// Questions answered from calls, mail, chat and docs at once: the point is
-// that the answer cites where it came from, across places.
-export const WORKSPACE_CHAT_EXCHANGES: ChatDemoExchange[] = [
-  {
-    ask: 'What did we agree with Northwind about the March delivery?',
-    answer:
-      'From Tuesday’s call with Lena Park and her email on Wednesday:\n\n- **Delivery moves to March 18**, a week later than planned\n- **200 units ship early**, on March 4\n- Lena wants **a revised invoice** before Friday\n\nPriya has the invoice on her task list, due Thursday.',
-  },
-  {
-    ask: 'Where did we land on the new onboarding flow?',
-    answer:
-      'From Monday’s design review and the #product thread:\n\n- **Decided:** three steps instead of five, with the team invite last\n- **Open:** whether to ask for a calendar connection up front\n- **Spec:** Sarah updated *Onboarding v3* yesterday',
-  },
-]
 
 // A planning call inside the company, not a sales call: the agent reads mail,
 // a project and a doc, and stages the changes the call decided.
@@ -141,17 +124,6 @@ export const PLANNING_CALL_SCENARIO: LiveAgentScenario = {
     { title: 'Update the dates in Onboarding v3', kind: 'action', afterCall: 4 },
   ],
 }
-
-// Tasks staged from every place work arrives, not only meetings. Assignees and
-// due dates come from the demo's fixed set (see action-stream-demo.tsx).
-export const WORKSPACE_TASKS: readonly StreamAction[] = [
-  { id: 'w1', text: 'Send Northwind the revised invoice', project: 'Northwind', assignee: 'priya m.', priority: 'High', dueDate: 'Apr 17', source: { via: 'your inbox', title: 'Re: March delivery' } },
-  { id: 'w2', text: 'Move the spring launch email to March 20', project: 'Spring launch', assignee: 'alex r.', priority: 'Medium', dueDate: 'Apr 18', source: { via: 'the meeting agent', title: 'Weekly planning' } },
-  { id: 'w3', text: 'Write the help article for the new onboarding', project: 'Onboarding', assignee: 'sarah c.', priority: 'Medium', dueDate: 'Apr 22', source: { via: 'team chat', title: '#product' } },
-  { id: 'w4', text: 'Book the venue walkthrough for the customer day', project: 'Customer day', assignee: 'jordan k.', priority: 'Low', dueDate: 'Apr 24', source: { via: 'your inbox', title: 'Venue options' } },
-  { id: 'w5', text: 'Fix the export timeout Lena reported', project: 'Platform', assignee: 'marcus t.', priority: 'High', dueDate: 'Apr 19', source: { via: 'the meeting agent', title: 'Northwind check-in' } },
-  { id: 'w6', text: 'Share the Q2 hiring plan with the leads', project: 'Hiring', assignee: 'alex r.', priority: 'Medium', dueDate: 'Apr 21', source: { via: 'team chat', title: '#leads' } },
-]
 
 // ─── Building blocks ────────────────────────────────────────────────────────
 
@@ -552,7 +524,7 @@ function MemorySection() {
         <FeatureStage
           title="Search and ask"
           description="Ask what you agreed with a customer about March. The answer names the call and the email it came from."
-          visual={<ChatDemo exchanges={WORKSPACE_CHAT_EXCHANGES} />}
+          visual={<AppScreen screen="chat" />}
           links={[{ label: 'Learn about agents', href: '/features/agents' }]}
         />
         <FeatureStage
@@ -598,7 +570,7 @@ function AgentsSection() {
           title="Tasks from conversations"
           description="When someone says “I’ll have it by Tuesday” on a call, in mail or in chat, it becomes a task with their name and the date on it. Plan the tasks in projects and cycles."
           ask={{ name: 'Sarah Chen', text: 'I’ll write the help article for the new onboarding by Tuesday.' }}
-          visual={<ActionStreamDemo pool={WORKSPACE_TASKS} />}
+          visual={<AppScreen screen="list" />}
           links={[
             { label: 'Learn about tasks', href: '/features/tasks' },
             { label: 'Learn about flows', href: '/features/flows' },
@@ -616,8 +588,8 @@ function AgentsSection() {
           description="A company or contact is added the first time they email or call. After each conversation the notes and the deal stage are updated, and you can undo any change."
           ask={{ name: 'Jordan Kim', text: 'I’m picking up Larkspur Coffee next week. What do we know about Maya?' }}
           visual={
-            // The app itself, opened on a made-up customer's record (components/demo/demo-frame.tsx).
-            <DemoFrame screen="contact" label="A customer's record in the app: notes, recent activity and what the workspace knows about them" width={1080} height={740} className="rounded-2xl shadow-2xl ring-1 ring-foreground/10" />
+            // The app itself, opened on a made-up customer's record (components/demo/app-screen.tsx).
+            <AppScreen screen="contact" />
           }
           links={[{ label: 'Learn about the CRM', href: '/features/crm' }]}
         />
