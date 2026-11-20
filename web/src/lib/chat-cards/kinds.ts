@@ -17,6 +17,7 @@
  *
  * Client-safe: no server imports.
  */
+import type { CompletedFilter } from '@/lib/views/completed-window'
 import type { GroupConfig, SortConfig, ViewEntityType, FilterOperator, FilterValue } from '@/lib/views/types'
 import type { EditionDefinition } from '@/lib/editions/manifest'
 import { pageWords, termWords } from '@/lib/editions/words'
@@ -60,8 +61,16 @@ export interface CardQuery {
   columns?: string[]
   /** Only ever the person's own search box, never the agent's. */
   search?: string
-  /** Actions: which completed ones show ('all', 'recent': the last two weeks, 'none'). Absent: all. */
-  completed_filter?: 'all' | 'recent' | 'none'
+  /**
+   * Actions: which completed ones show (lib/views/completed-window.ts): a
+   * window ('past_day', 'past_week', 'past_month', or the older 'recent', the
+   * past 2 weeks), 'all' or 'none'. Absent: the list's default. For an
+   * agent's list card that is 'all' (lib/chat-cards/server.ts): every list
+   * card already in a chat means 'all' by leaving the field out. For a page in
+   * the chat it is the page's own, as the page opens: the past week for
+   * actions (lib/chat-cards/page-server.ts).
+   */
+  completed_filter?: CompletedFilter
   /** Actions: false hides completed ones (the page's "Show completed"). Absent: true. */
   show_completed?: boolean
 }

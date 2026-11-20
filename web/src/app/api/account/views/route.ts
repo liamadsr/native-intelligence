@@ -1,3 +1,4 @@
+import { completedFilterForStorage, VIEW_COLUMN_TAKES_COMPLETED_WINDOWS } from '@/lib/views/completed-window'
 import { requireWorkspace } from '@/lib/api-auth'
 import { badRequest, serverError } from '@/lib/api-errors'
 import { DEFAULT_DISPLAY_PROPERTIES, DEFAULT_BOARD_GROUP_BY, defaultOrdering, isTableLayout } from '@/lib/views/types'
@@ -153,6 +154,12 @@ export async function POST(request: NextRequest) {
         ? null
         : board_group_by || null
 
+  const completedStorage = completedFilterForStorage(
+    completed_filter,
+    metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? metadata : {},
+    { columnTakesWindows: VIEW_COLUMN_TAKES_COMPLETED_WINDOWS },
+  )
+
   const { data, error } = await supabase
     .from('view')
     .insert({
@@ -173,13 +180,13 @@ export async function POST(request: NextRequest) {
       display_properties: display_properties || DEFAULT_DISPLAY_PROPERTIES[entity_type as ViewEntityType] || [],
       board_group_by: resolvedBoardGroupBy,
       show_completed: show_completed ?? true,
-      completed_filter: completed_filter || 'all',
+      // A window the column cannot hold yet rides in metadata (completed-window.ts).
+      ...completedStorage,
       show_sub_items: show_sub_items ?? true,
       nested_sub_items: nested_sub_items ?? false,
       show_empty_groups: show_empty_groups ?? false,
       scope_type: scope_type || null,
       scope_id: scope_id || null,
-      ...(metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? { metadata } : {}),
     })
     .select()
     .single()

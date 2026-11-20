@@ -1,3 +1,4 @@
+import { completedFilterForStorage, VIEW_COLUMN_TAKES_COMPLETED_WINDOWS } from '@/lib/views/completed-window'
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentWorkspaceId } from '@/lib/workspace'
 import { badRequest, forbidden, notFound } from '@/lib/api-errors'
@@ -88,6 +89,28 @@ export async function PATCH(
     if (kind === 'data_row' ? !isTableLayout(layout) : isTableLayout(layout) && layout !== 'board') {
       return badRequest(kind === 'data_row' ? 'A table’s view is a grid, a board, a calendar or a gallery' : `The ${String(layout)} layout is only for tables`)
     }
+  }
+
+  // A window the column cannot hold yet (completed-window.ts) is written as
+  // `recent` with the window in metadata — merged into the view's metadata as
+  // it stands when the body does not carry its own, so saving the setting
+  // never drops another metadata key.
+  if ('completed_filter' in updates) {
+    let metadata = updates.metadata as Record<string, unknown> | undefined
+    if (!('metadata' in updates)) {
+      const { data: existing } = await supabase
+        .from('view')
+        .select('metadata')
+        .eq('id', id)
+        .eq('workspace_id', workspaceId)
+        .maybeSingle()
+      metadata = (existing as { metadata?: Record<string, unknown> } | null)?.metadata ?? {}
+    }
+    const stored = completedFilterForStorage(updates.completed_filter, metadata, {
+      columnTakesWindows: VIEW_COLUMN_TAKES_COMPLETED_WINDOWS,
+    })
+    updates.completed_filter = stored.completed_filter
+    updates.metadata = stored.metadata
   }
 
   const { data, error } = await supabase
