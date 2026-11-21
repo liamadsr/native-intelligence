@@ -22,7 +22,7 @@ describe('the findable registry', () => {
       expect(ENTITY_REGISTRY_BY_ID[d.entity], kind).toBeDefined()
     }
     // The ones that are no entity of their own, on purpose.
-    expect(entries.filter(([, d]) => d.entity === null).map(([k]) => k)).toEqual(['package'])
+    expect(entries.filter(([, d]) => d.entity === null).map(([k]) => k)).toEqual([])
   })
 
   it('stores a mention only as a mentionable kind', () => {
@@ -74,6 +74,8 @@ describe('the lists derived from it', () => {
       'data_row',
       'team_chat_channel',
       'decision',
+      'team',
+      'package',
       'email_thread',
       'conversation',
     ])
@@ -97,8 +99,10 @@ describe('a found row as a mention', () => {
     expect(menuRowMention(named('decision'))).toEqual({ type: 'decision', id: 'r1', label: 'Spring push' })
     // Mentions everywhere: sequences, agent chats and mail are stored now too (mail/chat only by their owner).
     expect(menuRowMention(named('sequence'))).toEqual({ type: 'sequence', id: 'r1', label: 'Spring push' })
-    // A team is found and opened, never mentioned (a private team's edges have no database fence yet).
-    expect(menuRowMention(named('team'))).toBeNull()
+    // A team is mentioned as itself (673 fences a private team's edges).
+    expect(menuRowMention(named('team'))).toEqual({ type: 'team', id: 'r1', label: 'Spring push' })
+    // A package is stored as the `knowledge_package` it is.
+    expect(menuRowMention({ kind: 'package', id: 'k1', title: 'Brand voice', status: null, parentId: null, score: 1 })).toEqual({ type: 'knowledge_package', id: 'k1', label: 'Brand voice' })
     expect(menuRowMention(named('conversation'))).toEqual({ type: 'conversation', id: 'r1', label: 'Spring push' })
     expect(menuRowMention(named('email_thread'))).toEqual({ type: 'email_thread', id: 'r1', label: 'Spring push' })
     expect(menuRowMention({ kind: 'deal', id: 'd1', pipelineId: 'p1', title: 'Harbor renewal', status: null, score: 1 })).toEqual({ type: 'data_row', id: 'd1', label: 'Harbor renewal' })

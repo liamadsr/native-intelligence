@@ -37,7 +37,7 @@ import { isMentionableType, type MentionableType } from '@/lib/entity-links/ment
  *   'studio'          the Studio page's card on it (a video, a Studio project);
  *   null              nothing opens it on its own.
  */
-export type EntityOpen = 'record' | 'calendar-event' | 'flow' | 'sequence' | 'prospect_list' | 'eval_suite' | 'team-chat' | 'table-row' | 'studio' | null
+export type EntityOpen = 'record' | 'calendar-event' | 'flow' | 'sequence' | 'prospect_list' | 'eval_suite' | 'team-chat' | 'table-row' | 'studio' | 'team' | 'package' | null
 
 /**
  * How a kind archives and comes back, as it already does:
@@ -302,7 +302,9 @@ export const ENTITY_ACTIONS: Readonly<Record<EntityType, EntityActionsDescriptor
   comment: inert('A comment lives on its record.'),
   label: inert('Labels are kept in settings.'),
   workflow_state: inert("A board column is its team's."),
-  team: inert('Teams are kept in their own page.'),
+  // Open only (their page's card on them): renamed, archived and shared from their own pages.
+  team: { ...inert('Teams are kept in their own page.'), open: 'team' },
+  knowledge_package: { ...inert('Packages are kept in Knowledge.'), open: 'package' },
   recipe: inert('Skills are kept in the library.'),
   flow_run: inert("A run is its loop's history."),
   email_draft: inert('A draft lives with its mail.'),

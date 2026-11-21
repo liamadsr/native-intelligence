@@ -5,6 +5,7 @@
  * teammate's own contact left out. Deals, flows, files and events are search
  * kinds. Fixtures are made up.
  */
+import { FINDABLE } from '@/lib/search/findable-registry'
 import { describe, expect, it } from 'vitest'
 import { buildMenu, hostRecordOffer, mentionOptionsMenu, offeredKinds, serverSearch } from '../command-menu-model'
 import {
@@ -78,8 +79,8 @@ describe('the one @ picker (MENTION_PICKER_KINDS)', () => {
   it('is one list of search kinds, each a kind a mention edge may point at', () => {
     for (const kind of MENTION_PICKER_KINDS) {
       expect(MENU_SEARCH_KINDS).toContain(kind)
-      // A deal is found as a deal and mentioned as its pipeline's row (Tables, phase 7).
-      expect(isMentionableType(kind === 'deal' ? 'data_row' : kind)).toBe(true)
+      // Each is mentioned as the kind the registry stores (a deal: its pipeline's row; a package: `knowledge_package`).
+      expect(isMentionableType(FINDABLE[kind].mention)).toBe(true)
     }
     expect(MENTION_PICKER_KINDS).toEqual(expect.arrayContaining(['contact', 'deal', 'flow', 'attachment', 'calendar_event']))
     expect(MENTION_PICKER_KINDS).not.toContain('agent')

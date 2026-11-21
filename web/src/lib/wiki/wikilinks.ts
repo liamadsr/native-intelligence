@@ -1,3 +1,5 @@
+import { FINDABLE } from '@/lib/search/findable-registry'
+import type { MentionableType } from '@/lib/entity-links/mentionable'
 import { notifyDocumentMentions } from '@/lib/documents/mention-notifications'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { ENTITY_REF_PATTERN } from '@/components/entity-refs/types'
@@ -86,9 +88,9 @@ export async function resolveActionIdentifiers(
  * manages. Its wikilinks (documents), identifiers (actions) and `@` chips
  * (every kind the one `@` picker finds: MENTION_PICKER_KINDS).
  */
-export const DOCUMENT_MENTION_KINDS = [
-  // A deal is chipped as its pipeline's row (Tables, phase 7).
-  ...new Set(['document', 'action', 'data_row', ...MENTION_PICKER_KINDS.filter((k): k is Exclude<typeof k, 'deal'> => k !== 'deal')] as const),
+export const DOCUMENT_MENTION_KINDS: MentionableType[] = [
+  // Each picker kind as the kind a mention of it stores (a deal: its pipeline's row; a package: `knowledge_package`).
+  ...new Set<MentionableType>(['document', 'action', 'data_row', ...MENTION_PICKER_KINDS.map((k) => FINDABLE[k].mention as MentionableType)]),
 ]
 
 /**

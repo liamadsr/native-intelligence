@@ -13,7 +13,8 @@ import { migrationsInOrder } from '@/test/migration-sql'
 import { LINK_FENCED_KINDS, PRIVATE_GRAPH_KINDS } from '../entity-fences'
 
 /** The Studio's kinds: fenced by 624's own function and restrictive policies (migration-624.test.ts), never these. */
-const STUDIO = ['studio_video', 'studio_project']
+// The kinds fenced by their own restrictive policies, outside the shared lists: the Studio's (624), then teams and packages (673).
+const STUDIO = ['studio_video', 'studio_project', 'team', 'knowledge_package']
 const SHARED_FENCED_KINDS = LINK_FENCED_KINDS.filter((k) => !STUDIO.includes(k))
 
 const all = migrationsInOrder()

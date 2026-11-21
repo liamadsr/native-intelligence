@@ -301,18 +301,33 @@ Built on `claude/mentions-everywhere` (merged nowhere, rolled out nowhere):
 Migration 671 now also creates `conversation_share` (who an agent chat was shared with by a
 mention). It redefines no existing function or policy.
 
-Not done, and why:
-- **Mail share-on-mention.** The live email share (646) can only target a team-chat channel;
-  targeting a person is a larger change. A teammate sees the mention's label (the sender) and
-  cannot open the thread.
-- **Opening a shared agent chat.** The share is recorded, but the chat tables stay owner-only
-  under row-level security (many reads rely on that), and no reader route exists yet. There is
-  also no card that opens a past chat, so a found chat does not open.
-- **Teams and knowledge packages as mentions.** A private team's or package's mention edge needs
-  a database fence that means redefining `entity_visible_to` and the `entity_link` policies
-  (last defined by 664 and 522); left for its own migration. Both stay searchable.
-- **Capture notes `@`**, and teammates as people (not contacts) in `MentionTextarea`.
-- Run chats carrying the kinds that have no id key.
+### Second round (`claude/mentions-everywhere-2`, migration 673)
 
-Needs migration 671 on a database before this code runs against it (the owner's call for
-production; not applied to the dev database either, so comments were checked by tests only).
+- **Teams and knowledge packages are mentionable.** `knowledge_package` is a registered kind.
+  A private team is found and mentioned only by its members; a package follows its own rule
+  (visibility, creator, shares). Their graph edges are fenced by a new function
+  (`team_package_entity_visible_to`) and RESTRICTIVE `entity_link` policies beside the
+  existing ones, the way 624 fenced the Studio. `entity_visible_to` (664) and
+  `entity_link_select` / `entity_link_insert` (522) are not redefined.
+- **Opening an agent chat.** A read-only viewer (`web/src/components/chat/shared-conversation-dialog.tsx`)
+  behind `GET /api/account/conversations/[id]/shared`: the chat's owner, or a member a
+  `conversation_share` row (671) names, in the chat's workspace; anyone else gets 404.
+  `chat_conversations` and `chat_messages` stay owner-only under row-level security. A
+  reader sees the words only (no tool calls, files or hidden turns), the latest 200 messages.
+  A found chat opens it from search; a mention chip opens it.
+- **A mail thread shared with a person.** Mentioning your own thread in a comment shares it,
+  view only, with the teammates mentioned beside it: `email_thread_share` (673; ids only,
+  service role only, as 646's `email_share`). The message ids are frozen at share time and
+  the mail is read live from the owner's mailbox on each open; nothing of it is stored. The
+  owner can revoke. A grantee opens it from the chip in a read-only viewer.
+
+Needs migration 673 before this code is rolled out: the team/package edge policies and
+`email_thread_share`. Opening a shared chat needs only 671.
+
+Not done, and why:
+- A shared mail thread's attachments cannot be downloaded by the grantee (no route for it).
+- Mail is shared from a comment's mention only; a document's or description's mention of mail
+  shares with no one (those have no "teammates mentioned beside it" rule yet), and team chat
+  keeps its own channel share.
+- Teammates as people (not contacts) in `MentionTextarea`.
+- Run chats carrying the kinds that have no id key.
