@@ -16,6 +16,17 @@
  * Forward move the cursor, and the hooks redraw from the entry they land on.
  * Every channel's change in one event (opening a suite moves the place too)
  * is one step.
+ *
+ * Across cards (Liam, 11-21: "if you click the back button it doesn't take
+ * you back to the page you came from"): a card opened from a link inside
+ * another card (an @mention in a description, a chip in a message) keeps
+ * where it came from (`origin`, set by the card store's linkOrigin). Back at
+ * the start of its own steps brings that card back where the person left it,
+ * and that card's Forward, at the end of its own, reopens this one
+ * (`onward`), so the two read as one history across the hop. The same Back
+ * and the same keys; the store does the hop itself (CardHopper), since only
+ * it knows whether the other card is still there. In memory only, as the
+ * steps are.
  */
 import * as React from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
@@ -26,6 +37,28 @@ export const MAX_CARD_HISTORY = 50
 
 /** Where a card is: one value per channel (the record open inside it, the page's place…). */
 type Entry = Record<string, unknown>
+
+/** Where a card stood when the person left it for another: full screen, open in the thread, or in the capture's dock. */
+export type CardHopPlace = 'full' | 'inline' | 'dock'
+
+/** The other card a hop goes to (CardHistory's origin or onward). */
+export interface CardHop {
+  cardId: string
+  /** What the tooltip names ("Back to ENG-42 …"). */
+  label: string
+  /** Where that card was, to bring it back there. */
+  place: CardHopPlace
+  /** Its step at that moment, to land on again (when it is still one of its steps). */
+  entry?: Entry
+  /** Why the hop can't be taken (the card is in another workspace): the button says so, disabled. */
+  unavailable?: string
+}
+
+/** The card store's half of a hop: is the other card still there, and take the person to it. */
+export interface CardHopper {
+  usable: (hop: CardHop) => boolean
+  follow: (from: CardHistory, hop: CardHop, direction: 'back' | 'forward') => boolean
+}
 
 function same(a: unknown, b: unknown): boolean {
   if (Object.is(a, b)) return true
@@ -47,6 +80,11 @@ export class CardHistory {
   private restoredCount = new Map<string, number>()
   /** What writes a channel back to the card store when Back or Forward moves it. */
   private persisters = new Map<string, (value: unknown) => void>()
+  /** The card this one was opened from (Back past the first step goes there). */
+  private origin: CardHop | null = null
+  /** The card this one's Back left for (Forward past the last step goes there). */
+  private onward: CardHop | null = null
+  private hopper: CardHopper | null = null
 
   subscribe = (listener: () => void) => {
     this.listeners.add(listener)
@@ -63,11 +101,61 @@ export class CardHistory {
   }
 
   get canGoBack(): boolean {
-    return this.index > 0
+    return this.index > 0 || this.hopUsable(this.origin)
   }
 
   get canGoForward(): boolean {
-    return this.index < this.entries.length - 1
+    return this.index < this.entries.length - 1 || this.hopUsable(this.onward)
+  }
+
+  private hopUsable(hop: CardHop | null): boolean {
+    return !!hop && !hop.unavailable && !!this.hopper && this.hopper.usable(hop)
+  }
+
+  /**
+   * Where Back or Forward goes when it leaves the card: the other card's hop
+   * (unavailable says why not), or null when it stays inside (or has nowhere).
+   */
+  hopFor(delta: -1 | 1): CardHop | null {
+    if (delta === -1 ? this.index > 0 : this.index < this.entries.length - 1) return null
+    const hop = delta === -1 ? this.origin : this.onward
+    if (!hop) return null
+    if (hop.unavailable) return hop
+    return this.hopUsable(hop) ? hop : null
+  }
+
+  /** The store that follows hops (ChatCardStore.history sets it). */
+  setHopper(hopper: CardHopper | null) {
+    this.hopper = hopper
+  }
+
+  /** This card was opened from another (a link inside it): Back past the first step goes there. */
+  setOrigin(hop: CardHop | null) {
+    this.origin = hop
+    this.emit()
+  }
+
+  /** Back left this card for another: Forward past the last step reopens it. */
+  setOnward(hop: CardHop | null) {
+    this.onward = hop
+    this.emit()
+  }
+
+  /** The step the card is on now (what a hop back lands on again). */
+  currentEntry(): Entry {
+    return this.entries[this.index]
+  }
+
+  /**
+   * Land on a step the card held (a hop back to where it was left): it moves
+   * as Back or Forward would, persisting what it changes. False when that step
+   * is gone (a later navigation dropped it): the card stays where it is.
+   */
+  goToEntry(entry: Entry): boolean {
+    const target = this.entries.indexOf(entry)
+    if (target < 0) return false
+    if (target === this.index) return true
+    return this.go(target - this.index)
   }
 
   /** How many steps the card holds (for tests and the cap). */
@@ -92,6 +180,8 @@ export class CardHistory {
   push(key: string, value: unknown) {
     const current = this.entries[this.index]
     if (key in current && same(current[key], value)) return
+    // A navigation drops Forward, the hop to the card Back left for with it.
+    this.onward = null
     if (this.merging && this.index === this.entries.length - 1 && this.index > 0) {
       this.entries[this.index] = { ...current, [key]: value }
     } else {
@@ -106,10 +196,19 @@ export class CardHistory {
     this.emit()
   }
 
-  /** Back (-1) or Forward (1); false at either end. */
-  go(delta: -1 | 1): boolean {
+  /**
+   * Back (-1) or Forward (1). At the first step Back goes to the card this one
+   * was opened from, at the last Forward to the one Back left for, while they
+   * are there (hopFor); false when it goes nowhere.
+   */
+  go(delta: number): boolean {
     const target = this.index + delta
-    if (target < 0 || target >= this.entries.length) return false
+    if (target < 0 || target >= this.entries.length) {
+      if (delta !== -1 && delta !== 1) return false
+      const hop = this.hopFor(delta)
+      if (!hop || hop.unavailable || !this.hopper) return false
+      return this.hopper.follow(this, hop, delta === -1 ? 'back' : 'forward')
+    }
     const from = this.entries[this.index]
     const to = this.entries[target]
     this.index = target
@@ -251,14 +350,20 @@ export function CardHistoryButtons({ history }: { history: CardHistory }) {
       {([-1, 1] as const).map((delta) => {
         const back = delta === -1
         const Icon = back ? ChevronLeft : ChevronRight
-        const label = back ? 'Go back' : 'Go forward'
+        // Out of the card, to the one it was opened from (or Back left for):
+        // the tooltip names it, or says why it can't go there.
+        const hop = history.hopFor(delta)
+        const label = hop && !hop.unavailable ? `${back ? 'Back to' : 'Forward to'} ${hop.label}` : back ? 'Go back' : 'Go forward'
+        const tip = hop?.unavailable ? `${label}: ${hop.unavailable}` : `${label} (${back ? '⌘/Ctrl+[' : '⌘/Ctrl+]'})`
         return (
           <button
             key={delta}
             type="button"
             aria-label={label}
+            {...(hop?.unavailable ? { 'aria-description': hop.unavailable } : {})}
             data-testid={back ? 'card-back' : 'card-forward'}
-            title={`${label} (${back ? '⌘/Ctrl+[' : '⌘/Ctrl+]'})`}
+            {...(hop ? { 'data-card-hop': hop.cardId } : {})}
+            title={tip}
             disabled={back ? !history.canGoBack : !history.canGoForward}
             onClick={() => history.go(delta)}
             className={`flex size-7 shrink-0 items-center justify-center ${CARD_HEADER_ICON_BUTTON} disabled:opacity-30 disabled:hover:bg-transparent`}

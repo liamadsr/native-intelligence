@@ -3,7 +3,7 @@
  * its card (./open-entity.ts), or for a file, the record it hangs off, read
  * first. Client only.
  */
-import { openTarget } from '@/lib/chat-cards/open-card'
+import { openTarget, originCardOf } from '@/lib/chat-cards/open-card'
 import { entityOpenTarget } from './open-entity'
 
 /** Whether a mention of this kind opens something: a card, or (a file) the record it hangs off. */
@@ -17,9 +17,11 @@ export function mentionOpens(type: string): boolean {
  * when the file can't be read. False when nothing opened.
  */
 export async function openMention(ref: { type: string; id: string; label?: string | null }, from: string): Promise<boolean> {
+  // The card the chip is in, read now: after the file's read below, the click is gone.
+  const origin = originCardOf()
   if (ref.type !== 'attachment') {
     const target = entityOpenTarget(ref.type, ref.id, ref.label)
-    return target ? openTarget(target, { from }) : false
+    return target ? openTarget(target, { from, origin }) : false
   }
   try {
     const res = await fetch(`/api/account/attachments/${encodeURIComponent(ref.id)}`, { cache: 'no-store' })
@@ -27,7 +29,7 @@ export async function openMention(ref: { type: string; id: string; label?: strin
     const data = (await res.json()) as { attachment?: { parent?: { type: string; id: string } | null } }
     const parent = data.attachment?.parent
     const target = parent ? entityOpenTarget(parent.type, parent.id) : null
-    return target ? openTarget(target, { from }) : false
+    return target ? openTarget(target, { from, origin }) : false
   } catch {
     return false
   }
