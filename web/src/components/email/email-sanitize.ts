@@ -24,6 +24,21 @@ export function sanitizeEmailCss(css: string): string {
 }
 
 /**
+ * A sender's `prefers-color-scheme` rules answer to the page the email is
+ * drawn on, not to the computer's setting: a media query can only ask the OS,
+ * which may say "dark" while the app (or the email's own white sheet) is
+ * light, and the sender's dark text colours then land on a light page. So
+ * each `(prefers-color-scheme: dark | light)` test is replaced by one that is
+ * always true or never true for that page. The rest of the query (`screen
+ * and …`, a width, a comma list, `not`) keeps its meaning.
+ */
+export function resolveColorSchemeQueries(css: string, dark: boolean): string {
+  return css.replace(/\(\s*prefers-color-scheme\s*:\s*(dark|light)\s*\)/gi, (_, scheme: string) =>
+    (scheme.toLowerCase() === 'dark') === dark ? '(min-width: 0px)' : '(max-width: 0px)',
+  )
+}
+
+/**
  * Sanitize raw email HTML with DOMPurify — removes scripts, event handlers, etc.
  */
 export function sanitizeEmailHtml(html: string): string {
@@ -170,6 +185,12 @@ function processEmailDisplay(sanitizedHtml: string, isDark: boolean, options: Em
   // The palette follows the page the text is on: the canvas's, else the theme's.
   const canvasColor = canvas ? parseCssColor(canvas.background) : null
   const darkPalette = canvasColor ? luminance(canvasColor) < 0.4 : isDark
+
+  // The sender's own light/dark rules follow that same page (never the OS).
+  doc.querySelectorAll('style').forEach((el) => {
+    const css = el.textContent || ''
+    if (/prefers-color-scheme/i.test(css)) el.textContent = resolveColorSchemeQueries(css, darkPalette)
+  })
 
   // 6. Build theme-aware CSS for :host (Shadow DOM root)
   const themeStyles = buildThemeStyles(darkPalette, canvas ? { ...canvas, framed: isDark !== darkPalette || !!paint.background } : null)

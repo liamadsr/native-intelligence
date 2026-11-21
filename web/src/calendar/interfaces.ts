@@ -37,6 +37,8 @@ export interface IEvent {
   provider?: string;
   // The connected account the event is on (a chat card's account filter)
   accountId?: string;
+  /** That account's address (the sidebar's calendar list groups by it). */
+  accountEmail?: string;
   /** The account owner's own answer, when they are a guest (adapters' eventResponse). */
   response?: 'accepted' | 'declined' | 'tentative' | 'pending';
   // Linked capture data

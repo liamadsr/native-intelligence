@@ -806,6 +806,12 @@ export function EmailThreadDetail({
                   : (file) =>
                       `/api/account/email/threads/${encodeURIComponent(threadId)}/attachment?message=${encodeURIComponent(message.id)}&name=${encodeURIComponent(file.name)}`
               }
+              inviteHref={
+                message.isDraft
+                  ? undefined
+                  : (file) =>
+                      `/api/account/email/threads/${encodeURIComponent(threadId)}/invite?message=${encodeURIComponent(message.id)}&name=${encodeURIComponent(file.name)}`
+              }
             />
             </div>
           ))}

@@ -9,6 +9,7 @@ import { ClientContainer } from '@/calendar/components/client-container'
 import { useCalendarEvents, useCalendarRangeEvents } from '@/calendar/hooks/use-calendar-events'
 import type { IEvent } from '@/calendar/interfaces'
 import { withCalendarColors } from '@/calendar/event-colors'
+import { listCalendars, readHiddenCalendars, withoutHiddenCalendars, writeHiddenCalendars } from '@/calendar/sidebar/calendar-visibility'
 import type { TCalendarView } from '@/calendar/types'
 import { Button } from '@/components/ui/button'
 import { useOptionalSettingsOverlay } from '../settings-overlay'
@@ -35,8 +36,46 @@ export function CalendarView({ onSelectAction, onSelectEvent }: CalendarSelectPr
       onFilterChange={setFilterAccountIds}
       onSelectAction={onSelectAction}
       onSelectEvent={onSelectEvent}
+      sidebar={{}}
     />
   )
+}
+
+/** How far ahead the sidebar's "Upcoming events" looks when the grid holds only the range on screen. */
+const UPCOMING_DAYS = 30
+
+const SIDEBAR_CLOSED_KEY = 'ni:calendar-sidebar-closed:v1'
+
+/** The page's sidebar: open unless the person closed it (kept in this browser), and the calendars they hid. */
+function useSidebarState() {
+  const [open, setOpen] = useState(true)
+  const [hidden, setHidden] = useState<Set<string>>(() => new Set())
+  // After mount, so the server's markup and the first client render agree.
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(SIDEBAR_CLOSED_KEY) === '1') setOpen(false)
+    } catch {
+      // Open, then.
+    }
+    setHidden(readHiddenCalendars())
+  }, [])
+  return {
+    open,
+    hidden,
+    onOpenChange: (next: boolean) => {
+      setOpen(next)
+      try {
+        if (next) localStorage.removeItem(SIDEBAR_CLOSED_KEY)
+        else localStorage.setItem(SIDEBAR_CLOSED_KEY, '1')
+      } catch {
+        // For this visit only.
+      }
+    },
+    onHiddenChange: (next: Set<string>) => {
+      setHidden(next)
+      writeHiddenCalendars(next)
+    },
+  }
 }
 
 /** Where a calendar card is: what the person moved it to. */
@@ -74,6 +113,13 @@ export function CalendarCardView({ initial, compact, onStateChange, onEvents, on
   const timeMin = useMemo(() => localMidnight(range.from).toISOString(), [range.from])
   const timeMax = useMemo(() => localMidnight(addDays(range.to, 1)).toISOString(), [range.to])
   const { events, loading, error } = useCalendarRangeEvents(timeMin, timeMax, state.accounts)
+  // The Calendar window (not the slim card inline in a chat) has the sidebar. Its upcoming list is from
+  // today on, whatever range the grid is at, so it reads its own window: the same accounts, the same route.
+  const [upcomingMin, upcomingMax] = useMemo(() => {
+    const today = localIsoDate(new Date())
+    return [localMidnight(today).toISOString(), localMidnight(addDays(today, UPCOMING_DAYS)).toISOString()]
+  }, [])
+  const upcoming = useCalendarRangeEvents(upcomingMin, upcomingMax, state.accounts, !compact)
 
   // The person's moves: kept here, and reported (never to the page).
   const onStateChangeRef = useRef(onStateChange)
@@ -106,6 +152,7 @@ export function CalendarCardView({ initial, compact, onStateChange, onEvents, on
       onFilterChange={(accounts) => setState((prev) => ({ ...prev, accounts }))}
       onSelectAction={onSelectAction}
       onSelectEvent={onSelectEvent}
+      sidebar={compact ? undefined : { upcoming: upcoming.events }}
       card={{
         compact: !!compact,
         views: CARD_VIEWS,
@@ -138,7 +185,14 @@ function CalendarSurface({
   onSelectAction,
   onSelectEvent,
   card,
+  sidebar: withSidebar,
 }: CalendarSelectProps & {
+  /**
+   * The Calendar page and window: the sidebar, and the calendars hidden from it. The slim card inline in a
+   * chat has neither. `upcoming`: the events its upcoming list reads when the grid's own are only the range
+   * on screen (absent: the grid's).
+   */
+  sidebar?: { upcoming?: IEvent[] }
   events: IEvent[]
   loading: boolean
   error: string | null
@@ -150,8 +204,26 @@ function CalendarSurface({
 }) {
   const settingsOverlay = useOptionalSettingsOverlay()
   const router = useRouter()
-  // One colour per calendar on screen (adapters' withCalendarColors).
-  const coloredEvents = useMemo(() => withCalendarColors(events), [events])
+  // One colour per calendar on screen (adapters' withCalendarColors). With a sidebar, the grid's events and
+  // the upcoming list's are coloured together, so a calendar has one colour in both and in the calendar list.
+  const upcomingSource = withSidebar?.upcoming
+  const { coloredEvents, coloredUpcoming } = useMemo(() => {
+    if (!upcomingSource) return { coloredEvents: withCalendarColors(events), coloredUpcoming: undefined }
+    const onGrid = new Set(events.map((e) => e.id))
+    const all = withCalendarColors([...events, ...upcomingSource.filter((e) => !onGrid.has(e.id))])
+    return { coloredEvents: all.slice(0, events.length), coloredUpcoming: all }
+  }, [events, upcomingSource])
+  // The sidebar lists every calendar (coloured before any is hidden, so hiding one never recolours the rest).
+  const sidebarState = useSidebarState()
+  const sidebarAccounts = useMemo(() => (withSidebar ? listCalendars(coloredUpcoming ?? coloredEvents) : []), [withSidebar, coloredEvents, coloredUpcoming])
+  const shownEvents = useMemo(
+    () => (withSidebar ? withoutHiddenCalendars(coloredEvents, sidebarState.hidden) : coloredEvents),
+    [withSidebar, coloredEvents, sidebarState.hidden],
+  )
+  const shownUpcoming = useMemo(
+    () => (coloredUpcoming ? withoutHiddenCalendars(coloredUpcoming, sidebarState.hidden) : undefined),
+    [coloredUpcoming, sidebarState.hidden],
+  )
 
   // Open the integrations settings where Google/Microsoft calendars connect.
   // Prefer the in-app overlay (no navigation, keeps the dashboard mounted);
@@ -198,7 +270,7 @@ function CalendarSurface({
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <CalendarProvider
-        events={coloredEvents}
+        events={shownEvents}
         onSelectAction={onSelectAction}
         onSelectEvent={onSelectEvent}
         initialDate={card?.initialDate}
@@ -210,6 +282,7 @@ function CalendarSurface({
           filterAccountIds={filterAccountIds}
           onFilterChange={onFilterChange}
           card={card ? { compact: card.compact, views: card.views } : undefined}
+          sidebar={withSidebar ? { accounts: sidebarAccounts, upcoming: shownUpcoming, ...sidebarState } : undefined}
         />
       </CalendarProvider>
     </div>

@@ -4,23 +4,27 @@
  * A calendar invitation, as a card above the message it came in: what it is,
  * when, where, who is invited (the organizer marked), and the person's answer.
  *
- * What it is wired to today:
+ * What it is wired to:
  *  - the invitation itself (src/lib/email/calendar-invite.ts), read from the
- *    message;
- *  - the person's connected calendars (GET /api/calendar/events, read-only):
- *    when the event is on one, the card shows the answer the calendar holds
- *    and links to the event there.
+ *    message or from an attached .ics;
+ *  - the person's connected calendars, through /api/calendar/rsvp
+ *    (src/lib/integrations/calendar-rsvp.ts): GET finds the invitation's
+ *    event by its iCalendar UID and gives the answer the calendar holds; POST
+ *    answers it as the person (Google and Microsoft, with the scopes the app
+ *    already has), and the organizer is told by the calendar itself.
  *
- * What it is NOT wired to: answering. No provider call for an RSVP exists
- * yet, so Yes / No / Maybe open the event in the person's calendar, where the
- * answer is given, and the card says so. Nothing here writes anywhere.
+ * Yes / No / Maybe answer the invitation. The card shows the answer the
+ * calendar holds, marks the one being sent, and keeps the old answer when a
+ * reply fails, saying why (the event gone, the calendar needing a new
+ * sign-in, the event on no connected calendar) with the calendar's own page
+ * as the way out when there is one. "More options" opens the event there.
  *
  * Every value from the invitation is rendered as text (React escapes it); the
  * only links are the call link the parser accepted (http/https) and the
  * calendar's own link, both opened as any external link is.
  */
-import { useEffect, useMemo, useState } from 'react'
-import { CalendarDays, Check, ExternalLink, HelpCircle, MapPin, Users, Video, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { CalendarDays, Check, ExternalLink, HelpCircle, Loader2, MapPin, Users, Video, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { isOpenableUrl, openExternalUrl } from '@/lib/open-external'
 import type { CalendarInvite, InviteAttendee, InviteResponse } from '@/lib/email/calendar-invite'
@@ -58,46 +62,99 @@ export function inviteWhen(invite: Pick<CalendarInvite, 'start' | 'end' | 'allDa
 
 const RESPONSE_WORD: Record<InviteResponse, string> = { accepted: 'Yes', declined: 'No', tentative: 'Maybe', pending: 'Not answered' }
 
-/** The calendar's word for the owner's answer → the card's (Google's and Microsoft's). */
-function calendarResponse(value: unknown): InviteResponse | null {
-  switch (value) {
-    case 'accepted':
-    case 'organizer':
-      return 'accepted'
-    case 'declined':
-      return 'declined'
-    case 'tentative':
-    case 'tentativelyAccepted':
-      return 'tentative'
-    case 'needsAction':
-    case 'notResponded':
-      return 'pending'
-    default:
-      return null
+type Answer = Exclude<InviteResponse, 'pending'>
+
+/** What the calendar says about the invitation's event (GET /api/calendar/rsvp). */
+export interface InviteCalendarStatus {
+  found: boolean
+  /** found: the answer the calendar holds (null: the person is not a guest there). */
+  response?: InviteResponse | null
+  link?: string | null
+  canAnswer?: boolean
+  blocked?: 'organizer' | 'not_invited' | 'cancelled'
+  provider?: 'google' | 'microsoft'
+  accountEmail?: string | null
+  /** not found: why. */
+  reason?: 'no_calendar' | 'reconnect' | 'unreadable' | 'not_found'
+}
+
+/** A reply that wasn't given: the words to show, and the route's code. */
+export class InviteReplyError extends Error {
+  constructor(message: string, public readonly code: string | null = null) {
+    super(message)
   }
 }
 
-interface CalendarMatch {
-  response: InviteResponse | null
-  link: string | null
+const NOT_FOUND: InviteCalendarStatus = { found: false, reason: 'not_found' }
+
+function cleanStatus(data: InviteCalendarStatus): InviteCalendarStatus {
+  return { ...data, link: data.link && isOpenableUrl(data.link) ? data.link : null }
 }
 
-/** Find the invitation's event on the person's connected calendars (by its iCalendar UID). Null: not there, or no calendar. */
-async function findOnCalendar(invite: CalendarInvite, signal: AbortSignal): Promise<CalendarMatch | null> {
-  if (!invite.uid) return null
-  const start = toDate(invite.start)
-  if (Number.isNaN(start.getTime())) return null
-  const params = new URLSearchParams({
-    timeMin: new Date(start.getTime() - 24 * 3600 * 1000).toISOString(),
-    timeMax: new Date(start.getTime() + 48 * 3600 * 1000).toISOString(),
-    maxResults: '250',
-  })
-  const res = await fetch(`/api/calendar/events?${params}`, { signal })
-  if (!res.ok) return null
-  const data = (await res.json()) as { events?: Array<{ icalUid?: string; myResponse?: string; htmlLink?: string }> }
-  const hit = (data.events ?? []).find((e) => e.icalUid === invite.uid)
-  if (!hit) return null
-  return { response: calendarResponse(hit.myResponse), link: hit.htmlLink && isOpenableUrl(hit.htmlLink) ? hit.htmlLink : null }
+/** Find the invitation's event on the person's connected calendars (by its iCalendar UID). */
+async function findOnCalendar(invite: CalendarInvite, signal: AbortSignal): Promise<InviteCalendarStatus> {
+  if (!invite.uid) return NOT_FOUND
+  const res = await fetch(`/api/calendar/rsvp?uid=${encodeURIComponent(invite.uid)}`, { signal })
+  if (!res.ok) return { found: false, reason: 'unreadable' }
+  return cleanStatus((await res.json()) as InviteCalendarStatus)
+}
+
+/** Answer the invitation as the person. Throws InviteReplyError with the route's words when it wasn't given. */
+async function answerOnCalendar(invite: CalendarInvite, response: Answer): Promise<InviteCalendarStatus> {
+  let res: Response
+  try {
+    res = await fetch('/api/calendar/rsvp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uid: invite.uid, response }),
+    })
+  } catch {
+    throw new InviteReplyError('Your answer didn’t reach us. Check your connection and try again.')
+  }
+  const data = (await res.json().catch(() => null)) as (InviteCalendarStatus & { error?: string; code?: string }) | null
+  if (!res.ok || !data) throw new InviteReplyError(data?.error || 'Your answer wasn’t sent. Try again in a moment.', data?.code ?? null)
+  return cleanStatus(data)
+}
+
+const ANSWER_WORD: Record<Answer, string> = { accepted: 'Yes', declined: 'No', tentative: 'Maybe' }
+
+/** The line under the buttons: what the calendar says, or what just happened. Pure. */
+export function inviteNote(args: {
+  status: InviteCalendarStatus | 'loading'
+  sending: Answer | null
+  sent: Answer | null
+  error: string | null
+  organizer: string | null
+}): string {
+  const { status, sending, sent, error, organizer } = args
+  if (error) return error
+  if (status === 'loading') return 'Looking for this event on your calendar…'
+  if (sending) return `Sending “${ANSWER_WORD[sending]}”…`
+  if (!status.found) {
+    switch (status.reason) {
+      case 'no_calendar':
+        return 'No calendar is connected to this workspace, so this can’t be answered from here. Connect one in Settings › Connectors.'
+      case 'reconnect':
+        return `Your calendar${status.accountEmail ? ` (${status.accountEmail})` : ''} needs signing in again before this can be answered. Reconnect it in Settings › Connectors.`
+      case 'unreadable':
+        return 'Your calendar couldn’t be read just now, so this can’t be answered yet. Open the message again in a moment.'
+      default:
+        return 'This event is not on a connected calendar, so it can’t be answered from here.'
+    }
+  }
+  if (status.blocked === 'cancelled') return 'This event was cancelled on your calendar.'
+  if (status.blocked === 'organizer') return 'You organize this event, so there is no invitation to answer.'
+  if (status.blocked === 'not_invited') return 'This event is on your calendar, but you are not on its guest list, so it can’t be answered from here.'
+  if (sent) {
+    const told = organizer ? `${organizer} has been told` : 'The organizer has been told'
+    return sent === 'declined' && status.provider === 'microsoft'
+      ? `You answered No. ${told}, and Outlook has taken the event off your calendar.`
+      : `You answered ${ANSWER_WORD[sent]}. ${told}.`
+  }
+  const where = status.accountEmail ? ` (${status.accountEmail})` : ''
+  return status.response && status.response !== 'pending'
+    ? `Your calendar${where} has your answer: ${ANSWER_WORD[status.response]}. Choose another to change it.`
+    : `Your answer goes to the organizer from your calendar${where}.`
 }
 
 function guestName(guest: { name: string | null; email: string }): string {
@@ -108,25 +165,37 @@ export function EmailInviteCard({
   invite,
   ownAddresses,
   lookup = findOnCalendar,
+  reply = answerOnCalendar,
 }: {
   invite: CalendarInvite
   /** The person's own addresses (lowercase): which guest they are. */
   ownAddresses?: ReadonlySet<string>
   /** How the event is looked up on the person's calendars (tests pass their own). */
-  lookup?: (invite: CalendarInvite, signal: AbortSignal) => Promise<CalendarMatch | null>
+  lookup?: (invite: CalendarInvite, signal: AbortSignal) => Promise<InviteCalendarStatus | null>
+  /** How an answer is given (tests pass their own). Rejects with the words to show. */
+  reply?: (invite: CalendarInvite, response: Answer) => Promise<InviteCalendarStatus>
 }) {
   const [allGuests, setAllGuests] = useState(false)
-  const [match, setMatch] = useState<CalendarMatch | null | 'loading'>('loading')
+  const [status, setStatus] = useState<InviteCalendarStatus | 'loading'>('loading')
+  const [sending, setSending] = useState<Answer | null>(null)
+  const [sent, setSent] = useState<Answer | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  // One reply at a time, and a reply for another invitation never lands on this one.
+  const inviteRef = useRef(invite)
+  inviteRef.current = invite
 
   useEffect(() => {
     const controller = new AbortController()
-    setMatch('loading')
+    setStatus('loading')
+    setSending(null)
+    setSent(null)
+    setError(null)
     lookup(invite, controller.signal)
       .then((found) => {
-        if (!controller.signal.aborted) setMatch(found)
+        if (!controller.signal.aborted) setStatus(found ?? NOT_FOUND)
       })
       .catch(() => {
-        if (!controller.signal.aborted) setMatch(null)
+        if (!controller.signal.aborted) setStatus({ found: false, reason: 'unreadable' })
       })
     return () => controller.abort()
   }, [invite, lookup])
@@ -140,16 +209,38 @@ export function EmailInviteCard({
   }, [invite])
 
   const me = guests.find((g) => ownAddresses?.has(g.email)) ?? null
-  const found = match !== 'loading' && match ? match : null
+  const found = status !== 'loading' && status.found ? status : null
   const myAnswer: InviteResponse | null = found?.response ?? me?.status ?? null
   const cancelled = invite.method === 'CANCEL'
   const eyebrow = cancelled ? 'Cancelled' : invite.method === 'REPLY' ? 'Reply to your invitation' : invite.updated ? 'Updated invitation' : 'Invitation'
   const canAnswer = !cancelled && invite.method !== 'REPLY' && !me?.organizer
-  const open = (url: string | null) => {
+  const answerable = !!found?.canAnswer && !!invite.uid
+  const open = (url: string | null | undefined) => {
     if (url) void openExternalUrl(url)
   }
 
-  const answers: Array<{ value: InviteResponse; label: string; icon: typeof Check }> = [
+  const answer = (value: Answer) => {
+    if (!answerable || sending || myAnswer === value) return
+    const asked = invite
+    setSending(value)
+    setError(null)
+    reply(asked, value)
+      .then((next) => {
+        if (inviteRef.current !== asked) return
+        setStatus(next)
+        setSent(value)
+      })
+      .catch((err: unknown) => {
+        if (inviteRef.current !== asked) return
+        // The answer the calendar held stays marked: nothing changed.
+        setError(err instanceof InviteReplyError || err instanceof Error ? err.message || 'Your answer wasn’t sent.' : 'Your answer wasn’t sent.')
+      })
+      .finally(() => {
+        if (inviteRef.current === asked) setSending(null)
+      })
+  }
+
+  const answers: Array<{ value: Answer; label: string; icon: typeof Check }> = [
     { value: 'accepted', label: 'Yes', icon: Check },
     { value: 'declined', label: 'No', icon: X },
     { value: 'tentative', label: 'Maybe', icon: HelpCircle },
@@ -219,7 +310,10 @@ export function EmailInviteCard({
                 </p>
               ) : (
                 <ul className="space-y-1" data-invite-guests="">
-                  {guests.map((g) => (
+                  {guests.map((g) => {
+                    // The person's own row follows the calendar (and a reply just given), not the invitation's snapshot.
+                    const shown = g === me && myAnswer ? myAnswer : g.status
+                    return (
                     <li key={g.email} className="flex select-text items-baseline justify-between gap-3">
                       <span className="min-w-0 truncate">
                         {guestName(g)}
@@ -230,13 +324,14 @@ export function EmailInviteCard({
                       <span
                         className={cn(
                           'shrink-0 text-xs',
-                          g.status === 'accepted' ? 'text-emerald-600 dark:text-emerald-400' : g.status === 'declined' ? 'text-red-500' : 'text-muted-foreground',
+                          shown === 'accepted' ? 'text-emerald-600 dark:text-emerald-400' : shown === 'declined' ? 'text-red-500' : 'text-muted-foreground',
                         )}
                       >
-                        {g.organizer ? 'Organizer' : RESPONSE_WORD[g.status]}
+                        {g.organizer ? 'Organizer' : RESPONSE_WORD[shown]}
                       </span>
                     </li>
-                  ))}
+                    )
+                  })}
                   {invite.attendeesOmitted > 0 && <li className="text-xs text-muted-foreground">and {invite.attendeesOmitted} more</li>}
                 </ul>
               )}
@@ -259,16 +354,17 @@ export function EmailInviteCard({
                   type="button"
                   data-invite-answer={value}
                   aria-pressed={myAnswer === value}
-                  disabled={!found?.link}
-                  onClick={() => open(found?.link ?? null)}
-                  title={found?.link ? `Answer "${label}" in your calendar` : undefined}
+                  aria-busy={sending === value}
+                  disabled={!answerable || (sending !== null && sending !== value)}
+                  onClick={() => answer(value)}
+                  title={answerable ? (myAnswer === value ? `Your answer is “${label}”` : `Answer “${label}”`) : undefined}
                   className={cn(
                     'flex items-center gap-1 border-l border-border/70 px-3 py-1.5 text-xs font-medium transition-colors first:border-l-0',
-                    myAnswer === value ? 'bg-foreground text-background' : 'hover:bg-muted',
+                    myAnswer === value && sending === null ? 'bg-foreground text-background' : sending === value ? 'bg-muted' : 'hover:bg-muted',
                     'disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent',
                   )}
                 >
-                  <Icon className="h-3.5 w-3.5" />
+                  {sending === value ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Icon className="h-3.5 w-3.5" />}
                   {label}
                 </button>
               ))}
@@ -277,21 +373,29 @@ export function EmailInviteCard({
               type="button"
               data-invite-more=""
               disabled={!found?.link}
-              onClick={() => open(found?.link ?? null)}
+              onClick={() => open(found?.link)}
+              title={found?.link ? 'Open this event in your calendar' : undefined}
               className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
             >
               More options
               <ExternalLink className="h-3 w-3" />
             </button>
           </div>
-          <p className="mt-2 text-xs text-muted-foreground" data-invite-note="">
-            {match === 'loading'
-              ? 'Looking for this event on your calendar…'
-              : found?.link
-                ? 'Answering opens the event in your calendar. Replying from here is not connected yet.'
-                : found
-                  ? 'This event is on your calendar. Answer it there: replying from here is not connected yet.'
-                  : 'This event is not on a connected calendar, so it can’t be answered from here yet.'}
+          <p
+            className={cn('mt-2 text-xs', error ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground')}
+            data-invite-note=""
+            data-invite-error={error ? '' : undefined}
+            role={error ? 'alert' : 'status'}
+          >
+            {inviteNote({ status, sending, sent, error, organizer: invite.organizer ? guestName(invite.organizer) : null })}
+            {error && found?.link && (
+              <>
+                {' '}
+                <button type="button" data-invite-open="" onClick={() => open(found.link)} className="underline hover:no-underline">
+                  Open it in your calendar
+                </button>
+              </>
+            )}
           </p>
         </div>
       )}

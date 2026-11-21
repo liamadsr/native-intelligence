@@ -96,6 +96,7 @@ export function calendarEventToIEvent(event: CalendarEvent): IEvent {
     icalUid: event.icalUid,
     provider: event.provider,
     ...(event.accountId ? { accountId: event.accountId } : {}),
+    ...(event.accountEmail ? { accountEmail: event.accountEmail } : {}),
     ...(eventResponse(event.myResponse) ? { response: eventResponse(event.myResponse) } : {}),
   }
 }
