@@ -83,12 +83,16 @@ export const BOOT_WATCHDOG_SCRIPT = `
 
   // Fetch the page's own scripts, then reload: a fetch replaces what WebKit remembers of a failed
   // preload, which a plain reload would reuse. \`always\`: the person asked (the Reload button).
-  function reloadFresh(always) {
+  // \`reloaded\` runs right after the reload is asked for.
+  function reloadFresh(always, reloaded) {
     var urls = [], seenUrl = {}, left, done = false, els, i, u;
     function go() {
       if (done) return;
       done = true;
-      if (always || !booted()) location.reload();
+      if (always || !booted()) {
+        location.reload();
+        if (reloaded) reloaded();
+      }
     }
     function settle() { if (--left <= 0) go(); }
     try {
@@ -141,9 +145,10 @@ export const BOOT_WATCHDOG_SCRIPT = `
       try {
         sessionStorage.setItem(KEY, noted);
         if (sessionStorage.getItem(KEY) === noted) {
-          reloadFresh(false);
-          // Still here later: the reload never left (the server unreachable). Try again, on the budget.
-          setTimeout(function () { acted = false; check(); }, ${BOOT_RELOAD_STUCK_MS});
+          reloadFresh(false, function () {
+            // Still here a while after the reload: it never left (the server unreachable). Try again, on the budget.
+            setTimeout(function () { acted = false; check(); }, ${BOOT_RELOAD_STUCK_MS});
+          });
           return;
         }
       } catch (_) {}

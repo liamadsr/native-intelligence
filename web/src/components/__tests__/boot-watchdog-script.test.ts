@@ -351,6 +351,45 @@ describe('the boot watchdog script', () => {
       expect(p.reload).not.toHaveBeenCalled()
     })
 
+    it('fetches module preloads too', async () => {
+      const fetched: string[] = []
+      const win = page({ fetch: async (url) => void fetched.push(url) })
+      const l = win.doc.createElement('link')
+      l.rel = 'modulepreload'
+      l.href = `${ORIGIN}/_next/static/chunks/module.js`
+      win.doc.head.appendChild(l)
+      await vi.advanceTimersByTimeAsync(BOOT_AFTER_LOAD_MS)
+      expect(fetched).toEqual([`${ORIGIN}/_next/static/chunks/module.js`])
+      expect(win.reload).toHaveBeenCalledTimes(1)
+    })
+
+    it('times the "reload never left" retry from the reload, not from the start of the fetches', async () => {
+      const p = page({ scripts: [runtime], fetch: () => new Promise(() => {}) })
+      await vi.advanceTimersByTimeAsync(BOOT_AFTER_LOAD_MS + BOOT_REFETCH_MS)
+      expect(p.reload).toHaveBeenCalledTimes(1)
+      // The retry fetches again (hanging again), so its reload comes STUCK + REFETCH after the first.
+      await vi.advanceTimersByTimeAsync(BOOT_RELOAD_STUCK_MS + BOOT_REFETCH_MS - 1)
+      expect(p.reload).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(p.reload).toHaveBeenCalledTimes(2)
+    })
+
+    it('the Reload button reloads even a page that has started since (the person asked)', async () => {
+      for (let i = 0; i < BOOT_MAX_RELOADS; i++) {
+        page()
+        vi.advanceTimersByTime(BOOT_AFTER_LOAD_MS)
+      }
+      let release!: () => void
+      const gate = new Promise<void>((r) => (release = r))
+      const last = page({ scripts: [runtime], fetch: () => gate })
+      await vi.advanceTimersByTimeAsync(BOOT_AFTER_LOAD_MS)
+      last.fallback()!.querySelector('button')!.click()
+      last.win.__niBoot!()
+      release()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(last.reload).toHaveBeenCalledTimes(1)
+    })
+
     it('the Reload button fetches the scripts first too', async () => {
       for (let i = 0; i < BOOT_MAX_RELOADS; i++) {
         page()
