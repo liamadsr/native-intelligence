@@ -26,9 +26,10 @@
  * entirely, and done at the next run.
  *
  * NOT CLEARED, by choice: saved views and agents (a workspace's own defaults
- * live in the same tables), texts (`sms_message` belongs to a person, not to
- * any workspace, and a demo workspace has no number), and anything not named
- * in WIPE. Files in storage are not removed. A table that refuses (a foreign
+ * live in the same tables), what belongs to a person rather than to the
+ * workspace (`profile_fact`: one person's facts, read in every workspace they
+ * use, its `source_workspace_id` only where a fact was said; `sms_message`: a
+ * text, and a demo workspace has no number), and anything not named in WIPE. Files in storage are not removed. A table that refuses (a foreign
  * key from a table this list does not know) is reported, never forced: the
  * run goes on and says so.
  */
@@ -48,10 +49,11 @@ export class DemoResetRefused extends Error {
 /**
  * One table to clear, fenced on the workspace. How the fence reaches it:
  *   (neither)    the table's own `workspace_id`
- *   column       the table's own column of another name that holds the workspace
  *   through      a parent that has `workspace_id`: the rows whose `column` holds
  *                one of that workspace's parents (a cycle through its team)
- *   commentable  a comment, through what it is on (COMMENTABLE)
+ *   commentable  a comment, through what it is on (COMMENTABLE). It has no
+ *                foreign key there: once what it is on is gone, nothing finds
+ *                it again, so while this step fails those tables are held back.
  * `keep` narrows it:
  *   member_contacts   keep the contacts that ARE members (contact.member_id)
  *   default_pipeline  keep the workspace's default pipeline table
@@ -60,7 +62,6 @@ export class DemoResetRefused extends Error {
  */
 export interface WipeStep {
   table: string
-  column?: string
   through?: { column: string; parent: string }
   commentable?: true
   keep?: 'member_contacts' | 'default_pipeline'
@@ -104,8 +105,6 @@ export const WIPE: readonly WipeStep[] = [
   { table: 'chat_conversations' },
   { table: 'agent_memory' },
   { table: 'area_memory' },
-  // What the assistant learned about a person while they were here.
-  { table: 'profile_fact', column: 'source_workspace_id' },
   // Work.
   { table: 'actions' },
   { table: 'captures' },
@@ -211,24 +210,25 @@ export async function listDemoWorkspaces(service: SupabaseClient): Promise<strin
   return ((data ?? []) as Array<{ workspace_id: string }>).map((r) => r.workspace_id)
 }
 
-/** PostgREST answers at most 1000 rows a request, and an `in` list rides in the URL. */
+/** Ids asked for per read (PostgREST may answer fewer), and per delete: an `in` list rides in the URL. */
 const ID_PAGE = 1000
 const ID_CHUNK = 100
 
 /** Every id in `table` that is the workspace's, fenced on that table's `workspace_id`. */
 async function workspaceIds(service: SupabaseClient, table: string, workspaceId: string): Promise<string[]> {
   const ids: string[] = []
-  for (let from = 0; ; from += ID_PAGE) {
+  for (;;) {
     const { data, error } = await service
       .from(table)
       .select('id')
       .eq('workspace_id', workspaceId)
       .order('id', { ascending: true })
-      .range(from, from + ID_PAGE - 1)
+      .range(ids.length, ids.length + ID_PAGE - 1)
     if (error) throw new Error(`${table}: ${error.message}`)
     const rows = (data ?? []) as Array<{ id: string }>
+    // Until an empty page: a server row cap below ID_PAGE answers short pages.
+    if (rows.length === 0) return ids
     for (const r of rows) ids.push(r.id)
-    if (rows.length < ID_PAGE) return ids
   }
 }
 
@@ -269,7 +269,7 @@ async function wipeOne(service: SupabaseClient, workspaceId: string, step: WipeS
       return { error: err instanceof Error ? err.message : String(err) }
     }
   }
-  let q = service.from(step.table).delete({ count: 'exact' }).eq(step.column ?? 'workspace_id', workspaceId)
+  let q = service.from(step.table).delete({ count: 'exact' }).eq('workspace_id', workspaceId)
   if (step.keep === 'member_contacts') q = q.is('member_id', null)
   if (step.keep === 'default_pipeline') q = q.eq('is_default', false)
   const { error, count } = await q
@@ -291,12 +291,19 @@ export async function wipeVisitorContent(
   let todo: readonly WipeStep[] = WIPE
   for (let pass = 0; pass < 2 && todo.length > 0; pass++) {
     const again: WipeStep[] = []
+    const heldBack = new Set<string>()
     failed = {}
     for (const step of todo) {
+      if (heldBack.has(step.table)) {
+        failed[step.table] = 'held back: the comments on it could not be cleared'
+        again.push(step)
+        continue
+      }
       const res = await wipeOne(service, workspaceId, step)
       if ('error' in res) {
         failed[step.table] = res.error
         again.push(step)
+        if (step.commentable) for (const parent of Object.values(COMMENTABLE)) heldBack.add(parent)
       } else if (res.count > 0) {
         cleared[step.table] = (cleared[step.table] ?? 0) + res.count
       }

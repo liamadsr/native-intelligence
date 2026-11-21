@@ -39,19 +39,24 @@ interface Call {
 const parentIds = (table: string, n: number) => Array.from({ length: n }, (_, i) => `${table}-${i}`)
 
 /** A service client that records every statement and answers from `tables`. */
-function fakeService(opts: { flagged?: string[]; flagError?: string; refuse?: Record<string, string>; refuseRead?: Record<string, string>; members?: Array<{ id: string; user_id: string; role: string }>; liveCalls?: number; liveError?: string; parents?: number } = {}) {
+function fakeService(opts: { flagged?: string[]; flagError?: string; refuse?: Record<string, string>; refuseOnce?: Record<string, string>; refuseRead?: Record<string, string>; members?: Array<{ id: string; user_id: string; role: string }>; liveCalls?: number; liveError?: string; parents?: number } = {}) {
   const calls: Call[] = []
   const flagged = opts.flagged ?? [DEMO]
   const members = opts.members ?? [
     { id: 'm-owner', user_id: 'u-owner', role: 'owner' },
     { id: 'm-visitor', user_id: 'u-visitor', role: 'member' },
   ]
+  const refusedOnce = new Set<string>()
   const from = (table: string) => {
     const call: Call = { table, op: 'select', filters: [] }
     calls.push(call)
     const eqValue = (col: string) => call.filters.find(([op, c]) => op === 'eq' && c === col)?.[2]
     const answer = () => {
       if (call.op === 'delete') {
+        if (opts.refuseOnce?.[table] && !refusedOnce.has(table)) {
+          refusedOnce.add(table)
+          return { data: null, error: { message: opts.refuseOnce[table] }, count: null }
+        }
         const refused = opts.refuse?.[table]
         return refused ? { data: null, error: { message: refused }, count: null } : { data: null, error: null, count: 2 }
       }
@@ -141,7 +146,7 @@ describe('resetDemoWorkspace', () => {
         const type = d.filters.find(([op, c]) => op === 'eq' && c === 'commentable_type')?.[2] as string
         expect(d.filters).toEqual([['in', 'commentable_id', parentIds(COMMENTABLE[type], 2)], ['eq', 'commentable_type', type]])
       } else {
-        expect(d.filters).toContainEqual(['eq', step.column ?? 'workspace_id', DEMO])
+        expect(d.filters).toContainEqual(['eq', 'workspace_id', DEMO])
       }
     }
     // Every id list a delete names was read from its parent, fenced on the demo workspace.
@@ -153,7 +158,7 @@ describe('resetDemoWorkspace', () => {
     expect(report.cleared.comment).toBe(2 * Object.keys(COMMENTABLE).length)
   })
 
-  it('clears what has no workspace column of its own through its parent, and profile facts by where they were learned', async () => {
+  it('clears what has no workspace column of its own through its parent; never what belongs to a person', async () => {
     const { service, calls } = fakeService()
     await resetDemoWorkspace(service, DEMO)
     const del = (t: string) => calls.filter((c) => c.table === t && c.op === 'delete')
@@ -161,18 +166,42 @@ describe('resetDemoWorkspace', () => {
     expect(del('decision')[0].filters).toEqual([['in', 'capture_id', parentIds('captures', 2)]])
     expect(del('milestone')[0].filters).toEqual([['in', 'project_id', parentIds('projects', 2)]])
     expect(del('flow_run')[0].filters).toEqual([['in', 'flow_id', parentIds('flow', 2)]])
-    expect(del('profile_fact')[0].filters).toEqual([['eq', 'source_workspace_id', DEMO]])
     expect(del('comment').map((c) => c.filters[1][2]).sort()).toEqual(Object.keys(COMMENTABLE).sort())
     // Teams are only read, never written.
     expect(calls.filter((c) => c.table === 'team' && c.op !== 'select')).toEqual([])
-    expect(del('sms_message')).toEqual([])
+    // A person's own facts and texts go with them to every workspace: never cleared here.
+    expect(calls.filter((c) => c.table === 'profile_fact' || c.table === 'sms_message')).toEqual([])
   })
 
-  it('pages through a parent with more than a thousand rows and deletes a hundred ids at a time', async () => {
+  it('a comment step that fails holds back what the comments are on, and clears them in order on the second try', async () => {
+    const { service, calls } = fakeService({ refuseOnce: { comment: 'timeout' } })
+    const report = await resetDemoWorkspace(service, DEMO)
+    expect(report.failed).toEqual({})
+    const order = calls.filter((c) => c.op === 'delete').map((c) => c.table)
+    const lastComment = order.lastIndexOf('comment')
+    for (const parent of Object.values(COMMENTABLE)) {
+      expect(order.filter((t) => t === parent).length, parent).toBe(1)
+      expect(order.indexOf(parent), parent).toBeGreaterThan(lastComment)
+    }
+  })
+
+  it('a comment step that keeps failing leaves what they are on in place, and says so', async () => {
+    const { service, calls } = fakeService({ refuse: { comment: 'timeout' } })
+    const report = await resetDemoWorkspace(service, DEMO)
+    expect(report.failed.comment).toBe('timeout')
+    for (const parent of Object.values(COMMENTABLE)) {
+      expect(report.failed[parent], parent).toBe('held back: the comments on it could not be cleared')
+      expect(calls.filter((c) => c.table === parent && c.op === 'delete'), parent).toEqual([])
+    }
+    // The rest of the list still goes.
+    expect(report.cleared.chat_conversations).toBe(2)
+  })
+
+  it('pages through a parent until an empty page and deletes a hundred ids at a time', async () => {
     const { service, calls } = fakeService({ parents: 1050 })
     await resetDemoWorkspace(service, DEMO)
     const teamReads = calls.filter((c) => c.table === 'team' && c.range)
-    expect(teamReads.map((c) => c.range)).toEqual([[0, 999], [1000, 1999]])
+    expect(teamReads.map((c) => c.range)).toEqual([[0, 999], [1000, 1999], [1050, 2049]])
     const cycleDeletes = calls.filter((c) => c.table === 'cycle' && c.op === 'delete')
     expect(cycleDeletes.length).toBe(11)
     const named = cycleDeletes.flatMap((c) => c.filters[0][2] as string[])

@@ -6,7 +6,8 @@
  * asked for. That is how seven steps that filtered on a `workspace_id` their
  * tables do not have (comment, decision, profile_fact, sms_message, flow_run,
  * milestone, cycle) passed every test and failed on production every night.
- * Each step's fence is checked here instead.
+ * Each step's fence is checked here instead. (profile_fact and sms_message
+ * are no longer cleared at all: they belong to a person, not a workspace.)
  */
 import { describe, expect, it } from 'vitest'
 import { relationNames, schemaSources } from '@/test/table-schema'
@@ -48,7 +49,7 @@ describe('the wipe list, against the schema', () => {
       expect(own).toContain(step.through.column)
       expect(columns(step.through.parent), step.through.parent).toContain('workspace_id')
     } else {
-      expect(own).toContain(step.column ?? 'workspace_id')
+      expect(own).toContain('workspace_id')
     }
     if (step.keep === 'member_contacts') expect(own).toContain('member_id')
     if (step.keep === 'default_pipeline') expect(own).toContain('is_default')
