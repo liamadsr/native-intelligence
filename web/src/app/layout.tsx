@@ -8,6 +8,8 @@ import { StorageRenameScript } from '@/components/storage-rename-script'
 import { ThemeScript } from '@/components/theme-script'
 import { SystemThemeListener } from '@/components/system-theme-listener'
 import { CacheBusterScript } from '@/components/desktop/cache-buster-script'
+import { BootWatchdogScript } from '@/components/boot-watchdog-script'
+import { BootMark } from '@/components/boot-mark'
 import { Inter, Noto_Serif } from 'next/font/google'
 import { appUrl } from '@/lib/app-url'
 import { HOME_DESCRIPTION, HOME_TITLE } from './home-meta'
@@ -75,6 +77,8 @@ export default function RootLayout({
         <StorageRenameScript />
         <ThemeScript />
         <CacheBusterScript />
+        {/* A page whose scripts never ran is reloaded instead of left blank. */}
+        <BootWatchdogScript />
       </head>
       <body className="flex min-h-screen flex-col bg-background text-foreground antialiased" suppressHydrationWarning>
         {/* PostHogProvider must stay <body>'s ONLY child: a client component
@@ -84,6 +88,7 @@ export default function RootLayout({
             account/(dashboard)/layout.tsx). The listeners — all render null —
             ride inside it instead. */}
         <PostHogProvider>
+          <BootMark />
           <SystemThemeListener />
           <DesktopNativeFeel />
           <DeepLinkHandler />
