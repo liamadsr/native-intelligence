@@ -218,7 +218,12 @@ describe('tripwire: only the share routes reach a share’s mail', () => {
   it('no agent, tool, MCP, loop, job or chat code reaches the share reader or its table', () => {
     const cwd = process.cwd()
     const files = [...walk(join(cwd, 'src')), ...walk(join(cwd, 'agents'))].filter((f) => /\.(c|m)?(t|j)sx?$/.test(f))
-    const allowed = (rel: string) => rel.startsWith('src/lib/email-share/') || rel.startsWith('src/app/api/account/email/shares/')
+    // The person-facing share routes (both refuse Bearer callers): the channel
+    // shares (646) and the mention thread-shares (673, member-share.ts).
+    const allowed = (rel: string) =>
+      rel.startsWith('src/lib/email-share/') ||
+      rel.startsWith('src/app/api/account/email/shares/') ||
+      rel.startsWith('src/app/api/account/email/thread-shares/')
     const offenders: string[] = []
     for (const f of files) {
       const rel = relative(cwd, f)

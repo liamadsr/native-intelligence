@@ -44,6 +44,8 @@ import { AppUpdater } from '@/components/desktop/app-updater'
 import { CoreAudioHealthToast } from '@/components/desktop/core-audio-health-toast'
 import { MicModeToast } from '@/components/desktop/mic-mode-toast'
 import { CreateDialog } from '@/components/create-dialog'
+import { SharedConversationDialog } from '@/components/chat/shared-conversation-dialog'
+import { SharedEmailThreadMount } from '@/components/email/shared-thread-dialog'
 import { GlobalShortcuts } from './shortcuts/global-shortcuts'
 import { ShortcutsSheet } from './shortcuts/shortcuts-sheet'
 import { UsageLimitDialog } from '@/components/usage-limit-dialog'
@@ -675,6 +677,12 @@ export function DashboardShell({
       <CoreAudioHealthToast />
       <MicModeToast />
       <CreateDialog />
+      {/* The read-only viewer for an agent chat (own, or shared by a mention):
+          opens on ni:open-conversation (lib/chat/open-conversation.ts). */}
+      <SharedConversationDialog />
+      {/* The read-only viewer for a mail thread shared by a mention (673,
+          decision 1): opens on ni:open-shared-email (lib/email-share/open-shared-thread.ts). */}
+      <SharedEmailThreadMount />
       {/* G then a letter opens a page, ? the shortcuts sheet (lib/shortcuts.ts). */}
       <GlobalShortcuts />
       <ShortcutsSheet />

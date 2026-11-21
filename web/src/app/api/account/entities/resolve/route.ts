@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { requireUser } from '@/lib/api-auth'
+import { getServiceClient } from '@/lib/admin'
 import { badRequest, serverError, sessionExpired } from '@/lib/api-errors'
 import {
   getCurrentWorkspaceId,
@@ -138,6 +139,97 @@ async function resolveMentions(
     }),
   )
   return out
+}
+
+/**
+ * A grantee's chip for an agent chat shared with them by a mention
+ * (docs/plans/mentions-everywhere.md, JOB 2). The WRITE fence
+ * (mentions.ts visibleIdsOf) stays owner-only — who may mention a chat is still
+ * only its owner — so a grantee's chip would otherwise draw locked. This is a
+ * READ fence of its own, added here only: among `ids`, the conversations this
+ * caller is a grantee of in `workspaceId` (conversation_share RLS lets a
+ * grantee see the shares made to them, so the caller's own client is the
+ * fence), then each labelled with its title read on the SERVICE client — ONLY
+ * for the ids that passed the share check (chat_conversations is owner-only
+ * under RLS). An id the caller neither owns nor was granted yields nothing, so
+ * its chip keeps the stored words.
+ */
+async function resolveSharedConversations(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  ids: string[],
+): Promise<Record<string, ResolvedMention>> {
+  if (ids.length === 0) return {}
+  const { data: shares, error } = await supabase
+    .from('conversation_share')
+    .select('conversation_id')
+    .eq('workspace_id', workspaceId)
+    .in('conversation_id', ids)
+  if (error) {
+    console.warn('[resolve] conversation_share read failed:', error.message)
+    return {}
+  }
+  const granted = [
+    ...new Set(
+      ((shares ?? []) as Array<{ conversation_id?: unknown }>)
+        .map((s) => (typeof s.conversation_id === 'string' ? s.conversation_id.toLowerCase() : null))
+        .filter((id): id is string => !!id),
+    ),
+  ]
+  if (granted.length === 0) return {}
+  // The titles, on the service client, only for the ids the share check passed.
+  const { data: rows, error: rowError } = await getServiceClient()
+    .from('chat_conversations')
+    .select('id, title')
+    .eq('workspace_id', workspaceId)
+    .in('id', granted)
+  if (rowError || !rows) return {}
+  const out: Record<string, ResolvedMention> = {}
+  for (const r of rows as Array<{ id?: unknown; title?: unknown }>) {
+    const id = typeof r.id === 'string' ? r.id.toLowerCase() : null
+    if (!id) continue
+    const label = typeof r.title === 'string' && r.title.trim() ? r.title.trim() : 'Chat'
+    out[`conversation:${id}`] = { type: 'conversation', id, label, status: null }
+  }
+  return out
+}
+
+/**
+ * The mail threads among `ids` shared with `userId` (email_thread_share, 673:
+ * service role only, so read on the service client with the rule restated):
+ * a share not revoked, in this workspace, whose grantee is the caller's own
+ * member row here. Labelled by the sender (no subject is stored anywhere),
+ * read only for the ids that passed. Fails closed: any error is no chips.
+ */
+async function resolveSharedEmailThreads(workspaceId: string, userId: string, ids: string[]): Promise<Record<string, ResolvedMention>> {
+  try {
+    const service = getServiceClient()
+    const { data: member } = await service.from('member').select('id').eq('workspace_id', workspaceId).eq('user_id', userId).maybeSingle()
+    const memberId = (member as { id?: unknown } | null)?.id
+    if (typeof memberId !== 'string') return {}
+    const { data: shares, error } = await service
+      .from('email_thread_share')
+      .select('thread_index_id')
+      .eq('workspace_id', workspaceId)
+      .eq('grantee_member_id', memberId)
+      .is('revoked_at', null)
+      .in('thread_index_id', ids)
+    if (error) return {}
+    const granted = [...new Set(((shares ?? []) as Array<{ thread_index_id?: unknown }>).map((s) => s.thread_index_id).filter((id): id is string => typeof id === 'string'))]
+    if (granted.length === 0) return {}
+    const { data: rows, error: rowError } = await service.from('email_thread_index').select('id, from_email').eq('workspace_id', workspaceId).in('id', granted)
+    if (rowError) return {}
+    const out: Record<string, ResolvedMention> = {}
+    for (const r of (rows ?? []) as Array<{ id?: unknown; from_email?: unknown }>) {
+      if (typeof r.id !== 'string') continue
+      const id = r.id.toLowerCase()
+      const label = typeof r.from_email === 'string' && r.from_email.trim() ? r.from_email.trim() : 'Email'
+      out[`email_thread:${id}`] = { type: 'email_thread', id, label, status: null }
+    }
+    return out
+  } catch {
+    return {}
+  }
 }
 
 const SELECT = `
@@ -304,5 +396,35 @@ export async function GET(request: NextRequest) {
     mentionPairs.length > 0 && currentWorkspaceId
       ? await resolveMentions(supabase, { workspaceId: currentWorkspaceId, userId: user.id }, mentionPairs)
       : {}
+
+  // A chat shared with the caller by a mention (JOB 2): visibleMentionTargets
+  // fences `conversation` owner-only (the write fence), so a grantee's chip is
+  // not in `mentions` yet. Fill it here, from conversation_share, for the
+  // conversation ids the owner fence didn't resolve.
+  if (currentWorkspaceId) {
+    const unresolvedConversationIds = mentionPairs
+      .filter((p) => p.type === 'conversation' && !mentions[`conversation:${p.id}`])
+      .map((p) => p.id)
+    if (unresolvedConversationIds.length > 0) {
+      const shared = await resolveSharedConversations(supabase, currentWorkspaceId, unresolvedConversationIds)
+      for (const [key, value] of Object.entries(shared)) {
+        if (!mentions[key]) mentions[key] = value
+      }
+    }
+  }
+
+  // A mail thread shared with the caller by a mention (673, email_thread_share):
+  // the owner fence above leaves a grantee's chip unresolved. Fill it for the
+  // threads with a live share naming the caller's member in this workspace.
+  if (currentWorkspaceId) {
+    const unresolvedThreadIds = mentionPairs.filter((p) => p.type === 'email_thread' && !mentions[`email_thread:${p.id}`]).map((p) => p.id)
+    if (unresolvedThreadIds.length > 0) {
+      const shared = await resolveSharedEmailThreads(currentWorkspaceId, user.id, unresolvedThreadIds)
+      for (const [key, value] of Object.entries(shared)) {
+        if (!mentions[key]) mentions[key] = value
+      }
+    }
+  }
+
   return NextResponse.json({ refs: refResult, mentions })
 }

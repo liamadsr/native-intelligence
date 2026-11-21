@@ -576,6 +576,12 @@ export interface MenuSection {
 }
 
 export interface Menu {
+  /**
+   * With something typed: how many rows each tab's kinds found (a tab at 0 is
+   * drawn dimmed, never removed). Absent with nothing typed: a tab's rows are
+   * only read once it is picked.
+   */
+  counts?: Partial<Record<MenuTab, number>>
   sections: MenuSection[]
   /** The tabs offered: All, the kinds that found something, and the tab picked. */
   tabs: MenuTab[]
@@ -634,6 +640,12 @@ export function buildMenu(trigger: MenuTrigger, tab: MenuTab, query: string, off
   }
   // `/` on All, nothing typed: what's waiting on the person, then what they touched last.
   if (trigger === '/' && tab === 'all' && !q) sections.push(...feedSections(sources))
+  // `@` on All, nothing typed: the records the person touched last, each as a
+  // row this composer can mention (people have their own section, below).
+  if (trigger === '@' && tab === 'all' && !q) {
+    const items = recentMentionRows(sources.recent ?? [], offer).map((row): MenuItem => ({ kind: 'record', row }))
+    if (items.length) sections.push({ key: 'recent', label: SECTION_LABELS.recent, items, total: items.length, totalKnown: true })
+  }
   for (const { kind } of ordered) {
     const items = all.get(kind)!.items
     if (!items.length) continue
@@ -648,16 +660,69 @@ export function buildMenu(trigger: MenuTrigger, tab: MenuTab, query: string, off
     return section
   })
 
-  // A GROUP tab for each group one of whose kinds has something to show for
-  // what's typed (with nothing typed: the leads), and the tab picked, whatever
-  // it holds, in the strip's fixed order.
+  // FIXED TABS: every group the trigger offers here, in the strip's order,
+  // whether or not anything is typed or found (a tab never appears or
+  // vanishes under the person's hand). Typed, each carries how many rows its
+  // kinds found, so an empty one can be dimmed.
   const tabs: MenuTab[] = ['all']
+  const counts: Partial<Record<MenuTab, number>> = {}
   for (const g of MENU_GROUPS) {
-    if (!offered.some((k) => groupOf(k) === g)) continue
-    const hasRows = offered.some((k) => groupOf(k) === g && all.get(k)!.items.length > 0 && (q ? true : LEADS[trigger].includes(k)))
-    if (hasRows || g === tab) tabs.push(g)
+    const kinds = offered.filter((k) => groupOf(k) === g)
+    if (!kinds.length) continue
+    tabs.push(g)
+    counts[g] = kinds.reduce((n, k) => n + all.get(k)!.items.length, 0)
   }
-  return { sections: withOffsets, tabs }
+  return q ? { sections: withOffsets, tabs, counts } : { sections: withOffsets, tabs }
+}
+
+/** How many recent records `@`'s first view lists. */
+export const RECENT_MENTION_CAP = 6
+
+/**
+ * The records the person touched last (the feed's Recent), as rows `@` can
+ * mention here: each one's kind must be one this composer attaches, and a
+ * person is left to the People section. A row carries only what the feed
+ * knows (the record and its name), which is all a mention needs.
+ */
+export function recentMentionRows(recent: readonly FeedEntry[], offer: Pick<MenuOffer, 'mention'>): MenuSearchRow[] {
+  const out: MenuSearchRow[] = []
+  for (const entry of recent) {
+    if (out.length >= RECENT_MENTION_CAP) break
+    const row = feedEntryRow(entry)
+    if (row && row.kind !== 'contact' && offer.mention.has(row.kind)) out.push(row)
+  }
+  return out
+}
+
+/** A feed entry as a search row of its kind, or null for a kind the menu lists no rows of (a message). */
+export function feedEntryRow(entry: FeedEntry): MenuSearchRow | null {
+  const { id, label: title } = entry
+  switch (entry.type) {
+    case 'action':
+      return { kind: 'action', id, title, identifier: null, status: null, score: 0 }
+    case 'document':
+      return { kind: 'document', id, title, updatedAt: entry.last.at, score: 0 }
+    case 'project':
+    case 'initiative':
+      return { kind: entry.type, id, title, status: null, score: 0 }
+    case 'flow':
+      return { kind: 'flow', id, title, status: null, score: 0 }
+    case 'capture':
+      return {
+        kind: 'capture',
+        capture: { id, title, type: 'capture', summary: null, recorded_at: null, created_at: entry.last.at, status: 'completed', is_pinned: false, participants: null, duration_seconds: null },
+        score: 0,
+      }
+    case 'contact':
+      return { kind: 'contact', contact: { id, full_name: title, email: null, job_title: null, company_name: null, is_member: false }, score: 0 }
+    case 'company':
+      return { kind: 'company', company: { id, name: title, domain: null, industry: null, logo_url: null }, score: 0 }
+    case 'data_table':
+    case 'data_row':
+      return { kind: entry.type, id, title, status: null, parentId: null, score: 0 }
+    default:
+      return null
+  }
 }
 
 /** The tab after (or before) `tab`, round the ones offered. */

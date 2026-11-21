@@ -54,7 +54,7 @@ export async function readFeedEntries(url: string): Promise<FeedEntry[] | null> 
 const read = async (url: string): Promise<FeedEntry[]> => (await readFeedEntries(url)) ?? []
 
 /** The Inbox and Recent while the palette is open (null until the first answer). */
-export function usePaletteFeed(open: boolean): PaletteFeed {
+export function usePaletteFeed(open: boolean, only?: 'recent'): PaletteFeed {
   // The window's workspace, as its requests name it (lib/workspace-fetch.ts).
   const workspaceId = getClientWorkspaceId()
   const [state, setState] = useState<{ workspaceId: string | null; feed: PaletteFeed }>({ workspaceId, feed: EMPTY })
@@ -62,12 +62,13 @@ export function usePaletteFeed(open: boolean): PaletteFeed {
     if (!open) return
     let live = true
     const forWorkspace = getClientWorkspaceId()
-    void Promise.all([read(paletteInboxUrl(new Date())), read(paletteRecentUrl())]).then(([inbox, recent]) => {
+    // `only: 'recent'` (the `@` menu's first view): one read, no inbox.
+    void Promise.all([only === 'recent' ? Promise.resolve(null) : read(paletteInboxUrl(new Date())), read(paletteRecentUrl())]).then(([inbox, recent]) => {
       if (live) setState({ workspaceId: forWorkspace, feed: { inbox, recent } })
     })
     return () => {
       live = false
     }
-  }, [open, workspaceId])
+  }, [open, workspaceId, only])
   return state.workspaceId === workspaceId ? state.feed : EMPTY
 }

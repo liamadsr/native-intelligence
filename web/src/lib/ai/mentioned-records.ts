@@ -210,6 +210,8 @@ export async function gatherMentionedRecords(
 
 /** What each kind that travels as a ref is called on its line, and how the agent reads it in full. */
 const REF_LINES: Partial<Record<MentionableType, { noun: string; read: (id: string) => string }>> = {
+  team: { noun: 'Team', read: (id) => `id ${id}` },
+  knowledge_package: { noun: 'Knowledge package', read: (id) => `get_package(package_id: ${id})` },
   campaign: { noun: 'Campaign', read: (id) => `id ${id}: list_campaigns shows it in full` },
   data_table: { noun: 'Table', read: (id) => `get_table(table_id: ${id})` },
   data_row: { noun: 'Table row', read: (id) => `id ${id}: query_rows on its table reads its fields` },
