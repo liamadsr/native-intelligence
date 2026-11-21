@@ -16,6 +16,7 @@ import {
   menuTakesEnter,
   offeredKinds,
   pickSkillText,
+  recentMentionRows,
   removeToken,
   replaceToken,
   sameTriggerToken,
@@ -28,6 +29,7 @@ import {
 } from '../command-menu-model'
 import { FINDABLE, FINDABLE_BY_ORDER, MENTION_FINDABLE_KINDS } from '@/lib/search/findable-registry'
 import { MENTION_PICKER_KINDS, type MentionContact, type MenuSearchKind, type MenuSearchRow } from '@/lib/search/menu-search'
+import type { FeedEntry } from '@/lib/entities/feed-model'
 import type { CaptureListItem } from '../../views/capture-utils'
 
 /** The token with the caret at the end of the text. */
@@ -217,14 +219,51 @@ describe('buildMenu', () => {
     expect(keys(buildMenu('/', 'people', '', MAIN, sources))).toEqual(['people'])
   })
 
-  it('offers a GROUP tab only when one of its kinds found something, and the tab picked, in the strip’s order', () => {
-    // Nothing typed, `/`: the leads' groups — People (recent people), Agents & skills (skills), Pages.
-    expect(buildMenu('/', 'all', '', MAIN, sources).tabs).toEqual(['all', 'people', 'agents_skills', 'pages'])
-    // An action found: its Work group, nothing else.
+  it('keeps a fixed tab strip: every group the trigger offers, typed or not, found or not', () => {
+    const FULL = ['all', 'people', 'work', 'docs', 'meetings', 'mail', 'chats', 'crm', 'outreach', 'files', 'agents_skills', 'studio', 'pages']
+    // Nothing typed: the whole strip is there from the first keystroke.
+    const bare = buildMenu('/', 'all', '', MAIN, sources)
+    expect(bare.tabs).toEqual(FULL)
+    // No counts before anything is typed: a tab's rows are only read once it is picked.
+    expect(bare.counts).toBeUndefined()
+    // Typed: the same strip, each tab with how many rows its kinds found (0: dimmed, never removed).
     const typed = buildMenu('/', 'all', 'pricing', MAIN, { ...sources, records: { action: [action('a1', 'Pricing', 'GEN-1', 1)], capture: [] } })
-    expect(typed.tabs).toEqual(['all', 'work'])
-    // The tab picked stays, whatever it holds.
-    expect(buildMenu('/', 'docs', 'pricing', MAIN, { ...sources, records: {} }).tabs).toEqual(['all', 'docs'])
+    expect(typed.tabs).toEqual(FULL)
+    expect(typed.counts?.work).toBe(1)
+    expect(typed.counts?.docs).toBe(0)
+    expect(typed.counts?.crm).toBe(0)
+    // `@` offers what a message can carry: no Pages tab, the rest fixed too.
+    expect(buildMenu('@', 'all', '', MAIN, sources).tabs).toEqual(FULL.filter((t) => t !== 'pages'))
+  })
+
+  it('`@` with nothing typed lists the records touched last, as rows it can mention, then the people', () => {
+    const at = (iso: string) => ({ at: iso }) as FeedEntry['last']
+    const recent: FeedEntry[] = [
+      { type: 'document', id: 'd1', label: 'Harbor launch plan', context: null, last: at('2026-11-20T10:00:00Z'), count: 1 },
+      { type: 'contact', id: 'c9', label: 'Sam Ortiz', context: null, last: at('2026-11-20T09:00:00Z'), count: 1 },
+      { type: 'team_chat_message', id: 'm1', label: 'hello', context: '#general', last: at('2026-11-20T08:00:00Z'), count: 1 },
+      { type: 'action', id: 'a1', label: 'Pricing page', context: null, last: at('2026-11-20T07:00:00Z'), count: 1 },
+    ]
+    const menu = buildMenu('@', 'all', '', MAIN, { ...sources, recent })
+    const section = menu.sections.find((x) => x.key === 'recent')!
+    // A person is the People section's; a message is no row at all.
+    expect(section.items.map((i) => (i.kind === 'record' && 'id' in i.row ? `${i.row.kind}:${i.row.id}` : ''))).toEqual(['document:d1', 'action:a1'])
+    expect(verbFor('@', section.items[0])).toBe('mention')
+    expect(menu.sections[0].key).toBe('recent')
+    // A composer that takes no documents is offered none of them.
+    const narrow = buildMenu('@', 'all', '', RUN, { ...sources, recent })
+    expect(narrow.sections.find((x) => x.key === 'recent')).toBeUndefined()
+    // Typed, the recents give way to what is found.
+    expect(buildMenu('@', 'all', 'pri', MAIN, { ...sources, recent }).sections.find((x) => x.key === 'recent')).toBeUndefined()
+    expect(recentMentionRows(recent, MAIN)).toHaveLength(2)
+  })
+
+  it('a tab picked with nothing typed asks for its own kinds only', () => {
+    const offered = offeredKinds('@', MAIN)
+    expect(serverSearch('@', 'docs', '', offered)).toEqual({ kinds: ['document'], limit: 25 })
+    expect(serverSearch('@', 'work', '', offered)).toEqual({ kinds: ['action', 'project', 'initiative'], limit: 25 })
+    // A bare `@` on All still reads only the recent people (the recents come from the feed).
+    expect(serverSearch('@', 'all', '', offered)).toEqual({ kinds: ['contact'], limit: 8 })
   })
 
   it('`/` and `@` offer the same things, less what `@` can’t attach (pages, agents)', () => {
@@ -308,11 +347,13 @@ describe('grouped tabs', () => {
     expect(menu.sections.find((s) => s.key === 'actions')!.items).toHaveLength(9)
   })
 
-  it('shows a group tab only when one of its kinds has a hit', () => {
+  it('keeps every group tab, and counts what each found', () => {
     const menu = buildMenu('/', 'all', 'hold', MAIN, { ...base, records: { decision: [decision('d1', 'Hold the price', 0.7)] } })
-    // A decision lives in the Meetings group; CRM found nothing.
+    // A decision lives in the Meetings group; CRM found nothing and stays, at 0.
     expect(menu.tabs).toContain('meetings')
-    expect(menu.tabs).not.toContain('crm')
+    expect(menu.tabs).toContain('crm')
+    expect(menu.counts?.meetings).toBe(1)
+    expect(menu.counts?.crm).toBe(0)
   })
 })
 

@@ -256,6 +256,8 @@ export function CommandMenu({
   const recordActions = useMemo(() => (palette ? recordActionsFor(front) : null), [palette, front])
   // The palette's first view: what's waiting on the person, and what they touched last.
   const feed = usePaletteFeed(palette && open)
+  // `@`'s first view (no host list of its own): the records the person touched last, one read.
+  const atRecent = usePaletteFeed(!palette && open && activeTrigger === '@' && !hostOptions, 'recent')
   // The tabs and sections in the workspace's words ("Jobs", "Customers" in a service business).
   const edition = useWorkspaceEdition()
   const mentionKey = onMentionRecord ? mentionKinds.join(',') : ''
@@ -298,7 +300,7 @@ export function CommandMenu({
   usePrefetchMenuSearch(open || palette ? null : firstSlash)
   usePrefetchMenuSearch(open || palette || mentionList ? null : firstAt)
 
-  const { sections, tabs } = useMemo(
+  const { sections, tabs, counts } = useMemo(
     () =>
       hostOptions
         ? mentionOptionsMenu(
@@ -315,9 +317,9 @@ export function CommandMenu({
             edition,
             recordActions,
             inbox: palette ? feed.inbox : null,
-            recent: palette ? feed.recent : null,
+            recent: palette ? feed.recent : atRecent.recent,
           }),
-    [hostOptions, hostOffer, hostSearches, activeTrigger, currentTab, query, offer, offeredPages, skills, found.records, edition, recordActions, palette, feed],
+    [hostOptions, hostOffer, hostSearches, activeTrigger, currentTab, query, offer, offeredPages, skills, found.records, edition, recordActions, palette, feed, atRecent],
   )
   const items = useMemo(() => sections.flatMap((s) => s.items), [sections])
 
@@ -471,6 +473,7 @@ export function CommandMenu({
   const body = (
     <MenuBody
       tabs={tabs}
+      counts={counts}
       tab={currentTab}
       onTab={setTab}
       sections={sections}
@@ -713,6 +716,7 @@ function Entrance({
 
 function MenuBody({
   tabs,
+  counts,
   tab,
   onTab,
   sections,
@@ -729,6 +733,8 @@ function MenuBody({
   mentionWord,
 }: {
   tabs: readonly MenuTab[]
+  /** Typed: the rows each tab's kinds found (0: its tab is dimmed). */
+  counts?: Partial<Record<MenuTab, number>>
   tab: MenuTab
   onTab: (tab: MenuTab) => void
   sections: MenuSection[]
@@ -776,7 +782,10 @@ function MenuBody({
               className={cn(
                 'shrink-0 rounded-full px-2.5 py-1 text-xs font-medium transition-colors',
                 t === tab ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                // Typed, and none of its kinds matched: still there, dimmed.
+                t !== tab && t !== 'all' && counts?.[t] === 0 && 'opacity-40',
               )}
+              data-menu-tab-empty={t !== 'all' && counts?.[t] === 0 ? '' : undefined}
             >
               {menuTabLabel(t, edition)}
             </button>
@@ -795,10 +804,12 @@ function MenuBody({
             {loading
               ? 'Searching…'
               : q
-                ? `Nothing matches “${q}”`
+                ? tab === 'all'
+                  ? `Nothing matches “${q}”`
+                  : `No ${menuTabLabel(tab, edition).toLowerCase()} match “${q}”`
                 : tab === 'all'
                   ? 'Type to search everything'
-                  : `No ${menuTabLabel(tab, edition).toLowerCase()} yet`}
+                  : `No recent ${menuTabLabel(tab, edition).toLowerCase()}`}
           </div>
         ) : (
           sections.map((section) => (
