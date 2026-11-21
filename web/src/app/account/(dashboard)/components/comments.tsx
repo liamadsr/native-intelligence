@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { toast } from 'sonner'
 import { useEntityListSync } from '@/hooks/use-entity-sync'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
@@ -64,6 +65,8 @@ interface CommentsProps {
   currentMemberId?: string | null
 }
 
+/** A comment that didn't post: its words stay in the box. */
+const COMMENT_NOT_POSTED = 'Your comment wasn’t posted. Try again.'
 const NO_NOTES: never[] = []
 const NO_FILES: never[] = []
 const noop = () => {}
@@ -417,21 +420,30 @@ export function Comments({
     if (mentions.length) payload.mentions = mentions
     if (records.length) payload.records = records
 
-    const res = await fetch(`/api/account/${routeBase}/${commentableId}/comments`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
+    // A comment that doesn't post says so and keeps its words (it used to do
+    // nothing at all, and a dropped connection left every later send ignored).
+    try {
+      const res = await fetch(`/api/account/${routeBase}/${commentableId}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
 
-    if (res.ok) {
-      setBody('')
-      setPicked([])
-      setPickedRecords([])
-      setReplyingTo(null)
-      await fetchComments()
-      if (payload.parent_id) setRepliesVersion((v) => v + 1)
+      if (res.ok) {
+        setBody('')
+        setPicked([])
+        setPickedRecords([])
+        setReplyingTo(null)
+        await fetchComments()
+        if (payload.parent_id) setRepliesVersion((v) => v + 1)
+      } else {
+        toast.error(COMMENT_NOT_POSTED)
+      }
+    } catch {
+      toast.error(COMMENT_NOT_POSTED)
+    } finally {
+      submittingRef.current = false
     }
-    submittingRef.current = false
   }
 
   const handleEdit = async () => {
@@ -446,19 +458,21 @@ export function Comments({
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ body: text, mentions, records }),
-    })
+    }).catch(() => null)
 
-    if (res.ok) {
-      const data = await res.json()
-      setComments((prev) =>
-        prev.map((c) => (c.id === editing.id ? { ...c, ...data.comment } : c)),
-      )
-      if (editing.parent_id) setRepliesVersion((v) => v + 1)
-      setEditing(null)
-      setEditBody('')
-      setEditPicked([])
-      setEditPickedRecords([])
+    if (!res?.ok) {
+      toast.error('Your edit wasn’t saved. Try again.')
+      return
     }
+    const data = await res.json()
+    setComments((prev) =>
+      prev.map((c) => (c.id === editing.id ? { ...c, ...data.comment } : c)),
+    )
+    if (editing.parent_id) setRepliesVersion((v) => v + 1)
+    setEditing(null)
+    setEditBody('')
+    setEditPicked([])
+    setEditPickedRecords([])
   }
 
   const handleDelete = async () => {
@@ -466,17 +480,19 @@ export function Comments({
 
     const res = await fetch(`/api/account/comments/${deleting.id}`, {
       method: 'DELETE',
-    })
+    }).catch(() => null)
 
-    if (res.ok) {
-      setComments((prev) => prev.filter((c) => c.id !== deleting.id))
-      if (deleting.parent_id) {
-        // A reply: its parent's count and loaded replies both change.
-        setRepliesVersion((v) => v + 1)
-        void fetchComments()
-      }
-      setDeleting(null)
+    if (!res?.ok) {
+      toast.error('The comment wasn’t deleted. Try again.')
+      return
     }
+    setComments((prev) => prev.filter((c) => c.id !== deleting.id))
+    if (deleting.parent_id) {
+      // A reply: its parent's count and loaded replies both change.
+      setRepliesVersion((v) => v + 1)
+      void fetchComments()
+    }
+    setDeleting(null)
   }
 
   // The box is memoized: hand it one stable send that reads the latest draft.

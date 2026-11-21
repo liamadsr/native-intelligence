@@ -7,6 +7,7 @@ import { closedCaptureFinishEvent } from '@/lib/team-calls/notes-store'
 import { getServiceClient } from '@/lib/admin'
 import { loadPrecallBrief } from '@/lib/live-agent/precall-brief'
 import { inngest } from '@/lib/inngest/client'
+import { syncDescriptionMentions } from '@/lib/entity-links/description-mentions'
 import {
   deriveSeriesIdentity,
   parseGoogleSeriesFromInstanceId,
@@ -293,6 +294,21 @@ export async function PATCH(
   }
   if (body.user_notes !== undefined) updates.user_notes = body.user_notes
   if (body.ai_summary !== undefined) updates.ai_summary = body.ai_summary
+  // The notes' `@` chips (the capture page's editor, as a description's): what
+  // the text named before this save, so only what it no longer names is taken
+  // back, and who may open the capture, so a private one tells no teammate.
+  // Read before the write; only when the notes are what this save changes.
+  const mentionsBefore =
+    typeof body.ai_summary === 'string'
+      ? (
+          await supabase
+            .from('captures')
+            .select('ai_summary, visibility, title')
+            .eq('id', id)
+            .eq('workspace_id', workspaceId)
+            .maybeSingle()
+        ).data as { ai_summary?: string | null; visibility?: string | null; title?: string | null } | null
+      : null
   if (body.is_pinned !== undefined) updates.is_pinned = body.is_pinned
   if (body.tags !== undefined) updates.tags = body.tags
   if (body.status !== undefined) updates.status = body.status
@@ -462,6 +478,21 @@ export async function PATCH(
   }
 
   const row = data as unknown as Record<string, unknown>
+  // The notes' `@` chips become `mentions` edges, and a teammate newly
+  // mentioned is told, unless the capture is private (fail-soft: never fails
+  // the save; nothing at all is read or written when neither text names anyone).
+  if (typeof body.ai_summary === 'string') {
+    await syncDescriptionMentions(supabase, {
+      workspaceId,
+      source: { type: 'capture', id },
+      markdown: body.ai_summary,
+      previousMarkdown: mentionsBefore?.ai_summary ?? null,
+      userId: user.id,
+      title: (typeof body.title === 'string' ? body.title : mentionsBefore?.title) ?? null,
+      // Private: only its creator can open it, and they are the one writing.
+      ...(mentionsBefore?.visibility === 'private' ? { gate: { visibility: 'private', createdBy: null } } : {}),
+    })
+  }
   // A person ended a call's capture: while its notes are on, they go off for the call (as the switch
   // would turn them off), so the call never says notes are on while nothing is heard; and the
   // capture is finished now (ended, its people left, its end-of-meeting pass), whether or not notes
