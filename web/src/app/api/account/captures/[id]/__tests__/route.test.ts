@@ -38,6 +38,12 @@ const hoisted = vi.hoisted(() => ({
   loadPrecallBrief: vi.fn(),
   stopNotes: vi.fn(async () => true),
   ejections: vi.fn(async () => undefined),
+  syncMentions: vi.fn(async () => undefined),
+}))
+
+// The notes' `@` chips are recorded by the description-mentions sync (its own tests cover the edges).
+vi.mock('@/lib/entity-links/description-mentions', () => ({
+  syncDescriptionMentions: (...args: unknown[]) => hoisted.syncMentions(...(args as [])),
 }))
 
 // A call's capture ended by hand turns the call's notes off (src/lib/team-calls/fed-notes.ts).
@@ -650,6 +656,55 @@ describe('PATCH /api/account/captures/[id]', () => {
 // fields this PATCH wrote. Verified consumers either ignore the body or merge
 // it partially (mergeCaptureResponse spreads over prev state), so absent keys
 // leave existing client state untouched.
+describe('PATCH /api/account/captures/[id]: @ mentions in the notes', () => {
+  const SAM = '[@Sam Ortiz](mention://contact/c0000000-0000-4000-8000-00000000005a)'
+  const authWithRow = (row: CaptureRowOverrides) => ({ ...happyAuth(), supabase: makeFakeSupabase(null, row) })
+
+  beforeEach(() => {
+    hoisted.syncMentions.mockClear()
+    hoisted.updateSpy.mockClear()
+    hoisted.inngestSendSpy.mockReset()
+  })
+
+  it('a notes save records its mentions against the text it replaces, as the capture, by the editor', async () => {
+    hoisted.requireWorkspace.mockResolvedValue(authWithRow({ ai_summary: 'Old notes', visibility: 'workspace', title: 'Weekly sync' }))
+    const res = await PATCH(patchReq({ ai_summary: `Follow up with ${SAM}` }), { params: Promise.resolve({ id: CAPTURE_ID }) })
+    expect(res.status).toBe(200)
+    expect(hoisted.syncMentions).toHaveBeenCalledTimes(1)
+    const [, input] = hoisted.syncMentions.mock.calls[0] as unknown as [unknown, Record<string, unknown>]
+    expect(input).toEqual({
+      workspaceId: WORKSPACE_ID,
+      source: { type: 'capture', id: CAPTURE_ID },
+      markdown: `Follow up with ${SAM}`,
+      previousMarkdown: 'Old notes',
+      userId: 'user-1',
+      title: 'Weekly sync',
+    })
+  })
+
+  it('a private capture tells no teammate (the gate), though its mentions are still recorded', async () => {
+    hoisted.requireWorkspace.mockResolvedValue(authWithRow({ ai_summary: null, visibility: 'private', title: 'My notes' }))
+    await PATCH(patchReq({ ai_summary: `cc ${SAM}` }), { params: Promise.resolve({ id: CAPTURE_ID }) })
+    const [, input] = hoisted.syncMentions.mock.calls[0] as unknown as [unknown, Record<string, unknown>]
+    expect(input.gate).toEqual({ visibility: 'private', createdBy: null })
+    expect(input.previousMarkdown).toBeNull()
+  })
+
+  it('a save that leaves the notes alone records nothing; a failed save records nothing', async () => {
+    hoisted.requireWorkspace.mockResolvedValue(authWithRow({ visibility: 'workspace' }))
+    await PATCH(patchReq({ title: 'Renamed' }), { params: Promise.resolve({ id: CAPTURE_ID }) })
+    expect(hoisted.syncMentions).not.toHaveBeenCalled()
+
+    const failing = makeFakeSupabase(null, { visibility: 'workspace' }) as unknown as { from: (t: string) => Record<string, unknown> }
+    const captures = failing.from('captures')
+    captures.single = async () => ({ data: null, error: { message: 'boom' } })
+    hoisted.requireWorkspace.mockResolvedValue({ ...happyAuth(), supabase: failing })
+    const res = await PATCH(patchReq({ ai_summary: `cc ${SAM}` }), { params: Promise.resolve({ id: CAPTURE_ID }) })
+    expect(res.status).toBe(500)
+    expect(hoisted.syncMentions).not.toHaveBeenCalled()
+  })
+})
+
 describe('PATCH /api/account/captures/[id] — slim response shape', () => {
   beforeEach(() => {
     hoisted.updateSpy.mockClear()

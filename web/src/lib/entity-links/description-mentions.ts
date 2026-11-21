@@ -1,7 +1,8 @@
 /**
  * `@` MENTIONS IN A RECORD'S DESCRIPTION OR NOTES (docs/plans/mentions-everywhere.md):
  * the NoteEditor fields — an action's, a project's and an initiative's
- * description, a contact's notes — save as markdown holding the same chips a
+ * description, a contact's notes, a capture's notes (its `ai_summary`, the
+ * capture page's editor) — save as markdown holding the same chips a
  * document does (`[@Maya Chen](mention://contact/<id>)`,
  * src/lib/documents/mention-markdown.ts). On save, this makes the record's
  * outbound `mentions` edges match what its text names now, through the shared
@@ -35,6 +36,12 @@ export interface SyncDescriptionMentionsInput {
   memberId?: string | null
   /** How the record is named in the teammate's notification (its title); absent falls back to "a task"/"a note"/… */
   title?: string | null
+  /**
+   * For a record only some teammates can open (a private capture): a teammate
+   * who is not `createdBy` (a member id) is not told. The edges are written
+   * either way; they are fenced for each reader like any other.
+   */
+  gate?: { visibility: string | null; createdBy: string | null }
 }
 
 /** Make `source`'s mention edges match its description/notes now, and tell a newly-mentioned teammate. Never throws. */
@@ -78,6 +85,7 @@ export async function syncDescriptionMentions(supabase: SupabaseClient, input: S
         authorMemberId: memberId,
         target: { type: input.source.type, id: input.source.id, title: input.title ?? null },
         contactIds: people,
+        ...(input.gate ? { gate: input.gate } : {}),
       })
     }
   } catch (err) {

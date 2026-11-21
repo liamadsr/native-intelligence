@@ -85,4 +85,24 @@ describe('syncDescriptionMentions', () => {
     await syncDescriptionMentions(db, { workspaceId: WS, source: { type: 'action', id: ACTION }, markdown: 'nothing now', previousMarkdown: before, userId: ANA_USER, memberId: ANA })
     expect(edges()).toEqual([])
   })
+
+  it('a capture’s notes: a private capture records the mention but tells no teammate; a shared one tells them', async () => {
+    const CAPTURE = 'f0000000-0000-4000-8000-000000000007'
+    tables.captures = [{ id: CAPTURE, workspace_id: WS, user_id: ANA_USER, title: 'Weekly sync', visibility: 'private' }]
+    const db = memoryDb(tables)
+    const body = `Follow up with ${mentionMarkdown({ type: 'contact', id: SAM_CONTACT, label: 'Sam Ortiz' })}`
+    const captureEdges = () => tables.entity_link.filter((e) => e.source_id === CAPTURE && e.relation === 'mentions').map((e) => `${e.target_type}:${e.target_id}`)
+
+    // Private: only its creator can open it, so the mention is recorded and no one is told.
+    await syncDescriptionMentions(db, { workspaceId: WS, source: { type: 'capture', id: CAPTURE }, markdown: body, previousMarkdown: '', userId: ANA_USER, memberId: ANA, title: 'Weekly sync', gate: { visibility: 'private', createdBy: null } })
+    expect(captureEdges()).toEqual([`contact:${SAM_CONTACT}`])
+    expect(hoisted.notify).not.toHaveBeenCalled()
+
+    // Shared with the workspace (no gate): a teammate newly mentioned is told, naming the capture.
+    tables.entity_link = []
+    await syncDescriptionMentions(memoryDb(tables), { workspaceId: WS, source: { type: 'capture', id: CAPTURE }, markdown: body, previousMarkdown: '', userId: ANA_USER, memberId: ANA, title: 'Weekly sync' })
+    expect(hoisted.notify.mock.calls.map((c) => c[0])).toEqual([
+      { workspaceId: WS, recipientId: SAM, type: 'mentioned', title: 'Ana Ruiz mentioned you in Weekly sync', actorId: ANA, targetType: 'capture', targetId: CAPTURE },
+    ])
+  })
 })
