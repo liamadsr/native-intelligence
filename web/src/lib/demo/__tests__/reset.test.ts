@@ -19,9 +19,10 @@ vi.mock('../seed', () => ({
   seedDemoContent: vi.fn(async () => ({ projectId: 'p1', contacts: new Map() })),
 }))
 
-import { DemoResetRefused, NEVER_WIPED, WIPE, assertDemoWorkspace, resetDemoWorkspace, wipeVisitorContent } from '../reset'
+import { COMMENTABLE, DemoResetRefused, NEVER_WIPED, WIPE, assertDemoWorkspace, resetDemoWorkspace, wipeVisitorContent } from '../reset'
 import { loadSeedContext, seedDemoContent } from '../seed'
 import { ensureMemberContact } from '@/lib/crm/contacts'
+import { createDeal, ensureDefaultPipeline, findDeals } from '@/lib/crm/deals'
 
 const DEMO = 'ws-demo'
 const REAL = 'ws-real'
@@ -30,10 +31,15 @@ interface Call {
   table: string
   op: 'select' | 'delete' | 'update' | 'insert'
   filters: Array<[string, string, unknown]>
+  /** Set on a paged read (`.range(from, to)`): the reset's reads of a parent's ids. */
+  range?: [number, number]
 }
 
+/** The ids a parent table holds in the demo workspace: `<table>-0` … (none in any other workspace). */
+const parentIds = (table: string, n: number) => Array.from({ length: n }, (_, i) => `${table}-${i}`)
+
 /** A service client that records every statement and answers from `tables`. */
-function fakeService(opts: { flagged?: string[]; flagError?: string; refuse?: Record<string, string>; members?: Array<{ id: string; user_id: string; role: string }>; liveCalls?: number; liveError?: string } = {}) {
+function fakeService(opts: { flagged?: string[]; flagError?: string; refuse?: Record<string, string>; refuseRead?: Record<string, string>; members?: Array<{ id: string; user_id: string; role: string }>; liveCalls?: number; liveError?: string; parents?: number } = {}) {
   const calls: Call[] = []
   const flagged = opts.flagged ?? [DEMO]
   const members = opts.members ?? [
@@ -50,6 +56,11 @@ function fakeService(opts: { flagged?: string[]; flagError?: string; refuse?: Re
         return refused ? { data: null, error: { message: refused }, count: null } : { data: null, error: null, count: 2 }
       }
       if (call.op !== 'select') return { data: null, error: null, count: null }
+      if (call.range) {
+        if (opts.refuseRead?.[table]) return { data: null, error: { message: opts.refuseRead[table] } }
+        const all = eqValue('workspace_id') === DEMO ? parentIds(table, opts.parents ?? 2) : []
+        return { data: all.slice(call.range[0], call.range[1] + 1).map((id) => ({ id })), error: null }
+      }
       if (table === 'demo_workspace') {
         if (opts.flagError) return { data: null, error: { message: opts.flagError } }
         const id = eqValue('workspace_id')
@@ -68,6 +79,8 @@ function fakeService(opts: { flagged?: string[]; flagError?: string; refuse?: Re
       insert: () => ((call.op = 'insert'), q),
       eq: (c: string, v: unknown) => (call.filters.push(['eq', c, v]), q),
       is: (c: string, v: unknown) => (call.filters.push(['is', c, v]), q),
+      in: (c: string, v: unknown) => (call.filters.push(['in', c, v]), q),
+      range: (a: number, b: number) => ((call.range = [a, b]), q),
       order: () => q,
       limit: () => q,
       maybeSingle: async () => answer(),
@@ -117,13 +130,78 @@ describe('resetDemoWorkspace', () => {
     const { service, calls } = fakeService()
     const report = await resetDemoWorkspace(service, DEMO)
     const deletes = calls.filter((c) => c.op === 'delete')
-    expect(deletes.length).toBe(WIPE.length)
+    // One delete a step; a comment's step makes one per kind of thing it can be on.
+    expect(deletes.length).toBe(WIPE.length - 1 + Object.keys(COMMENTABLE).length)
     for (const d of deletes) {
-      expect(d.filters).toContainEqual(['eq', 'workspace_id', DEMO])
       expect(NEVER_WIPED).not.toContain(d.table)
+      const step = WIPE.find((s) => s.table === d.table)!
+      if (step.through) {
+        expect(d.filters).toEqual([['in', step.through.column, parentIds(step.through.parent, 2)]])
+      } else if (step.commentable) {
+        const type = d.filters.find(([op, c]) => op === 'eq' && c === 'commentable_type')?.[2] as string
+        expect(d.filters).toEqual([['in', 'commentable_id', parentIds(COMMENTABLE[type], 2)], ['eq', 'commentable_type', type]])
+      } else {
+        expect(d.filters).toContainEqual(['eq', step.column ?? 'workspace_id', DEMO])
+      }
     }
+    // Every id list a delete names was read from its parent, fenced on the demo workspace.
+    const reads = calls.filter((c) => c.range)
+    expect(reads.length).toBeGreaterThan(0)
+    for (const r of reads) expect(r.filters).toContainEqual(['eq', 'workspace_id', DEMO])
     expect(report).toMatchObject({ workspaceId: DEMO, seeded: true, seedError: null, members: 2, failed: {}, skipped: null })
     expect(report.cleared.chat_conversations).toBe(2)
+    expect(report.cleared.comment).toBe(2 * Object.keys(COMMENTABLE).length)
+  })
+
+  it('clears what has no workspace column of its own through its parent, and profile facts by where they were learned', async () => {
+    const { service, calls } = fakeService()
+    await resetDemoWorkspace(service, DEMO)
+    const del = (t: string) => calls.filter((c) => c.table === t && c.op === 'delete')
+    expect(del('cycle')[0].filters).toEqual([['in', 'team_id', parentIds('team', 2)]])
+    expect(del('decision')[0].filters).toEqual([['in', 'capture_id', parentIds('captures', 2)]])
+    expect(del('milestone')[0].filters).toEqual([['in', 'project_id', parentIds('projects', 2)]])
+    expect(del('flow_run')[0].filters).toEqual([['in', 'flow_id', parentIds('flow', 2)]])
+    expect(del('profile_fact')[0].filters).toEqual([['eq', 'source_workspace_id', DEMO]])
+    expect(del('comment').map((c) => c.filters[1][2]).sort()).toEqual(Object.keys(COMMENTABLE).sort())
+    // Teams are only read, never written.
+    expect(calls.filter((c) => c.table === 'team' && c.op !== 'select')).toEqual([])
+    expect(del('sms_message')).toEqual([])
+  })
+
+  it('pages through a parent with more than a thousand rows and deletes a hundred ids at a time', async () => {
+    const { service, calls } = fakeService({ parents: 1050 })
+    await resetDemoWorkspace(service, DEMO)
+    const teamReads = calls.filter((c) => c.table === 'team' && c.range)
+    expect(teamReads.map((c) => c.range)).toEqual([[0, 999], [1000, 1999]])
+    const cycleDeletes = calls.filter((c) => c.table === 'cycle' && c.op === 'delete')
+    expect(cycleDeletes.length).toBe(11)
+    const named = cycleDeletes.flatMap((c) => c.filters[0][2] as string[])
+    expect(cycleDeletes.every((c) => (c.filters[0][2] as string[]).length <= 100)).toBe(true)
+    expect(named).toEqual(parentIds('team', 1050))
+  })
+
+  it('a parent that cannot be read is that step failing: reported, tried once more, the rest goes on', async () => {
+    const { service, calls } = fakeService({ refuseRead: { team: 'timeout' } })
+    const report = await resetDemoWorkspace(service, DEMO)
+    expect(report.failed).toEqual({ cycle: 'team: timeout' })
+    expect(calls.filter((c) => c.table === 'cycle' && c.op === 'delete')).toEqual([])
+    expect(calls.filter((c) => c.table === 'team' && c.range).length).toBe(2)
+    expect(report.seeded).toBe(true)
+  })
+
+  it('seeds the deals as the owner: every pipeline read names them (a service client has no signed-in user)', async () => {
+    const pipelines = [{ id: 'pipe-1', name: 'Sales', is_default: true }]
+    vi.mocked(ensureDefaultPipeline).mockResolvedValueOnce('pipe-1')
+    vi.mocked(findDeals).mockResolvedValueOnce({ deals: [], pipelines } as never)
+    const report = await resetDemoWorkspace(fakeService().service, DEMO)
+    expect(report).toMatchObject({ seeded: true, seedError: null })
+    expect(ensureDefaultPipeline).toHaveBeenCalledWith(expect.anything(), DEMO, 'u-owner')
+    expect(findDeals).toHaveBeenCalledWith(expect.anything(), DEMO, { limit: 100 }, { viewer: 'u-owner' })
+    expect(vi.mocked(createDeal).mock.calls.length).toBeGreaterThan(0)
+    for (const c of vi.mocked(createDeal).mock.calls) {
+      expect(c[3]).toMatchObject({ userId: 'u-owner' })
+      expect(c[4]).toEqual({ viewer: 'u-owner', pipelines })
+    }
   })
 
   it('keeps the members: no delete or update on member, their contact cards, or the default pipeline', async () => {
