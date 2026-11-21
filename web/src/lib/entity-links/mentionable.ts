@@ -47,6 +47,9 @@ export const MENTIONABLE_TYPES = [
   // Outreach (mentions everywhere): sequences and prospect lists are every member's.
   'sequence',
   'prospect_list',
+  // Teams and knowledge packages (673): a private team to its members, a package by its own rule (visibility, shares).
+  'team',
+  'knowledge_package',
   // Owner-only (decision 1): mail and agent chats, fenced on user_id.
   'email_thread',
   'conversation',

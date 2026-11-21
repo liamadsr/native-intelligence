@@ -24,9 +24,9 @@ describe('toMentionRecord', () => {
     expect(toMentionRecord({ kind: 'action', id: 'a1', title: 'Pricing page', identifier: 'GEN-1', status: null, score: 1 })).toEqual({ kind: 'action', id: 'a1', title: 'Pricing page', identifier: 'GEN-1' })
   })
 
-  it('makes a record of a sequence too, never of a team (mentions everywhere)', () => {
+  it('makes a record of a sequence and a team too (mentions everywhere)', () => {
     expect(toMentionRecord(named('sequence', 's1', 'Welcome'))).toEqual({ kind: 'sequence', id: 's1', title: 'Welcome' })
-    expect(toMentionRecord(named('team', 't1', 'General'))).toBeNull()
+    expect(toMentionRecord(named('team', 't1', 'General'))).toEqual({ kind: 'team', id: 't1', title: 'General' })
   })
 
   it('is nothing for what no mention can store, or what has a chip of its own', () => {
@@ -35,8 +35,8 @@ describe('toMentionRecord', () => {
   })
 
   it('covers the kinds the composer lists', () => {
-    expect(COMPOSER_RECORD_KINDS).toEqual(['action', 'document', 'project', 'initiative', 'deal', 'flow', 'attachment', 'calendar_event', 'studio_video', 'studio_project', 'campaign', 'sequence', 'prospect_list', 'data_table', 'data_row', 'team_chat_channel', 'decision', 'email_thread', 'conversation'])
-    expect([...UNKEYED_MENTION_TYPES].sort()).toEqual(['campaign', 'conversation', 'data_row', 'data_table', 'decision', 'email_thread', 'prospect_list', 'sequence', 'studio_project', 'team_chat_channel'])
+    expect(COMPOSER_RECORD_KINDS).toEqual(['action', 'document', 'project', 'initiative', 'deal', 'flow', 'attachment', 'calendar_event', 'studio_video', 'studio_project', 'campaign', 'sequence', 'prospect_list', 'data_table', 'data_row', 'team_chat_channel', 'decision', 'team', 'package', 'email_thread', 'conversation'])
+    expect([...UNKEYED_MENTION_TYPES].sort()).toEqual(['campaign', 'conversation', 'data_row', 'data_table', 'decision', 'email_thread', 'knowledge_package', 'prospect_list', 'sequence', 'studio_project', 'team', 'team_chat_channel'])
   })
 })
 

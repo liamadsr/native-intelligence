@@ -44,7 +44,7 @@ import { canonicalEntityType, type LinkableEntityType } from './entity-registry'
  * guest's, and their tables have no member policies at all, so the same
  * fence shape holds them: see studioFence below.
  */
-export const PRIVATE_GRAPH_KINDS = ['calendar_event', 'team_chat_channel', 'team_chat_message', 'decision', 'data_table', 'data_row', 'studio_video', 'studio_project'] as const
+export const PRIVATE_GRAPH_KINDS = ['calendar_event', 'team_chat_channel', 'team_chat_message', 'decision', 'data_table', 'data_row', 'studio_video', 'studio_project', 'team', 'knowledge_package'] as const
 export type PrivateGraphKind = (typeof PRIVATE_GRAPH_KINDS)[number]
 
 export function isPrivateGraphKind(type: string): type is PrivateGraphKind {
@@ -334,6 +334,77 @@ function studioFence(table: 'studio_video' | 'studio_project'): Fence {
   }
 }
 
+/**
+ * A team (673): a member of its workspace reads it, and only its own members
+ * when it is private (the team table's "Users can view accessible teams";
+ * 673's team_package_entity_visible_to for the graph's edges).
+ */
+const teamFence: Fence = async (supabase, userId, ids, workspaceId) => {
+  const wanted = uniq(ids)
+  if (!userId || wanted.length === 0) return new Set()
+  const rows = await rowsByIds(wanted, (c) => {
+    let q = supabase.from('team').select('id, workspace_id, is_private').in('id', c)
+    if (workspaceId) q = q.eq('workspace_id', workspaceId)
+    return q
+  })
+  if (!rows || rows.length === 0) return new Set()
+  const members = await memberIdsByWorkspace(supabase, userId, rows.map((r) => r.workspace_id as string))
+  if (!members) return new Set()
+  const mine = rows.filter((r) => members.has(r.workspace_id as string))
+  const privateIds = mine.filter((r) => r.is_private === true).map((r) => r.id as string)
+  const joined = new Set<string>()
+  if (privateIds.length) {
+    const memberIds = uniq([...members.values()])
+    const teamRows = await rowsByIds(privateIds, (c) => supabase.from('team_member').select('team_id, member_id').in('team_id', c).in('member_id', memberIds))
+    if (!teamRows) return new Set(mine.filter((r) => r.is_private !== true).map((r) => r.id as string))
+    for (const tm of teamRows) joined.add(tm.team_id as string)
+  }
+  return new Set(mine.filter((r) => r.is_private !== true || joined.has(r.id as string)).map((r) => r.id as string))
+}
+
+/**
+ * A knowledge package (673): package_row_visible_to's rule for an explicit
+ * user. A member of its workspace reads a workspace package, their own, a
+ * team package of a team they are in, and one shared with them or a team of
+ * theirs (knowledge_package_share).
+ */
+const packageFence: Fence = async (supabase, userId, ids, workspaceId) => {
+  const wanted = uniq(ids)
+  if (!userId || wanted.length === 0) return new Set()
+  const rows = await rowsByIds(wanted, (c) => {
+    let q = supabase.from('knowledge_package').select('id, workspace_id, visibility, team_id, created_by').in('id', c)
+    if (workspaceId) q = q.eq('workspace_id', workspaceId)
+    return q
+  })
+  if (!rows || rows.length === 0) return new Set()
+  const members = await memberIdsByWorkspace(supabase, userId, rows.map((r) => r.workspace_id as string))
+  if (!members) return new Set()
+  const mine = rows.filter((r) => members.has(r.workspace_id as string))
+  const open = new Set(mine.filter((r) => r.visibility === 'workspace' || r.created_by === userId).map((r) => r.id as string))
+  const rest = mine.filter((r) => !open.has(r.id as string))
+  if (rest.length === 0) return open
+  const memberIds = uniq([...members.values()])
+  // The teams the person is in, then the shares that reach them (their member row, or one of those teams).
+  const teamRows = await rowsByIds(memberIds, (c) => supabase.from('team_member').select('team_id, member_id').in('member_id', c))
+  if (!teamRows) return open
+  const myTeams = new Set(teamRows.map((t) => t.team_id as string))
+  const shares = await rowsByIds(rest.map((r) => r.id as string), (c) =>
+    supabase.from('knowledge_package_share').select('package_id, shared_with_member_id, shared_with_team_id').in('package_id', c),
+  )
+  if (!shares) return open
+  const mineSet = new Set(memberIds)
+  const shared = new Set(
+    shares
+      .filter((sh) => (typeof sh.shared_with_member_id === 'string' && mineSet.has(sh.shared_with_member_id)) || (typeof sh.shared_with_team_id === 'string' && myTeams.has(sh.shared_with_team_id)))
+      .map((sh) => sh.package_id as string),
+  )
+  for (const r of rest) {
+    const viaTeam = r.visibility === 'team' && typeof r.team_id === 'string' && myTeams.has(r.team_id)
+    if (viaTeam || shared.has(r.id as string)) open.add(r.id as string)
+  }
+  return open
+}
+
 const FENCES: Record<PrivateGraphKind, Fence> = {
   calendar_event: calendarEventFence,
   team_chat_channel: teamChatChannelFence,
@@ -343,6 +414,8 @@ const FENCES: Record<PrivateGraphKind, Fence> = {
   data_row: dataRowFence,
   studio_video: studioFence('studio_video'),
   studio_project: studioFence('studio_project'),
+  team: teamFence,
+  knowledge_package: packageFence,
 }
 
 /**
@@ -406,6 +479,8 @@ export const PRIVATE_KIND_LABEL: Record<PrivateGraphKind, string> = {
   data_row: 'Row (private)',
   studio_video: 'Video (Studio)',
   studio_project: 'Studio project',
+  team: 'Team (private)',
+  knowledge_package: 'Package (private)',
 }
 
 /**
@@ -438,6 +513,11 @@ export const LINK_FENCED_KINDS = [
   // they are private kinds, so hiddenGraphRefs asks studioFence.
   'studio_video',
   'studio_project',
+  // Teams and knowledge packages (673): fenced the same way, by 673's own
+  // restrictive entity_link policies (team_package_entity_visible_to); here
+  // they are private kinds, so hiddenGraphRefs asks teamFence / packageFence.
+  'team',
+  'knowledge_package',
 ] as const satisfies readonly LinkableEntityType[]
 export type LinkFencedKind = (typeof LINK_FENCED_KINDS)[number]
 

@@ -134,13 +134,13 @@ describe('registry self-consistency', () => {
     expect(LINKABLE_ENTITY_TYPES).toContain('campaign')
   })
 
-  it('links the kinds the shared entity layer added, then the tables and the Studio, then outreach, after every older one', () => {
+  it('links the kinds the shared entity layer added, then the tables and the Studio, then teams, outreach and packages, after every older one', () => {
     const added = ['flow', 'calendar_event', 'decision', 'team_chat_channel', 'team_chat_message', 'data_table', 'data_row']
     // The Studio's two (624) came after them.
     const later = ['studio_video', 'studio_project']
-    // Mentions everywhere made sequences and prospect lists graph endpoints
-    // last (they sit later in the registry, so last in the tuple).
-    const newest = ['sequence', 'prospect_list']
+    // Mentions everywhere made teams, sequences, prospect lists and knowledge
+    // packages graph endpoints last (registry order: last in the tuple).
+    const newest = ['team', 'sequence', 'prospect_list', 'knowledge_package']
     expect(LINKABLE_ENTITY_TYPES.slice(-(added.length + later.length + newest.length))).toEqual([...added, ...later, ...newest])
     // None is citable: the claim_source CHECK (264) does not list them.
     for (const id of added) expect(entityDescriptor(id)!.citable, id).toBe(false)

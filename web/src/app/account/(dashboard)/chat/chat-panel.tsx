@@ -16,6 +16,7 @@ import { pagesFor, personalToolsFor, type OfferedPage } from '@/lib/chat-cards/p
 import { isOpenedCardMessage, nextCardNumber, openedCardFromPart, openedCardMessage } from '@/lib/chat-cards/opened-card'
 import { FOLD_CARDS_EVENT, cardForTarget, cardMatches, sameCardPlace, type CardMatch, type OpenCardRequest } from '@/lib/chat-cards/open-card'
 import { menuRowTarget, type MenuSearchRow } from '@/lib/search/menu-search'
+import { openConversation } from '@/lib/chat/open-conversation'
 import { seedCardState } from '@/components/chat-cards/card-storage'
 import { nestedPageOpen } from '../rail/rail-pages'
 import { useIsWorkspaceGuest, useWorkspaceEdition } from '../../workspace-switcher'
@@ -1911,6 +1912,12 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
   // A record from `/` (or ⌘↵ under `@`): its card, here, at once (docs/plans/slash-search.md).
   const handleOpenRecord = useCallback(
     (row: MenuSearchRow) => {
+      // A past agent chat has no card: it opens the read-only viewer (own, or
+      // one shared with the caller by a mention) — docs/plans/mentions-everywhere.md JOB 2.
+      if (row.kind === 'conversation') {
+        openConversation(row.id, row.title)
+        return
+      }
       const card = cardForTarget(menuRowTarget(row))
       if (card) openCardHere({ spec: card.spec, ...(card.seed ? { seed: card.seed } : {}), from: 'menu' })
     },

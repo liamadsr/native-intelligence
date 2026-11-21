@@ -639,7 +639,11 @@ export const ENTITY_REGISTRY = [
     workspaceScoped: { kind: 'column', table: 'team' },
     label: { table: 'team', columns: 'name', render: (r) => str(r.name) },
     realtime: true,
-    linkable: false,
+    // Mentionable (mentions everywhere, 673). A PRIVATE team is its members'
+    // alone: its edges are fenced by 673's restrictive entity_link policies
+    // (team_package_entity_visible_to) and, on a service client, by
+    // entity-fences.ts' teamFence.
+    linkable: true,
     activity: false,
     customFields: false,
     citable: false,
@@ -801,6 +805,22 @@ export const ENTITY_REGISTRY = [
     label: { table: 'eval_run', columns: 'status', render: (r) => str(r.status) },
     realtime: true,
     linkable: false,
+    activity: false,
+    customFields: false,
+    citable: false,
+    sourceable: false,
+  },
+  {
+    // A knowledge package (mentions everywhere, 673): registered so it can be
+    // @-mentioned. Its own rule (visibility, creator, shares:
+    // package_visible_to) fences its edges, as a private team's are.
+    id: 'knowledge_package',
+    table: 'knowledge_package',
+    workspaceScoped: { kind: 'column', table: 'knowledge_package' },
+    label: { table: 'knowledge_package', columns: 'name', render: (r) => str(r.name) },
+    // Not in the realtime publication.
+    realtime: false,
+    linkable: true,
     activity: false,
     customFields: false,
     citable: false,

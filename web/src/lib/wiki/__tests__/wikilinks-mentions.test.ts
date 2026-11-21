@@ -14,6 +14,7 @@ import { DOCUMENT_MENTION_KINDS, parseActionIdentifiers, syncDocumentLinks } fro
 import { mentionMarkdown } from '@/lib/documents/mention-markdown'
 import { MAX_MENTIONED_RECORDS } from '@/lib/entity-links/mentionable'
 import { MENTION_PICKER_KINDS } from '@/lib/search/menu-search'
+import { FINDABLE } from '@/lib/search/findable-registry'
 
 const WS = '11111111-1111-4111-8111-111111111111'
 const ANA_USER = '22222222-2222-4222-8222-aaaaaaaaaaaa'
@@ -84,8 +85,10 @@ describe('syncDocumentLinks', () => {
 
   it('manages every kind the one @ picker finds, and the wikilinked docs and named actions', () => {
     // A deal is chipped as its pipeline's row (Tables, phase 7).
-    for (const kind of [...MENTION_PICKER_KINDS.filter((k) => k !== 'deal'), 'document', 'action', 'data_row']) expect(DOCUMENT_MENTION_KINDS).toContain(kind)
+    // Each as the kind a mention of it stores (a package: `knowledge_package`).
+    for (const kind of [...MENTION_PICKER_KINDS.map((k) => FINDABLE[k].mention), 'document', 'action', 'data_row']) expect(DOCUMENT_MENTION_KINDS).toContain(kind)
     expect(DOCUMENT_MENTION_KINDS).not.toContain('deal')
+    expect(DOCUMENT_MENTION_KINDS).not.toContain('package')
   })
 
   it('links the wikilinked doc and the named action, never another member’s private doc', async () => {

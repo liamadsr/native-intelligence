@@ -177,10 +177,10 @@ export const FINDABLE = {
   data_row: { section: 'rows', label: 'Rows', entity: 'data_row', mention: 'data_row', group: 'crm', order: 180 },
   team_chat_channel: { section: 'channels', label: 'Channels', entity: 'team_chat_channel', mention: 'team_chat_channel', group: 'chats', order: 190 },
   decision: { section: 'decisions', label: 'Decisions', entity: 'decision', mention: 'decision', group: 'meetings', order: 200 },
-  // A private team's edges would need their own fence in the database (not built): found and opened, never mentioned.
-  team: { section: 'teams', label: 'Teams', entity: 'team', mention: null, group: 'agents_skills', order: 210 },
-  // A knowledge package: not a registered entity kind, so it is found and opened but never mentioned (leaving it search-only was the contained choice: making it a graph endpoint would need a private-package edge fence like team's).
-  package: { section: 'packages', label: 'Packages', entity: null, mention: null, group: 'agents_skills', order: 215 },
+  // A private team is found, and mentioned, only by its members (673).
+  team: { section: 'teams', label: 'Teams', entity: 'team', mention: 'team', group: 'agents_skills', order: 210 },
+  // A knowledge package (673): found as RLS lets the person read it, mentioned as the `knowledge_package` it is.
+  package: { section: 'packages', label: 'Packages', entity: 'knowledge_package', mention: 'knowledge_package', group: 'agents_skills', order: 215 },
   // Mail (email_thread) and agent chats (conversation): found and mentionable by their OWNER only (decisions 1); each is its person's alone (fenced on user_id).
   email_thread: { section: 'mail', label: 'Mail', entity: 'email_thread', mention: 'email_thread', group: 'mail', order: 216 },
   conversation: { section: 'chats', label: 'Chats', entity: 'conversation', mention: 'conversation', group: 'chats', order: 217 },
