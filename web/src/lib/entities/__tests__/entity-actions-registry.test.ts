@@ -111,10 +111,11 @@ describe('ENTITY_ACTIONS', () => {
       if (d.share) expect((isMentionableType(id) && d.open !== null) || isLiveShareType(id), `${id} share`).toBe(true)
       if (d.makeTask) expect(isTaskAboutType(id), `${id} makeTask`).toBe(true)
     }
-    // Mail is the one kind a task may be about that no one can @-mention.
-    expect(ids.filter((id) => ENTITY_ACTIONS[id].makeTask && !isMentionableType(id))).toEqual(['email_thread'])
-    expect([...TASK_ABOUT_ONLY_TYPES]).toEqual(['email_thread'])
-    expect(isMentionableType('email_thread')).toBe(false)
+    // Since decision 1 mail is @-mentionable by its owner, so there is no
+    // longer a task-about kind that is not mentionable.
+    expect(ids.filter((id) => ENTITY_ACTIONS[id].makeTask && !isMentionableType(id))).toEqual([])
+    expect([...TASK_ABOUT_ONLY_TYPES]).toEqual([])
+    expect(isMentionableType('email_thread')).toBe(true)
   })
 
   it('a team chat message and an email thread make tasks; mail offers nothing else but Copy ID and its live share', () => {

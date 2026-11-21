@@ -34,6 +34,7 @@
  * The projection and the title are independent best-effort steps: a problem in
  * one must not lose the other.
  */
+import { messageMentionsMetadata, messageMentionsOfMetadata } from '@/lib/chat/message-mentions'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { inngest } from '@/lib/inngest/client'
 import { isBotConversation, type ChatRunTokenClaims } from '@/lib/chat/chat-run-token'
@@ -312,7 +313,9 @@ export function parsePersistEveTurnBody(
  * to, parsed again: parseCardReplyRef), `metadata.replyTo` (the message it
  * replied to and the words quoted, parsed again: parseMessageReplyRef), and
  * the pair `kind: 'reaction'` + `reaction` (a reaction's own turn, parsed
- * again: reactionTurnOfMetadata; one without the other is dropped). Anything
+ * again: reactionTurnOfMetadata; one without the other is dropped), and
+ * `metadata.mentions` (the records its words @-mention, tidied again:
+ * messageMentionsOfMetadata). Anything
  * else it sends there is ignored (never the message itself).
  */
 function userMessageOf(m: NonNullable<PersistEveTurnBody['userMessage']>): NonNullable<PersistEveTurnBody['userMessage']> {
@@ -322,11 +325,14 @@ function userMessageOf(m: NonNullable<PersistEveTurnBody['userMessage']>): NonNu
   const replyCard = parseCardReplyRef(meta?.replyCard)
   const replyTo = parseMessageReplyRef(meta?.replyTo)
   const reaction = reactionTurnOfMetadata(meta)
+  // What it @-mentions, for drawing its chips (message-mentions.ts): tidied, never trusted for access.
+  const mentions = messageMentionsOfMetadata(meta)
   const metadata = {
     ...(okSteer ? { steer } : {}),
     ...(replyCard ? { replyCard } : {}),
     ...(replyTo ? { replyTo } : {}),
     ...(reaction ? { kind: REACTION_TURN_KIND, reaction } : {}),
+    ...messageMentionsMetadata(mentions),
   }
   return { messageId: m.messageId, parts: m.parts, ...(Object.keys(metadata).length > 0 ? { metadata } : {}) }
 }

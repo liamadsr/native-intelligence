@@ -107,6 +107,9 @@ export function createAuthenticatedAPI(
             anchor_suffix: body.anchor_suffix,
             anchor_section: body.anchor_section,
             anchor_occurrence: body.anchor_occurrence,
+            // What `@` picked (records), stored and fenced like any other comment's.
+            ...(body.records ? { records: body.records } : {}),
+            ...(body.mentions ? { mentions: body.mentions } : {}),
           }),
         },
       )

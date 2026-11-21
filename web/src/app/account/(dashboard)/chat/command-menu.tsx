@@ -77,6 +77,7 @@ import {
   menuTabLabel,
   buildMenu,
   cycleTab,
+  groupOf,
   hostRecordOffer,
   isRecordKind,
   menuTakesEnter,
@@ -84,6 +85,7 @@ import {
   offeredKinds,
   searchedKinds,
   serverSearch,
+  tabOffered,
   verbFor,
   type ComposerMentionList,
   type MenuItem,
@@ -268,7 +270,7 @@ export function CommandMenu({
   )
   // `/` lists what opens; `@` what this composer can attach.
   const offered = useMemo(() => offeredKinds(activeTrigger, offer), [activeTrigger, offer])
-  const currentTab = tab === 'all' || offered.includes(tab) ? tab : 'all'
+  const currentTab = tabOffered(tab, offered) ? tab : 'all'
 
   // A host's own list may also find records (team chat: mentionList.records),
   // listed under its options once something is typed.
@@ -807,7 +809,7 @@ function MenuBody({
                   <button
                     type="button"
                     data-menu-see-all={section.key}
-                    onClick={() => onTab(section.key)}
+                    onClick={() => onTab(groupOf(section.key) ?? 'all')}
                     className="rounded px-1 transition-colors hover:text-foreground"
                   >
                     See all{section.totalKnown ? ` ${section.total}` : ''}
@@ -1026,6 +1028,21 @@ function rowText(item: MenuItem): { title: string; detail: string | null; meta: 
       return { title: row.title, detail: null, meta: 'Studio' }
     case 'agent':
       return { title: row.title, detail: row.description, meta: null }
+    case 'campaign':
+    case 'sequence':
+    case 'prospect_list':
+      return { title: row.title, detail: row.status ? statusLabel(row.status) : null, meta: null }
+    case 'data_table':
+    case 'data_row':
+    case 'team_chat_channel':
+    case 'decision':
+    case 'team':
+    case 'package':
+    // An agent chat by its title; mail by its sender, in its folder (no subject is stored).
+    case 'conversation':
+    case 'email_thread':
+      // A row's table, a decision's capture, a channel's team: said as it came.
+      return { title: row.title, detail: row.status, meta: null }
     case 'team_chat_message':
       // The words that matched, then who said it where, and when.
       // A DM's other person wrote it: "Ben Ortiz · DM", never the name twice.

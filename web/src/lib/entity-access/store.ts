@@ -136,6 +136,8 @@ export async function addEntityGrant(
   id: string,
   grantee: { kind: GranteeKind; id: string },
   level: GrantLevel = 'view',
+  /** How it came about: by hand (the Share menu), or by an @-mention of the record (a comment's). */
+  source: Extract<GrantSource, 'manual' | 'mention'> = 'manual',
 ): Promise<AddGrantResult> {
   const column = grantee.kind === 'member' ? 'grantee_member_id' : grantee.kind === 'team' ? 'grantee_team_id' : 'grantee_channel_id'
   const { data, error } = await supabase
@@ -148,7 +150,7 @@ export async function addEntityGrant(
       [column]: grantee.id,
       level,
       granted_by: scope.memberId,
-      source: 'manual',
+      source,
     })
     .select('id')
     .single()

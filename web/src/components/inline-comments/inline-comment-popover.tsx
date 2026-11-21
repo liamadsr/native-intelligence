@@ -19,10 +19,13 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
-import { useInlineComments } from './inline-comment-context'
+import { useInlineComments, type CommentMentionExtras } from './inline-comment-context'
 import { GuestBadge } from './guest-badge'
 import type { UnifiedComment } from './types'
 import { Linkify } from '@/components/ui/linkify'
+import { MentionTextarea } from '@/components/mentions/mention-textarea'
+import { hasMention } from '@/lib/team-chat/compose'
+import type { LabeledMentionRef } from '@/lib/entity-links/mentionable'
 
 function relativeTime(dateStr: string) {
   const diff = Date.now() - new Date(dateStr).getTime()
@@ -143,7 +146,7 @@ function PopoverReplyInput({
   onSubmit,
 }: {
   parentId: string
-  onSubmit: (parentId: string, content: string) => Promise<UnifiedComment | null>
+  onSubmit: (parentId: string, content: string, extras?: CommentMentionExtras) => Promise<UnifiedComment | null>
 }) {
   const { identity } = useInlineComments()
   const isAuthenticated = identity.mode === 'authenticated'
@@ -151,6 +154,8 @@ function PopoverReplyInput({
   const [open, setOpen] = useState(false)
   const [content, setContent] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  // What `@` picked (records): sent with the reply, stored like any other comment's.
+  const [picked, setPicked] = useState<LabeledMentionRef[]>([])
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
@@ -162,9 +167,12 @@ function PopoverReplyInput({
     if (!isAuthenticated) return
 
     setSubmitting(true)
-    const result = await onSubmit(parentId, content.trim())
+    const text = content.trim()
+    const records = picked.filter((r) => hasMention(text, r.label))
+    const result = await onSubmit(parentId, text, records.length ? { records } : undefined)
     if (result) {
       setContent('')
+      setPicked([])
       setOpen(false)
     }
     setSubmitting(false)
@@ -190,12 +198,13 @@ function PopoverReplyInput({
 
   return (
     <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
-      <Textarea
+      <MentionTextarea
         ref={inputRef}
-        placeholder="Write a reply…"
+        placeholder="Write a reply… (@ to mention)"
         value={content}
         onChange={(e) => setContent(e.target.value)}
-        className="min-h-[48px] resize-none border-border/50 bg-transparent text-xs focus-visible:ring-1"
+        onMention={(ref) => setPicked((prev) => (prev.some((p) => p.type === ref.type && p.id === ref.id) ? prev : [...prev, ref]))}
+        className="flex min-h-[48px] w-full resize-none rounded-md border border-border/50 bg-transparent px-3 py-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         onKeyDown={(e) => {
           if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleSubmit()
           if (e.key === 'Escape') setOpen(false)

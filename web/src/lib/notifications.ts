@@ -10,7 +10,7 @@ import { noticeEventKind } from '@/lib/agent-events/types'
 /**
  * Runtime list backing the NotificationType union — single source of truth
  * for code that needs the types at runtime. Must stay in sync with the DB
- * CHECK constraint (migration 572 is the latest DROP+ADD; 401 dropped the
+ * CHECK constraint (migration 671 is the latest DROP+ADD; 401 dropped the
  * types nothing writes any more, with their rows, when the notifications page
  * went: docs/plans/retire-notifications-page.md). Which of these reach the
  * agent, and as what: agent-events/types.ts NOTICE_EVENT_KIND.
@@ -83,6 +83,12 @@ export const NOTIFICATION_TYPES = [
   // (target_type 'email_draft', which opens Mail's Drafts, where the draft
   // still is unless it was gone). Written by src/lib/email/scheduled-send.ts.
   'email_send_failed',
+  // A teammate @-mentioned the person (migration 671,
+  // docs/plans/mentions-everywhere.md): in a comment
+  // (src/lib/comment-notifications.ts), a document, or a description or note.
+  // Targets the record the mention is on. Team chat's mentions keep their own
+  // type ('team_chat_message').
+  'mentioned',
 ] as const
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number]

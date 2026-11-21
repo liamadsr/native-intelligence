@@ -725,7 +725,8 @@ export const ENTITY_REGISTRY = [
     workspaceScoped: { kind: 'column', table: 'sequence' },
     label: { table: 'sequence', columns: 'name', render: (r) => str(r.name) },
     realtime: true,
-    linkable: false,
+    // Mentionable (mentions everywhere): every member reads a sequence (sequence_member_all RLS), so its edges need no fence.
+    linkable: true,
     activity: false,
     customFields: false,
     citable: false,
@@ -750,7 +751,8 @@ export const ENTITY_REGISTRY = [
     label: { table: 'prospect_list', columns: 'name', render: (r) => str(r.name) },
     // Not in the supabase_realtime publication.
     realtime: false,
-    linkable: false,
+    // Mentionable (mentions everywhere): every member reads a prospect list (prospect_list_member_select), so its edges need no fence.
+    linkable: true,
     activity: false,
     customFields: false,
     citable: false,

@@ -28,6 +28,18 @@ import type { EditionDefinition, EditionTerm } from '@/lib/editions/manifest'
 import { editionWords } from '@/lib/editions/words'
 import { filterPages, type OfferedPage } from '@/lib/chat-cards/page-menu'
 import { normalizeQuery, scoreText, type MenuSearchKind, type MenuSearchRow } from '@/lib/search/menu-search'
+import {
+  FINDABLE,
+  FINDABLE_BY_ORDER,
+  FINDABLE_KINDS,
+  FINDABLE_SECTION,
+  MENTION_FINDABLE_KINDS,
+  SECTION_FINDABLE,
+  SECTION_GROUP,
+  type FindableDescriptor,
+  type FindableGroup,
+  type FindableSection,
+} from '@/lib/search/findable-registry'
 import type { SkillCommand } from './chat-panel'
 import type { DirectEntityActionId, EntityRef } from '@/lib/entities/actions'
 import type { FeedEntry } from '@/lib/entities/feed-model'
@@ -190,7 +202,7 @@ export function appendMention(value: string, text: string): { value: string; car
 // ── What the menu lists ─────────────────────────────────────────────────────
 
 /** The record kinds, as the menu's sections name them. */
-export type RecordMenuKind = 'actions' | 'docs' | 'projects' | 'initiatives' | 'captures' | 'people' | 'companies' | 'deals' | 'flows' | 'files' | 'events' | 'videos' | 'studio_projects' | 'agents' | 'messages'
+export type RecordMenuKind = FindableSection
 /**
  * `record_actions`: the actions on the record whose card is in front. `inbox`
  * and `recent`: the palette's first view, from the activity feed (what
@@ -198,90 +210,92 @@ export type RecordMenuKind = 'actions' | 'docs' | 'projects' | 'initiatives' | '
  * palette's only; never tabs.
  */
 export type MenuKind = 'pages' | 'skills' | 'record_actions' | 'inbox' | 'recent' | RecordMenuKind
-export type MenuTab = 'all' | MenuKind
+/**
+ * A tab in the strip is a GROUP, not a single kind (docs/plans/mentions-
+ * everywhere.md, 3.2): with two dozen kinds, one tab per kind overflows, so a
+ * tab is the findable registry's group (People, Work, Docs, …) plus `pages`
+ * (skills ride in the `agents_skills` group). Selecting a group lists all its
+ * kinds' sections at once, each uncapped; `all` is one section per kind, as
+ * before.
+ */
+export type MenuGroup = FindableGroup | 'pages'
+export type MenuTab = 'all' | MenuGroup
 
-export const TAB_LABELS: Record<MenuTab, string> = {
-  all: 'All',
+/** The group tabs, in the strip's order (All is drawn first, on its own). */
+export const MENU_GROUPS: readonly MenuGroup[] = ['people', 'work', 'docs', 'meetings', 'mail', 'chats', 'crm', 'outreach', 'files', 'agents_skills', 'studio', 'pages']
+
+/** Each group tab's name. */
+const GROUP_LABELS: Record<MenuGroup, string> = {
+  people: 'People',
+  work: 'Work',
+  docs: 'Docs',
+  meetings: 'Meetings',
+  mail: 'Mail',
+  chats: 'Chats',
+  crm: 'CRM',
+  outreach: 'Outreach',
+  files: 'Files',
+  agents_skills: 'Agents & skills',
+  studio: 'Studio',
+  pages: 'Pages',
+}
+
+/**
+ * The group a menu kind falls under: pages and skills live at the menu level
+ * (pages → its own tab, skills → Agents & skills); every record kind by the
+ * registry; the palette-only sections (record_actions, inbox, recent) are in
+ * no group (never tabs).
+ */
+export function groupOf(kind: MenuKind): MenuGroup | null {
+  if (kind === 'pages') return 'pages'
+  if (kind === 'skills') return 'agents_skills'
+  if (!isRecordKind(kind)) return null
+  return SECTION_GROUP[kind]
+}
+
+/** Whether a tab is offered here: All, or a group with at least one offered kind. */
+export function tabOffered(tab: MenuTab, offered: readonly MenuKind[]): boolean {
+  return tab === 'all' || offered.some((k) => groupOf(k) === tab)
+}
+
+export const TAB_LABELS: Record<MenuTab, string> = { all: 'All', ...GROUP_LABELS }
+
+/** Each kind's section label (the palette-only sections and every record kind, named by the registry). */
+const SECTION_LABELS: Record<MenuKind, string> = {
   pages: 'Pages',
   skills: 'Skills',
   record_actions: 'This record',
   inbox: 'Inbox',
   recent: 'Recent',
-  actions: 'Actions',
-  docs: 'Docs',
-  projects: 'Projects',
-  initiatives: 'Initiatives',
-  captures: 'Captures',
-  people: 'People',
-  companies: 'Companies',
-  deals: 'Deals',
-  flows: 'Flows',
-  files: 'Files',
-  events: 'Events',
-  videos: 'Videos',
-  studio_projects: 'Studio projects',
-  agents: 'Agents',
-  messages: 'Messages',
+  ...(Object.fromEntries(FINDABLE_KINDS.map((k) => [FINDABLE[k].section, FINDABLE[k].label])) as Record<RecordMenuKind, string>),
 }
 
 /** The app term behind each record kind (src/lib/editions/words.ts), for its name in an edition's words. */
-const KIND_TERM: Partial<Record<RecordMenuKind, EditionTerm>> = {
-  actions: 'action',
-  docs: 'document',
-  projects: 'project',
-  initiatives: 'initiative',
-  captures: 'capture',
-  people: 'contact',
-  companies: 'company',
-  deals: 'deal',
-}
+const KIND_TERM: Partial<Record<RecordMenuKind, EditionTerm>> = Object.fromEntries(
+  FINDABLE_KINDS.flatMap((k) => {
+    const d: FindableDescriptor = FINDABLE[k]
+    return d.term ? [[d.section, d.term]] : []
+  }),
+)
 
 /**
- * A tab's or section's name: the edition's word where it renames that kind
- * ("Jobs" for Actions, "Customers" for People in a service business), else
- * TAB_LABELS.
+ * A tab's or a section's name: the edition's word where it renames that kind
+ * ("Jobs" for Actions, "Customers" for People in a service business; a group
+ * that is one renameable kind, like People, follows it too), else the plain
+ * group label (a group tab) or the registry's section label.
  */
-export function menuTabLabel(tab: MenuTab, edition?: Pick<EditionDefinition, 'words'> | null): string {
-  const term = tab === 'all' || !isRecordKind(tab) ? undefined : KIND_TERM[tab]
+export function menuTabLabel(tab: MenuTab | MenuKind, edition?: Pick<EditionDefinition, 'words'> | null): string {
+  const term = tab === 'all' ? undefined : KIND_TERM[tab as RecordMenuKind]
   const own = term ? editionWords(edition).terms[term] : undefined
-  return own ? own.many.charAt(0).toUpperCase() + own.many.slice(1) : TAB_LABELS[tab]
+  if (own) return own.many.charAt(0).toUpperCase() + own.many.slice(1)
+  if (tab === 'all') return TAB_LABELS.all
+  if (tab in GROUP_LABELS) return GROUP_LABELS[tab as MenuGroup]
+  return SECTION_LABELS[tab as MenuKind]
 }
 
 /** The search kind behind each record section, and back. */
-export const SEARCH_KIND: Record<RecordMenuKind, MenuSearchKind> = {
-  actions: 'action',
-  docs: 'document',
-  projects: 'project',
-  initiatives: 'initiative',
-  captures: 'capture',
-  people: 'contact',
-  companies: 'company',
-  deals: 'deal',
-  flows: 'flow',
-  files: 'attachment',
-  events: 'calendar_event',
-  videos: 'studio_video',
-  studio_projects: 'studio_project',
-  agents: 'agent',
-  messages: 'team_chat_message',
-}
-export const MENU_KIND: Record<MenuSearchKind, RecordMenuKind> = {
-  action: 'actions',
-  document: 'docs',
-  project: 'projects',
-  initiative: 'initiatives',
-  capture: 'captures',
-  contact: 'people',
-  company: 'companies',
-  deal: 'deals',
-  flow: 'flows',
-  attachment: 'files',
-  calendar_event: 'events',
-  studio_video: 'videos',
-  studio_project: 'studio_projects',
-  agent: 'agents',
-  team_chat_message: 'messages',
-}
+export const SEARCH_KIND: Record<RecordMenuKind, MenuSearchKind> = SECTION_FINDABLE
+export const MENU_KIND: Record<MenuSearchKind, RecordMenuKind> = FINDABLE_SECTION
 
 export function isRecordKind(kind: MenuKind): kind is RecordMenuKind {
   return kind !== 'pages' && kind !== 'skills' && kind !== 'record_actions' && kind !== 'inbox' && kind !== 'recent'
@@ -416,9 +430,10 @@ export function verbFor(trigger: MenuTrigger, item: MenuItem): MenuVerb {
 }
 
 /** The kinds in order: tabs keep these places, and a tie between two kinds' best rows keeps it. */
-const ORDER: readonly MenuKind[] = ['pages', 'skills', 'people', 'actions', 'docs', 'projects', 'initiatives', 'captures', 'companies', 'deals', 'flows', 'files', 'events', 'videos', 'studio_projects', 'agents', 'messages']
+const RECORD_ORDER: readonly RecordMenuKind[] = FINDABLE_BY_ORDER.map((k) => FINDABLE[k].section)
+const ORDER: readonly MenuKind[] = ['pages', 'skills', ...RECORD_ORDER]
 /** `@`'s: the records first (`@ma` is Maya before a skill named like her), its skills last. */
-const AT_ORDER: readonly MenuKind[] = ['people', 'actions', 'docs', 'projects', 'initiatives', 'captures', 'companies', 'deals', 'flows', 'files', 'events', 'videos', 'studio_projects', 'skills']
+const AT_ORDER: readonly MenuKind[] = [...MENTION_FINDABLE_KINDS.map((k) => FINDABLE[k].section), 'skills']
 /** What each shows before anything is typed, in this order: recent people first. */
 const LEADS: Record<MenuTrigger, readonly MenuKind[]> = {
   '/': ['people', 'pages', 'skills'],
@@ -435,9 +450,9 @@ export function leadKinds(trigger: MenuTrigger): readonly MenuKind[] {
   return LEADS[trigger]
 }
 
-/** The kinds a menu in this state shows: its tab's, else every offered kind once something is typed, else the leads. */
+/** The kinds a menu in this state shows: a group tab's kinds, else every offered kind once something is typed, else the leads. */
 export function searchedKinds(trigger: MenuTrigger, tab: MenuTab, query: string, offered: readonly MenuKind[]): MenuKind[] {
-  if (tab !== 'all') return offered.includes(tab) ? [tab] : []
+  if (tab !== 'all') return offered.filter((k) => groupOf(k) === tab)
   return query.trim() ? [...offered] : LEADS[trigger].filter((k) => offered.includes(k))
 }
 
@@ -526,7 +541,7 @@ export function feedSections(sources: Pick<MenuSources, 'inbox' | 'recent'>): Ar
   for (const [key, entries] of [['inbox', inbox], ['recent', recent]] as const) {
     if (!entries.length) continue
     const items = entries.map((entry): MenuItem => ({ kind: 'feed', entry }))
-    out.push({ key, label: TAB_LABELS[key], items, total: items.length, totalKnown: true })
+    out.push({ key, label: SECTION_LABELS[key], items, total: items.length, totalKnown: true })
   }
   return out
 }
@@ -633,12 +648,14 @@ export function buildMenu(trigger: MenuTrigger, tab: MenuTab, query: string, off
     return section
   })
 
-  // A tab for each kind with something to show for what's typed (with
-  // nothing typed: the leads), and the tab picked, whatever it holds.
+  // A GROUP tab for each group one of whose kinds has something to show for
+  // what's typed (with nothing typed: the leads), and the tab picked, whatever
+  // it holds, in the strip's fixed order.
   const tabs: MenuTab[] = ['all']
-  for (const kind of offered) {
-    const hasRows = all.get(kind)!.items.length > 0 && (q ? true : LEADS[trigger].includes(kind))
-    if (hasRows || kind === tab) tabs.push(kind)
+  for (const g of MENU_GROUPS) {
+    if (!offered.some((k) => groupOf(k) === g)) continue
+    const hasRows = offered.some((k) => groupOf(k) === g && all.get(k)!.items.length > 0 && (q ? true : LEADS[trigger].includes(k)))
+    if (hasRows || g === tab) tabs.push(g)
   }
   return { sections: withOffsets, tabs }
 }

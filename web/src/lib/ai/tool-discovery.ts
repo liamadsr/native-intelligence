@@ -100,6 +100,19 @@ export const RECORD_MENTION_TOOL_NAMES = {
 } as const satisfies Record<MentionRecordKind, readonly string[]>
 
 /**
+ * The same for the mentioned records that travel as refs
+ * (`mentionedRecords`, src/lib/ai/mentioned-records.ts REF_LINES): the tool
+ * each kind's line names. A channel has none of its own.
+ */
+export const REF_MENTION_TOOL_NAMES: Partial<Record<string, readonly string[]>> = {
+  campaign: ['list_campaigns'],
+  data_table: ['get_table'],
+  data_row: ['query_rows'],
+  decision: ['list_decisions'],
+  studio_project: ['list_studio_projects'],
+}
+
+/**
  * The agent's browser tools, seeded into the active set on every turn: the
  * browser runs in the person's cloud sandbox (docs/plans/cloud-browser.md), so a
  * web, phone or SMS turn can use it as well as the desktop. Still fenced by the

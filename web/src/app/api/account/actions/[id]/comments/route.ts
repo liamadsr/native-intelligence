@@ -2,6 +2,7 @@ import { requireWorkspace, requireWorkspaceMember } from '@/lib/api-auth'
 import { badRequest, notFound, serverError } from '@/lib/api-errors'
 import { getComments, createComment } from '@/lib/comments'
 import { sendCommentNotifications } from '@/lib/comment-notifications'
+import { applyCommentMentions, fenceCommentMentions } from '@/lib/comment-mentions'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function GET(
@@ -42,8 +43,13 @@ export async function POST(
   const body = await request.json()
   if (!body.body?.trim()) return badRequest('Body is required')
 
-  const result = await createComment(supabase, 'action', id, member.id, body.body.trim(), body.parent_id)
+  // What it @-mentions (teammates, records), fenced for the author before it is stored.
+  const mentions = await fenceCommentMentions(supabase, { workspaceId, userId: auth.user.id }, { mentions: body.mentions, records: body.records }, body.body.trim())
+  const result = await createComment(supabase, 'action', id, member.id, body.body.trim(), body.parent_id, undefined, mentions)
   if (result.error) return badRequest(result.error)
+
+  // The record mentions each record named, and a mention shares (non-blocking).
+  void applyCommentMentions(supabase, { workspaceId, userId: auth.user.id, memberId: member.id, commentable: { type: 'action', id }, mentions })
 
   // Fire comment notifications (non-blocking)
   sendCommentNotifications({
@@ -55,6 +61,7 @@ export async function POST(
     commentBody: body.body.trim(),
     commentId: result.comment!.id,
     parentId: body.parent_id,
+    mentionedMemberIds: mentions.memberIds,
   })
 
   return NextResponse.json({ comment: result.comment }, { status: 201 })

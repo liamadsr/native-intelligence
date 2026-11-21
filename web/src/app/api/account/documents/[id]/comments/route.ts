@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getCurrentWorkspaceId } from '@/lib/workspace'
 import { getAllComments, createComment, resolveComment, parseAnchorFields } from '@/lib/comments'
 import { sendCommentNotifications } from '@/lib/comment-notifications'
+import { applyCommentMentions, fenceCommentMentions } from '@/lib/comment-mentions'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function GET(
@@ -56,8 +57,13 @@ export async function POST(
 
   const anchor = parseAnchorFields(body)
 
-  const result = await createComment(supabase, 'document', id, member.id, body.body.trim(), body.parent_id, anchor)
+  // What it @-mentions (teammates, records), fenced for the author before it is stored.
+  const mentions = await fenceCommentMentions(supabase, { workspaceId, userId: user.id }, { mentions: body.mentions, records: body.records }, body.body.trim())
+  const result = await createComment(supabase, 'document', id, member.id, body.body.trim(), body.parent_id, anchor, mentions)
   if (result.error) return NextResponse.json({ error: result.error }, { status: 400 })
+
+  // The record mentions each record named, and a mention shares (non-blocking).
+  void applyCommentMentions(supabase, { workspaceId, userId: user.id, memberId: member.id, commentable: { type: 'document', id }, mentions })
 
   // Fire comment notifications (non-blocking)
   sendCommentNotifications({
@@ -69,6 +75,7 @@ export async function POST(
     commentBody: body.body.trim(),
     commentId: result.comment!.id,
     parentId: body.parent_id,
+    mentionedMemberIds: mentions.memberIds,
   })
 
   return NextResponse.json({ comment: result.comment }, { status: 201 })

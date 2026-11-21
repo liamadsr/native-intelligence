@@ -41,7 +41,6 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { Bell, BellOff, Check, ChevronLeft, CircleCheck, Hash, Lock, MessageSquare, MessageSquareReply, Pencil, Plus, RotateCw, Trash2, Users, Video, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
@@ -51,7 +50,7 @@ import { cachedJson } from '@/lib/cached-fetch'
 import { useWorkspaceId } from '@/app/account/workspace-switcher'
 import { useTeams } from '@/app/account/teams-context'
 import { useAssistantName } from '@/lib/voice/assistant-name-store'
-import { ChatInput, type ChatInputVoice } from '@/app/account/(dashboard)/chat/chat-input'
+import { ChatInput, type ChatInputUnavailable, type ChatInputVoice } from '@/app/account/(dashboard)/chat/chat-input'
 import type { ChatFileAttachment } from '@/app/account/(dashboard)/chat/chat-panel'
 import { useVoiceAvailability } from '@/hooks/use-voice-availability'
 import { useOptionalRecordingStable } from '@/hooks/recording-context'
@@ -1485,6 +1484,7 @@ function ChannelPane({
                   grouped={continuesGroup(messages[i - 1], m) && !threads[messages[i - 1].id]?.reply_count}
                   meId={meId}
                   membersById={membersById}
+                  assistantName={assistantName}
                   labels={labelsFor(m)}
                   editing={editingId === m.id}
                   onEdit={() => setEditingId(m.id)}
@@ -1672,6 +1672,7 @@ function ThreadPane({
       grouped={grouped}
       meId={meId}
       membersById={membersById}
+      assistantName={assistantName}
       labels={labelsFor(m)}
       editing={editingId === m.id}
       onEdit={() => setEditingId(m.id)}
@@ -1745,6 +1746,49 @@ function ThreadPane({
  */
 const TEAM_CHAT_RECORD_KINDS = MENTION_PICKER_KINDS
 
+/**
+ * The box's `@` list, shared by the composer and the edit box: the person's own
+ * agent, then everyone else, then (once something is typed) the one picker's
+ * records. The two keep their picks separately; the edit box seeds its from the
+ * message being edited. Members picked are kept (their mention rides with the
+ * send while "@Name" is still in it); the agent is found by name at send.
+ */
+function useChatMentionList(
+  members: Member[],
+  meId: string | null,
+  assistantName: string,
+  seed?: { picked: Array<{ id: string; label: string }>; records: TeamChatRecordMention[] },
+) {
+  const [picked, setPicked] = useState<Array<{ id: string; label: string }>>(() => seed?.picked ?? [])
+  const [pickedRecords, setPickedRecords] = useState<TeamChatRecordMention[]>(() => seed?.records ?? [])
+  const options = useMemo<ComposerMentionOption[]>(
+    () => [
+      { id: AGENT_OPTION_ID, label: assistantName, hint: 'your agent', agent: true },
+      ...members.filter((m) => m.id !== meId).map((m) => ({ id: m.id, label: memberName(m) })),
+    ],
+    [members, meId, assistantName],
+  )
+  const mentionList = useMemo<ComposerMentionList>(
+    () => ({
+      options,
+      onPick: (o) => {
+        if (o.agent) return
+        setPicked((prev) => (prev.some((p) => p.id === o.id) ? prev : [...prev, { id: o.id, label: o.label }]))
+      },
+      records: {
+        kinds: TEAM_CHAT_RECORD_KINDS,
+        onPick: (row: MenuSearchRow) => {
+          const m = menuRowMention(row)
+          if (!m) return
+          setPickedRecords((prev) => (prev.some((p) => p.type === m.type && p.id === m.id) ? prev : [...prev, m]))
+        },
+      },
+    }),
+    [options],
+  )
+  return { picked, setPicked, pickedRecords, setPickedRecords, mentionList }
+}
+
 /** The record an `@label` run of a message's words names (an openable one), if any. */
 function recordMentionFor(message: TeamChatMessage, text: string): TeamChatRecordMention | null {
   const label = text.replace(/^@/, '').toLowerCase()
@@ -1785,6 +1829,7 @@ function MessageRow({
   grouped,
   meId,
   membersById,
+  assistantName,
   labels,
   editing,
   onEdit,
@@ -1813,6 +1858,8 @@ function MessageRow({
   grouped: boolean
   meId: string | null
   membersById: Map<string, Member>
+  /** The person's agent's name, for the edit box's `@` list. */
+  assistantName: string
   labels: string[]
   editing: boolean
   onEdit: () => void
@@ -1886,7 +1933,7 @@ function MessageRow({
             {onReplyInThread && <ThreadBar summary={thread} unread={threadUnread} membersById={membersById} open={threadOpen} onOpen={onReplyInThread} />}
           </>
         ) : editing ? (
-          <EditBox message={message} members={members} onCancel={onCancelEdit} onSaved={onSaved} />
+          <EditBox message={message} members={members} meId={meId} assistantName={assistantName} onCancel={onCancelEdit} onSaved={onSaved} />
         ) : deleted ? (
           <p className="text-[15px] italic leading-relaxed text-muted-foreground">This message was deleted.</p>
         ) : (
@@ -1981,22 +2028,31 @@ function MessageRow({
   )
 }
 
-function EditBox({ message, members, onCancel, onSaved }: { message: TeamChatMessage; members: Member[]; onCancel: () => void; onSaved: (m: TeamChatMessage) => void }) {
+/** The edit box takes text and mentions only (its files aren't editable here). */
+const EDIT_UNAVAILABLE: ChatInputUnavailable = { files: { label: 'Files and photos', reason: 'Editing changes the text only' } }
+
+function EditBox({ message, members, meId, assistantName, onCancel, onSaved }: { message: TeamChatMessage; members: Member[]; meId: string | null; assistantName: string; onCancel: () => void; onSaved: (m: TeamChatMessage) => void }) {
   const [text, setText] = useState(message.body)
   const [saving, setSaving] = useState(false)
+  // `@` for teammates and records, as the composer's — seeded from what the
+  // message already mentions, so an untouched save keeps them and a new pick
+  // adds to them.
+  const mentions = useChatMentionList(members, meId, assistantName, {
+    picked: message.mentions.map((id) => ({ id, label: memberName(members.find((m) => m.id === id)) })),
+    records: message.record_mentions ?? [],
+  })
   const save = async () => {
     const body = text.trim()
     if (!body || saving) return
     if (body === message.body) return onCancel()
     setSaving(true)
-    // The mentions the words still hold (an edit may have taken one out).
-    const picked = message.mentions.map((id) => ({ id, label: memberName(members.find((m) => m.id === id)) }))
-    // The same for its records: the ones still named go with the edit (the server drops the rest's edges).
-    const records = (message.record_mentions ?? []).filter((r) => hasMention(body, r.label))
+    // Only what the edited words still name (the server drops the rest's edges).
+    const memberMentions = mentionsStillIn(body, mentions.picked)
+    const records = mentions.pickedRecords.filter((r) => hasMention(body, r.label))
     const res = await fetch(`/api/account/team-chat/messages/${message.id}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ body, mentions: mentionsStillIn(body, picked), records }),
+      body: JSON.stringify({ body, mentions: memberMentions, records }),
     })
     setSaving(false)
     if (!res.ok) return
@@ -2005,23 +2061,39 @@ function EditBox({ message, members, onCancel, onSaved }: { message: TeamChatMes
     const { shared, sharedWith } = parseSharedRecords(json)
     toastSharedRecords(shared, sharedWith)
   }
+  // The box owns its field and is memoized: hand it one stable send.
+  const saveRef = useRef(save)
+  saveRef.current = save
+  const onSubmit = useCallback(() => void saveRef.current(), [])
+  const onChange = useCallback((value: string) => setText(value.slice(0, TEAM_CHAT_MESSAGE_MAX)), [])
   return (
-    <div className="mt-1">
-      <Textarea
+    <div
+      className="mt-1"
+      data-team-chat-edit=""
+      // Esc cancels the edit; while the `@` menu is open it takes Esc first (the
+      // box stops it bubbling), so this only fires with the menu closed.
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') onCancel()
+      }}
+    >
+      <ChatInput
         value={text}
+        onChange={onChange}
+        onSubmit={onSubmit}
+        onStop={noop}
+        isLoading={false}
+        attachedNotes={NO_NOTES}
+        onAttachNote={noop}
+        onRemoveNote={noop}
+        attachedFiles={NO_FILES}
+        onAttachFiles={noop}
+        onRemoveFile={noop}
+        unavailable={EDIT_UNAVAILABLE}
+        placeholder="Edit message…"
+        mainComposer={false}
+        mentionList={mentions.mentionList}
         autoFocus
-        rows={2}
-        maxLength={TEAM_CHAT_MESSAGE_MAX}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault()
-            void save()
-          } else if (e.key === 'Escape') {
-            onCancel()
-          }
-        }}
-        className="min-h-0 resize-none text-sm"
+        layout="inline"
       />
       <div className="mt-1 flex gap-1.5 text-[11px] text-muted-foreground">
         <span>Enter to save · Esc to cancel</span>
@@ -2031,6 +2103,7 @@ function EditBox({ message, members, onCancel, onSaved }: { message: TeamChatMes
 }
 
 const NO_NOTES: never[] = []
+const NO_FILES: never[] = []
 const noop = () => {}
 
 /** A file in the box: uploading, ready (its attachment, already in storage) or failed (why). */
@@ -2088,40 +2161,9 @@ function Composer({
     () => (availability.dictation ? { availability: { ...availability, conversation: false, visible: true } } : undefined),
     [availability],
   )
-  const [picked, setPicked] = useState<Array<{ id: string; label: string }>>([])
-  // Records picked from `@` (a task, a doc, a deal…): they go with the message while "@label" is in it.
-  const [pickedRecords, setPickedRecords] = useState<TeamChatRecordMention[]>([])
+  // `@` for the agent, teammates and records — the same list the edit box uses.
+  const { picked, setPicked, pickedRecords, setPickedRecords, mentionList } = useChatMentionList(members, meId, assistantName)
   const [files, setFiles] = useState<BoxFile[]>([])
-
-  // The person's own agent, then everyone else in the workspace.
-  const options = useMemo<ComposerMentionOption[]>(
-    () => [
-      { id: AGENT_OPTION_ID, label: assistantName, hint: 'your agent', agent: true },
-      ...members.filter((m) => m.id !== meId).map((m) => ({ id: m.id, label: memberName(m) })),
-    ],
-    [members, meId, assistantName],
-  )
-  const mentionList = useMemo<ComposerMentionList>(
-    () => ({
-      options,
-      // A member picked is kept (their mention goes with the message while
-      // "@Name" is still in it); the agent is found by name at send.
-      onPick: (o) => {
-        if (o.agent) return
-        setPicked((prev) => (prev.some((p) => p.id === o.id) ? prev : [...prev, { id: o.id, label: o.label }]))
-      },
-      // Any record, found by the composer's own search; each mention is a graph edge once sent.
-      records: {
-        kinds: TEAM_CHAT_RECORD_KINDS,
-        onPick: (row: MenuSearchRow) => {
-          const m = menuRowMention(row)
-          if (!m) return
-          setPickedRecords((prev) => (prev.some((p) => p.type === m.type && p.id === m.id) ? prev : [...prev, m]))
-        },
-      },
-    }),
-    [options],
-  )
 
   // The latest of what a send reads, so the send handed to the (memoized) box stays one function.
   const latest = useRef({ text, picked, pickedRecords, files, channelId, threadRootId, assistantName, members, onSend, onTyping })
@@ -2153,7 +2195,7 @@ function Composer({
     // At once, not at the next render: the files sent are the message's now, never left to clean up.
     latest.current.files = files.filter((f) => f.status === 'error')
     setFiles((prev) => prev.filter((f) => f.status === 'error'))
-  }, [])
+  }, [setPicked, setPickedRecords])
 
   // Leaving the box (another channel, the thread closed): uploads never sent go from storage.
   const mounted = useRef(true)

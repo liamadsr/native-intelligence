@@ -2084,6 +2084,7 @@ export function ActionDetailPanel({
                 initialContent={action.description || ''}
                 onUpdate={handleDescriptionChange}
                 placeholder="Add description..."
+                recordMentions
               />
             </div>
 

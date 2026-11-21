@@ -290,8 +290,10 @@ export const ENTITY_ACTIONS: Readonly<Record<EntityType, EntityActionsDescriptor
   // reads email_thread_index's owner; the 'about' edge to it is hidden from
   // everyone else, entity_link's read policy, migrations 500/501), and Share
   // to chat: the owner shares it into a channel or DM, read live by its
-  // readers and stored nowhere (migration 646, src/lib/email-share). Its
-  // share is LIVE_SHARE_TYPES' flow, never a record @-mention.
+  // readers and stored nowhere (migration 646, src/lib/email-share). Its menu
+  // Share is LIVE_SHARE_TYPES' flow, never a record @-mention. (Since decision
+  // 1 the OWNER may also @-mention their own mail, which is still owner-fenced
+  // and does not open a card, so no 'open'/record-share here changes.)
   email_thread: { ...inert('Mail is shown to no one but its owner.'), share: true, makeTask: true },
   attachment: inert('An attachment lives on its record.'),
   member: inert('A member is a person in the workspace.'),
@@ -318,11 +320,12 @@ export const ENTITY_ACTION_IDS = ['open', 'copy_link', 'copy_id', 'rename', 'sha
 export type EntityActionId = (typeof ENTITY_ACTION_IDS)[number]
 
 /**
- * The kinds a task may be about that are NOT mentionable: mail. A person may
- * make a task about their own email thread, but no one can @-mention mail
- * (migration 341: it is shown to no one but its owner).
+ * The kinds a task may be about that are NOT mentionable. Empty since decision
+ * 1 made mail (`email_thread`) @-mentionable by its owner: every task-about
+ * kind is now a mentionable one, fenced the same way (visibleMentionTargets).
+ * Kept as the seam for any future owner-only-but-not-mentionable kind.
  */
-export const TASK_ABOUT_ONLY_TYPES = ['email_thread'] as const
+export const TASK_ABOUT_ONLY_TYPES = [] as const
 export type TaskAboutOnlyType = (typeof TASK_ABOUT_ONLY_TYPES)[number]
 
 /**

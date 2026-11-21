@@ -3,10 +3,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { Button } from '@/components/ui/button'
-import { Textarea } from '@/components/ui/textarea'
+import { MentionTextarea } from '@/components/mentions/mention-textarea'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { LogIn, Send, Loader2, X, MessageSquareQuote, Sparkles } from 'lucide-react'
 import { useInlineComments } from './inline-comment-context'
+import { hasMention } from '@/lib/team-chat/compose'
+import type { LabeledMentionRef } from '@/lib/entity-links/mentionable'
 
 import type { SelectionState } from './types'
 
@@ -209,6 +211,8 @@ export function SelectionPopover() {
   const [content, setContent] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // What `@` picked (records): sent with the comment, stored like any other.
+  const [picked, setPicked] = useState<LabeledMentionRef[]>([])
   const popoverRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const removeTempHighlightRef = useRef<(() => void) | null>(null)
@@ -219,6 +223,7 @@ export function SelectionPopover() {
   useEffect(() => {
     if (selectionState) {
       setContent('')
+      setPicked([])
       setError(null)
       removeTempHighlightRef.current = applyTempHighlight(selectionState)
     } else {
@@ -274,10 +279,13 @@ export function SelectionPopover() {
     setSubmitting(true)
     setError(null)
 
-    const comment = await addInlineComment(content.trim())
+    const text = content.trim()
+    const records = picked.filter((r) => hasMention(text, r.label))
+    const comment = await addInlineComment(text, records.length ? { records } : undefined)
 
     if (comment) {
       setContent('')
+      setPicked([])
       // Clean up temp highlight — the real highlight will take over
       removeTempHighlightRef.current?.()
       removeTempHighlightRef.current = null
@@ -285,7 +293,7 @@ export function SelectionPopover() {
       setError('Failed to post comment. Please try again.')
     }
     setSubmitting(false)
-  }, [content, addInlineComment, isAuthenticated])
+  }, [content, picked, addInlineComment, isAuthenticated])
 
   if (!selectionState) return null
 
@@ -332,12 +340,13 @@ export function SelectionPopover() {
             </button>
           </div>
 
-          <Textarea
+          <MentionTextarea
             ref={textareaRef}
-            placeholder="Write your comment..."
+            placeholder="Write your comment... (@ to mention)"
             value={content}
             onChange={(e) => setContent(e.target.value)}
-            className="min-h-[72px] resize-none text-sm"
+            onMention={(ref) => setPicked((prev) => (prev.some((p) => p.type === ref.type && p.id === ref.id) ? prev : [...prev, ref]))}
+            className="flex min-h-[72px] w-full resize-none rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:border-foreground/30"
             onKeyDown={(e) => {
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleSubmit()
             }}
