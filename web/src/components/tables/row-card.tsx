@@ -15,6 +15,13 @@ import { CellDisplay, TYPE_ICONS } from './cells'
 import { cellValueOf, ComputedCell } from './computed-cells'
 import { asCell } from './table-grid'
 
+/**
+ * A card's glass: see-through like the page card it sits on
+ * (attention/card-skin.ts), a lighter lift than it, and no blur of its own:
+ * a gallery or a board shows many cards, and one blur each would cost.
+ */
+export const ROW_CARD_GLASS = 'border-border/60 bg-background/60 dark:border-white/10 dark:bg-white/[0.04] dark:hover:border-white/25'
+
 export function RowCard({
   row,
   fields,
@@ -51,7 +58,8 @@ export function RowCard({
         }
       }}
       className={cn(
-        'block w-full min-w-0 shrink-0 cursor-pointer overflow-hidden rounded-md border border-border bg-background text-left transition-colors hover:border-foreground/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        'block w-full min-w-0 shrink-0 cursor-pointer overflow-hidden rounded-md border text-left transition-colors hover:border-foreground/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        ROW_CARD_GLASS,
         compact ? 'px-1.5 py-0.5' : 'px-2.5 py-2',
         dragging && 'opacity-40',
       )}

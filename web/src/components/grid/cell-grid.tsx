@@ -34,6 +34,33 @@ import {
 } from './selection'
 import { parseTsv, toTsv } from './tsv'
 
+/**
+ * The fill of what stays put while the rows scroll (the header row, the first
+ * column): the app's glass (attention/card-skin.ts, `bg-background/70
+ * backdrop-blur-md`) a step stronger, as it sits on a card that already wears
+ * it, so text scrolling underneath is hidden, not just softened (lighter in
+ * dark mode, where a near-black fill would read as a black strip; the blur
+ * does the hiding there). Cells carry no fill and no blur: a big table pays
+ * for a few blurred panes (header, first column, its corner), not one per
+ * cell.
+ */
+export const STICKY_GLASS = 'bg-background/70 backdrop-blur-xl dark:bg-background/25'
+
+/**
+ * How far a pane's blur reaches past the edge the rows slide under. A
+ * backdrop blur samples only inside its own box and mirrors at the edge, so
+ * text right at the edge (a right-aligned number, the row just under the
+ * header) stays sharp; the pane is drawn this much bigger and clipped back.
+ */
+const GLASS_BLEED = 32
+
+/**
+ * The header's frozen first cell: it sits on the header row's pane already;
+ * it adds a blur over the headers sliding under it and its own fill (bled
+ * and clipped as the column's pane is).
+ */
+const STICKY_CORNER_GLASS = 'bg-background/80 backdrop-blur-xl dark:bg-background/50'
+
 export interface GridColumn {
   id: string
   /** What a screen reader calls it. */
@@ -501,7 +528,13 @@ export function CellGrid<R>(props: CellGridProps<R>) {
       onContextMenu={onContextMenu}
     >
       <div className="relative" style={{ width: totalW, height: totalH }}>
-        <div role="row" aria-rowindex={1} className="sticky top-0 z-20 bg-background" style={{ width: totalW, height: headerHeight }}>
+        <div role="row" aria-rowindex={1} className="sticky top-0 z-20" style={{ width: totalW, height: headerHeight }}>
+          <div
+            aria-hidden
+            data-grid-sticky-glass="header"
+            className={cn('pointer-events-none absolute inset-x-0 top-0 -z-10', STICKY_GLASS)}
+            style={{ height: headerHeight + GLASS_BLEED, clipPath: `inset(0 0 ${GLASS_BLEED}px 0)` }}
+          />
           {columns.length > 0 && (
             <HeaderCell
               col={columns[0]}
@@ -533,11 +566,23 @@ export function CellGrid<R>(props: CellGridProps<R>) {
             )
           })}
           {headerTrailing && (
-            <div className="absolute top-0 flex h-full items-center border-b border-border" style={{ left: colsWidth, width: trailingW }}>
+            <div className="absolute top-0 flex h-full items-center border-b border-border/60" style={{ left: colsWidth, width: trailingW }}>
               {headerTrailing.node}
             </div>
           )}
         </div>
+        {/* The sticky first column's one pane of glass, under its cells: the
+            cells passing beneath it blur here once, not per cell. It takes no
+            room (its negative margin cancels its height) and stops above the
+            footer, so the footer's button is never blurred. */}
+        {rows.length > 0 && firstW > 0 && (
+          <div
+            aria-hidden
+            data-grid-sticky-glass="column"
+            className={cn('pointer-events-none sticky left-0 z-[5]', STICKY_GLASS)}
+            style={{ width: firstW + GLASS_BLEED, height: rowsEnd - headerHeight, marginBottom: headerHeight - rowsEnd, clipPath: `inset(0 ${GLASS_BLEED}px 0 0)` }}
+          />
+        )}
         {vRows.map((v) => {
           const r = v.index
           const row = rows[r]
@@ -614,7 +659,7 @@ function HeaderCell({
       aria-label={col.label}
       data-hc={index}
       className={cn(
-        'top-0 flex h-full select-none items-center border-b border-r border-border bg-background text-xs font-medium text-muted-foreground',
+        'top-0 flex h-full select-none items-center border-b border-r border-border/60 text-xs font-medium text-muted-foreground',
         sticky ? 'sticky left-0 z-10' : 'absolute',
       )}
       style={sticky ? { width } : { left, width }}
@@ -623,6 +668,15 @@ function HeaderCell({
       onPointerMove={(e) => e.currentTarget.contains(e.target as Node) && onPointerMove(e)}
       onPointerUp={(e) => e.currentTarget.contains(e.target as Node) && onPointerUp(e)}
     >
+      {/* The frozen first header: its own pane over the headers sliding under it. */}
+      {sticky && (
+        <div
+          aria-hidden
+          data-grid-sticky-glass="corner"
+          className={cn('pointer-events-none absolute inset-y-0 left-0 -z-10', STICKY_CORNER_GLASS)}
+          style={{ width: width + GLASS_BLEED, clipPath: `inset(0 ${GLASS_BLEED}px 0 0)` }}
+        />
+      )}
       <div className="min-w-0 flex-1 overflow-hidden">{col.header}</div>
       {onResize && (
         <div
@@ -672,7 +726,8 @@ const GridRow = memo(
           data-r={rowIndex}
           data-c={c}
           className={cn(
-            'top-0 flex h-full items-center border-b border-r border-border/70 bg-background text-sm',
+            // No fill: the card's glass shows through (the sticky column's fill is the pane behind it).
+            'top-0 flex h-full items-center border-b border-r border-border/60 text-sm',
             sticky ? 'sticky left-0 z-10' : 'absolute',
             isEditing ? 'z-[15] overflow-visible' : 'overflow-hidden',
           )}
