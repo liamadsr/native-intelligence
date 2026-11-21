@@ -339,7 +339,10 @@ export function MainChatProvider({ children }: { children: React.ReactNode }) {
         deliver(card)
         return
       }
-      pendingCrossWorkspaceCardRef.current = { workspaceId: target, request: card }
+      // The card the link was in stays in this workspace's chat: the new
+      // card's Back can't go to it, and says so (card-store.ts linkOrigin).
+      const parked = card.origin ? { ...card, origin: { ...card.origin, elsewhere: true } } : card
+      pendingCrossWorkspaceCardRef.current = { workspaceId: target, request: parked }
       if (!switchWorkspaceRef.current(target)) pendingCrossWorkspaceCardRef.current = null
     }
     window.addEventListener(OPEN_CARD_EVENT, onOpenCard)

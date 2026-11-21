@@ -80,6 +80,56 @@ export interface OpenCardRequest {
    * see sameCardPlace.
    */
   reuse?: boolean
+  /**
+   * The card the link was in (a chip in a document, an @mention in a
+   * description), by its id: the new card's Back, past its first step, brings
+   * that one back (card-store.ts linkOrigin). `elsewhere`: the open crossed
+   * into another workspace, where that card isn't.
+   */
+  origin?: { cardId: string; elsewhere?: boolean }
+}
+
+/**
+ * The card a link that is opening one sits in: the card the event being
+ * handled (a click, an Enter) happened in, by its frame
+ * (data-chat-card / data-chat-card-fullscreen, card-history.tsx cardFrameOf),
+ * or `node`'s when given. Null outside every card (the composer, a side
+ * panel, a notification) and when nothing the person did is being handled.
+ */
+export function originCardOf(node?: Element | null): string | null {
+  if (typeof window === 'undefined') return null
+  let el: Element | null | undefined = node
+  if (!el) {
+    const event = (window as unknown as { event?: Event }).event
+    if (!event || !event.isTrusted) return null
+    const target = event.target
+    el = target instanceof Element ? target : target instanceof Node ? target.parentElement : null
+  }
+  const frame = el ? cardFrameAround(el) : null
+  if (!frame) return null
+  return frame.getAttribute('data-chat-card') || frame.getAttribute('data-chat-card-fullscreen') || null
+}
+
+const CARD_FRAME = '[data-chat-card], [data-chat-card-fullscreen]'
+
+/**
+ * The card frame a node sits in. A popover or menu portals out of the card
+ * (an entity chip's quick edit, its Open button): it is followed back to what
+ * opened it, by the trigger's aria-controls naming the layer's id (Radix's
+ * Popover, DropdownMenu and Dialog all set it), a few layers deep at most.
+ */
+function cardFrameAround(node: Element): Element | null {
+  let el: Element | null = node
+  for (let hops = 0; el && hops < 4; hops++) {
+    const frame = el.closest(CARD_FRAME)
+    if (frame) return frame
+    let trigger: Element | null = null
+    for (let up: Element | null = el; up && !trigger; up = up.parentElement) {
+      if (up.id) trigger = document.querySelector(`[aria-controls="${up.id.replace(/["\\]/g, '\\$&')}"]`)
+    }
+    el = trigger
+  }
+  return null
 }
 
 /**
@@ -303,12 +353,16 @@ export function cardForTarget(target: OpenTarget, now: Date = new Date()): Targe
 /** Ask the dashboard to open a card. False where there is no window (on the server). */
 export function openCard(
   spec: CardSpec,
-  opts: { from: string; seed?: OpenCardSeed; workspaceId?: string | null; reuse?: boolean },
+  opts: { from: string; seed?: OpenCardSeed; workspaceId?: string | null; reuse?: boolean; origin?: string | null },
 ): boolean {
   if (typeof window === 'undefined' || !isCardSpec(spec)) return false
+  // The card the link is in (from the click being handled, unless the caller
+  // read it before an await): Back on the new card comes back to it.
+  const origin = opts.origin === undefined ? originCardOf() : opts.origin
   const detail: OpenCardRequest = {
     spec,
     from: opts.from,
+    ...(origin ? { origin: { cardId: origin } } : {}),
     ...(opts.seed ? { seed: opts.seed } : {}),
     ...(opts.workspaceId ? { workspaceId: opts.workspaceId } : {}),
     ...(opts.reuse ? { reuse: true } : {}),
@@ -318,10 +372,13 @@ export function openCard(
 }
 
 /** Open the card a thing opens. False when it names nothing a card can draw. */
-export function openTarget(target: OpenTarget, opts: { from: string; workspaceId?: string | null; now?: Date; reuse?: boolean }): boolean {
+export function openTarget(
+  target: OpenTarget,
+  opts: { from: string; workspaceId?: string | null; now?: Date; reuse?: boolean; origin?: string | null },
+): boolean {
   const card = cardForTarget(target, opts.now)
   if (!card) return false
-  return openCard(card.spec, { from: opts.from, seed: card.seed, workspaceId: opts.workspaceId, reuse: opts.reuse })
+  return openCard(card.spec, { from: opts.from, seed: card.seed, workspaceId: opts.workspaceId, reuse: opts.reuse, origin: opts.origin })
 }
 
 /** An OPEN_CARD_EVENT's detail, checked (it is a window event: anything may send one). */
@@ -332,7 +389,13 @@ export function parseOpenCardRequest(detail: unknown): OpenCardRequest | null {
   const from = typeof d.from === 'string' && d.from ? d.from.slice(0, 40) : 'link'
   const workspaceId = typeof d.workspaceId === 'string' && d.workspaceId ? d.workspaceId : null
   const seed = d.seed && typeof d.seed === 'object' ? d.seed : undefined
+  const o = d.origin as { cardId?: unknown; elsewhere?: unknown } | undefined
+  const origin =
+    o && typeof o === 'object' && typeof o.cardId === 'string' && o.cardId && o.cardId.length <= 200
+      ? { cardId: o.cardId, ...(o.elsewhere === true ? { elsewhere: true } : {}) }
+      : null
   return {
+    ...(origin ? { origin } : {}),
     spec: d.spec,
     from,
     ...(seed ? { seed } : {}),
