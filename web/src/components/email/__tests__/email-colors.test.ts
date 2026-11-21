@@ -15,7 +15,7 @@ import {
   readableTextColor,
   readBodyPaint,
 } from '../email-colors'
-import { prepareEmailForDisplay, sanitizeEmailCss, sanitizeEmailHtml } from '../email-sanitize'
+import { prepareEmailForDisplay, resolveColorSchemeQueries, sanitizeEmailCss, sanitizeEmailHtml } from '../email-sanitize'
 
 const DARK = '#1a1a1a'
 const LIGHT = '#ffffff'
@@ -201,6 +201,45 @@ describe('prepareEmailForDisplay', () => {
     expect(out.mode).toBe('canvas')
     expect(out.html).toContain('color-scheme: dark')
     expect(out.html).toContain('color: rgb(240, 240, 240)')
+  })
+})
+
+describe('a sender’s prefers-color-scheme rules', () => {
+  const DARK_RULE = '@media (prefers-color-scheme: dark) { .t { color: #eeeeee !important } }'
+  const LIGHT_RULE = '@media (prefers-color-scheme:light){ .t { color: #111111 } }'
+
+  it('are answered for the page, not asked of the OS: the matching scheme always applies, the other never', () => {
+    expect(resolveColorSchemeQueries(DARK_RULE, true)).toBe('@media (min-width: 0px) { .t { color: #eeeeee !important } }')
+    expect(resolveColorSchemeQueries(DARK_RULE, false)).toBe('@media (max-width: 0px) { .t { color: #eeeeee !important } }')
+    expect(resolveColorSchemeQueries(LIGHT_RULE, false)).toBe('@media (min-width: 0px){ .t { color: #111111 } }')
+    expect(resolveColorSchemeQueries(LIGHT_RULE, true)).toBe('@media (max-width: 0px){ .t { color: #111111 } }')
+  })
+
+  it('keep the rest of a query: a width, a comma list, the media type', () => {
+    expect(resolveColorSchemeQueries('@media screen and (Prefers-Color-Scheme: DARK) and (max-width: 600px) {a{}}', true)).toBe(
+      '@media screen and (min-width: 0px) and (max-width: 600px) {a{}}',
+    )
+    expect(resolveColorSchemeQueries('@media print, (prefers-color-scheme: dark) {a{}}', false)).toBe('@media print, (max-width: 0px) {a{}}')
+    expect(resolveColorSchemeQueries('p{color:red}', true)).toBe('p{color:red}')
+  })
+
+  it('follow the app’s theme for a plain email drawn on it', () => {
+    const html = `<style>${DARK_RULE}</style><div class="t">Hi Sam</div>`
+    const dark = prepareEmailForDisplay(html, true)
+    expect(dark.mode).toBe('adapt')
+    expect(dark.html).toContain('@media (min-width: 0px) { .t')
+    expect(dark.html).not.toContain('prefers-color-scheme')
+    const light = prepareEmailForDisplay(html, false)
+    expect(light.html).toContain('@media (max-width: 0px) { .t')
+    expect(light.html).not.toContain('prefers-color-scheme')
+  })
+
+  it('follow the email’s own page when it keeps one: a white sheet never takes the sender’s dark rules, whatever the theme', () => {
+    const html = `<html><head><style>${DARK_RULE}${LIGHT_RULE}</style></head><body style="background-color:#ffffff"><table><tr><td class="t">Digest</td></tr></table></body></html>`
+    const out = prepareEmailForDisplay(html, true)
+    expect(out.mode).toBe('canvas')
+    expect(out.html).toContain('@media (max-width: 0px) { .t { color: #eeeeee')
+    expect(out.html).toContain('@media (min-width: 0px){ .t { color: #111111')
   })
 })
 

@@ -800,7 +800,13 @@ export interface UseCalendarRangeEvents {
  * `timeMin` / `timeMax` are the range's instants (local midnights); the card
  * computes them from its dates.
  */
-export function useCalendarRangeEvents(timeMin: string, timeMax: string, accountIds: string[] | null): UseCalendarRangeEvents {
+export function useCalendarRangeEvents(
+  timeMin: string,
+  timeMax: string,
+  accountIds: string[] | null,
+  /** False: read nothing and stay empty (a card that has no use for a second range). */
+  enabled = true,
+): UseCalendarRangeEvents {
   const workspaceId = useWorkspaceId()
   const [events, setEvents] = useState<IEvent[]>([])
   const [loading, setLoading] = useState(true)
@@ -809,7 +815,7 @@ export function useCalendarRangeEvents(timeMin: string, timeMax: string, account
   const accountsKey = accountIds?.slice().sort().join(',') ?? ''
 
   const fetchRange = useCallback(async () => {
-    if (!workspaceId) return
+    if (!workspaceId || !enabled) return
     const gen = ++genRef.current
     setError(null)
     try {
@@ -839,7 +845,7 @@ export function useCalendarRangeEvents(timeMin: string, timeMax: string, account
     } finally {
       if (gen === genRef.current) setLoading(false)
     }
-  }, [workspaceId, timeMin, timeMax, accountsKey])
+  }, [workspaceId, timeMin, timeMax, accountsKey, enabled])
 
   useEffect(() => {
     void fetchRange()
@@ -850,13 +856,14 @@ export function useCalendarRangeEvents(timeMin: string, timeMax: string, account
   // on its accounts), so an event added for next month or on another
   // account never lands here, and one moved out of the range leaves.
   useEffect(() => {
+    if (!enabled) return
     const apply = (patch: (events: IEvent[]) => IEvent[]) =>
       setEvents((prev) => patch(prev).filter((e) => inRange(e, timeMin, timeMax, accountsKey)))
     rangePatchers.add(apply)
     return () => {
       rangePatchers.delete(apply)
     }
-  }, [timeMin, timeMax, accountsKey])
+  }, [timeMin, timeMax, accountsKey, enabled])
 
   // Desktop Exchange rows and other writes reach every calendar through the bus.
   useEntityListSync(['calendar_event'], fetchRange)

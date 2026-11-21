@@ -110,8 +110,8 @@ export interface PositionedEvent {
  * One day column's timed events, placed: top and height from their times, left
  * and width from the overlap layout (@/calendar/layout/overlap-layout), so a
  * later event is drawn offset on top of an earlier one instead of the column
- * being cut into equal slivers. `--event-z` is the paint order; the wrapper
- * raises itself above it on hover.
+ * being cut into equal slivers. They come back in paint order (the layout's
+ * `order`: later start on top); the wrapper raises itself on hover.
  */
 export function positionDayEvents(dayEvents: IEvent[], day: Date, visibleHoursRange: { from: number; to: number }): PositionedEvent[] {
   const dayStart = new Date(day);
@@ -127,14 +127,20 @@ export function positionDayEvents(dayEvents: IEvent[], day: Date, visibleHoursRa
   const visibleStart = visibleHoursRange.from * 60;
   const visibleRange = Math.max(1, visibleHoursRange.to * 60 - visibleStart);
 
-  return timed.map(({ event, start, end }) => {
-    const box = boxes.get(event.id) ?? { left: 0, width: 1, zIndex: 1 };
+  // In paint order (later start last; same start, the shorter last), so where two share a layer the
+  // one the layout means to be on top also comes later in the document.
+  const painted = [...timed].sort((a, b) => (boxes.get(a.event.id)?.order ?? 0) - (boxes.get(b.event.id)?.order ?? 0));
+
+  return painted.map(({ event, start, end }) => {
+    const box = boxes.get(event.id) ?? { left: 0, width: 1 };
     const style = {
       top: `${((start - visibleStart) / visibleRange) * 100}%`,
       height: `${(Math.max(end - start, MIN_VISUAL_MINUTES) / 60) * HOUR_HEIGHT_PX}px`,
       left: `${box.left * EVENT_AREA * 100}%`,
       width: `${box.width * EVENT_AREA * 100}%`,
-      "--event-z": Math.min(box.zIndex, 8),
+      // One layer for all of them: the document order above IS the paint order (later start on top),
+      // which a per-group layer could contradict where groups interleave.
+      "--event-z": 1,
     } as CSSProperties;
     return { event, style };
   });

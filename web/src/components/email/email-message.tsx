@@ -13,6 +13,7 @@ import { EmailContent } from './email-content'
 import { Linkify } from '@/components/ui/linkify'
 import { EmailAttachments } from './email-attachments'
 import { EmailInviteCard } from './email-invite-card'
+import { EmailAttachedInvite } from './email-attached-invite'
 import type { CalendarInvite } from '@/lib/email/calendar-invite'
 
 interface EmailAddress {
@@ -95,6 +96,8 @@ interface EmailMessageProps {
   discarding?: boolean
   /** Where an attachment downloads from (a shared thread's, through its share); none: listed only. */
   attachmentHref?: (attachment: EmailAttachment) => string | null
+  /** Where an attached calendar file is read as an invitation (the person's own mailbox only); none: it stays a chip. */
+  inviteHref?: (attachment: EmailAttachment) => string | null
   /** The person's own addresses (lowercase): which guest of an invitation they are. */
   ownAddresses?: ReadonlySet<string>
 }
@@ -110,6 +113,7 @@ export function EmailMessage({
   onDiscard,
   discarding = false,
   attachmentHref,
+  inviteHref,
   ownAddresses,
 }: EmailMessageProps) {
   const [expanded, setExpanded] = useState(defaultExpanded)
@@ -255,6 +259,10 @@ export function EmailMessage({
           </div>
 
           {message.invite && !message.isDraft && <EmailInviteCard invite={message.invite} ownAddresses={ownAddresses} />}
+          {/* No invitation in the message itself: one that came only as an attached .ics is read from the file. */}
+          {!message.invite && !message.isDraft && inviteHref && (
+            <EmailAttachedInvite attachments={message.attachments ?? []} hrefFor={inviteHref} ownAddresses={ownAddresses} />
+          )}
 
           <div className="email-body">
             {message.bodyHtml ? (

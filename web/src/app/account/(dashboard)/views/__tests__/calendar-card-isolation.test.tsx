@@ -118,16 +118,25 @@ describe('a calendar card beside the Calendar page', () => {
     const { onStateChange } = await mountBoth()
     const pageFetchesBefore = eventFetches().filter((u) => params(u).get('maxResults') === '200').length
 
-    const next = inCard('button svg.lucide-chevron-right')!.closest('button')!
+    // The grid's own Next (the sidebar's month picker has arrows of its own).
+    const next = inCard('button[aria-label="Next"]')
     await act(async () => next.click())
     await act(async () => inCard('[data-pick-account]').click())
     await act(async () => {})
 
     expect(onStateChange).toHaveBeenLastCalledWith({ view: 'week', date: '2026-10-11', accounts: ['acct-picked'] })
     const cardFetches = eventFetches().filter((u) => params(u).get('maxResults') === '250')
-    const last = cardFetches[cardFetches.length - 1]
+    // The card reads two ranges: the grid's week, and the sidebar's upcoming events (today and the month ahead).
+    const days = (u: string) => (new Date(params(u).get('timeMax')!).getTime() - new Date(params(u).get('timeMin')!).getTime()) / 86_400_000
+    const gridFetches = cardFetches.filter((u) => days(u) < 10)
+    const upcomingFetches = cardFetches.filter((u) => days(u) >= 10)
+    const last = gridFetches[gridFetches.length - 1]
     expect(params(last).get('accountIds')).toBe('acct-picked')
     expect(new Date(params(last).get('timeMin')!).getDate()).toBe(11)
+    // The upcoming list follows the card's accounts, and stays on today whatever week the grid is at.
+    const lastUpcoming = upcomingFetches[upcomingFetches.length - 1]
+    expect(params(lastUpcoming).get('accountIds')).toBe('acct-picked')
+    expect(new Set(upcomingFetches.map((u) => params(u).get('timeMin'))).size).toBe(1)
     // The page: not one more fetch, and still no account filter.
     const pageFetches = eventFetches().filter((u) => params(u).get('maxResults') === '200')
     expect(pageFetches.length).toBe(pageFetchesBefore)

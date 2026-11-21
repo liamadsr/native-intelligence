@@ -123,12 +123,15 @@ export async function readEmailAttachment(
   messageId: string,
   fileName: string,
   workspaceId?: string,
+  /** A lower cap than ATTACHMENT_READ_MAX_BYTES (a calendar file for the invitation card): a larger file is not downloaded. */
+  maxBytes: number = ATTACHMENT_READ_MAX_BYTES,
 ): Promise<{ fileName: string; bytes: Uint8Array } | null> {
+  const cap = Math.min(maxBytes, ATTACHMENT_READ_MAX_BYTES)
   try {
     for await (const mailbox of mailboxesForThread(userId, '', { workspaceId })) {
       const file = mailbox.provider === 'google'
-        ? await readGmailAttachment(mailbox.token, messageId, fileName)
-        : await readOutlookAttachment(mailbox.token, messageId, fileName)
+        ? await readGmailAttachment(mailbox.token, messageId, fileName, cap)
+        : await readOutlookAttachment(mailbox.token, messageId, fileName, cap)
       if (file) return file
     }
   } catch (err) {
@@ -147,34 +150,34 @@ function findGmailPart(payload: Record<string, unknown> | undefined, fileName: s
   return null
 }
 
-async function readGmailAttachment(accessToken: string, messageId: string, fileName: string): Promise<{ fileName: string; bytes: Uint8Array } | null> {
+async function readGmailAttachment(accessToken: string, messageId: string, fileName: string, cap: number): Promise<{ fileName: string; bytes: Uint8Array } | null> {
   const base = `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}`
   const res = await fetch(`${base}?format=full`, { headers: { Authorization: `Bearer ${accessToken}` } })
   if (!res.ok) return null
   const msg = await res.json()
   const part = findGmailPart(msg?.payload, fileName)
-  if (!part || part.size > ATTACHMENT_READ_MAX_BYTES) return null
+  if (!part || part.size > cap) return null
   const att = await fetch(`${base}/attachments/${encodeURIComponent(part.attachmentId)}`, { headers: { Authorization: `Bearer ${accessToken}` } })
   if (!att.ok) return null
   const data = (await att.json())?.data
   if (typeof data !== 'string') return null
   const bytes = new Uint8Array(Buffer.from(data, 'base64url'))
-  return bytes.byteLength > ATTACHMENT_READ_MAX_BYTES ? null : { fileName, bytes }
+  return bytes.byteLength > cap ? null : { fileName, bytes }
 }
 
-async function readOutlookAttachment(accessToken: string, messageId: string, fileName: string): Promise<{ fileName: string; bytes: Uint8Array } | null> {
+async function readOutlookAttachment(accessToken: string, messageId: string, fileName: string, cap: number): Promise<{ fileName: string; bytes: Uint8Array } | null> {
   const base = `https://graph.microsoft.com/v1.0/me/messages/${encodeURIComponent(messageId)}/attachments`
   const list = await fetch(`${base}?$select=id,name,size`, { headers: { Authorization: `Bearer ${accessToken}` } })
   if (!list.ok) return null
   const items = ((await list.json())?.value ?? []) as Array<{ id?: string; name?: string; size?: number }>
   const hit = items.find((a) => a.name === fileName && a.id)
-  if (!hit || (hit.size ?? 0) > ATTACHMENT_READ_MAX_BYTES) return null
+  if (!hit || (hit.size ?? 0) > cap) return null
   const one = await fetch(`${base}/${encodeURIComponent(hit.id!)}`, { headers: { Authorization: `Bearer ${accessToken}` } })
   if (!one.ok) return null
   const contentBytes = (await one.json())?.contentBytes
   if (typeof contentBytes !== 'string') return null
   const bytes = new Uint8Array(Buffer.from(contentBytes, 'base64'))
-  return bytes.byteLength > ATTACHMENT_READ_MAX_BYTES ? null : { fileName, bytes }
+  return bytes.byteLength > cap ? null : { fileName, bytes }
 }
 
 // =====================================================================

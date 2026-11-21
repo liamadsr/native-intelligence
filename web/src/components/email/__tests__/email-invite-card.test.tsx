@@ -3,9 +3,10 @@
  * The invitation card and the attachment chips. People and addresses are made up.
  *
  * The card shows what the invitation says, marks the organizer, opens the full
- * guest list on "View all guest info", and says whose answer it is. Answering
- * is not connected to a provider yet: with the event on the person's calendar
- * the buttons open it there; without, they are disabled and the card says why.
+ * guest list on "View all guest info", and says whose answer it is. Yes / No /
+ * Maybe answer the invitation through the person's calendar: the card marks
+ * the answer the calendar holds, the one being sent, and the new one; a reply
+ * that fails leaves the old answer marked and says why.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createRoot, type Root } from 'react-dom/client'
@@ -22,7 +23,9 @@ vi.mock('@/lib/open-external', () => ({
   },
 }))
 
-import { EmailInviteCard, inviteWhen } from '../email-invite-card'
+import { EmailInviteCard, InviteReplyError, inviteNote, inviteWhen, type InviteCalendarStatus } from '../email-invite-card'
+import { attachedInviteFile, EmailAttachedInvite } from '../email-attached-invite'
+import { INVITE_MAX_BYTES } from '@/lib/email/calendar-invite'
 import { attachmentKind, EmailAttachments, formatFileSize } from '../email-attachments'
 
 const INVITE: CalendarInvite = {
@@ -50,6 +53,7 @@ let root: Root
 
 beforeEach(() => {
   opened.urls = []
+  replies.mockReset()
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -60,10 +64,28 @@ afterEach(() => {
   container.remove()
 })
 
-async function renderCard(invite: CalendarInvite, found: { response: 'accepted' | 'declined' | 'tentative' | 'pending' | null; link: string | null } | null) {
+type Reply = (invite: CalendarInvite, response: 'accepted' | 'declined' | 'tentative') => Promise<InviteCalendarStatus>
+const LINK = 'https://calendar.example.com/event/7781'
+const ON_CALENDAR: InviteCalendarStatus = { found: true, response: 'pending', link: LINK, canAnswer: true, provider: 'google', accountEmail: 'sam@example.com' }
+const replies = vi.fn<Reply>()
+
+async function renderCard(invite: CalendarInvite, found: InviteCalendarStatus | null, reply: Reply = replies) {
+  const lookup = async () => found
   await act(async () => {
-    root.render(h(EmailInviteCard, { invite, ownAddresses: new Set(['sam@example.com']), lookup: async () => found }))
+    root.render(h(EmailInviteCard, { invite, ownAddresses: new Set(['sam@example.com']), lookup, reply }))
   })
+}
+const note = () => container.querySelector('[data-invite-note]')!
+const pressed = () => [...container.querySelectorAll('[data-invite-answer]')].filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.getAttribute('data-invite-answer'))
+/** A reply the test settles by hand. */
+function deferred() {
+  let resolve!: (status: InviteCalendarStatus) => void
+  let reject!: (err: unknown) => void
+  const promise = new Promise<InviteCalendarStatus>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
 }
 const text = () => container.textContent ?? ''
 const button = (label: string) => [...container.querySelectorAll('button')].find((b) => b.textContent?.trim().startsWith(label))!
@@ -93,26 +115,105 @@ describe('EmailInviteCard', () => {
   })
 
   it('says whose answer it is, and marks the answer the calendar holds', async () => {
-    await renderCard(INVITE, { response: 'tentative', link: 'https://calendar.example.com/event/7781' })
+    await renderCard(INVITE, { ...ON_CALENDAR, response: 'tentative' })
     expect(text()).toContain('Reply for sam@example.com')
-    const pressed = [...container.querySelectorAll('[data-invite-answer]')].filter((b) => b.getAttribute('aria-pressed') === 'true')
-    expect(pressed.map((b) => b.getAttribute('data-invite-answer'))).toEqual(['tentative'])
+    expect(pressed()).toEqual(['tentative'])
+    expect(note().textContent).toBe('Your calendar (sam@example.com) has your answer: Maybe. Choose another to change it.')
   })
 
-  it('opens the event in the calendar to answer, and says replying from here is not connected', async () => {
-    await renderCard(INVITE, { response: 'pending', link: 'https://calendar.example.com/event/7781' })
+  it('answers the invitation: the answer is sent for this invitation, marked while it goes, and kept when the calendar took it', async () => {
+    const sending = deferred()
+    replies.mockReturnValue(sending.promise)
+    await renderCard(INVITE, ON_CALENDAR)
+    expect(pressed()).toEqual([])
     act(() => button('Yes').click())
+    expect(replies).toHaveBeenCalledTimes(1)
+    expect(replies).toHaveBeenCalledWith(INVITE, 'accepted')
+    // While it goes: the clicked answer is busy, the others can't be clicked, nothing is marked as given yet.
+    expect(button('Yes').getAttribute('aria-busy')).toBe('true')
+    expect(button('No').disabled).toBe(true)
+    expect(button('Maybe').disabled).toBe(true)
+    expect(note().textContent).toBe('Sending “Yes”…')
+    act(() => button('Yes').click())
+    expect(replies).toHaveBeenCalledTimes(1)
+
+    await act(async () => sending.resolve({ ...ON_CALENDAR, response: 'accepted' }))
+    expect(pressed()).toEqual(['accepted'])
+    expect(note().textContent).toBe('You answered Yes. Priya Natarajan has been told.')
+    expect(note().getAttribute('role')).toBe('status')
+    expect(opened.urls).toEqual([])
+    // The guest list follows: the person's own row shows the new answer.
+    act(() => button('View all guest info').click())
+    expect([...container.querySelectorAll('[data-invite-guests] li')].map((li) => li.textContent)).toContain('Sam Rivera · sam@example.comYes')
+  })
+
+  it('changes an answer already given, and does nothing when the same answer is clicked again', async () => {
+    replies.mockResolvedValue({ ...ON_CALENDAR, response: 'declined', provider: 'microsoft' })
+    await renderCard(INVITE, { ...ON_CALENDAR, response: 'accepted', provider: 'microsoft' })
+    act(() => button('Yes').click())
+    expect(replies).not.toHaveBeenCalled()
+    await act(async () => button('No').click())
+    expect(replies).toHaveBeenCalledWith(INVITE, 'declined')
+    expect(pressed()).toEqual(['declined'])
+    expect(note().textContent).toBe('You answered No. Priya Natarajan has been told, and Outlook has taken the event off your calendar.')
+  })
+
+  it('keeps the answer the calendar held when a reply fails, says why, and offers the calendar itself', async () => {
+    replies.mockRejectedValue(new InviteReplyError('This event is no longer on your calendar.', 'RSVP_GONE'))
+    await renderCard(INVITE, { ...ON_CALENDAR, response: 'tentative' })
+    await act(async () => button('Yes').click())
+    expect(pressed()).toEqual(['tentative'])
+    expect(note().getAttribute('role')).toBe('alert')
+    expect(note().textContent).toContain('This event is no longer on your calendar.')
+    // Still where they were: every answer can be tried again, and the event opens in the calendar.
+    for (const b of container.querySelectorAll<HTMLButtonElement>('[data-invite-answer]')) expect(b.disabled).toBe(false)
+    act(() => container.querySelector<HTMLButtonElement>('[data-invite-open]')!.click())
+    expect(opened.urls).toEqual([LINK])
+
+    // Trying again clears the failure.
+    replies.mockResolvedValue({ ...ON_CALENDAR, response: 'accepted' })
+    await act(async () => button('Yes').click())
+    expect(note().getAttribute('role')).toBe('status')
+    expect(pressed()).toEqual(['accepted'])
+  })
+
+  it('opens the event in the calendar from "More options", without answering', async () => {
+    await renderCard(INVITE, ON_CALENDAR)
     act(() => button('More options').click())
-    expect(opened.urls).toEqual(['https://calendar.example.com/event/7781', 'https://calendar.example.com/event/7781'])
-    expect(container.querySelector('[data-invite-note]')!.textContent).toContain('not connected yet')
+    expect(opened.urls).toEqual([LINK])
+    expect(replies).not.toHaveBeenCalled()
   })
 
   it('disables the answers when the event is on no connected calendar, and says why', async () => {
     await renderCard(INVITE, null)
     for (const b of container.querySelectorAll<HTMLButtonElement>('[data-invite-answer], [data-invite-more]')) expect(b.disabled).toBe(true)
-    expect(container.querySelector('[data-invite-note]')!.textContent).toContain('not on a connected calendar')
+    expect(note().textContent).toContain('not on a connected calendar')
     act(() => button('Yes').click())
+    expect(replies).not.toHaveBeenCalled()
     expect(opened.urls).toEqual([])
+  })
+
+  it('says what is in the way: no calendar, a sign-in to renew, a calendar that would not read, an event that can’t be answered', async () => {
+    await renderCard(INVITE, { found: false, reason: 'no_calendar' })
+    expect(note().textContent).toContain('No calendar is connected to this workspace')
+    await renderCard({ ...INVITE }, { found: false, reason: 'reconnect', accountEmail: 'sam@example.com' })
+    expect(note().textContent).toContain('Your calendar (sam@example.com) needs signing in again')
+    await renderCard({ ...INVITE }, { found: false, reason: 'unreadable' })
+    expect(note().textContent).toContain('couldn’t be read just now')
+    await renderCard({ ...INVITE }, { found: true, response: null, link: LINK, canAnswer: false, blocked: 'not_invited' })
+    expect(note().textContent).toContain('not on its guest list')
+    for (const b of container.querySelectorAll<HTMLButtonElement>('[data-invite-answer]')) expect(b.disabled).toBe(true)
+    expect(container.querySelector<HTMLButtonElement>('[data-invite-more]')!.disabled).toBe(false)
+  })
+
+  it('never lands a reply on another invitation: the card moved on while it was going', async () => {
+    const sending = deferred()
+    replies.mockReturnValue(sending.promise)
+    await renderCard(INVITE, ON_CALENDAR)
+    act(() => button('Yes').click())
+    await renderCard({ ...INVITE, uid: 'evt-9000@example.com', title: 'Another call' }, { ...ON_CALENDAR, response: 'declined' })
+    await act(async () => sending.resolve({ ...ON_CALENDAR, response: 'accepted' }))
+    expect(pressed()).toEqual(['declined'])
   })
 
   it('joins the call through the external opener', async () => {
@@ -136,6 +237,58 @@ describe('EmailInviteCard', () => {
     expect(container.querySelector('img')).toBeNull()
     expect(container.querySelector('script')).toBeNull()
     expect(text()).toContain('<img src=x onerror=alert(1)>')
+  })
+})
+
+describe('inviteNote', () => {
+  it('says the plain state when nothing has been asked', () => {
+    expect(inviteNote({ status: 'loading', sending: null, sent: null, error: null, organizer: null })).toBe('Looking for this event on your calendar…')
+    expect(inviteNote({ status: { found: true, response: 'pending', canAnswer: true }, sending: null, sent: null, error: null, organizer: null })).toBe(
+      'Your answer goes to the organizer from your calendar.',
+    )
+    expect(inviteNote({ status: { found: true, response: 'accepted', canAnswer: true }, sending: null, sent: 'accepted', error: null, organizer: null })).toBe(
+      'You answered Yes. The organizer has been told.',
+    )
+  })
+})
+
+describe('EmailAttachedInvite', () => {
+  const ics = { name: 'invite.ics', size: 2210, mimeType: 'application/octet-stream' }
+  const pdf = { name: 'agenda.pdf', size: 48211, mimeType: 'application/pdf' }
+
+  it('picks the first calendar file of an invitation’s size, by type or by name', () => {
+    expect(attachedInviteFile([pdf, ics])).toBe(ics)
+    expect(attachedInviteFile([{ name: 'meeting', size: 900, mimeType: 'text/calendar; method=REQUEST' }])?.name).toBe('meeting')
+    expect(attachedInviteFile([pdf])).toBeNull()
+    expect(attachedInviteFile([{ ...ics, size: INVITE_MAX_BYTES + 1 }])).toBeNull()
+  })
+
+  it('reads the attached file once and draws the same invitation card', async () => {
+    const read = vi.fn(async () => INVITE)
+    await act(async () => {
+      root.render(h(EmailAttachedInvite, { attachments: [pdf, ics], hrefFor: (f: { name: string }) => `/invite?name=${f.name}`, read }))
+    })
+    expect(read).toHaveBeenCalledTimes(1)
+    expect((read.mock.calls[0] as unknown[])[0]).toBe('/invite?name=invite.ics')
+    expect(container.querySelector('[data-email-attached-invite] [data-email-invite]')).not.toBeNull()
+    expect(text()).toContain('Planning call')
+  })
+
+  it('draws nothing when there is no calendar file, nowhere to read it, or no event in it', async () => {
+    const read = vi.fn(async () => null)
+    await act(async () => {
+      root.render(h(EmailAttachedInvite, { attachments: [pdf], hrefFor: () => '/invite', read }))
+    })
+    expect(read).not.toHaveBeenCalled()
+    await act(async () => {
+      root.render(h(EmailAttachedInvite, { attachments: [ics], hrefFor: () => null, read }))
+    })
+    expect(read).not.toHaveBeenCalled()
+    await act(async () => {
+      root.render(h(EmailAttachedInvite, { attachments: [ics], hrefFor: () => '/invite', read }))
+    })
+    expect(read).toHaveBeenCalledTimes(1)
+    expect(container.querySelector('[data-email-invite]')).toBeNull()
   })
 })
 
