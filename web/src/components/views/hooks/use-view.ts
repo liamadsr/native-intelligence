@@ -1,6 +1,6 @@
 'use client'
 
-import { DEFAULT_ACTION_COMPLETED_FILTER, completedFilterOfView, type CompletedFilter } from '@/lib/views/completed-window'
+import { defaultCompletedFilterFor, completedFilterOfView, type CompletedFilter } from '@/lib/views/completed-window'
 import { LAZY_GROUP_PAGE_SIZE, carryLazyItems, isLazyGroup, mergeGroupPage, wantsLazyDoneGroups, withCountDelta } from '@/lib/views/lazy-done-groups'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useWorkspaceId } from '@/app/account/workspace-switcher'
@@ -504,7 +504,8 @@ export function defaultConfig(
     // (viewToConfig). A page in the chat (the Tasks panel's lists) is the page,
     // so it opens on this too; an agent's list card keeps 'all' unless the
     // agent's query says otherwise (card-body.tsx baselineOf).
-    completed_filter: entityType === 'action' ? DEFAULT_ACTION_COMPLETED_FILTER : 'all',
+    // Projects: the past month's (Linear's "Completed projects").
+    completed_filter: defaultCompletedFilterFor(entityType),
     show_sub_items: true,
     nested_sub_items: false,
     show_empty_groups: false,
@@ -1037,7 +1038,7 @@ function viewToConfig(view: View): ViewConfig {
     board_group_by: view.board_group_by,
     show_completed: view.show_completed ?? true,
     // Exactly what the view stores (an old `all` stays `all`); a window saved
-    // before migration 671 rides in its metadata (completedFilterOfView).
+    // before migration 672 rides in its metadata (completedFilterOfView).
     completed_filter: completedFilterOfView(view),
     show_sub_items: view.show_sub_items ?? true,
     nested_sub_items: view.nested_sub_items ?? false,

@@ -17,7 +17,7 @@ import {
   type ViewEntityType, type ViewLayout,
 } from '@/lib/views/types'
 import type { ViewConfig } from './hooks/use-view'
-import { COMPLETED_FILTER_LABELS, COMPLETED_FILTER_OPTIONS, type CompletedFilter } from '@/lib/views/completed-window'
+import { COMPLETED_FILTER_LABELS, COMPLETED_FILTER_OPTIONS_BY_ENTITY, COMPLETED_FILTER_ROW_LABEL, takesCompletedFilter, type CompletedFilter } from '@/lib/views/completed-window'
 import { customFieldDisplayProperties, customFieldFilterFields } from '@/lib/views/custom-field-columns'
 import { useCustomFieldDefinitions } from './hooks/use-custom-field-definitions'
 
@@ -276,27 +276,38 @@ export function ViewSettingsPopover({ config, entityType, onChange, lockedScopeF
             </SettingsRow>
           )}
 
+          {/* Completed issues (actions) / Completed projects (projects) */}
+          {takesCompletedFilter(entityType) && (() => {
+            const options = COMPLETED_FILTER_OPTIONS_BY_ENTITY[entityType]
+            const current = config.completed_filter || 'all'
+            const rowLabel = COMPLETED_FILTER_ROW_LABEL[entityType]
+            return (
+              <>
+                <Separator />
+                <SettingsRow label={rowLabel}>
+                  <Select
+                    value={current}
+                    onValueChange={v => onChange({ completed_filter: v as CompletedFilter })}
+                  >
+                    <SelectTrigger className="h-7 w-28 text-xs" aria-label={rowLabel}><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {options.map(o => (
+                        <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                      ))}
+                      {/* A value this list no longer offers (the older 'recent'), shown only on a view that holds it. */}
+                      {!options.some(o => o.value === current) && (
+                        <SelectItem value={current}>{COMPLETED_FILTER_LABELS[current]}</SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </SettingsRow>
+              </>
+            )
+          })()}
+
           {/* Action-specific */}
           {entityType === 'action' && (
             <>
-              <Separator />
-              <SettingsRow label="Completed issues">
-                <Select
-                  value={config.completed_filter || 'all'}
-                  onValueChange={v => onChange({ completed_filter: v as CompletedFilter })}
-                >
-                  <SelectTrigger className="h-7 w-28 text-xs" aria-label="Completed issues"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {COMPLETED_FILTER_OPTIONS.map(o => (
-                      <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                    ))}
-                    {/* The older setting, shown only on a view that still holds it. */}
-                    {config.completed_filter === 'recent' && (
-                      <SelectItem value="recent">{COMPLETED_FILTER_LABELS.recent}</SelectItem>
-                    )}
-                  </SelectContent>
-                </Select>
-              </SettingsRow>
               <SettingsRow label="Show sub-issues">
                 <Switch checked={config.show_sub_items} onCheckedChange={v => onChange({ show_sub_items: v })} />
               </SettingsRow>

@@ -69,6 +69,7 @@ const COMPLETED_RECENT: Row = {
   workflow_state: DONE_STATE,
   updated_at: daysAgo(2),
   created_at: daysAgo(10),
+  completed_at: daysAgo(3),
 }
 
 /** Completed 60 days ago — outside a past_30_days window on updated_at. */
@@ -81,6 +82,7 @@ const COMPLETED_OLD: Row = {
   workflow_state: DONE_STATE,
   updated_at: daysAgo(60),
   created_at: daysAgo(90),
+  completed_at: daysAgo(61),
 }
 
 /** Active, past-due — the overdue preset should return exactly this one. */
@@ -252,6 +254,16 @@ describe('list_actions — filter=completed with a time window', () => {
     expect(filterPath.actions?.map((a) => a.id)).toEqual(
       statusPath.actions?.map((a) => a.id),
     )
+  })
+
+  it('time_field completed_at: finished inside the window (migration 672)', async () => {
+    const result = await runListActions(makeSupabase().supabase, {
+      filter: 'completed',
+      since: 'past_30_days',
+      time_field: 'completed_at',
+    })
+    expect(result.success).toBe(true)
+    expect(result.actions?.map((a) => a.id)).toEqual([COMPLETED_RECENT.id])
   })
 
   it('applies exactly one status_id IN(...) clause — never two disjoint ones', async () => {
