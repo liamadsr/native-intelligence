@@ -113,6 +113,18 @@ describe('CellGrid', () => {
     expect(document.getElementById(activeId()!)?.textContent).toBe('Item 0')
   })
 
+  it('wears glass: no solid fill on cells or headers, one blurred pane each for the header, the first column and its corner', async () => {
+    await mount(makeRows(500))
+    for (const el of container.querySelectorAll('[role="gridcell"], [role="columnheader"], [role="row"]')) {
+      expect(el.className, el.getAttribute('role')!).not.toMatch(/(^|\s)bg-background(\s|$)/)
+      expect(el.className, el.getAttribute('role')!).not.toMatch(/backdrop-blur/)
+    }
+    const panes = [...container.querySelectorAll<HTMLElement>('[data-grid-sticky-glass]')]
+    expect(panes.map((p) => p.dataset.gridStickyGlass).sort()).toEqual(['column', 'corner', 'header'])
+    for (const p of panes) expect(p.className).toMatch(/backdrop-blur/)
+    expect(container.querySelectorAll('[class*="backdrop-blur"]').length).toBe(3)
+  })
+
   it('renders only the rows in view out of 10,000', async () => {
     await mount(makeRows(10_000))
     const rendered = container.querySelectorAll('[role="row"]').length
