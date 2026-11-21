@@ -6,6 +6,7 @@ import {
   BOOT_FALLBACK_ID,
   BOOT_LOAD_POLL_MS,
   BOOT_MAX_RELOADS,
+  BOOT_REFETCH_MS,
   BOOT_RELOAD_STUCK_MS,
   BOOT_RELOAD_WINDOW_MS,
   BOOT_RELOADS_KEY,
@@ -41,15 +42,41 @@ type Page = {
 
 let storage: Storage
 
-const SCRIPT_GLOBALS = ['window', 'document', 'location', 'navigator', 'sessionStorage', 'performance'] as const
+const SCRIPT_GLOBALS = ['window', 'document', 'location', 'navigator', 'sessionStorage', 'performance', 'fetch'] as const
+const ORIGIN = 'https://app.test'
 
 function page(
-  opts: { loaded?: boolean; visible?: boolean; online?: boolean; storage?: Storage; frame?: boolean; noTimeline?: boolean } = {},
+  opts: {
+    loaded?: boolean
+    visible?: boolean
+    online?: boolean
+    storage?: Storage
+    frame?: boolean
+    noTimeline?: boolean
+    /** The page's fetch; none (the default) means the script reloads at once, without fetching. */
+    fetch?: (url: string) => Promise<unknown>
+    /** <script src> on the page. */
+    scripts?: string[]
+    /** <link rel="preload" as="script"> on the page. */
+    preloads?: string[]
+  } = {},
 ): Page {
   const win = new EventTarget() as Win
   win.self = win
   win.top = opts.frame ? {} : win
   const doc = document.implementation.createHTMLDocument('page')
+  for (const src of opts.scripts ?? []) {
+    const s = doc.createElement('script')
+    s.src = src
+    doc.head.appendChild(s)
+  }
+  for (const href of opts.preloads ?? []) {
+    const l = doc.createElement('link')
+    l.rel = 'preload'
+    l.setAttribute('as', 'script')
+    l.href = href
+    doc.head.appendChild(l)
+  }
   let visible = opts.visible ?? true
   let readyState: DocumentReadyState = opts.loaded === false ? 'interactive' : 'complete'
   Object.defineProperty(doc, 'visibilityState', { configurable: true, get: () => (visible ? 'visible' : 'hidden') })
@@ -58,7 +85,15 @@ function page(
   const reload = vi.fn()
   let resources = 0
   const perf = opts.noTimeline ? {} : { getEntriesByType: (type: string) => (type === 'resource' ? new Array(resources) : []) }
-  new Function(...SCRIPT_GLOBALS, BOOT_WATCHDOG_SCRIPT)(win, doc, { reload }, nav, opts.storage ?? storage, perf)
+  new Function(...SCRIPT_GLOBALS, BOOT_WATCHDOG_SCRIPT)(
+    win,
+    doc,
+    { reload, origin: ORIGIN },
+    nav,
+    opts.storage ?? storage,
+    perf,
+    opts.fetch,
+  )
   return {
     win,
     doc,
@@ -262,6 +297,113 @@ describe('the boot watchdog script', () => {
       expect(p.reload).toHaveBeenCalledTimes(1)
       expect(JSON.parse(storage.getItem(BOOT_RELOADS_KEY)!)).toHaveLength(1)
     }
+  })
+
+  describe('fetches the page\'s own scripts before it reloads (WebKit reuses a failed preload otherwise)', () => {
+    const runtime = `${ORIGIN}/_next/static/chunks/runtime.js`
+    const other = `${ORIGIN}/_next/static/chunks/other.js`
+
+    it('fetches each same-origin script and script preload once, then reloads', async () => {
+      const fetched: string[] = []
+      const p = page({
+        scripts: [runtime, other, 'https://cdn.elsewhere.test/lib.js'],
+        preloads: [runtime],
+        fetch: async (url) => {
+          fetched.push(url)
+        },
+      })
+      await vi.advanceTimersByTimeAsync(BOOT_AFTER_LOAD_MS)
+      expect(fetched.sort()).toEqual([other, runtime])
+      expect(p.reload).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not reload before the fetches are back', async () => {
+      let release!: () => void
+      const gate = new Promise<void>((r) => (release = r))
+      const p = page({ scripts: [runtime], fetch: () => gate })
+      await vi.advanceTimersByTimeAsync(BOOT_AFTER_LOAD_MS)
+      expect(p.reload).not.toHaveBeenCalled()
+      release()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(p.reload).toHaveBeenCalledTimes(1)
+    })
+
+    it('reloads anyway when a fetch fails, or hangs past the limit', async () => {
+      const failing = page({ scripts: [runtime], fetch: () => Promise.reject(new TypeError('Load failed')) })
+      await vi.advanceTimersByTimeAsync(BOOT_AFTER_LOAD_MS)
+      expect(failing.reload).toHaveBeenCalledTimes(1)
+
+      const hanging = page({ scripts: [runtime], fetch: () => new Promise(() => {}) })
+      await vi.advanceTimersByTimeAsync(BOOT_AFTER_LOAD_MS + BOOT_REFETCH_MS - 1)
+      expect(hanging.reload).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(1)
+      expect(hanging.reload).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not reload a page that started while its scripts were being fetched', async () => {
+      let release!: () => void
+      const gate = new Promise<void>((r) => (release = r))
+      const p = page({ scripts: [runtime], fetch: () => gate })
+      await vi.advanceTimersByTimeAsync(BOOT_AFTER_LOAD_MS)
+      p.win.__niBoot!()
+      release()
+      await vi.advanceTimersByTimeAsync(BOOT_REFETCH_MS)
+      expect(p.reload).not.toHaveBeenCalled()
+    })
+
+    it('fetches module preloads too', async () => {
+      const fetched: string[] = []
+      const win = page({ fetch: async (url) => void fetched.push(url) })
+      const l = win.doc.createElement('link')
+      l.rel = 'modulepreload'
+      l.href = `${ORIGIN}/_next/static/chunks/module.js`
+      win.doc.head.appendChild(l)
+      await vi.advanceTimersByTimeAsync(BOOT_AFTER_LOAD_MS)
+      expect(fetched).toEqual([`${ORIGIN}/_next/static/chunks/module.js`])
+      expect(win.reload).toHaveBeenCalledTimes(1)
+    })
+
+    it('times the "reload never left" retry from the reload, not from the start of the fetches', async () => {
+      const p = page({ scripts: [runtime], fetch: () => new Promise(() => {}) })
+      await vi.advanceTimersByTimeAsync(BOOT_AFTER_LOAD_MS + BOOT_REFETCH_MS)
+      expect(p.reload).toHaveBeenCalledTimes(1)
+      // The retry fetches again (hanging again), so its reload comes STUCK + REFETCH after the first.
+      await vi.advanceTimersByTimeAsync(BOOT_RELOAD_STUCK_MS + BOOT_REFETCH_MS - 1)
+      expect(p.reload).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(p.reload).toHaveBeenCalledTimes(2)
+    })
+
+    it('the Reload button reloads even a page that has started since (the person asked)', async () => {
+      for (let i = 0; i < BOOT_MAX_RELOADS; i++) {
+        page()
+        vi.advanceTimersByTime(BOOT_AFTER_LOAD_MS)
+      }
+      let release!: () => void
+      const gate = new Promise<void>((r) => (release = r))
+      const last = page({ scripts: [runtime], fetch: () => gate })
+      await vi.advanceTimersByTimeAsync(BOOT_AFTER_LOAD_MS)
+      last.fallback()!.querySelector('button')!.click()
+      last.win.__niBoot!()
+      release()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(last.reload).toHaveBeenCalledTimes(1)
+    })
+
+    it('the Reload button fetches the scripts first too', async () => {
+      for (let i = 0; i < BOOT_MAX_RELOADS; i++) {
+        page()
+        vi.advanceTimersByTime(BOOT_AFTER_LOAD_MS)
+      }
+      const fetched: string[] = []
+      const last = page({ scripts: [runtime], fetch: async (url) => void fetched.push(url) })
+      await vi.advanceTimersByTimeAsync(BOOT_AFTER_LOAD_MS)
+      expect(last.reload).not.toHaveBeenCalled()
+      last.fallback()!.querySelector('button')!.click()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(fetched).toEqual([runtime])
+      expect(last.reload).toHaveBeenCalledTimes(1)
+    })
   })
 
   it('watches once per page, even if the script is in it twice', () => {

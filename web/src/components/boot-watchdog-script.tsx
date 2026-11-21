@@ -29,6 +29,15 @@
  *     cannot be written, it shows "This page didn't finish loading" with a
  *     Reload button instead of a blank window.
  *
+ * EVERY RELOAD FETCHES THE PAGE'S OWN SCRIPTS FIRST. Next preloads the runtime
+ * chunk (`<link rel="preload" as="script">`), and WebKit keeps a failed
+ * preload in its memory cache: `location.reload()` then reuses the failure
+ * without asking the network, every time, until the process ends (seen live on
+ * 2026-11-21 behind a proxy that failed that chunk once: three reloads, three
+ * blank pages, one request). A `fetch()` of the same URL replaces that entry,
+ * so the scripts are fetched (the HTTP cache answers for the ones that loaded),
+ * then the page reloads, after all of them or {@link BOOT_REFETCH_MS}.
+ *
  * Top-level windows only: a frame (the landing page's live demos) shares its
  * tab's sessionStorage with every other frame, and its page shows a poster
  * until it draws anyway.
@@ -45,6 +54,8 @@ export const BOOT_STALL_MS = 30_000
 export const BOOT_LOAD_POLL_MS = 5_000
 /** A reload that never left the page (the server unreachable) is tried again after this. */
 export const BOOT_RELOAD_STUCK_MS = 30_000
+/** The longest a reload waits for the page's scripts to be fetched again. */
+export const BOOT_REFETCH_MS = 8_000
 export const BOOT_FALLBACK_ID = 'ni-boot-fallback'
 
 export const BOOT_WATCHDOG_SCRIPT = `
@@ -70,6 +81,36 @@ export const BOOT_WATCHDOG_SCRIPT = `
     return kept;
   }
 
+  // Fetch the page's own scripts, then reload: a fetch replaces what WebKit remembers of a failed
+  // preload, which a plain reload would reuse. \`always\`: the person asked (the Reload button).
+  // \`reloaded\` runs right after the reload is asked for.
+  function reloadFresh(always, reloaded) {
+    var urls = [], seenUrl = {}, left, done = false, els, i, u;
+    function go() {
+      if (done) return;
+      done = true;
+      if (always || !booted()) {
+        location.reload();
+        if (reloaded) reloaded();
+      }
+    }
+    function settle() { if (--left <= 0) go(); }
+    try {
+      if (typeof fetch !== 'function') { go(); return; }
+      els = d.querySelectorAll('script[src],link[rel="preload"][as="script"],link[rel="modulepreload"]');
+      for (i = 0; i < els.length; i++) {
+        u = els[i].src || els[i].href;
+        if (u && u.indexOf(location.origin + '/') === 0 && !seenUrl[u]) { seenUrl[u] = true; urls.push(u); }
+      }
+    } catch (_) { go(); return; }
+    left = urls.length;
+    if (!left) { go(); return; }
+    setTimeout(go, ${BOOT_REFETCH_MS});
+    for (i = 0; i < urls.length; i++) {
+      try { fetch(urls[i]).then(settle, settle); } catch (_) { settle(); }
+    }
+  }
+
   function fallback() {
     if (d.getElementById(ID)) return;
     var box = d.createElement('div');
@@ -86,7 +127,7 @@ export const BOOT_WATCHDOG_SCRIPT = `
     button.textContent = 'Reload';
     button.style.cssText = 'font:inherit;color:inherit;background:transparent;border:1px solid currentColor;' +
       'border-radius:6px;padding:4px 14px;cursor:pointer';
-    button.onclick = function () { location.reload(); };
+    button.onclick = function () { reloadFresh(true); };
     box.appendChild(text);
     box.appendChild(button);
     (d.body || d.documentElement).appendChild(box);
@@ -104,9 +145,10 @@ export const BOOT_WATCHDOG_SCRIPT = `
       try {
         sessionStorage.setItem(KEY, noted);
         if (sessionStorage.getItem(KEY) === noted) {
-          location.reload();
-          // Still here later: the reload never left (the server unreachable). Try again, on the budget.
-          setTimeout(function () { acted = false; check(); }, ${BOOT_RELOAD_STUCK_MS});
+          reloadFresh(false, function () {
+            // Still here a while after the reload: it never left (the server unreachable). Try again, on the budget.
+            setTimeout(function () { acted = false; check(); }, ${BOOT_RELOAD_STUCK_MS});
+          });
           return;
         }
       } catch (_) {}
