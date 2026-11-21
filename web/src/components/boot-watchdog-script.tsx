@@ -14,10 +14,13 @@
  *
  * An inline script runs while the HTML is parsed, chunks or not, so it is the
  * one piece that can notice. The app calls `window.__niBoot()` once React has
- * committed (BootMark, in the root layout). Until then:
+ * committed (BootMark, in the root layout), and so does the global error page
+ * unless what it shows is itself a chunk that failed to load. Until then:
  *   - {@link BOOT_AFTER_LOAD_MS} after the page's `load` (every chunk loaded or
- *     failed by then), or {@link BOOT_ABSOLUTE_MS} after the HTML started (a
- *     load that never ends), a page that has not started is reloaded;
+ *     failed by then), a page that has not started is reloaded; a load that
+ *     never ends is reloaded once it is at least {@link BOOT_ABSOLUTE_MS} old
+ *     AND nothing has finished downloading for {@link BOOT_STALL_MS} (a slow
+ *     link still bringing chunks in is left to finish);
  *   - only while it is visible and online: otherwise it waits for the window
  *     to come back into view or the network to return;
  *   - at most {@link BOOT_MAX_RELOADS} times in {@link BOOT_RELOAD_WINDOW_MS}
@@ -26,6 +29,10 @@
  *     cannot be written, it shows "This page didn't finish loading" with a
  *     Reload button instead of a blank window.
  *
+ * Top-level windows only: a frame (the landing page's live demos) shares its
+ * tab's sessionStorage with every other frame, and its page shows a poster
+ * until it draws anyway.
+ *
  * Production only: in `next dev` a slow first compile would read as a failure.
  */
 export const BOOT_RELOADS_KEY = 'ni:boot-reloads'
@@ -33,6 +40,9 @@ export const BOOT_MAX_RELOADS = 3
 export const BOOT_RELOAD_WINDOW_MS = 10 * 60_000
 export const BOOT_AFTER_LOAD_MS = 10_000
 export const BOOT_ABSOLUTE_MS = 60_000
+export const BOOT_STALL_MS = 30_000
+/** How often a load that has not ended is looked at. */
+export const BOOT_LOAD_POLL_MS = 5_000
 /** A reload that never left the page (the server unreachable) is tried again after this. */
 export const BOOT_RELOAD_STUCK_MS = 30_000
 export const BOOT_FALLBACK_ID = 'ni-boot-fallback'
@@ -40,7 +50,7 @@ export const BOOT_FALLBACK_ID = 'ni-boot-fallback'
 export const BOOT_WATCHDOG_SCRIPT = `
 (function () {
   var w = window, d = document;
-  if (w.__niBootWatch) return;
+  if (w.__niBootWatch || w.self !== w.top) return;
   w.__niBootWatch = true;
   var KEY = '${BOOT_RELOADS_KEY}', MAX = ${BOOT_MAX_RELOADS}, SPAN = ${BOOT_RELOAD_WINDOW_MS};
   var ID = '${BOOT_FALLBACK_ID}';
@@ -110,7 +120,20 @@ export const BOOT_WATCHDOG_SCRIPT = `
   w.addEventListener('online', retry);
   function afterLoad() { setTimeout(check, ${BOOT_AFTER_LOAD_MS}); }
   if (d.readyState === 'complete') afterLoad(); else w.addEventListener('load', afterLoad);
-  setTimeout(check, ${BOOT_ABSOLUTE_MS});
+
+  // A load that never ends: reloaded once old enough AND stalled (no download finished for a while).
+  var started = Date.now(), seen = -1, movedAt = started;
+  function finished() {
+    try { return performance.getEntriesByType('resource').length; } catch (_) { return -1; }
+  }
+  function watchLoad() {
+    if (acted || booted() || d.readyState === 'complete') return; // the load path takes it from here
+    var n = finished(), now = Date.now();
+    if (n !== seen) { seen = n; movedAt = now; }
+    if (now - started >= ${BOOT_ABSOLUTE_MS} && (n < 0 || now - movedAt >= ${BOOT_STALL_MS})) check();
+    else setTimeout(watchLoad, ${BOOT_LOAD_POLL_MS});
+  }
+  setTimeout(watchLoad, ${BOOT_LOAD_POLL_MS});
 
   // BootMark calls this once React has committed.
   w.__niBoot = function () {

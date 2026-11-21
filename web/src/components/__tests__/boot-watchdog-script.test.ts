@@ -4,32 +4,51 @@ import {
   BOOT_ABSOLUTE_MS,
   BOOT_AFTER_LOAD_MS,
   BOOT_FALLBACK_ID,
+  BOOT_LOAD_POLL_MS,
   BOOT_MAX_RELOADS,
   BOOT_RELOAD_STUCK_MS,
   BOOT_RELOAD_WINDOW_MS,
   BOOT_RELOADS_KEY,
+  BOOT_STALL_MS,
   BOOT_WATCHDOG_SCRIPT,
 } from '../boot-watchdog-script'
 
+type Win = EventTarget & {
+  __niBoot?: () => void
+  __niBooted?: boolean
+  __niBootWatch?: boolean
+  self?: unknown
+  top?: unknown
+}
+
 /**
  * One page load: its own window and document, the tab's sessionStorage (which
- * survives a reload), and a `location.reload` that only counts. The script is
- * run as the page runs it, with those names bound to the stand-ins.
+ * survives a reload), a `location.reload` that only counts, and a resource
+ * timeline the test moves on (`finish`). The script is run as the page runs
+ * it, with those names bound to the stand-ins.
  */
 type Page = {
-  win: EventTarget & { __niBoot?: () => void; __niBooted?: boolean; __niBootWatch?: boolean }
+  win: Win
   doc: Document
   reload: ReturnType<typeof vi.fn>
   setVisible: (visible: boolean) => void
   setOnline: (online: boolean) => void
   load: () => void
+  /** One more resource finished downloading. */
+  finish: () => void
   fallback: () => HTMLElement | null
 }
 
 let storage: Storage
 
-function page(opts: { loaded?: boolean; visible?: boolean; online?: boolean; storage?: Storage } = {}): Page {
-  const win = new EventTarget() as Page['win']
+const SCRIPT_GLOBALS = ['window', 'document', 'location', 'navigator', 'sessionStorage', 'performance'] as const
+
+function page(
+  opts: { loaded?: boolean; visible?: boolean; online?: boolean; storage?: Storage; frame?: boolean; noTimeline?: boolean } = {},
+): Page {
+  const win = new EventTarget() as Win
+  win.self = win
+  win.top = opts.frame ? {} : win
   const doc = document.implementation.createHTMLDocument('page')
   let visible = opts.visible ?? true
   let readyState: DocumentReadyState = opts.loaded === false ? 'interactive' : 'complete'
@@ -37,17 +56,16 @@ function page(opts: { loaded?: boolean; visible?: boolean; online?: boolean; sto
   Object.defineProperty(doc, 'readyState', { configurable: true, get: () => readyState })
   const nav = { onLine: opts.online ?? true }
   const reload = vi.fn()
-  new Function('window', 'document', 'location', 'navigator', 'sessionStorage', BOOT_WATCHDOG_SCRIPT)(
-    win,
-    doc,
-    { reload },
-    nav,
-    opts.storage ?? storage,
-  )
+  let resources = 0
+  const perf = opts.noTimeline ? {} : { getEntriesByType: (type: string) => (type === 'resource' ? new Array(resources) : []) }
+  new Function(...SCRIPT_GLOBALS, BOOT_WATCHDOG_SCRIPT)(win, doc, { reload }, nav, opts.storage ?? storage, perf)
   return {
     win,
     doc,
     reload,
+    finish() {
+      resources++
+    },
     setVisible(v) {
       visible = v
       doc.dispatchEvent(new Event('visibilitychange'))
@@ -94,12 +112,54 @@ describe('the boot watchdog script', () => {
     expect(JSON.parse(storage.getItem(BOOT_RELOADS_KEY)!)).toHaveLength(1)
   })
 
-  it('gives a page whose load never ends the absolute deadline', () => {
+  it('reloads a load that never ends once it is old enough and nothing has finished downloading for a while', () => {
     const p = page({ loaded: false })
-    vi.advanceTimersByTime(BOOT_ABSOLUTE_MS - 1)
+    vi.advanceTimersByTime(BOOT_ABSOLUTE_MS - BOOT_LOAD_POLL_MS)
     expect(p.reload).not.toHaveBeenCalled()
-    vi.advanceTimersByTime(1)
+    vi.advanceTimersByTime(BOOT_LOAD_POLL_MS)
     expect(p.reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves a slow load alone while chunks keep arriving, and reloads once they stop', () => {
+    const p = page({ loaded: false })
+    // A slow link: a chunk finishes every 10 s, well past the deadline.
+    for (let t = 0; t < BOOT_ABSOLUTE_MS * 2; t += 10_000) {
+      p.finish()
+      vi.advanceTimersByTime(10_000)
+    }
+    expect(p.reload).not.toHaveBeenCalled()
+    // Then nothing more arrives.
+    vi.advanceTimersByTime(BOOT_STALL_MS + BOOT_LOAD_POLL_MS)
+    expect(p.reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('a slow load that ends hands over to the after-load check', () => {
+    const p = page({ loaded: false })
+    for (let t = 0; t < BOOT_ABSOLUTE_MS; t += 10_000) {
+      p.finish()
+      vi.advanceTimersByTime(10_000)
+    }
+    p.load()
+    p.win.__niBoot!()
+    vi.advanceTimersByTime(BOOT_ABSOLUTE_MS * 2)
+    expect(p.reload).not.toHaveBeenCalled()
+  })
+
+  it('without a resource timeline, a load that never ends gets the plain deadline', () => {
+    const p = page({ loaded: false, noTimeline: true })
+    vi.advanceTimersByTime(BOOT_ABSOLUTE_MS - BOOT_LOAD_POLL_MS)
+    expect(p.reload).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(BOOT_LOAD_POLL_MS)
+    expect(p.reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('does nothing in a frame', () => {
+    const p = page({ frame: true })
+    vi.advanceTimersByTime(BOOT_ABSOLUTE_MS * 3)
+    expect(p.reload).not.toHaveBeenCalled()
+    expect(p.fallback()).toBeNull()
+    expect(p.win.__niBoot).toBeUndefined()
+    expect(storage.getItem(BOOT_RELOADS_KEY)).toBeNull()
   })
 
   it('waits for a hidden window to come back into view', () => {
@@ -206,13 +266,7 @@ describe('the boot watchdog script', () => {
 
   it('watches once per page, even if the script is in it twice', () => {
     const p = page()
-    new Function('window', 'document', 'location', 'navigator', 'sessionStorage', BOOT_WATCHDOG_SCRIPT)(
-      p.win,
-      p.doc,
-      { reload: p.reload },
-      { onLine: true },
-      storage,
-    )
+    new Function(...SCRIPT_GLOBALS, BOOT_WATCHDOG_SCRIPT)(p.win, p.doc, { reload: p.reload }, { onLine: true }, storage, {})
     // Short of the stuck-reload retry: one watch reloads once, two would reload twice.
     vi.advanceTimersByTime(BOOT_AFTER_LOAD_MS)
     expect(p.reload).toHaveBeenCalledTimes(1)
