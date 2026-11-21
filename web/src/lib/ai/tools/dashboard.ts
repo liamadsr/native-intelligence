@@ -50,8 +50,9 @@ export function createDashboardTools(
           { closedStateIds: closedStates.ids, confirmedOnly: true, memberId: member.id },
         )
 
-        // Done this week: the same rows in a completed state, changed in the
-        // last seven days (completion bumps updated_at; there's no completed_at).
+        // Done this week: the same rows in a completed state, finished in the
+        // last seven days (completed_at, kept by migration 672's trigger; an
+        // edit to an old finished action no longer counts it again).
         const { count: recentlyCompletedCount } =
           closedStates.completedIds.length > 0
             ? await supabase
@@ -62,7 +63,7 @@ export function createDashboardTools(
                 .eq('confirmation', 'confirmed')
                 .eq('assigned.member_id', member.id)
                 .in('status_id', closedStates.completedIds)
-                .gte('updated_at', sevenDaysAgo.toISOString())
+                .gte('completed_at', sevenDaysAgo.toISOString())
             : { count: 0 }
 
         const overdue: { identifier: string; title: string; due_date: string; priority: string }[] = []

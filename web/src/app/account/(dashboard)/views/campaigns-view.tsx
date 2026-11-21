@@ -27,7 +27,7 @@ import { Megaphone, Plus, Repeat } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
-import { Textarea } from '@/components/ui/textarea'
+import { MentionTextarea } from '@/components/mentions/mention-textarea'
 import {
   Dialog,
   DialogContent,
@@ -366,11 +366,12 @@ function CampaignEditor({
           </Field>
 
           <Field label="Notes">
-            <Textarea
+            <MentionTextarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
-              placeholder="Plan, audience, anything worth remembering."
+              placeholder="Plan, audience, anything worth remembering. @ to mention"
+              className="flex min-h-[60px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:border-foreground/30 md:text-sm"
             />
           </Field>
 

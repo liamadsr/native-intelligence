@@ -1,3 +1,4 @@
+import { notifyDocumentMentions } from '@/lib/documents/mention-notifications'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { ENTITY_REF_PATTERN } from '@/components/entity-refs/types'
 import { MAX_MENTIONED_RECORDS, syncMentions, type MentionRef } from '@/lib/entity-links/mentions'
@@ -159,6 +160,10 @@ export async function syncDocumentLinks(
     removable: removable.filter((r) => !named.has(mentionKey(r))),
   })
   if (result.error) console.warn('[wikilinks] mention sync failed:', documentId, result.error)
+
+  // A teammate newly @-mentioned is told, once (docs/plans/mentions-everywhere.md, decision 4).
+  const people = (result.fresh ?? []).filter((r) => r.type === 'contact').map((r) => r.id)
+  if (people.length && memberId) await notifyDocumentMentions(supabase, { workspaceId, documentId, authorMemberId: memberId, contactIds: people })
 
   return { resolved: resolved.size, unresolved }
 }

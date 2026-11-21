@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentWorkspaceId } from '@/lib/workspace'
+import { syncDescriptionMentions } from '@/lib/entity-links/description-mentions'
 import { NextResponse, type NextRequest } from 'next/server'
 import { forbidden, notFound } from '@/lib/api-errors'
 import { getServiceClient } from '@/lib/admin'
@@ -175,6 +176,13 @@ export async function PATCH(
 
   updates.updated_at = new Date().toISOString()
 
+  // The notes' `@` chips before this edit (to take back only what they named and the new text doesn't).
+  let previousNotes: string | null = null
+  if (body.notes !== undefined) {
+    const { data: prev } = await supabase.from('contact').select('notes').eq('id', id).eq('workspace_id', workspaceId).maybeSingle()
+    previousNotes = typeof prev?.notes === 'string' ? prev.notes : null
+  }
+
   const { data, error } = await supabase
     .from('contact')
     .update(updates)
@@ -184,6 +192,19 @@ export async function PATCH(
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // The notes' `@` chips become `mentions` edges, and a teammate newly
+  // mentioned is told (non-blocking, fail-soft: never fails the save).
+  if (body.notes !== undefined) {
+    await syncDescriptionMentions(supabase, {
+      workspaceId,
+      source: { type: 'contact', id },
+      markdown: typeof updates.notes === 'string' ? updates.notes : '',
+      previousMarkdown: previousNotes,
+      userId: user.id,
+      title: typeof data?.full_name === 'string' ? data.full_name : null,
+    })
+  }
 
   // A contact an UNATTENDED run created carries a HubSpot push HOLD
   // (metadata.hubspot_push_hold). Editing a field here is NOT the review that

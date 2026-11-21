@@ -8,12 +8,21 @@ import type { EntityTypeSubset, LinkableEntityType } from '@/lib/knowledge/entit
 /**
  * The kinds a person can @-mention: records people work on, and uploaded
  * files (fenced as the attachments table is: its uploader's, or on a record
- * the author can see). Not claims (facts are cited, not mentioned), not mail
- * (shown to no one, migration 341), not a chat with the agent (its person's
- * own: it mentions, it is never mentioned), not a member (team chat's
- * `mentions` column holds people), and not cycles or milestones (no picker
- * offers them). A Studio video or Studio project is mentionable by a member
- * who may use the Studio (never a guest).
+ * the author can see). Not claims (facts are cited, not mentioned), not a
+ * member (team chat's `mentions` column holds people), and not cycles or
+ * milestones (no picker offers them). A Studio video or Studio project is
+ * mentionable by a member who may use the Studio (never a guest).
+ *
+ * Mail (`email_thread`) and a chat with the agent (`conversation`) reverse
+ * migration 341's "shown to no one" for the one case of an explicit mention
+ * by their OWNER (docs/plans/mentions-everywhere.md, decision 1): each is
+ * mentionable only by the person whose mail/chat it is (visibleMentionTargets
+ * fences on `user_id`), and a mention where teammates read it is what shares
+ * it with them. Search still finds only your own.
+ *
+ * Sequences and prospect lists became graph endpoints with "mentions
+ * everywhere" (every member's, so unfenced). Teams are not mentionable: a
+ * private team's edges would need a database fence of their own.
  */
 export const MENTIONABLE_TYPES = [
   'action',
@@ -35,6 +44,12 @@ export const MENTIONABLE_TYPES = [
   // The Studio's (624): fenced for the writer as a member who is not a guest.
   'studio_video',
   'studio_project',
+  // Outreach (mentions everywhere): sequences and prospect lists are every member's.
+  'sequence',
+  'prospect_list',
+  // Owner-only (decision 1): mail and agent chats, fenced on user_id.
+  'email_thread',
+  'conversation',
 ] as const satisfies readonly EntityTypeSubset<LinkableEntityType>[]
 export type MentionableType = (typeof MENTIONABLE_TYPES)[number]
 

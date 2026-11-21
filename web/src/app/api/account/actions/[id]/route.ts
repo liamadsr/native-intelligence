@@ -4,6 +4,7 @@ import { createNotification } from '@/lib/notifications'
 import { emitStatusChange } from '@/lib/flows/emit-status-change'
 import { checkDelegate, responsibleAssigneeIds } from '@/lib/actions/delegate'
 import { trackServerEvent } from '@/lib/posthog'
+import { syncDescriptionMentions } from '@/lib/entity-links/description-mentions'
 import { NextResponse, type NextRequest } from 'next/server'
 
 // `source_capture` is the meeting this action was extracted from. Its FK still
@@ -141,11 +142,12 @@ export async function PATCH(
   const { id } = await params
   const body = await request.json()
 
-  // Fetch previous state for change detection (notifications)
+  // Fetch previous state for change detection (notifications) and, for the
+  // description, the mention edges its text named before this edit.
   const [{ data: previousData }, { data: previousAssignees }] = await Promise.all([
     supabase
       .from('actions')
-      .select('assignee_id, status_id, priority, team_id')
+      .select('assignee_id, status_id, priority, team_id, description')
       .eq('id', id)
       .eq('workspace_id', workspaceId)
       .single(),
@@ -491,6 +493,20 @@ export async function PATCH(
         actorUserId: user.id,
       })
     }
+  }
+
+  // The description's `@` chips become `mentions` edges, and a teammate newly
+  // mentioned is told (non-blocking, fail-soft: never fails the save).
+  if (body.description !== undefined) {
+    await syncDescriptionMentions(supabase, {
+      workspaceId,
+      source: { type: 'action', id },
+      markdown: typeof updates.description === 'string' ? updates.description : '',
+      previousMarkdown: typeof previousData?.description === 'string' ? previousData.description : null,
+      userId: user.id,
+      memberId: member?.id ?? null,
+      title: typeof flattened.title === 'string' ? flattened.title : null,
+    })
   }
 
   return NextResponse.json({ action: flattened })

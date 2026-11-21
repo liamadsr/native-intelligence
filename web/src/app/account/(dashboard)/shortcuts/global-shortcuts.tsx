@@ -22,10 +22,11 @@ import { useHotkeys, type HotkeyDefinition } from '@/lib/hotkeys'
 import { GO_TO, GO_TO_PREFIX, type GoToDef } from '@/lib/shortcuts'
 import { pagesFor, type OfferedPage } from '@/lib/chat-cards/page-menu'
 import { openTarget } from '@/lib/chat-cards/open-card'
-import { minimizeFrontCards } from '@/components/chat-cards/front-card'
+import { frontCard, minimizeFrontCards } from '@/components/chat-cards/front-card'
 import { useIsDesktop } from '@/components/desktop-titlebar'
 import { useIsWorkspaceGuest, useWorkspaceEdition } from '@/app/account/workspace-switcher'
-import { PAGE_GROUPS, groupOpenSlug } from '../rail/page-groups'
+import { PAGE_GROUPS, groupOpenSlug, isPageGroupId, rememberGroupPage } from '../rail/page-groups'
+import { ownPageOfCard, railPagesFor } from '../rail/rail-pages'
 import { openShortcutsSheet } from './open-shortcuts-sheet'
 
 /** Open a go-to's place, as the rail would. False when this workspace doesn't offer it. */
@@ -48,6 +49,22 @@ export function openGoTo(def: GoToDef, offered: readonly OfferedPage[]): boolean
   return true
 }
 
+/**
+ * The page `step` along from the group page in front (`[` and `]`: its
+ * sub-nav's order, round from the last to the first), or null: no group's
+ * page in front, or nothing else in its group here.
+ */
+export function steppedGroupPage(offered: readonly OfferedPage[], step: number): string | null {
+  const front = frontCard()
+  const own = front ? ownPageOfCard(front.spec) : null
+  if (!own || !isPageGroupId(own.id)) return null
+  const members = railPagesFor(offered).find((p) => p.def.id === own.id)?.members ?? []
+  if (members.length < 2) return null
+  const at = members.findIndex((m) => m.slug === own.slug)
+  if (at < 0) return null
+  return members[(at + step + members.length) % members.length].slug
+}
+
 export function GlobalShortcuts() {
   const edition = useWorkspaceEdition()
   const desktop = useIsDesktop()
@@ -64,6 +81,21 @@ export function GlobalShortcuts() {
           globalGuard: true,
           handler: () => {
             if (!openGoTo(g, offered)) toast(`${g.label} isn’t on in this workspace`)
+          },
+        }),
+      ),
+      // `[` and `]`: the previous and next page in the group in front (its
+      // sub-nav, as page-group-panel.tsx opens them). Left alone elsewhere.
+      ...([['[', -1], [']', 1]] as const).map(
+        ([key, step]): HotkeyDefinition => ({
+          key,
+          globalGuard: true,
+          when: () => steppedGroupPage(offered, step) !== null,
+          handler: () => {
+            const slug = steppedGroupPage(offered, step)
+            if (!slug) return
+            rememberGroupPage(slug)
+            openTarget({ type: 'page', slug }, { from: 'shortcut' })
           },
         }),
       ),

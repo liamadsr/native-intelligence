@@ -162,6 +162,8 @@ describe('POST /api/account/captures/[id]/comments', () => {
       'hello there',
       undefined,
       undefined,
+      // It mentions no one and nothing.
+      { memberIds: [], records: [] },
     )
     expect(hoisted.fromTables).not.toContain('member')
   })

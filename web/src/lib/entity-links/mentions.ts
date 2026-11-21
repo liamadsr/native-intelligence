@@ -82,6 +82,20 @@ async function visibleIdsOf(
     if (isPrivateGraphKind(type)) return [...(await visiblePrivateKindIds(supabase, type, userId, ids, workspaceId))]
     // A file: its uploader's, or on a record they may see (src/lib/attachments/visibility.ts).
     if (type === 'attachment') return [...(await visibleAttachmentIds(supabase, { workspaceId, userId }, ids))]
+    // Mail and agent chats are their OWNER's alone (decision 1). Their tables'
+    // RLS is owner-only, but this fence also runs on a service client (the
+    // agent routes) where RLS hides nothing, so the rule is restated: only the
+    // mail/chat whose user_id is the writer may be mentioned.
+    if (type === 'email_thread' || type === 'conversation') {
+      if (!userId) return []
+      const table = type === 'email_thread' ? 'email_thread_index' : 'chat_conversations'
+      const { data, error } = await supabase.from(table).select('id').eq('workspace_id', workspaceId).eq('user_id', userId).in('id', ids)
+      if (error) {
+        console.warn('[mentions] owner fence read failed:', type, error.message)
+        return []
+      }
+      return ((data ?? []) as Array<{ id?: unknown }>).filter((r): r is { id: string } => typeof r.id === 'string').map((r) => r.id)
+    }
     const table = WORKSPACE_SCOPED_TABLE[type]
     if (!table) return []
     let query = supabase.from(table).select('id').eq('workspace_id', workspaceId).in('id', ids)
@@ -138,6 +152,8 @@ export interface SyncMentionsResult {
   mentioned: MentionRef[]
   added: number
   removed: number
+  /** The targets this call newly mentioned (an edge it wrote): who a surface tells, once. */
+  fresh?: MentionRef[]
   error?: string
 }
 
@@ -198,7 +214,7 @@ export async function syncMentions(supabase: SupabaseClient, input: SyncMentions
       )
       if (error) return { mentioned, added: 0, removed: stale.length, error: error.message }
     }
-    return { mentioned, added: fresh.length, removed: stale.length }
+    return { mentioned, added: fresh.length, removed: stale.length, fresh }
   } catch (err) {
     return { mentioned: [], added: 0, removed: 0, error: err instanceof Error ? err.message : 'unknown' }
   }

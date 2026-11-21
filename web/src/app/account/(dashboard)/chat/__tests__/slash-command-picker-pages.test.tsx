@@ -73,7 +73,8 @@ describe('the menu’s pages and skills', () => {
     expect(groups()).toEqual(['Pages', 'Skills'])
     expect(labels().slice(0, 2)).toEqual([pages[0].label, pages[1].label])
     expect(labels().slice(-2)).toEqual(['Morning Brief', 'Scout'])
-    expect(tabs()).toEqual(['all', 'pages', 'skills'])
+    // The strip is grouped: the skills sit under Agents & skills, the pages keep their own tab.
+    expect(tabs()).toEqual(['all', 'agents_skills', 'pages'])
   })
 
   it('lists only the pages that are on in the workspace', async () => {

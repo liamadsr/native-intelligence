@@ -21,6 +21,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   applyCompletedFilter,
+  applyProjectCompletedFilter,
   applyEntityDefaults,
   applyFilters,
   applyOrdering,
@@ -303,6 +304,9 @@ export async function runListQuery(
   if (query.search && CARD_SEARCHABLE_ENTITIES.has(entity)) applySearch(q, entity, query.search)
   if (entity === 'action') {
     await applyCompletedFilter(scope.supabase, q, query.completed_filter ?? 'all', query.show_completed ?? true, scope.workspaceId)
+  } else if (entity === 'project') {
+    // As for actions: absent is 'all' on a list card.
+    applyProjectCompletedFilter(q, query.completed_filter ?? 'all', query.show_completed ?? true)
   }
   applyOrdering(q, ordering, entity, { fieldTypes })
   applyPagination(q, 1, limit)

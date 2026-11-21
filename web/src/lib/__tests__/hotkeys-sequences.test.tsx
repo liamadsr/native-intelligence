@@ -119,4 +119,22 @@ describe('useHotkeys sequences', () => {
     press(document.body, 'm')
     expect(mail).toHaveBeenCalledTimes(1)
   })
+
+  it('a hotkey whose `when` says no is skipped before anything is prevented', () => {
+    const owned = vi.fn()
+    let mine = false
+    function Owned() {
+      useHotkeys([{ key: 'j', when: () => mine, handler: owned }])
+      return null
+    }
+    const other = createRoot(document.createElement('div'))
+    act(() => other.render(h(Owned)))
+    const e = press(document.body, 'j')
+    expect(owned).not.toHaveBeenCalled()
+    expect(e.defaultPrevented).toBe(false)
+    mine = true
+    expect(press(document.body, 'j').defaultPrevented).toBe(true)
+    expect(owned).toHaveBeenCalledTimes(1)
+    act(() => other.unmount())
+  })
 })

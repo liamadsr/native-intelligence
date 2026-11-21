@@ -11,11 +11,14 @@ interface CommentNotificationParams {
   commentBody: string
   commentId: string
   parentId?: string
+  /** The teammates the comment @-mentions (fenced to the workspace): each is told once, as mentioned. */
+  mentionedMemberIds?: readonly string[]
 }
 
 /**
  * Send notifications for a new comment. Handles:
  * - comment_reply: if replying to a specific comment, notify parent author
+ * - mentioned: each teammate the comment @-mentions
  * - comment_added: notify entity owner + previous commenters
  *
  * Non-blocking — fire and forget.
@@ -107,6 +110,28 @@ export async function sendCommentNotifications(params: CommentNotificationParams
         })
         notified.add(parentComment.author_id)
       }
+    }
+
+    // 1b. Whoever the comment @-mentions hears that, and nothing weaker for
+    // the same comment. A private document stays its creator's.
+    for (const recipientId of new Set(params.mentionedMemberIds ?? [])) {
+      if (recipientId === params.authorMemberId || notified.has(recipientId)) continue
+      if (privateTo !== undefined && recipientId !== privateTo) continue
+      await createNotification({
+        workspaceId: params.workspaceId,
+        recipientId,
+        type: 'mentioned',
+        title: `${actorName} mentioned you on ${parentTitle}`,
+        body: params.commentBody.substring(0, 100),
+        actorId: params.authorMemberId,
+        targetType: params.commentableType,
+        targetId: params.commentableId,
+        metadata: {
+          comment_preview: commentPreview,
+          comment_id: params.commentId,
+        },
+      })
+      notified.add(recipientId)
     }
 
     // 2. Notify entity owner

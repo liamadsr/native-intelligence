@@ -10,7 +10,9 @@
  */
 import type { CaptureListItem } from '@/app/account/(dashboard)/views/capture-utils'
 import type { OpenTarget } from '@/lib/chat-cards/open-card'
+import type { MentionableType } from '@/lib/entity-links/mentionable'
 import type { EntityType } from '@/lib/knowledge/entity-registry'
+import { FINDABLE, FINDABLE_KINDS, MENTION_FINDABLE_KINDS, TURN_FINDABLE_KINDS, type FindableKind, type MentionFindableKind, type TurnFindableKind } from './findable-registry'
 
 /**
  * The kinds the search finds, in the order the menu lists them by default:
@@ -23,26 +25,12 @@ import type { EntityType } from '@/lib/knowledge/entity-registry'
  * 'studio_video' and 'studio_project' (migration 620): the Studio's videos and
  * Studio projects by title, for a member who may use the Studio where it is
  * on; opened as the Studio page's card on them.
+ *
+ * The list itself is the findable registry's (./findable-registry.ts): a kind
+ * is added there.
  */
-export const MENU_SEARCH_KINDS = [
-  'action',
-  'document',
-  'project',
-  'initiative',
-  'capture',
-  'contact',
-  'company',
-  // A pipeline's row (Tables, phase 7), found and listed as a deal.
-  'deal',
-  'flow',
-  'attachment',
-  'calendar_event',
-  'agent',
-  'team_chat_message',
-  'studio_video',
-  'studio_project',
-] as const satisfies readonly (EntityType | 'agent' | 'deal')[]
-export type MenuSearchKind = (typeof MENU_SEARCH_KINDS)[number]
+export const MENU_SEARCH_KINDS = FINDABLE_KINDS satisfies readonly (EntityType | 'agent' | 'deal' | 'package')[]
+export type MenuSearchKind = FindableKind
 
 export function isMenuSearchKind(v: unknown): v is MenuSearchKind {
   return typeof v === 'string' && (MENU_SEARCH_KINDS as readonly string[]).includes(v)
@@ -241,7 +229,40 @@ export interface MenuStudioRow extends Scored {
   status: string | null
 }
 
+/** The kinds found by a name and listed alike: no fields of their own beyond a status and where they live. */
+export type MenuNamedKind =
+  | 'campaign'
+  | 'sequence'
+  | 'prospect_list'
+  | 'data_table'
+  | 'data_row'
+  | 'team_chat_channel'
+  | 'decision'
+  | 'team'
+  | 'package'
+  | 'conversation'
+  | 'email_thread'
+
+/**
+ * A campaign, sequence, prospect list, table, table row, channel, decision,
+ * team, knowledge package, the caller's own agent chat (`conversation`) or
+ * their own mail thread (`email_thread`): its name (a decision's words, a
+ * chat's title, a thread's subject or sender), a quiet word about it, and
+ * what opening it needs beyond its own id (a row's table, a thread's provider
+ * id to open the mail card).
+ */
+export interface MenuNamedRow extends Scored {
+  kind: MenuNamedKind
+  id: string
+  title: string
+  /** A quiet word after the name: a status ("Active"), a row's table, a decision's capture. */
+  status: string | null
+  /** What it opens in: a row's table, a decision's capture. Null for the rest. */
+  parentId: string | null
+}
+
 export type MenuSearchRow =
+  | MenuNamedRow
   | MenuTeamChatMessageRow
   | MenuStudioRow
   | MenuActionRow
@@ -300,6 +321,33 @@ export function menuRowTarget(row: MenuSearchRow): OpenTarget {
     case 'studio_video':
     case 'studio_project':
       // The Studio page's card, on it (open-card.ts).
+      return { type: row.kind, id: row.id, title: row.title }
+    case 'campaign':
+      // No card draws one campaign: its page lists them.
+      return { type: 'page', slug: 'campaigns' }
+    case 'data_table':
+      return { type: 'page', slug: 'tables' }
+    case 'data_row':
+      return { type: 'data_row', id: row.id, title: row.title, tableId: row.parentId }
+    case 'team_chat_channel':
+      return { type: 'team_chat', channelId: row.id }
+    case 'decision':
+      // A decision lives on its capture.
+      return row.parentId ? { type: 'capture', id: row.parentId, title: null } : { type: 'page', slug: 'captures' }
+    case 'email_thread':
+      // Mail opens the mail card on its provider thread (held in parentId);
+      // stored nowhere, read live from the owner's mailbox.
+      return row.parentId ? { type: 'mail', threadId: row.parentId, title: row.title } : { type: 'page', slug: 'mail' }
+    case 'conversation':
+      // No card draws a past agent chat, and the menu has no chats-list page,
+      // so opening a chat row is a no-op today (cardForTarget returns null for
+      // an unknown slug). Resuming a past chat is chat-panel's loadConversation;
+      // wiring the composer's onOpenRecord to it is the composer's to do.
+      return { type: 'page', slug: 'chats' }
+    case 'sequence':
+    case 'prospect_list':
+    case 'team':
+    case 'package':
       return { type: row.kind, id: row.id, title: row.title }
     default:
       return { type: row.kind, id: row.id, title: row.title }
@@ -361,58 +409,60 @@ export function bestScore(...scores: number[]): number {
  * What every `@` picker finds, in one list: the main chat's, team chat's and a
  * document's. People are contacts (every teammate has one, linked to their
  * member row); team chat lists its teammates from its own members and leaves
- * their contacts out. Not mail (no one sees another's, migration 341), not
+ * their contacts out. The kinds are the findable registry's with a `mention`
+ * (./findable-registry.ts). Not mail yet (its owner's alone until the share a
+ * mention makes is built: docs/plans/mentions-everywhere.md, decision 1), not
  * agents or messages (opened, never mentioned).
  */
-export const MENTION_PICKER_KINDS = [
-  'contact',
-  'company',
-  'action',
-  'document',
-  'project',
-  'initiative',
-  'capture',
-  'deal',
-  'flow',
-  'attachment',
-  'calendar_event',
-  // The Studio's (624): found only for a member who may use the Studio.
-  'studio_video',
-  'studio_project',
-] as const satisfies readonly MenuSearchKind[]
-export type MentionPickerKind = (typeof MENTION_PICKER_KINDS)[number]
+export const MENTION_PICKER_KINDS: readonly MentionFindableKind[] = MENTION_FINDABLE_KINDS
+export type MentionPickerKind = MentionFindableKind
 
 /**
  * The record kinds a message mentions by id (captures, people and companies have their own). A Studio video comes
  * back from the search only for a member who may use the Studio, and its line is read again on the server for them.
  */
-export const MENTION_RECORD_KINDS = ['action', 'document', 'project', 'initiative', 'deal', 'flow', 'attachment', 'calendar_event', 'studio_video'] as const
-export type MentionRecordKind = (typeof MENTION_RECORD_KINDS)[number]
+export const MENTION_RECORD_KINDS: readonly TurnFindableKind[] = TURN_FINDABLE_KINDS
+export type MentionRecordKind = TurnFindableKind
 
 /**
  * Each record kind's ids as a turn sends them: in the main chat's system
  * context (`attachedActionIds`…) and in a run chat's `mentions`
  * (`actionIds`…). One table, read by the composer and both servers.
  */
-export const MENTION_RECORD_KEYS: Record<MentionRecordKind, { context: string; run: string }> = {
-  action: { context: 'attachedActionIds', run: 'actionIds' },
-  document: { context: 'attachedDocumentIds', run: 'documentIds' },
-  project: { context: 'attachedProjectIds', run: 'projectIds' },
-  initiative: { context: 'attachedInitiativeIds', run: 'initiativeIds' },
-  deal: { context: 'attachedDealIds', run: 'dealIds' },
-  flow: { context: 'attachedFlowIds', run: 'flowIds' },
-  attachment: { context: 'attachedFileIds', run: 'fileIds' },
-  calendar_event: { context: 'attachedCalendarEventIds', run: 'calendarEventIds' },
-  studio_video: { context: 'attachedStudioVideoIds', run: 'studioVideoIds' },
-}
+export const MENTION_RECORD_KEYS: Record<MentionRecordKind, { context: string; run: string }> = Object.fromEntries(
+  TURN_FINDABLE_KINDS.map((kind) => [kind, FINDABLE[kind].turnKeys]),
+) as Record<MentionRecordKind, { context: string; run: string }>
 
 /**
- * A task, doc, project, initiative, deal, flow, file, event or Studio video
- * mentioned in the message being written. A deal's id is its pipeline row's
- * (Tables, phase 7).
+ * Every record kind a composer attaches as a chip: the pickers' kinds, less
+ * the three with chips of their own (captures, people, companies).
+ */
+export type ComposerRecordKind = Exclude<MentionPickerKind, 'capture' | 'contact' | 'company'>
+export const COMPOSER_RECORD_KINDS = MENTION_PICKER_KINDS.filter(
+  (k): k is ComposerRecordKind => k !== 'capture' && k !== 'contact' && k !== 'company',
+)
+
+/**
+ * The system-context key for the mentioned records that have no id key of
+ * their own (MENTION_RECORD_KEYS): `[{ type, id, label }]`, the one mention
+ * format (src/lib/entity-links/mentionable.ts LabeledMentionRef). A campaign,
+ * a table, a row, a channel, a decision, a Studio project.
+ */
+export const MENTIONED_RECORDS_CONTEXT_KEY = 'mentionedRecords'
+
+/** The stored kinds that travel under MENTIONED_RECORDS_CONTEXT_KEY (the pickers' kinds with no id key). */
+export const UNKEYED_MENTION_TYPES: readonly MentionableType[] = [
+  ...new Set(COMPOSER_RECORD_KINDS.filter((k) => !('turnKeys' in FINDABLE[k])).map((k) => FINDABLE[k].mention as MentionableType)),
+]
+
+/**
+ * A record mentioned in the message being written: a task, doc, project,
+ * initiative, deal, flow, file, event, Studio video or Studio project, a
+ * campaign, a table or its row, a channel, a decision. A deal's id is its
+ * pipeline row's (Tables, phase 7).
  */
 export interface MentionRecord {
-  kind: MentionRecordKind
+  kind: ComposerRecordKind
   id: string
   title: string
   identifier?: string | null
@@ -425,27 +475,16 @@ export function mentionRecordLabel(record: MentionRecord): string {
 
 /** The mention a search row makes, or null for a kind mentioned another way. */
 export function toMentionRecord(row: MenuSearchRow): MentionRecord | null {
-  switch (row.kind) {
-    case 'action':
-      return { kind: 'action', id: row.id, title: row.title, identifier: row.identifier }
-    case 'document':
-    case 'project':
-    case 'initiative':
-    case 'deal':
-    case 'flow':
-    case 'attachment':
-    case 'calendar_event':
-    case 'studio_video':
-      return { kind: row.kind, id: row.id, title: row.title }
-    default:
-      return null
-  }
+  if (row.kind === 'capture' || row.kind === 'contact' || row.kind === 'company') return null
+  if (!(COMPOSER_RECORD_KINDS as readonly string[]).includes(row.kind)) return null
+  const kind = row.kind as ComposerRecordKind
+  return row.kind === 'action' ? { kind, id: row.id, title: row.title, identifier: row.identifier } : { kind, id: row.id, title: row.title }
 }
 
 /** A row's record as a mention: its kind and id, and the words its `@…` shows. */
 export interface MenuRowMention {
   /** A deal is mentioned as what it is: its pipeline's row (Tables, phase 7). */
-  type: Exclude<MentionPickerKind, 'deal'> | 'data_row'
+  type: MentionableType
   id: string
   label: string
 }
@@ -458,10 +497,6 @@ export interface MenuRowMention {
  */
 export function menuRowMention(row: MenuSearchRow): MenuRowMention | null {
   switch (row.kind) {
-    case 'agent':
-    case 'team_chat_message':
-      // Not a record a message mentions: a message is opened, never attached.
-      return null
     case 'capture':
       return { type: 'capture', id: row.capture.id, label: row.capture.title || 'Untitled capture' }
     case 'contact':
@@ -470,10 +505,11 @@ export function menuRowMention(row: MenuSearchRow): MenuRowMention | null {
       return { type: 'company', id: row.company.id, label: row.company.name }
     case 'action':
       return { type: 'action', id: row.id, label: row.identifier || row.title }
-    case 'deal':
-      // A deal is its pipeline's row.
-      return { type: 'data_row', id: row.id, label: row.title }
-    default:
-      return { type: row.kind, id: row.id, label: row.title }
+    default: {
+      // The kind a mention of it stores (a deal: its pipeline's row), or null
+      // for what is found and opened, never mentioned (an agent, a message).
+      const type = FINDABLE[row.kind].mention
+      return type ? { type, id: row.id, label: row.title } : null
+    }
   }
 }

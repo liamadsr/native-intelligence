@@ -36,7 +36,8 @@ import { Gapcursor } from '@tiptap/extension-gapcursor'
 import { cx } from 'class-variance-authority'
 import { LinkPreviewNode } from '@/components/editor/link-preview-extension'
 import { TableEmbedNode } from '@/components/editor/table-embed-extension'
-import { RecordMention } from '@/components/editor/record-mention'
+import { RecordMention, RecordMentionSuggestion, createMentionSuggestionStore } from '@/components/editor/record-mention'
+import { RecordMentionMenu } from '@/components/editor/record-mention-menu'
 import { EDITOR_LINK_CLASS, UrlLinkDecorations } from '@/components/editor/url-link-decorations'
 import { pasteUrlTransaction } from '@/components/editor/paste-url'
 import { ReadAloudSections } from '@/components/editor/read-aloud-sections-extension'
@@ -413,6 +414,14 @@ export interface NoteEditorProps {
    *  lead-ins (desktop only; see read-aloud-sections-extension). On by
    *  default; read once, when the editor is created. */
   readAloudSections?: boolean
+  /**
+   * `@` in the body: the one `@` picker (RecordMentionMenu), opened under the
+   * `@…` being typed, inserting the record's chip (saved as
+   * `[@label](mention://kind/id)`), the same as the documents' editor. Off by
+   * default (the document panel wires its own; this is for the description and
+   * notes editors). Read once, when the editor is created.
+   */
+  recordMentions?: boolean
 }
 
 export function NoteEditor({
@@ -432,6 +441,7 @@ export function NoteEditor({
   placeholder: placeholderText,
   proposalRefs,
   readAloudSections = true,
+  recordMentions = false,
 }: NoteEditorProps) {
   const [openNode, setOpenNode] = useState(false)
   const [openLink, setOpenLink] = useState(false)
@@ -933,6 +943,17 @@ export function NoteEditor({
     [],
   )
 
+  // `@` in the body (the description and notes editors): the one `@` picker,
+  // opened under the `@…` being typed and inserting the record's chip. The
+  // store joins the suggestion plugin to the menu (RecordMentionMenu, below).
+  const [mentionStore] = useState(createMentionSuggestionStore)
+  const mentionExtension = useMemo(
+    () => (recordMentions ? [RecordMentionSuggestion.configure({ store: mentionStore })] : []),
+    // Read at creation, like the rest of the extension list.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  )
+
   const extensions = useMemo(
     () => {
       if (placeholderText) {
@@ -954,12 +975,13 @@ export function NoteEditor({
           customPlaceholder,
           slashCommand,
           ...readAloudSectionsExtension,
+          ...mentionExtension,
           ...(extraExtensions || []),
         ]
       }
-      return [...defaultExtensions, slashCommand, ...readAloudSectionsExtension, ...(extraExtensions || [])]
+      return [...defaultExtensions, slashCommand, ...readAloudSectionsExtension, ...mentionExtension, ...(extraExtensions || [])]
     },
-    [slashCommand, readAloudSectionsExtension, extraExtensions, placeholderText],
+    [slashCommand, readAloudSectionsExtension, mentionExtension, extraExtensions, placeholderText],
   )
 
   return (
@@ -1171,6 +1193,9 @@ export function NoteEditor({
           )}
         </EditorContent>
       </EditorRoot>
+      {/* The `@` picker (drawn only while an `@…` is open; it portals and
+          positions itself under the caret). */}
+      {recordMentions && <RecordMentionMenu store={mentionStore} />}
     </div>
   )
 }

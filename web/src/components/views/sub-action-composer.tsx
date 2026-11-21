@@ -17,6 +17,7 @@ import { Switch } from '@/components/ui/switch'
 import { PropertyPill as SharedPropertyPill } from '@/components/views/properties/property-pill'
 import { groupLabelsByGroupName } from '@/lib/labels/utils'
 import { PRIORITY_OPTIONS } from '@/lib/views/property-options'
+import { MentionTextarea } from '@/components/mentions/mention-textarea'
 import { cn } from '@/lib/utils'
 
 export interface SubActionWorkflowState {
@@ -179,13 +180,13 @@ export function SubActionComposer({
         placeholder="Action title"
         className="w-full bg-transparent text-sm font-medium placeholder:text-muted-foreground/50 focus:outline-none"
       />
-      <textarea
+      <MentionTextarea
         value={description}
         onChange={(e) => setDescription(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Escape') onCancel()
         }}
-        placeholder="Add description..."
+        placeholder="Add description... (@ to mention)"
         rows={2}
         className="mt-1 w-full resize-none bg-transparent text-xs text-muted-foreground placeholder:text-muted-foreground/40 focus:outline-none"
       />

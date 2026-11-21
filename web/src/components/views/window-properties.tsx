@@ -264,6 +264,17 @@ export function useHasWindowProperties() {
   return available && !!context?.entry
 }
 
+/**
+ * Show this frame's properties (open its Properties popover, pinned; the
+ * embedded column is always shown): a task's keys open a picker in them
+ * (action-detail-panel.tsx). A no-op outside a frame.
+ */
+export function useShowWindowProperties(): () => void {
+  const context = useContext(PropertiesContext)
+  const setOpen = context?.setOpen
+  return useCallback(() => setOpen?.(true, true), [setOpen])
+}
+
 export function WindowPropertiesButton() {
   const context = useContext(PropertiesContext)
   const available = useContext(PropertiesAvailableContext)

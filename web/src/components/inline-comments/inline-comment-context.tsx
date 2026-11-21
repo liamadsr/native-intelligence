@@ -11,6 +11,13 @@ import {
   type ReactNode,
 } from 'react'
 import type { InlineComment, SelectionState, UnifiedComment, CommentIdentity, CommentAPI } from './types'
+import type { LabeledMentionRef } from '@/lib/entity-links/mentionable'
+
+/** What `@` picked, sent with the comment so it is stored and fenced like any other (migration 671). */
+export interface CommentMentionExtras {
+  mentions?: string[]
+  records?: LabeledMentionRef[]
+}
 
 interface InlineCommentContextValue {
   comments: InlineComment[]
@@ -19,8 +26,8 @@ interface InlineCommentContextValue {
   identity: CommentIdentity
   setActiveComment: (id: string | null) => void
   setSelectionState: (state: SelectionState | null) => void
-  addInlineComment: (content: string) => Promise<UnifiedComment | null>
-  addReply: (parentId: string, content: string) => Promise<UnifiedComment | null>
+  addInlineComment: (content: string, extras?: CommentMentionExtras) => Promise<UnifiedComment | null>
+  addReply: (parentId: string, content: string, extras?: CommentMentionExtras) => Promise<UnifiedComment | null>
   resolveComment: (commentId: string, resolved: boolean) => Promise<void>
   scrollToComment: (id: string) => void
   scrollTarget: string | null
@@ -173,7 +180,7 @@ export function InlineCommentProvider({
   }, [comments])
 
   const addInlineComment = useCallback(
-    async (content: string) => {
+    async (content: string, extras?: CommentMentionExtras) => {
       if (!selectionState) return null
       if (identity.mode !== 'authenticated') return null
 
@@ -184,6 +191,8 @@ export function InlineCommentProvider({
         anchor_suffix: selectionState.suffix,
         anchor_section: selectionState.section,
         anchor_occurrence: selectionState.occurrenceIndex,
+        ...(extras?.mentions?.length ? { mentions: extras.mentions } : {}),
+        ...(extras?.records?.length ? { records: extras.records } : {}),
       }
 
       const comment = await api.postComment(body)
@@ -199,11 +208,13 @@ export function InlineCommentProvider({
   )
 
   const addReply = useCallback(
-    async (parentId: string, content: string) => {
+    async (parentId: string, content: string, extras?: CommentMentionExtras) => {
       if (identity.mode !== 'authenticated') return null
       const body: Record<string, unknown> = {
         content,
         parent_id: parentId,
+        ...(extras?.mentions?.length ? { mentions: extras.mentions } : {}),
+        ...(extras?.records?.length ? { records: extras.records } : {}),
       }
 
       const comment = await api.postComment(body)

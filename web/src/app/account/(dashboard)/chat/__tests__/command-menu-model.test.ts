@@ -11,6 +11,7 @@ import {
   buildMenu,
   cycleTab,
   findTriggerToken,
+  groupOf,
   menuTabLabel,
   menuTakesEnter,
   offeredKinds,
@@ -25,6 +26,7 @@ import {
   type MenuSources,
   TAB_LABELS,
 } from '../command-menu-model'
+import { FINDABLE, FINDABLE_BY_ORDER, MENTION_FINDABLE_KINDS } from '@/lib/search/findable-registry'
 import { MENTION_PICKER_KINDS, type MentionContact, type MenuSearchKind, type MenuSearchRow } from '@/lib/search/menu-search'
 import type { CaptureListItem } from '../../views/capture-utils'
 
@@ -215,27 +217,29 @@ describe('buildMenu', () => {
     expect(keys(buildMenu('/', 'people', '', MAIN, sources))).toEqual(['people'])
   })
 
-  it('offers a tab only for kinds that found something, and the tab picked, in one fixed order', () => {
-    expect(buildMenu('/', 'all', '', MAIN, sources).tabs).toEqual(['all', 'pages', 'skills', 'people'])
+  it('offers a GROUP tab only when one of its kinds found something, and the tab picked, in the strip’s order', () => {
+    // Nothing typed, `/`: the leads' groups — People (recent people), Agents & skills (skills), Pages.
+    expect(buildMenu('/', 'all', '', MAIN, sources).tabs).toEqual(['all', 'people', 'agents_skills', 'pages'])
+    // An action found: its Work group, nothing else.
     const typed = buildMenu('/', 'all', 'pricing', MAIN, { ...sources, records: { action: [action('a1', 'Pricing', 'GEN-1', 1)], capture: [] } })
-    expect(typed.tabs).toEqual(['all', 'actions'])
+    expect(typed.tabs).toEqual(['all', 'work'])
+    // The tab picked stays, whatever it holds.
     expect(buildMenu('/', 'docs', 'pricing', MAIN, { ...sources, records: {} }).tabs).toEqual(['all', 'docs'])
   })
 
   it('`/` and `@` offer the same things, less what `@` can’t attach (pages, agents)', () => {
-    // `/` also finds team chat messages (migration 561); `@` never attaches one.
-    // The Studio's videos and Studio projects (the server finds them only for a member who may use the Studio).
-    expect(offeredKinds('/', MAIN)).toEqual(['pages', 'skills', 'people', 'actions', 'docs', 'projects', 'initiatives', 'captures', 'companies', 'deals', 'flows', 'files', 'events', 'videos', 'studio_projects', 'agents', 'messages'])
-    // Records first, the skills last (a tie goes to the record).
-    expect(offeredKinds('@', MAIN)).toEqual(['people', 'actions', 'docs', 'projects', 'initiatives', 'captures', 'companies', 'deals', 'flows', 'files', 'events', 'videos', 'studio_projects', 'skills'])
+    // Derived from the registry so it survives new kinds: `/` offers pages,
+    // skills and every found kind; `@` the mentionable kinds then the skills.
+    expect(offeredKinds('/', MAIN)).toEqual(['pages', 'skills', ...FINDABLE_BY_ORDER.map((k) => FINDABLE[k].section)])
+    expect(offeredKinds('@', MAIN)).toEqual([...MENTION_FINDABLE_KINDS.map((k) => FINDABLE[k].section), 'skills'])
     expect(offeredKinds('@', RUN)).toEqual(['people', 'captures', 'companies', 'skills'])
   })
 
-  it('Tab and Shift+Tab go round the tabs offered', () => {
-    const tabs = ['all', 'pages', 'skills'] as const
-    expect(cycleTab(tabs, 'all', 1)).toBe('pages')
-    expect(cycleTab(tabs, 'skills', 1)).toBe('all')
-    expect(cycleTab(tabs, 'all', -1)).toBe('skills')
+  it('Tab and Shift+Tab go round the group tabs offered', () => {
+    const tabs = ['all', 'people', 'work'] as const
+    expect(cycleTab(tabs, 'all', 1)).toBe('people')
+    expect(cycleTab(tabs, 'work', 1)).toBe('all')
+    expect(cycleTab(tabs, 'all', -1)).toBe('work')
   })
 })
 
@@ -264,19 +268,51 @@ describe('serverSearch', () => {
   it('with nothing typed asks for the first view (recent people); once typed, every kind offered', () => {
     expect(serverSearch('/', 'all', '', offeredKinds('/', MAIN))).toEqual({ kinds: ['contact'], limit: 8 })
     expect(serverSearch('@', 'all', '', offeredKinds('@', MAIN))).toEqual({ kinds: ['contact'], limit: 8 })
-    expect(serverSearch('/', 'all', 't', offeredKinds('/', MAIN))).toEqual({
-      kinds: ['contact', 'action', 'document', 'project', 'initiative', 'capture', 'company', 'deal', 'flow', 'attachment', 'calendar_event', 'studio_video', 'studio_project', 'agent', 'team_chat_message'],
-      limit: 8,
-    })
+    // Every found kind, in the registry's order (derived so new kinds don't break it).
+    expect(serverSearch('/', 'all', 't', offeredKinds('/', MAIN))).toEqual({ kinds: [...FINDABLE_BY_ORDER], limit: 8 })
     // `@` never asks for agents or messages: nothing attaches them.
     expect(serverSearch('@', 'all', 't', offeredKinds('@', MAIN))!.kinds).not.toContain('agent')
     expect(serverSearch('@', 'all', 't', offeredKinds('@', MAIN))!.kinds).not.toContain('team_chat_message')
   })
-  it('a tab with nothing typed asks for its own kind, a tab’s worth; a Pages tab asks nothing', () => {
-    expect(serverSearch('/', 'actions', '', offeredKinds('/', MAIN))).toEqual({ kinds: ['action'], limit: 25 })
+  it('a group tab with nothing typed asks for all of that group’s kinds, a tab’s worth; a Pages tab asks nothing', () => {
+    // The Work group: its three kinds at the tab limit.
+    expect(serverSearch('/', 'work', '', offeredKinds('/', MAIN))).toEqual({ kinds: ['action', 'project', 'initiative'], limit: 25 })
+    // Pages carries no record kind, so nothing is asked of the server.
     expect(serverSearch('/', 'pages', '', offeredKinds('/', MAIN))).toBeNull()
     // A run's `/` is skills alone: nothing to ask the server.
     expect(serverSearch('/', 'all', 'brief', offeredKinds('/', RUN))).toBeNull()
+  })
+})
+
+describe('grouped tabs', () => {
+  const base: MenuSources = { pages: [], skills: [], records: {} }
+  const project = (id: string, title: string, score: number): MenuSearchRow => ({ kind: 'project', id, title, status: 'active', score })
+  const decision = (id: string, title: string, score: number): MenuSearchRow => ({ kind: 'decision', id, title, status: null, parentId: null, score })
+
+  it('groups a kind under the registry group; skills and pages at the menu level; the palette-only sections in none', () => {
+    expect(groupOf('actions')).toBe('work')
+    expect(groupOf('captures')).toBe('meetings')
+    expect(groupOf('companies')).toBe('crm')
+    expect(groupOf('channels')).toBe('chats')
+    expect(groupOf('skills')).toBe('agents_skills')
+    expect(groupOf('pages')).toBe('pages')
+    expect(groupOf('inbox')).toBeNull()
+  })
+
+  it('a group tab lists every one of its kinds that found something, each uncapped', () => {
+    const many = Array.from({ length: 9 }, (_, i) => action(`a${i}`, `Pricing ${i}`, `GEN-${i}`, 0.85))
+    const menu = buildMenu('/', 'work', 'pricing', MAIN, { ...base, records: { action: many, project: [project('p1', 'Pricing push', 0.8)], initiative: [] } })
+    // Both Work kinds with rows, in the registry's order; the empty one dropped.
+    expect(menu.sections.map((s) => s.key)).toEqual(['actions', 'projects'])
+    // Uncapped: all nine actions, not the All-view cap of four.
+    expect(menu.sections.find((s) => s.key === 'actions')!.items).toHaveLength(9)
+  })
+
+  it('shows a group tab only when one of its kinds has a hit', () => {
+    const menu = buildMenu('/', 'all', 'hold', MAIN, { ...base, records: { decision: [decision('d1', 'Hold the price', 0.7)] } })
+    // A decision lives in the Meetings group; CRM found nothing.
+    expect(menu.tabs).toContain('meetings')
+    expect(menu.tabs).not.toContain('crm')
   })
 })
 

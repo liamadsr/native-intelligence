@@ -1900,11 +1900,13 @@ export async function applyCompletedFilter(
 }
 
 /**
- * The column a window is measured on. `updated_at` until migration 671 adds
- * `actions.completed_at`: any edit to an old finished action brings it back
- * into the window, which is the known flaw 671 fixes.
+ * The column a window is measured on: when the action was finished, kept by
+ * migration 672's trigger (it moved into a completed or canceled state). It
+ * was `updated_at` before 672, when any edit to an old finished action
+ * brought it back into the window. REQUIRES 672 applied: without the trigger
+ * the column is empty for almost every action and the window shows none.
  */
-export const COMPLETED_AT_COLUMN: 'updated_at' | 'completed_at' = 'updated_at'
+export const COMPLETED_AT_COLUMN: 'updated_at' | 'completed_at' = 'completed_at'
 
 /**
  * Every completed and canceled workflow state in scope, by CATEGORY — see
@@ -1943,6 +1945,33 @@ export async function doneStatesInScope(
     .filter((s) => inScope.has(s.team?.workspace_id ?? ''))
     .map(({ id, name, category, sort_order, team_id }) => ({ id, name, category, sort_order, team_id }))
 }
+
+/**
+ * A project list's completed window (completed-window.ts): every open project,
+ * and the finished ones (status completed or canceled) finished inside the
+ * window, measured on `projects.completed_at`. REQUIRES migration 672 (the
+ * column and its trigger). No read: a project's statuses are a fixed enum.
+ */
+export function applyProjectCompletedFilter(
+  query: ReturnType<typeof buildEntityQuery>,
+  completedFilter: string,
+  showCompleted: boolean,
+  options: { now?: Date } = {},
+) {
+  const filter = normalizeCompletedFilter(completedFilter)
+  if (showCompleted && filter === 'all') return
+  const done = `(${PROJECT_DONE_STATUSES.join(',')})`
+  if (!showCompleted || filter === 'none') {
+    query.not('status', 'in', done)
+    return
+  }
+  const since = completedWindowStart(filter, options.now)
+  if (!since) return
+  query.or(`status.not.in.${done},and(status.in.${done},completed_at.gte.${since})`)
+}
+
+/** The project statuses that are finished. */
+export const PROJECT_DONE_STATUSES = ['completed', 'canceled']
 
 /** The workflow categories a finished action is in. */
 export const DONE_CATEGORIES = ['completed', 'canceled']

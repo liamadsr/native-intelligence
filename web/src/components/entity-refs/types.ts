@@ -57,3 +57,40 @@ export const ENTITY_REF_PATTERN = /\b[A-Z][A-Z0-9]{1,9}-\d+\b/g
 export function normalizeIdentifier(identifier: string): string {
   return identifier.trim().toUpperCase()
 }
+
+// ── Live mention chips (every kind, not just action identifiers) ──────────────
+//
+// GET /api/account/entities/resolve?mentions=type:id,… answers only what the
+// caller may read. A chip resolves one {type,id} through the mention batcher.
+
+/** One resolved mention: its current label and, where cheap, a status word. */
+export interface MentionResolved {
+  type: string
+  id: string
+  label: string
+  /** A workflow state's name, or a project/initiative/campaign status, or null. */
+  status: string | null
+}
+
+/**
+ * The resolution state of one mention in the client cache.
+ *  - `loading`:  not answered yet — the chip shows its stored words.
+ *  - `found`:    the reader may see it — the chip shows the current label and status.
+ *  - `hidden`:   the answer came back without it — the reader may not see it (a locked chip).
+ *  - `error`:    the lookup failed — the chip keeps its stored words rather than falsely locking.
+ */
+export type MentionState =
+  | { status: 'loading' }
+  | { status: 'found'; data: MentionResolved }
+  | { status: 'hidden' }
+  | { status: 'error' }
+
+/** Shape of the resolve endpoint's mentions response. */
+export interface MentionResolveResponse {
+  mentions: Record<string, MentionResolved>
+}
+
+/** The cache key for one mention: `type:id`, the id lower-cased (as the route answers). */
+export function mentionCacheKey(type: string, id: string): string {
+  return `${type}:${id.trim().toLowerCase()}`
+}

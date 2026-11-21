@@ -37,10 +37,11 @@ const PRIORITY_VALUES = ['none', 'low', 'medium', 'high', 'urgent'] as const
 // dismissed proposal is nobody's work.
 const LIST_CONFIRMATIONS = ['confirmed', 'suggested', 'any'] as const
 
-// Time columns available for `time_field` filtering on actions.
-// Note: there is no `completed_at` column — completion is modeled via workflow_state
-// transitions and shows up as a bump on `updated_at`.
-const ACTION_TIME_FIELDS = ['due_at', 'created_at', 'updated_at'] as const
+// Time columns available for `time_field` filtering on actions. `completed_at`
+// is when the action moved into a completed or canceled state, kept by
+// migration 672's trigger (null while open); before 672 completion only showed
+// up as a bump on `updated_at`.
+const ACTION_TIME_FIELDS = ['due_at', 'created_at', 'updated_at', 'completed_at'] as const
 
 // A model-supplied member id spliced into a PostgREST `.or(...)` string must be
 // exactly a UUID — anything else could add filter clauses.
@@ -856,7 +857,7 @@ export function createActionTools(
         'List actions/tasks with optional filtering. Default returns a compact summary (id, identifier, title, status, due_at, assignee, delegate agent, project) — set verbose=true to include description, labels, milestone, cycle, and estimate. ' +
         "By default it lists the whole workspace's actions, everyone's, not just the user's. To check what the user needs to do, pass `assignee: 'me'`; pass a member UUID for a teammate's list. " +
         "`project_id` narrows to one project's actions, `team_id` to one team's board; they combine with every other filter. " +
-        'For arbitrary time ranges, use `since`/`until` with a preset (e.g. last_week, past_30_days) or ISO date, plus `time_field` to pick which column to filter on (due_at default, or created_at / updated_at). ' +
+        'For arbitrary time ranges, use `since`/`until` with a preset (e.g. last_week, past_30_days) or ISO date, plus `time_field` to pick which column to filter on (due_at default, or created_at / updated_at / completed_at: when it was finished). ' +
         '`since`/`until` override any time window implied by `filter`. ' +
         'Rows come urgent first, then by earliest due date (no due date last); each carries its `confirmation`. ' +
         "Dismissed actions are left out unless `confirmation: 'any'`; pass `confirmation: 'confirmed'` for accepted work only, without meeting suggestions nobody accepted.",
@@ -868,7 +869,7 @@ export function createActionTools(
           .default('due_at')
           .describe(
             'Which date column `since`/`until` apply to. Defaults to `due_at`. ' +
-              'Use `created_at` for "actions created in the past week" or `updated_at` for "recently changed".',
+              'Use `created_at` for "actions created in the past week", `completed_at` for "finished in the past week" (when it moved to a completed or canceled state), or `updated_at` for "recently changed".',
           ),
         filter: z
           .enum(['all', 'today', 'tomorrow', 'this_week', 'overdue', 'completed'])

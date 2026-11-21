@@ -100,6 +100,7 @@ export const KIND_SOURCE: Record<AgentEventKind, AgentEventSource> = {
 export const NOTICE_EVENT_KIND: Readonly<Record<string, AgentEventKind>> = {
   comment_reply: 'mention',
   comment_added: 'mention',
+  mentioned: 'mention',
   action_assigned: 'mention',
   capture_shared: 'mention',
   action_unassigned: 'activity',

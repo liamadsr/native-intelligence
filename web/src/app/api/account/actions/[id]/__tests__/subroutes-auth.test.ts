@@ -200,6 +200,9 @@ describe('actions/[id]/comments', () => {
       'member-1',
       'a note',
       undefined,
+      undefined,
+      // It mentions no one and nothing.
+      { memberIds: [], records: [] },
     )
     expect(hoisted.fromTables).not.toContain('member')
   })

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { tidyLabeledMentionRefs, type LabeledMentionRef } from '@/lib/entity-links/mentionable'
 
 export type CommentableType = 'action' | 'capture' | 'document' | 'project' | 'contact'
 
@@ -6,6 +7,7 @@ const COMMENT_SELECT = `
   id, body, author_id, author_user_id, author_name, author_avatar_url,
   parent_id, commentable_type, commentable_id, created_at, edited_at,
   anchor_text, anchor_prefix, anchor_suffix, anchor_section, anchor_occurrence, is_resolved,
+  mentions, record_mentions,
   author:member!author_id(id, display_name, avatar_url)
 `
 
@@ -31,6 +33,10 @@ interface RawComment {
   anchor_section: string | null
   anchor_occurrence: number | null
   is_resolved: boolean
+  /** The members it @-mentions (migration 671). */
+  mentions?: string[] | null
+  /** The records it @-mentions: [{ type, id, label }] (migration 671). */
+  record_mentions?: unknown
   author: unknown
 }
 
@@ -58,6 +64,8 @@ function flattenComment(c: RawComment) {
     anchor_suffix: c.anchor_suffix,
     anchor_section: c.anchor_section,
     anchor_occurrence: c.anchor_occurrence,
+    mentions: Array.isArray(c.mentions) ? c.mentions : [],
+    record_mentions: tidyLabeledMentionRefs(c.record_mentions),
     is_resolved: c.is_resolved ?? false,
   }
 }
@@ -157,6 +165,8 @@ export async function createComment(
   body: string,
   parentId?: string,
   anchor?: AnchorData,
+  /** What it @-mentions, already fenced for the author (src/lib/comment-mentions.ts). */
+  mentions?: { memberIds: readonly string[]; records: readonly LabeledMentionRef[] },
 ) {
   // If replying, verify parent belongs to the same entity
   if (parentId) {
@@ -183,6 +193,9 @@ export async function createComment(
       commentable_type: commentableType,
       commentable_id: commentableId,
       ...(anchor || {}),
+      // Only when there are some: a comment with none writes what it always wrote.
+      ...(mentions?.memberIds.length ? { mentions: [...mentions.memberIds] } : {}),
+      ...(mentions?.records.length ? { record_mentions: mentions.records } : {}),
     })
     .select(COMMENT_SELECT)
     .single()

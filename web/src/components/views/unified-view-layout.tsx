@@ -56,6 +56,8 @@ import { patchCompletesItem } from '@/components/celebration/detect-completion'
 import type { WorkflowStateOption } from '@/components/views/properties/types'
 import { useCanOpenCards } from '@/app/account/(dashboard)/main-chat/main-chat-context'
 import { openTarget } from '@/lib/chat-cards/open-card'
+import { useHotkeys, type HotkeyDefinition } from '@/lib/hotkeys'
+import { LIST_ROW_ATTR, ListFocusProvider, TASK_PROPERTY_LABELS, listOwnsKeys, openPropertyPicker, scrollListRowIntoView, stepListFocus, type TaskPropertyField } from './list-keyboard'
 import {
   isCrossWorkspaceEditable, isForeignWorkspace, rowWorkspace, rowWorkspaceHeaders,
 } from './row-workspace'
@@ -1234,6 +1236,8 @@ export function UnifiedViewLayout({
     // survives the workspace switch, so the panel that opens on the other side
     // paints from the row the user actually clicked.
     seedDetailFromListItem(effectiveEntityType, item)
+    // The keyboard is on the row last opened (J and K go on from it).
+    setFocusedId(id)
 
     const ws = rowWorkspace(item)
     if (canOpenCards && isForeignWorkspace(ws, workspaceId ?? null)) {
@@ -1246,6 +1250,45 @@ export function UnifiedViewLayout({
     }
     if (onItemSelectProp) onItemSelectProp(id, title, event, item, effectiveEntityType)
   }, [onItemSelectProp, effectiveEntityType, canOpenCards, workspaceId])
+
+  // ── The keyboard in the list (docs/plans/keyboard-shortcuts.md) ──
+  // J/K (and ↓/↑) move the row the keyboard is on, Enter or O opens it, X
+  // checks it, Esc clears the checked rows. Only for the list the person is
+  // working in (list-keyboard.tsx listOwnsKeys): every list stays mounted.
+  const listRootRef = React.useRef<HTMLDivElement>(null)
+  const [focusedId, setFocusedId] = React.useState<string | null>(null)
+  // A row that left the list (filtered, deleted) takes the focus with it.
+  const liveFocusedId = focusedId && allVisibleIds.includes(focusedId) ? focusedId : null
+  const listKeysOn = !obscured && !isGraph
+  const ownsKeys = React.useCallback((e: KeyboardEvent) => listOwnsKeys(listRootRef.current, e), [])
+  const moveFocus = React.useCallback((step: number) => {
+    const next = stepListFocus(allVisibleIds, liveFocusedId ?? selectedItemId, step)
+    if (!next) return
+    setFocusedId(next)
+    // The flat list scrolls its virtualizer (view-list.tsx); a grouped list or the board, the row itself.
+    requestAnimationFrame(() => scrollListRowIntoView(listRootRef.current, next))
+  }, [allVisibleIds, liveFocusedId, selectedItemId])
+  const openFocused = React.useCallback(() => {
+    const id = liveFocusedId
+    if (!id) return
+    const row = flatVisibleData.find((it) => it.id === id)
+    const title = String(row?.title ?? row?.name ?? row?.full_name ?? row?.subject ?? '')
+    handleItemSelect(id, title, undefined, row)
+  }, [liveFocusedId, flatVisibleData, handleItemSelect])
+  const listKeys = React.useMemo<HotkeyDefinition[]>(() => {
+    const base = { globalGuard: true, when: ownsKeys, disabled: !listKeysOn }
+    return [
+      { ...base, key: 'j', handler: () => moveFocus(1) },
+      { ...base, key: 'ArrowDown', handler: () => moveFocus(1) },
+      { ...base, key: 'k', handler: () => moveFocus(-1) },
+      { ...base, key: 'ArrowUp', handler: () => moveFocus(-1) },
+      { ...base, key: 'Enter', disabled: !listKeysOn || !liveFocusedId, handler: openFocused },
+      { ...base, key: 'o', disabled: !listKeysOn || !liveFocusedId, handler: openFocused },
+      { ...base, key: 'x', disabled: !listKeysOn || !liveFocusedId, handler: () => liveFocusedId && bulkSelection.toggle(liveFocusedId) },
+      { ...base, key: 'Escape', disabled: !listKeysOn || !bulkSelection.hasSelection, handler: () => bulkSelection.clear() },
+    ]
+  }, [ownsKeys, listKeysOn, moveFocus, openFocused, liveFocusedId, bulkSelection])
+  useHotkeys(listKeys)
 
   // ── Board drag-and-drop ──────────────────────────────────
   // itemIds contains all IDs to move — either every checked item (multi-select
@@ -1816,6 +1859,36 @@ export function UnifiedViewLayout({
   )
   workflowStatesByTeamRef.current = pickerContext.workflowStatesByTeam
 
+  // ── A task's keys on the row the keyboard is on (docs/plans/keyboard-shortcuts.md) ──
+  // S status, P priority, A assign, L labels, ⇧D due date open that row's own
+  // picker (as a click on it would); I assigns it to you. Tasks only.
+  const taskKeysOn = listKeysOn && effectiveEntityType === 'action' && !!liveFocusedId
+  const openRowProperty = React.useCallback((field: TaskPropertyField) => {
+    const id = liveFocusedId
+    if (!id) return
+    const row = listRootRef.current?.querySelector(`[${LIST_ROW_ATTR}="${CSS.escape(id)}"]`) ?? null
+    if (!openPropertyPicker(row, field)) toast(`Show ${TASK_PROPERTY_LABELS[field]} in this view to set it from the keyboard`)
+  }, [liveFocusedId])
+  const taskKeys = React.useMemo<HotkeyDefinition[]>(() => {
+    const base = { globalGuard: true, when: ownsKeys, disabled: !taskKeysOn }
+    return [
+      { ...base, key: 's', handler: () => openRowProperty('status') },
+      { ...base, key: 'p', handler: () => openRowProperty('priority') },
+      { ...base, key: 'a', handler: () => openRowProperty('assignee') },
+      { ...base, key: 'l', handler: () => openRowProperty('labels') },
+      { ...base, key: 'd', shift: true, handler: () => openRowProperty('due_at') },
+      {
+        ...base,
+        key: 'i',
+        disabled: !taskKeysOn || !currentMemberId,
+        handler: () => {
+          if (liveFocusedId && currentMemberId) void patchItem(liveFocusedId, { assignee_id: currentMemberId })
+        },
+      },
+    ]
+  }, [ownsKeys, taskKeysOn, openRowProperty, currentMemberId, liveFocusedId, patchItem])
+  useHotkeys(taskKeys)
+
   // ── Flow status indicators ───────────────────────────────
   // Map of workflow_state id → enabled flows that fire on entry. Only entity
   // types that group by a workflow_state status can show ⚡ on a column/group;
@@ -1872,7 +1945,7 @@ export function UnifiedViewLayout({
   ) : null
 
   return (
-    <div className="relative isolate h-full flex flex-col" inert={obscured || undefined} aria-hidden={obscured || undefined}>
+    <div ref={listRootRef} data-list-keyboard-root="" className="relative isolate h-full flex flex-col" inert={obscured || undefined} aria-hidden={obscured || undefined}>
       {/* The card's own list searches from the card's header, where a window
           held its search. A record open over the list owns the header while
           it is there. */}
@@ -2059,6 +2132,7 @@ export function UnifiedViewLayout({
           that: the flex child still shrinks. The graph body must therefore size
           itself from this box's final rect, not participate in its flow. */}
       <div className="flex-1 min-h-0 overflow-hidden relative">
+        <ListFocusProvider value={liveFocusedId}>
         {isGraph ? (
           renderGraph?.({ filters: graphFilters, search: activeSearch ?? '' })
         ) : effectiveLayout === 'list' ? (
@@ -2108,6 +2182,7 @@ export function UnifiedViewLayout({
             groupLoadState={lazyGroupState}
           />
         )}
+        </ListFocusProvider>
       </div>
     </div>
   )

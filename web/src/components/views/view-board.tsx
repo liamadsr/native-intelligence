@@ -1,6 +1,7 @@
 'use client'
 // GEN-77: multi-select drag — drag item carries all checked IDs, not just the grabbed one.
 
+import { LIST_ROW_ATTR, useIsListFocused } from './list-keyboard'
 import * as React from 'react'
 import { DndProvider, useDrag, useDrop } from 'react-dnd'
 import { HTML5Backend } from 'react-dnd-html5-backend'
@@ -618,6 +619,7 @@ function BoardCardImpl({
   // the comparison. (checkedIds identity changes on selection, which is exactly
   // when we DO want a re-render, so memo still lets those through.)
   const itemRef = React.useRef(item)
+  const listFocused = useIsListFocused(item.id as string)
   itemRef.current = item
   const checkedIdsRef = React.useRef(checkedIds)
   checkedIdsRef.current = checkedIds
@@ -667,6 +669,9 @@ function BoardCardImpl({
       // Warm the detail-panel cache so clicking through feels instant
       // (deduped + cached inside).
       onMouseEnter={() => prefetchDetailOnHover(entityType, item)}
+      // Where the keyboard finds the card (list-keyboard.tsx).
+      {...{ [LIST_ROW_ATTR]: item.id as string }}
+      data-list-focused={listFocused || undefined}
       className={cn(
         // select-none: the card is an HTML5 drag source — without it, dragging
         // selects the title text and composes a text-drag alongside the card.
@@ -674,6 +679,8 @@ function BoardCardImpl({
         isDragging && 'opacity-50',
         isSelected && 'ring-1 ring-foreground/30',
         isChecked && 'ring-1 ring-foreground/20 bg-primary/5',
+        // The card the keyboard is on (J/K).
+        listFocused && 'ring-2 ring-foreground/40',
       )}
     >
       {/* Header: checkbox + identifier */}

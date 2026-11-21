@@ -2,6 +2,7 @@ import { requireWorkspace, requireWorkspaceMember } from '@/lib/api-auth'
 import { badRequest, forbidden, notFound, serverError } from '@/lib/api-errors'
 import { createNotification, getMemberByUserId } from '@/lib/notifications'
 import { inngest } from '@/lib/inngest/client'
+import { syncDescriptionMentions } from '@/lib/entity-links/description-mentions'
 import { NextResponse, type NextRequest } from 'next/server'
 
 /** projects.environment_id's foreign key, named so the embed can't read as environment_default's link (migration 420). */
@@ -152,14 +153,16 @@ export async function PATCH(
   // throwing — the main update below also has the workspace_id filter and
   // will return its own error if the row really doesn't exist.
   let previousStatus: string | null = null
-  if (body.status !== undefined) {
+  let previousDescription: string | null = null
+  if (body.status !== undefined || body.description !== undefined) {
     const { data: prev } = await supabase
       .from('projects')
-      .select('status')
+      .select('status, description')
       .eq('id', id)
       .eq('workspace_id', workspaceId)
       .maybeSingle()
     previousStatus = (prev?.status as string | null) ?? null
+    previousDescription = typeof prev?.description === 'string' ? prev.description : null
   }
 
   const updates: Record<string, unknown> = {}
@@ -315,6 +318,19 @@ export async function PATCH(
       .catch((err) => {
         console.error('[flows] inngest.send failed', err)
       })
+  }
+
+  // The description's `@` chips become `mentions` edges, and a teammate newly
+  // mentioned is told (non-blocking, fail-soft: never fails the save).
+  if (body.description !== undefined) {
+    await syncDescriptionMentions(supabase, {
+      workspaceId,
+      source: { type: 'project', id },
+      markdown: typeof updates.description === 'string' ? updates.description : '',
+      previousMarkdown: previousDescription,
+      userId: user.id,
+      title: typeof data?.name === 'string' ? data.name : null,
+    })
   }
 
   // Flatten the joined environment into the same shape GET returns, so the
