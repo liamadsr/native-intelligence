@@ -137,7 +137,11 @@ describe('positionDayEvents and the compact clock', () => {
     expect(style('long').left).toBe('0%')
     expect(parseFloat(String(style('late').left))).toBeGreaterThan(0)
     expect(parseFloat(String(style('late').left)) + parseFloat(String(style('late').width))).toBeCloseTo(parseFloat(String(style('long').width)))
-    expect(Number(style('late')['--event-z'])).toBeGreaterThan(Number(style('long')['--event-z']))
+    // Painted in the order they come back in (one layer): the later one after the earlier one, whatever order they arrived in.
+    expect(placed.map((p) => p.event.id)).toEqual(['long', 'late'])
+    const reversed = positionDayEvents([ev('late', at(10, 30), at(11)), ev('long', at(10), at(12))], day, { from: 8, to: 18 })
+    expect(reversed.map((p) => p.event.id)).toEqual(['long', 'late'])
+    expect(style('late')['--event-z']).toBe(style('long')['--event-z'])
     expect(style('long').top).toBe('20%')
     expect(style('long').height).toBe('192px')
   })

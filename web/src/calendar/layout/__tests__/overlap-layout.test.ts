@@ -197,4 +197,73 @@ describe('layoutDayEvents', () => {
       }
     }
   })
+
+  // Owner's report (11-21): short events inside a long one's time were hard to select.
+  describe('an event is never buried under a longer one', () => {
+    const horizontallyOver = (top: { left: number; width: number }, under: { left: number; width: number }) => top.left < right(under) - 1e-9 && under.left < right(top) - 1e-9
+
+    it('draws short events inside a long one on top of it, indented, with a strip of the long one clear on the left', () => {
+      const boxes = layoutDayEvents([ev('long', at(6), at(14)), ev('a', at(8), at(9)), ev('b', at(11), at(11, 30))])
+      const long = box(boxes, 'long')
+      for (const id of ['a', 'b']) {
+        const short = box(boxes, id)
+        expect(short.zIndex).toBeGreaterThan(long.zIndex)
+        expect(short.order).toBeGreaterThan(long.order)
+        // The long event's left edge stays its own: visible and clickable.
+        expect(short.left).toBeGreaterThanOrEqual(long.left + LAYER_INDENT - 1e-9)
+        expect(right(short)).toBeLessThanOrEqual(1 + 1e-9)
+      }
+      expect(long).toMatchObject({ left: 0, width: 1, depth: 0 })
+    })
+
+    it('puts a short event that starts with the long one beside it, not under it', () => {
+      const boxes = layoutDayEvents([ev('long', at(6), at(14)), ev('short', at(6), at(7))])
+      expect(horizontallyOver(box(boxes, 'short'), box(boxes, 'long'))).toBe(false)
+      // Same start: the shorter is the later in paint order.
+      expect(box(boxes, 'short').order).toBeGreaterThan(box(boxes, 'long').order)
+    })
+
+    it('puts a short event beside a longer one that starts later and would cover most of it', () => {
+      // 5:30-7:00 and 6:00-14:00: layered, the long one would hide an hour of the ninety minutes.
+      const boxes = layoutDayEvents([ev('short', at(5, 30), at(7)), ev('long', at(6), at(14))])
+      expect(horizontallyOver(box(boxes, 'long'), box(boxes, 'short'))).toBe(false)
+      expect(box(boxes, 'short').lanes).toBe(2)
+    })
+
+    it('still layers the usual stagger: the earlier one keeps half of itself clear', () => {
+      const boxes = layoutDayEvents([ev('first', at(9), at(11)), ev('second', at(10), at(12))])
+      expect(box(boxes, 'first')).toMatchObject({ left: 0, width: 1, depth: 0 })
+      expect(box(boxes, 'second').depth).toBe(1)
+      expect(box(boxes, 'second').order).toBeGreaterThan(box(boxes, 'first').order)
+    })
+
+    it('holds for any day: whatever is drawn over an event started later, and leaves at least half of it clear', () => {
+      let seed = 4242
+      const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647
+      for (let round = 0; round < 40; round++) {
+        const inputs: LayoutInput[] = []
+        for (let i = 0; i < 14; i++) {
+          const start = 360 + Math.floor(rand() * 40) * 15
+          const length = rand() < 0.25 ? 240 + Math.floor(rand() * 16) * 15 : 15 + Math.floor(rand() * 8) * 15
+          inputs.push(ev(`e${i}`, start, Math.min(1440, start + length)))
+        }
+        const boxes = layoutDayEvents(inputs)
+        for (const under of inputs) {
+          for (const top of inputs) {
+            if (under.id === top.id) continue
+            const bu = box(boxes, under.id)
+            const bt = box(boxes, top.id)
+            const inTime = under.start < top.end && top.start < under.end
+            if (!inTime || !horizontallyOver(bt, bu) || bt.order <= bu.order) continue
+            // `top` is painted over part of `under`.
+            expect(top.start).toBeGreaterThan(under.start)
+            const clear = top.start - under.start
+            const covered = under.end - top.start
+            // Either it keeps half its height above the one on top, or the one on top is no longer than it (a short one over a long one).
+            expect(covered <= clear || top.end - top.start <= under.end - under.start).toBe(true)
+          }
+        }
+      }
+    })
+  })
 })

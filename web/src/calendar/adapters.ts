@@ -48,18 +48,56 @@ function priorityToColor(priority: string): TEventColor {
 }
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
+const DAY_MS = 24 * 60 * 60 * 1000
+
+const ymd = (y: number, m: number, d: number) => `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+const utcYmd = (ms: number) => new Date(ms).toISOString().slice(0, 10)
+const localYmd = (ms: number) => {
+  const d = new Date(ms)
+  return ymd(d.getFullYear(), d.getMonth() + 1, d.getDate())
+}
+const dayBefore = (date: string) => {
+  const [y, m, d] = date.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10)
+}
 
 /**
- * An all-day event's end as the LAST day it covers. Google sends all-day ends
- * as an exclusive date ('YYYY-MM-DD', the day after: a one-day event on Oct 21
- * ends '2026-10-22'), while every calendar view reads endDate as inclusive.
+ * An all-day event's days as floating calendar dates: `start` the first day,
+ * `end` the LAST day it covers (inclusive, as every calendar view reads
+ * endDate). An all-day event is days on a calendar, never instants: read as
+ * instants, "Thursday" from a provider that says midnight UTC becomes
+ * Wednesday afternoon in any zone west of Greenwich, and the event is drawn a
+ * day early and a day long.
+ *
+ * The providers say it three ways:
+ *  - Google: dates, the end exclusive ('2026-11-26' to '2026-11-27').
+ *  - Microsoft Graph: midnight to midnight as UTC date-times, the end
+ *    exclusive ('2026-11-26T00:00:00.000Z' to '2026-11-27T00:00:00.000Z'):
+ *    the days are the UTC dates.
+ *  - The desktop's Exchange calendar (EventKit): the Mac's own midnight to
+ *    the end of the last day, as instants: the days are that clock's dates
+ *    (the same Mac shows them).
+ * A start exactly on a UTC midnight is read the Graph way, any other the
+ * Mac's way. `toLocalDate` is the reader's clock (tests pass a zone's).
  */
-function inclusiveAllDayEnd(event: CalendarEvent): string {
-  if (!event.isAllDay || !DATE_ONLY.test(event.end) || event.end <= event.start.slice(0, 10)) {
-    return event.end
+export function allDayDates(start: string, end: string, toLocalDate: (ms: number) => string = localYmd): { start: string; end: string } | null {
+  const startIsDate = DATE_ONLY.test(start)
+  const startMs = startIsDate ? NaN : new Date(start).getTime()
+  if (!startIsDate && Number.isNaN(startMs)) return null
+  const floating = startIsDate || startMs % DAY_MS === 0
+  const dateOf = floating ? utcYmd : toLocalDate
+  const first = startIsDate ? start : dateOf(startMs)
+
+  let last: string
+  if (DATE_ONLY.test(end)) {
+    // Exclusive: the day after the last one.
+    last = dayBefore(end)
+  } else {
+    const endMs = new Date(end).getTime()
+    // The instant it is over; a millisecond earlier is still inside its last day.
+    last = Number.isNaN(endMs) ? first : dateOf(endMs - 1)
   }
-  const [y, m, d] = event.end.split('-').map(Number)
-  return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10)
+  return { start: first, end: last > first ? last : first }
 }
 
 /**
@@ -75,10 +113,11 @@ export function exclusiveEndDate(event: Pick<IEvent, 'isAllDay' | 'endDate'>): s
 }
 
 export function calendarEventToIEvent(event: CalendarEvent): IEvent {
+  const days = event.isAllDay ? allDayDates(event.start, event.end) : null
   return {
     id: event.id,
-    startDate: event.start,
-    endDate: inclusiveAllDayEnd(event),
+    startDate: days?.start ?? event.start,
+    endDate: days?.end ?? event.end,
     title: event.title,
     color: calendarColor(event.accountId, event.calendarName),
     description: event.description || '',

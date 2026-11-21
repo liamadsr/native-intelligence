@@ -60,9 +60,10 @@ export const EventBlock = memo(function EventBlock({ event, className, readOnly 
     eventBlockClass,
     eventToneClass(event.color, badgeVariant),
     short && "justify-center py-0",
-    // Not answered yet: lighter, with a dashed edge. Declined: faded and struck through.
-    (event.response === "pending" || event.response === "tentative") && "opacity-80 outline-dashed outline-1 -outline-offset-1 outline-current/40",
-    event.response === "declined" && "opacity-55",
+    // Not answered yet: a paler fill with a dashed edge. Declined: muted and struck through. Both stay
+    // opaque (tailwind.css): a see-through block showed the events under it as if they were faded on top.
+    (event.response === "pending" || event.response === "tentative") && "cal-pending outline-dashed outline-1 -outline-offset-1 outline-current/40",
+    event.response === "declined" && "cal-declined",
     className
   );
 
