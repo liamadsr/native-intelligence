@@ -203,7 +203,8 @@ async function renderInWindow(threadId: string, props: DetailProps = {}) {
   for (let i = 0; i < 4; i++) await flush()
 }
 
-const replyAll = () => [...container.querySelectorAll('button')].find((button) => button.textContent?.includes('Reply All'))
+// The thread has drawn: it ends in its Reply… row.
+const replyAll = () => container.querySelector('[data-reply-row]') ?? undefined
 const speaks = () => bridge.calls.filter((c) => c[0] === 'speak')
 const spoken = () => speaks().map((c) => c[1])
 const nextButton = () => container.querySelector<HTMLButtonElement>('button[aria-label="Next thread"]')

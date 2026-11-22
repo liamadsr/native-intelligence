@@ -154,8 +154,11 @@ describe('EmailThreadDetail — send a draft', () => {
     expect(draftPills()).toHaveLength(1)
     expect(buttons('Send')).toHaveLength(1)
     expect(container.textContent).toContain('Let’s target next week instead.')
-    // Simon's message keeps its reply button; the draft has none.
-    expect(container.querySelectorAll('button[title="Reply with AI"]')).toHaveLength(1)
+    // Simon's message keeps its Reply (once opened: it is the older one, a
+    // line); the draft has none.
+    expect(container.querySelectorAll('[data-message-reply]')).toHaveLength(0)
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-email-message-collapsed]')!.click())
+    expect(container.querySelectorAll('[data-message-reply]')).toHaveLength(1)
   })
 
   it('a thread with no draft has no Send', async () => {
