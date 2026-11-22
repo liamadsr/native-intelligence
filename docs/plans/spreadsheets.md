@@ -750,6 +750,12 @@ Made without asking, while the owner was away. Each can be changed.
     built: a record deep link carries only the id, and a sheet-and-range would need a seed the
     deep-link reader and the Spreadsheets card both learn to pass and read — more than a query
     parameter the card reads, so it was left out rather than half-built.
+    Browser check (dev server, shared test account, dark and light): Copy link is in the row's
+    menu and the card's menu and copies `/account?spreadsheet=<id>`. Opening that address opened
+    the card in some runs and not in others; a document's link missed in the same way from a
+    freshly started browser (6 tries, 3 of each kind, none opened), so the miss is in the app's
+    shared open-a-card-on-boot path in this environment, not in the spreadsheet's part. Not
+    chased here; worth a look by whoever owns deep links, with a real signed-in browser.
 30. **The Links panel reuses "Referenced in", not a new endpoint.** The spreadsheet card's Links
     panel reads the same `/api/account/entities/spreadsheet/<id>/references` and draws the same
     rows as every other kind, so private spreadsheets stay fenced by the viewer's RLS with no new
