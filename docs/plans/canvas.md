@@ -471,9 +471,17 @@ without the mark where the column is missing, a person's comment never sends
 the column, a notice that cannot be stored (no 687) is dropped and logged, and
 the assistant's comment tools answer that the server is missing an update.
 
-Not seen in a browser: the container was recycled mid-session and the test
-account's sign-in went with it. Covered by unit tests of the notifier, the
-stores, the routes and the tools, and rendered tests of the panels.
+Seen in a browser, on the dev server (which has 675 but not 682, 687 or 692,
+and one member): a spreadsheet thread is written and listed on a database
+without the new column; a request cannot mark a comment as the assistant's;
+typing `@` in the thread's reply box finds a record, picking it puts its name
+in the words, and the reply saves; no badge on a person's comments; no page
+errors. NOT seen in a browser: a teammate in the picker and a notice arriving
+(the dev workspace has nobody else), the "assistant" badge and the assistant's
+tools (they need 692), anything on a canvas's comments (they need 682), and
+the link a mention makes from the spreadsheet to the record it names. Those
+rest on unit tests of the notifier, the stores, the routes and the tools, and
+rendered tests of the panels.
 
 ## Decisions to review
 

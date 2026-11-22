@@ -170,7 +170,9 @@ describe('migrations 572-575 and 585', () => {
     expect(newest(/add constraint notification_type_check/i)).toBe('671_mentions_everywhere.sql')
     // 679 (the CRM around the company) adds 'company' to the target check and is its newest word since
     // (src/lib/crm/__tests__/migration-679-680.test.ts holds that it adds nothing else).
-    expect(newest(/add constraint notification_target_type_check/i)).toBe('679_crm_companies.sql')
+    // 687 (comments on canvases and spreadsheets) adds 'canvas' and 'spreadsheet' to it and is its newest word since
+    // (src/lib/canvas/__tests__/migration-687-692.test.ts holds that it is 679's list plus those two).
+    expect(newest(/add constraint notification_target_type_check/i)).toBe('687_notification_canvas_spreadsheet.sql')
     expect(body).toContain("check (kind in ('channel', 'dm', 'meeting'))")
     expect(body).toContain("(kind = 'meeting' and name is not null and char_length(name) between 1 and 80 and dm_key is null and team_id is null)")
     expect(body).toContain("'meeting_waiting'")
