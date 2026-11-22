@@ -6,8 +6,8 @@ describe('the number formats on offer', () => {
   it('the engine draws each as its example says', () => {
     const m = newModel()
     NUMBER_FORMATS.forEach((f, i) => {
-      // 9 March 2026, 2:30 PM for dates and times; 0.125 for a percent; 1234.5 otherwise.
-      const value = f.id === 'date' || f.id === 'time' ? '46090.604166666664' : f.id === 'percent' ? '0.125' : '1234.5'
+      // 9 March 2026, 6:00 PM for dates and times; 0.125 for a percent; 1234.5 otherwise.
+      const value = f.id === 'date' || f.id === 'time' ? '46090.75' : f.id === 'percent' ? '0.125' : '1234.5'
       m.setUserInput(0, i + 1, 1, value)
       m.updateRangeStyle({ sheet: 0, row: i + 1, column: 1, width: 1, height: 1 }, 'num_fmt', f.code)
     })

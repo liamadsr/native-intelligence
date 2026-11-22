@@ -9,7 +9,7 @@ export interface NumberFormat {
   id: NumberFormatId
   label: string
   code: string
-  /** What 1234.5 (or, for dates and times, 9 March 2026 at 2:30 PM) looks like in it. */
+  /** What 1234.5 (or, for dates and times, 9 March 2026 at 6:00 PM) looks like in it. */
   example: string
 }
 
@@ -26,7 +26,7 @@ export const NUMBER_FORMATS: readonly NumberFormat[] = [
   { id: 'percent', label: 'Percent', code: '0.00%', example: '12.50%' },
   { id: 'scientific', label: 'Scientific', code: '0.00E+00', example: '1.23E+03' },
   { id: 'date', label: 'Date', code: DEFAULT_DATE, example: '03/09/2026' },
-  { id: 'time', label: 'Time', code: DEFAULT_TIME, example: '2:30 PM' },
+  { id: 'time', label: 'Time', code: DEFAULT_TIME, example: '6:00 PM' },
   { id: 'text', label: 'Plain text', code: PLAIN_TEXT, example: '1234.5' },
 ]
 
@@ -63,7 +63,8 @@ export function formatKind(code: string): NumberFormatId | 'custom' {
   if (!c || c.toLowerCase() === GENERAL) return 'automatic'
   if (c === PLAIN_TEXT) return 'text'
   const b = bare(c).toLowerCase()
-  if (isDateFormat(c)) return /[yd]/.test(b) || /m/.test(b.replace(/h+:m+|m+:s+/g, '')) ? 'date' : 'time'
+  // An m beside an h or an s is minutes; any other m is a month.
+  if (isDateFormat(c)) return /[yd]/.test(b) || /m/.test(b.replace(/am\/pm|a\/p/g, '').replace(/h+:m+|m+:s+/g, '')) ? 'date' : 'time'
   if (b.includes('e+') || b.includes('e-')) return 'scientific'
   if (b.includes('%')) return 'percent'
   if (c.includes('_(') || c.includes('* ')) return 'accounting'
@@ -111,6 +112,14 @@ export function changeDecimals(code: string, delta: number, shown?: string): str
       const stop = end < 0 ? c.length : end + 1
       out += c.slice(i, stop)
       i = stop
+      continue
+    }
+    if ((ch === 'E' || ch === 'e') && (c[i + 1] === '+' || c[i + 1] === '-')) {
+      // An exponent's digits are not decimal places.
+      let j = i + 2
+      while (j < c.length && /[0#]/.test(c[j])) j += 1
+      out += c.slice(i, j)
+      i = j
       continue
     }
     if (ch === '0' || ch === '#') {

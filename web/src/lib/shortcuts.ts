@@ -52,7 +52,7 @@ export interface ShortcutDef {
 // ── G then a letter ────────────────────────────────────────
 
 /** Where a go-to letter leads: a `/` page (its slug), home (the chat), or a rail page group (its member last used). */
-export type GoToTarget = { type: 'home' } | { type: 'page'; slug: string } | { type: 'group'; id: 'seo' }
+export type GoToTarget = { type: 'home' } | { type: 'page'; slug: string } | { type: 'group'; id: 'seo' | 'drive' }
 
 export interface GoToDef {
   /** The second key, a lower-case letter (G is the first). */
@@ -80,7 +80,10 @@ export const GO_TO: readonly GoToDef[] = [
   page('c', 'calendar', 'Calendar', 'Calendar (the owner’s example), so Contacts, Captures, Companies and Campaigns take another letter'),
   page('a', 'actions', 'My Actions', 'Actions'),
   page('t', 'team-chat', 'Team chat', 'Team chat (on the rail, used daily; Teams takes E)'),
-  page('d', 'docs', 'Docs', 'Docs, the Drive group’s first page'),
+  // Drive as a group since Spreadsheets joined it (11-22): 25 letters were taken by 25 pages, so one more page
+  // has no letter of its own. G D opens Drive on its page last used (Docs the first time), as the rail does;
+  // Knowledge, Files and Tables keep their own letters, and Spreadsheets is reached through this one.
+  { letter: 'd', target: { type: 'group', id: 'drive' }, label: 'Drive', why: 'Drive, on its page last used (Docs at first), as the rail opens it' },
   page('k', 'knowledge', 'Knowledge', 'Knowledge'),
   page('f', 'files', 'Files', 'Files'),
   page('l', 'tables', 'Tables', 'Lists (Tables’ own keyword); T is Team chat'),
