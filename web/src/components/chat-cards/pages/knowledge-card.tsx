@@ -1,15 +1,15 @@
 'use client'
 
 /**
- * Knowledge as a card: the real KnowledgeView, on the claims or the library
- * (and a package in it). Inline, claims read as a list and the map is a
- * still: the WebGL map runs in full screen only, and one card at a time
- * (./map-lease.ts). Which surface the card is on is the card's, never the
- * page's remembered choice.
+ * Knowledge as a card: the real KnowledgeView, on the claims. Its library is
+ * a page of its own since the split (Liam, 11-21), the Library card
+ * (./knowledge-library-card.tsx). Claims open on the graph; inline the map is
+ * a still: the WebGL map runs in full screen only, and one card at a time
+ * (./map-lease.ts).
  */
 import * as React from 'react'
 import { KnowledgeView } from '@/app/account/(dashboard)/views/knowledge-view'
-import { PageCardSurface, usePageCardSurface, usePagePlace, type PageCardProps } from './page-card'
+import { PageCardSurface, usePageCardSurface, type PageCardProps } from './page-card'
 import { acquireMap, mapHolder, releaseMap, subscribeMap } from './map-lease'
 import { RecordOverlay, usePageRecords } from './record-overlay'
 import { isRecordType } from '../card-body'
@@ -33,36 +33,31 @@ function useMapAllowed(id: string, fullScreen: boolean): boolean {
 export default function KnowledgeCard(props: PageCardProps) {
   const { toolCallId, store, fullScreen } = props
   const surface = usePageCardSurface(props)
-  const place = usePagePlace(props)
   const mapAllowed = useMapAllowed(toolCallId, fullScreen)
   const records = usePageRecords(toolCallId, store)
-  const pkg = place.at?.type === 'package' ? place.at : null
+  const covered = !!records.current
   const card = React.useMemo(
     () => ({
-      mode: (place.tab === 'library' ? 'library' : 'graph') as 'library' | 'graph',
-      onMode: (mode: 'library' | 'graph') => place.setTab(mode === 'library' ? 'library' : 'claims'),
       mapAllowed,
       onWantMap: () => store.enterFullScreen(toolCallId),
-      // A package the person opens is where the card is now (the note, read_card).
-      onPackageChange: (pkg: { id: string; name?: string } | null) =>
-        place.go(pkg ? { type: 'package', id: pkg.id, ...(pkg.name ? { label: pkg.name } : {}) } : null, 'library'),
+      // A record open over the page owns the header: the page's controls leave it.
+      covered,
     }),
-    [place, mapAllowed, store, toolCallId],
+    [mapAllowed, store, toolCallId, covered],
   )
   return (
     <PageCardSurface surface={surface}>
       <div className="relative h-full min-h-0">
-        <CardCovered covered={!!records.current}>
-        <KnowledgeView
-          card={card}
-          initialPackageId={pkg?.id}
-          // A claim's source (a capture, a doc, a project) opens inside the card.
-          onOpenEntity={(type, id, title) => {
-            if (!isRecordType(type)) return false
-            records.open({ type, id, label: title })
-            return true
-          }}
-        />
+        <CardCovered covered={covered}>
+          <KnowledgeView
+            card={card}
+            // A claim's source (a capture, a doc, a project) opens inside the card.
+            onOpenEntity={(type, id, title) => {
+              if (!isRecordType(type)) return false
+              records.open({ type, id, label: title })
+              return true
+            }}
+          />
         </CardCovered>
         <RecordOverlay records={records} page={props} />
       </div>

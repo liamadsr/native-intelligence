@@ -79,6 +79,7 @@ vi.mock('@/hooks/use-row-changes', () => ({
 import { emptyOutput, type WorkOutput, type WorkOutputCard, type WorkOutputDecision, type WorkOutputDraft } from '@/lib/work/output'
 import type { WorkItem } from '@/lib/work/types'
 import { WorkItemDetailPanel } from '../work-item-detail-panel'
+import { CardHeaderSlotsProvider } from '@/components/chat-cards/card-header-slot'
 
 // ─── Fixtures ────────────────────────────────────────────────────────────
 
@@ -771,6 +772,42 @@ describe('WorkItemDetailPanel — an agent run', () => {
     await click(stop)
     // In the run's own workspace (a bot's page can show an item from one not on screen).
     expect(fetchMock).toHaveBeenCalledWith('/api/account/actions/act-1/agent-runs/run-1/cancel', { method: 'POST', headers: { 'x-workspace-id': 'w1' } })
+  })
+
+  it('in its own card (the work item’s): its title is the header’s, and Stop and Open run stand at the header’s right (Liam, 11-22)', async () => {
+    const right = document.createElement('div')
+    document.body.appendChild(right)
+    try {
+      act(() => {
+        root.render(
+          h(
+            CardHeaderSlotsProvider,
+            { value: { left: null, right, trail: null, setBack: vi.fn() } },
+            h(WorkItemDetailPanel, { itemId: 'job-1', embedded: true, titleShown: 'Draft the pricing recap', verbsInHeader: true }),
+          ),
+        )
+      })
+      await flush()
+      expect(container.querySelector('h1')).toBeNull()
+      expect(container.querySelector('[data-work-item-verbs]')).toBeNull()
+      expect(button('Stop')).toBeUndefined()
+      const verbs = right.querySelector('[data-work-item-header-verbs]')!
+      expect([...verbs.querySelectorAll('button')].map((b) => b.getAttribute('aria-label') ?? b.textContent?.trim())).toEqual(['Stop', 'Open run'])
+      // A header naming something else (the card opened before the item had a title): the title stays.
+      act(() => {
+        root.render(
+          h(
+            CardHeaderSlotsProvider,
+            { value: { left: null, right, trail: null, setBack: vi.fn() } },
+            h(WorkItemDetailPanel, { itemId: 'job-1', embedded: true, titleShown: 'Work item', verbsInHeader: true }),
+          ),
+        )
+      })
+      await flush()
+      expect(container.querySelector('h1')!.textContent).toBe('Draft the pricing recap')
+    } finally {
+      right.remove()
+    }
   })
 
   it('an attempted run with NO tracked action (anchored to its capture) can still be stopped, through the run-scoped route', async () => {

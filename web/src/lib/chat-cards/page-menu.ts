@@ -149,6 +149,16 @@ export const CARD_PAGES: readonly CardPage[] = [
     spec: page('files', 'Files'),
   },
   { slug: 'knowledge', label: 'Knowledge', description: 'What Native Intelligence knows', kind: 'knowledge', view: 'knowledge', keywords: ['claims', 'graph'], spec: page('knowledge', 'Knowledge') },
+  // Liam, 11-21: Knowledge's library, its own page after Knowledge in Drive.
+  {
+    slug: 'library',
+    label: 'Library',
+    description: 'The workspace brief, project knowledge and packages',
+    kind: 'knowledge_library',
+    view: 'knowledge',
+    keywords: ['packages', 'briefs', 'review queue', 'knowledge'],
+    spec: page('knowledge_library', 'Library'),
+  },
   { slug: 'initiatives', label: 'Initiatives', description: 'Every initiative', kind: 'list', view: 'initiatives', spec: list('Initiatives', 'initiative') },
   { slug: 'projects', label: 'Projects', description: 'Every project', kind: 'list', view: 'projects', spec: list('Projects', 'project') },
   { slug: 'flows', label: 'Flows', description: 'Your automations', kind: 'flows', view: 'flows', keywords: ['automations', 'loops'], spec: page('flows', 'Flows') },
@@ -197,7 +207,8 @@ export const CARD_PAGES: readonly CardPage[] = [
   { slug: 'seo-ai-visibility', label: 'AI visibility', description: 'How AI assistants answer about your business', kind: 'seo_ai_visibility', view: 'seo', keywords: ['seo', 'ai', 'chatgpt', 'gemini', 'perplexity', 'mentions'], spec: page('seo_ai_visibility', 'AI visibility') },
   { slug: 'seo-local', label: 'Local', description: 'Your Google Business Profile, reviews and map rankings', kind: 'seo_local', view: 'seo', keywords: ['seo', 'local', 'maps', 'google business', 'reviews'], spec: page('seo_local', 'Local') },
   { slug: 'evals', label: 'Evals', description: 'Your eval suites', kind: 'evals', view: 'evals', spec: page('evals', 'Evals') },
-  { slug: 'agents', label: 'Agents & skills', description: 'Your agents and skills', kind: 'library', view: 'agents', keywords: ['skills', 'library', 'bots'], spec: page('library', 'Agents & skills') },
+  // Its kind is `library`, but `/library` is the Library's (above), so it isn't one of its words.
+  { slug: 'agents', label: 'Agents & skills', description: 'Your agents and skills', kind: 'library', view: 'agents', keywords: ['skills', 'bots'], spec: page('library', 'Agents & skills') },
   { slug: 'teams', label: 'Teams', description: 'Your teams', kind: 'teams', view: 'teams', spec: page('teams', 'Teams') },
   { slug: 'team-chat', label: 'Team chat', description: 'Channels and direct messages with your team', kind: 'team_chat', view: 'teams', keywords: ['chat', 'channels', 'messages', 'dm'], spec: page('team_chat', 'Team chat') },
 ]
@@ -206,7 +217,7 @@ export const CARD_PAGES: readonly CardPage[] = [
 export const NO_PAGE_KINDS: Readonly<Record<string, string>> = {
   record: 'opens one record, so it needs that record',
   team_board: 'opens one team’s board, so it needs that team',
-  bot: 'opens one agent’s page, so it needs that agent (the Library’s Agents & skills, For you, a notice)',
+  bot: 'opens one agent’s page, so it needs that agent (Agents & skills, For you, a notice)',
   work_item: 'opens one work item with no agent’s page to open on, so it needs that item (For you, a review, a banner)',
   guest: 'opens one guest’s conversation, so it needs that guest (their request or activity card in the chat)',
   agent_link: 'opens one link’s conversation between two agents, so it needs that link (the line over a held card, or an exchange’s card in the chat)',

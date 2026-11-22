@@ -10,6 +10,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
+import { CardHeaderSlot, CardHeaderTrail, useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
+import { CARD_HEADER_ICON_BUTTON } from '@/components/chat-cards/card-header-button'
 import { cn } from '@/lib/utils'
 
 /**
@@ -72,6 +74,13 @@ interface EntityDetailHeaderProps {
   /** Primary actions, outermost right. */
   actions?: React.ReactNode
   className?: string
+  /**
+   * In a card whose title is not `viewTitle` (an eval case: the card says
+   * Evals, the crumb is the case's suite): the page the card's title goes
+   * back to. The crumb then stays in the header's breadcrumb, before the name.
+   * Without it the crumb IS the card's title, and its press is `onBack`.
+   */
+  page?: { title: string; onBack: () => void }
 }
 
 export function EntityDetailHeader({
@@ -85,7 +94,13 @@ export function EntityDetailHeader({
   statusPill,
   actions,
   className,
+  page,
 }: EntityDetailHeaderProps) {
+  // In a card the breadcrumb is its header's (Liam, 11-22: "the back button
+  // should just be the breadcrumb"): the card's title is the way back, the
+  // name after it, renamed in place, and the status, actions and ⋯ at the
+  // header's end.
+  const inCard = useCardHeaderSlots() !== null
   // In a floating content window, the header carries the window's close button.
   const rowRef = React.useRef<HTMLDivElement>(null)
   /**
@@ -124,6 +139,61 @@ export function EntityDetailHeader({
     if (width <= 0) return
     el.style.width = `${width + chrome}px`
   }, [name, namePlaceholder])
+
+  if (inCard) {
+    const crumb = viewTitleFull ?? viewTitle
+    return (
+      <>
+        <CardHeaderTrail onBack={page ? page.onBack : onBack} backLabel={`Back to ${(page ? page.title : crumb).toLowerCase()}`}>
+          {page && (
+            <>
+              <button
+                type="button"
+                onClick={onBack}
+                title={crumb}
+                aria-label={`Back to ${crumb}`}
+                data-entity-detail-crumb=""
+                className="max-w-[10rem] shrink-0 truncate rounded text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+              >
+                {viewTitle}
+              </button>
+              <ChevronRight aria-hidden className="size-3.5 shrink-0 text-muted-foreground/60" strokeWidth={1.75} />
+            </>
+          )}
+          {/* As wide as the name (an invisible copy sizes it), renamed in place. */}
+          <span className="inline-grid min-w-0 grid-cols-[minmax(0,auto)]">
+            <span aria-hidden className="invisible col-start-1 row-start-1 overflow-hidden whitespace-pre px-1 font-medium">{name || namePlaceholder}</span>
+            <input
+              value={name}
+              onChange={(e) => onNameChange(e.target.value)}
+              placeholder={namePlaceholder}
+              aria-label={`${crumb.replace(/s$/, '')} name`}
+              data-entity-detail-name=""
+              className="col-start-1 row-start-1 w-full min-w-0 truncate rounded bg-transparent px-1 font-medium text-foreground outline-none placeholder:text-muted-foreground hover:bg-foreground/[0.06] focus:bg-foreground/[0.06]"
+            />
+          </span>
+        </CardHeaderTrail>
+        {(statusPill || actions || menuItems) && (
+          <CardHeaderSlot side="right">
+            <div data-entity-detail-controls="" className="flex items-center gap-1.5">
+              {statusPill && <div className="flex shrink-0 items-center">{statusPill}</div>}
+              {actions && <div className="flex shrink-0 items-center gap-1.5">{actions}</div>}
+              {menuItems && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button type="button" aria-label="More actions" className={cn('grid size-7 shrink-0 place-items-center', CARD_HEADER_ICON_BUTTON)}>
+                      <MoreHorizontal className="size-4" strokeWidth={1.75} />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">{menuItems}</DropdownMenuContent>
+                </DropdownMenu>
+              )}
+            </div>
+          </CardHeaderSlot>
+        )}
+      </>
+    )
+  }
 
   return (
     <>

@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as React from 'react'
 import { act } from 'react'
 import { makeStore, mountRoot } from './page-card-harness'
+import { seoHeaderHosts } from './seo-header-hosts'
 import { stubAppFetch } from '@/test/app-fetch-stub'
 
 const hoisted = vi.hoisted(() => ({
@@ -540,5 +541,28 @@ describe('SeoSearchCard: the … menu', () => {
     expect(q<HTMLButtonElement>('[data-seo-search-use]')!.disabled).toBe(true)
     await click(buttonByText('Cancel'))
     expect(q('[data-seo-search-site]')).not.toBeNull()
+  })
+})
+
+describe('SeoSearchCard: in a card’s header', () => {
+  // Liam, 11-22: the page never repeats its title, and its controls are the header's.
+  let hosts: ReturnType<typeof seoHeaderHosts>
+  beforeEach(() => {
+    hosts = seoHeaderHosts()
+  })
+  afterEach(() => hosts.remove())
+
+  it('no title row of its own; the period and the … menu are at the header’s right', async () => {
+    await mount.render(hosts.wrap(React.createElement(SeoSearchCard, { toolCallId: 'seo-s', spec, store, fullScreen: true })))
+    await settle()
+    await settle()
+    expect(mount.container.querySelector('[data-seo-search-site]')).not.toBeNull()
+    expect(mount.container.querySelector('h1')).toBeNull()
+    expect(mount.container.querySelector('[data-seo-search-menu]')).toBeNull()
+    expect(hosts.right.querySelector('[data-seo-filter="last_28_days"]')!.getAttribute('aria-checked')).toBe('true')
+    await act(async () => hosts.right.querySelector<HTMLElement>('[data-seo-search-menu]')!.click())
+    await settle()
+    expect(q('[data-seo-search-change-site]')).not.toBeNull()
+    expect(hosts.trail.childElementCount).toBe(0)
   })
 })

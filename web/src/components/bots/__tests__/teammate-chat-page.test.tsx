@@ -808,3 +808,68 @@ describe('TeammateChatPage: an item open on it', () => {
     expect(shared.runChats.at(-1)!.voice).toMatchObject({ ttsVoice: 'voice-research' })
   })
 })
+
+/**
+ * In its card (pages/bot-card.tsx; Liam, 11-22: a page never repeats its
+ * title, its controls are the card header's, a place inside it is the
+ * header's breadcrumb): no header row in the page; the agent's workspace and
+ * its switcher at the header's right; an item open on it is the breadcrumb,
+ * the title the way back to the lists, and the item's own back button goes.
+ */
+describe('a bot’s page in its card', () => {
+  let right: HTMLDivElement
+  let trail: HTMLDivElement
+  let back: { go: () => void; label: string } | null
+  beforeEach(() => {
+    back = null
+    right = document.createElement('div')
+    trail = document.createElement('div')
+    document.body.append(right, trail)
+  })
+  afterEach(() => {
+    right.remove()
+    trail.remove()
+  })
+  async function inCard(props: { itemId?: string; itemTitle?: string } = {}) {
+    // Imported after the reset, with the page: one context between them.
+    const { CardHeaderSlotsProvider } = await import('@/components/chat-cards/card-header-slot')
+    const { TeammateChatPage } = await import('../teammate-chat-page')
+    await act(async () =>
+      root.render(
+        h(
+          CardHeaderSlotsProvider,
+          { value: { left: null, right, trail, setBack: (next: typeof back) => void (back = next) } },
+          h(TeammateChatPage, {
+            teammateId: 'tm-ada',
+            name: 'Ada',
+            workspaceId: 'ws-2',
+            ...props,
+            drawn: true,
+            onOpenItem: (item) => void shared.openedItems.push(item),
+            onSwitchTeammate: (teammateId, focus) => void shared.switched.push({ teammateId, focus }),
+          }),
+        ),
+      ),
+    )
+  }
+
+  it('draws no header row: the workspace stands at the card header’s right', async () => {
+    await inCard()
+    expect(q('[data-view-header]')).toBeNull()
+    expect(q('[data-teammate-chat-page-name]')).toBeNull()
+    expect(right.querySelector('[data-bot-page-header] [data-teammate-chat-page-workspace]')!.textContent).toBe('Side project')
+    expect(trail.childElementCount).toBe(0)
+    expect(back).toBeNull()
+  })
+
+  it('an item open on it is the breadcrumb; the title goes back to the lists', async () => {
+    await inCard({ itemId: ITEM, itemTitle: 'Reply to Acme' })
+    expect(trail.querySelector('[data-teammate-chat-page-item-title]')!.textContent).toBe('Reply to Acme')
+    expect(back!.label).toBe('Back to Ada’s work')
+    expect(q('[data-bot-page-item-back]')).toBeNull()
+    // The panel is told the header shows its title.
+    expect(shared.panels.at(-1)).toMatchObject({ itemId: ITEM, titleShown: 'Reply to Acme' })
+    await act(async () => back!.go())
+    expect(shared.openedItems.at(-1)).toBeNull()
+  })
+})

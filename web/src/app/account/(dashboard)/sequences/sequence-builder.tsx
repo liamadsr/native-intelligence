@@ -50,6 +50,8 @@ import { stepEditVerdicts, type StepEditVerdict, type StepGuardError } from '@/l
 import { cachedJson } from '@/lib/cached-fetch'
 import { useWorkspaceId } from '@/app/account/workspace-switcher'
 import { ViewHeader } from '../views/view-header'
+import { useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
+import { CARD_HEADER_PILL_BUTTON } from '@/components/chat-cards/card-header-button'
 import type { SequenceRow } from '@/lib/sequences/types'
 import {
   MERGE_TOKENS,
@@ -223,6 +225,7 @@ export function SequenceBuilder({
   const isCreate = sequence === null
 
   const [name, setName] = useState(sequence?.name ?? '')
+  const inCard = useCardHeaderSlots() !== null
   const [description, setDescription] = useState(sequence?.description ?? '')
   const [timezone, setTimezone] = useState(sequence?.timezone ?? browserTimezone())
   const [sendWindow, setSendWindow] = useState(() =>
@@ -529,15 +532,38 @@ export function SequenceBuilder({
     <div className="flex h-full min-h-0 flex-col">
       <ViewHeader
         title={isCreate ? 'New sequence' : `Edit ${sequence.name}`}
+        // In a card the builder is a place in its header, "Sequences › New
+        // sequence", the card's title the way back (Liam, 11-22).
+        place={{
+          label: <span className="min-w-0 truncate font-medium">{isCreate ? 'New sequence' : `Edit ${sequence.name}`}</span>,
+          onBack: onCancel,
+          backLabel: isCreate ? 'Back to sequences' : 'Back to the sequence',
+        }}
         actions={
-          <>
-            <Button variant="ghost" size="sm" className="h-8" onClick={onCancel} disabled={saving}>
-              Cancel
-            </Button>
-            <Button size="sm" className="h-8" onClick={handleSave} disabled={disabled}>
-              {saving ? 'Saving…' : isCreate ? 'Create sequence' : 'Save changes'}
-            </Button>
-          </>
+          inCard ? (
+            <>
+              <button
+                type="button"
+                onClick={onCancel}
+                disabled={saving}
+                className="h-7 shrink-0 rounded-full px-3 text-xs text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button type="button" data-save-sequence="" onClick={handleSave} disabled={disabled} className={CARD_HEADER_PILL_BUTTON}>
+                {saving ? 'Saving…' : isCreate ? 'Create sequence' : 'Save changes'}
+              </button>
+            </>
+          ) : (
+            <>
+              <Button variant="ghost" size="sm" className="h-8" onClick={onCancel} disabled={saving}>
+                Cancel
+              </Button>
+              <Button size="sm" className="h-8" onClick={handleSave} disabled={disabled}>
+                {saving ? 'Saving…' : isCreate ? 'Create sequence' : 'Save changes'}
+              </Button>
+            </>
+          )
         }
       />
 

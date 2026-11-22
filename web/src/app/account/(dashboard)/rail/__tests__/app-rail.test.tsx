@@ -13,6 +13,7 @@ import { act, createElement as h } from 'react'
 import { getEdition, withEffectiveSurface, type EditionDefinition } from '@/lib/editions/manifest'
 import { OPEN_CARD_EVENT, type OpenCardRequest } from '@/lib/chat-cards/open-card'
 import { holdFrontCard } from '@/components/chat-cards/front-card'
+import { CardHistory } from '@/components/chat-cards/card-history'
 import { __resetSelectedPlaceForTests } from '../selected-place'
 import { GROUP_LAST_PAGE_KEY, __resetPageGroupsForTests } from '../page-groups'
 import { CARD_PAGES } from '@/lib/chat-cards/page-menu'
@@ -127,16 +128,54 @@ describe('the app rail', () => {
     expect(order()).toEqual(['workspace', 'search'])
   })
 
+  it('ends the header with Back and Forward for the page in front, after Search and Recent, as a group (Liam, 11-21)', async () => {
+    await render()
+    const header = container.querySelector<HTMLElement>('[data-app-rail-header]')!
+    act(() => setPagePanelContent(true))
+    // The group comes last, after the Recent panel's button.
+    const group = header.querySelector<HTMLElement>('[data-app-rail-history]')!
+    expect(group).not.toBeNull()
+    expect(item('page-panel')!.compareDocumentPosition(group) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    const back = () => header.querySelector<HTMLButtonElement>('[data-testid="rail-back"]')!
+    const forward = () => header.querySelector<HTMLButtonElement>('[data-testid="rail-forward"]')!
+    // The chat in front: both in their place, off.
+    expect(back().disabled).toBe(true)
+    expect(forward().disabled).toBe(true)
+    // A page in front with a step behind it: Back walks its history, then Forward.
+    // Two steps (pushes in one task merge into one).
+    const tick = () => new Promise((resolve) => queueMicrotask(() => resolve(null)))
+    const history = new CardHistory()
+    history.push('place', 'a')
+    await tick()
+    history.push('place', 'b')
+    await tick()
+    act(() => {
+      releases.push(holdFrontCard({ id: 'card-1', spec: { kind: 'docs', title: 'Docs' } as unknown as CardSpec, history, close: () => {} }))
+    })
+    expect(back().disabled).toBe(false)
+    expect(forward().disabled).toBe(true)
+    act(() => back().click())
+    expect(history.read('place', () => '')).toBe('a')
+    expect(forward().disabled).toBe(false)
+    act(() => forward().click())
+    expect(history.read('place', () => '')).toBe('b')
+    // The page put away: off again.
+    act(() => releases.pop()!())
+    expect(back().disabled).toBe(true)
+  })
+
   it('floats one bar like Miro’s toolbar ("one big bar instead of four"), a hairline between its groups, with the panels’ glass', async () => {
     await render()
     const pills = Array.from(container.querySelectorAll<HTMLElement>('[data-app-rail-pill]'))
     expect(pills.map((p) => p.dataset.appRailPill)).toEqual(['pages'])
     expect(Array.from(pills[0].querySelectorAll<HTMLElement>('[data-app-rail-group]')).map((g) => g.dataset.appRailGroup)).toEqual(['work', 'customers', 'agents'])
     expect(pills[0].querySelectorAll('[data-app-rail-group-line]')).toHaveLength(2)
-    // Create at the top (Liam, 11-20), then Home (Liam, 11-11: "add a homepage icon on the navside"), the bar's hairline after it.
+    // Create at the top (Liam, 11-20), a hairline (Liam, 11-21), then Home (Liam, 11-11: "add a homepage icon on the navside"), the bar's hairline after it.
     const home = item('home')!
     expect(pills[0].firstElementChild).toBe(item('create'))
-    expect(item('create')!.nextElementSibling).toBe(home)
+    const createLine = item('create')!.nextElementSibling
+    expect(createLine?.hasAttribute('data-app-rail-create-line')).toBe(true)
+    expect(createLine?.nextElementSibling).toBe(home)
     expect(home.nextElementSibling?.hasAttribute('data-app-rail-home-line')).toBe(true)
     expect(home.getAttribute('aria-label')).toBe('Home')
     expect(home.querySelector('svg.lucide-house')).not.toBeNull()
@@ -487,8 +526,9 @@ describe('the person’s bar', () => {
     await render()
     const nav = container.querySelector<HTMLElement>('[data-app-rail-nav]')!
     expect(Array.from(nav.querySelectorAll<HTMLElement>('[data-app-rail-item]')).map((el) => el.dataset.appRailItem)).toEqual(['create', 'home', 'customize'])
-    // One hairline, Home's.
+    // Two hairlines: Create's and Home's.
     expect(container.querySelector('[data-app-rail-customize-line]')).toBeNull()
+    expect(container.querySelectorAll('[data-app-rail-create-line]')).toHaveLength(1)
     expect(container.querySelectorAll('[data-app-rail-home-line]')).toHaveLength(1)
   })
 

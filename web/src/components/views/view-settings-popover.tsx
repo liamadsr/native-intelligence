@@ -11,8 +11,8 @@ import {
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
-import { Settings2, List, LayoutGrid, ArrowUp, ArrowDown, Share2, Table2, CalendarDays, GalleryHorizontalEnd, GanttChart } from 'lucide-react'
-import { supportsRoadmap } from '@/lib/views/roadmap'
+import { Settings2, ArrowUp, ArrowDown } from 'lucide-react'
+import { layoutOptions } from './view-layouts'
 import {
   FILTERABLE_FIELDS, DISPLAY_PROPERTIES,
   type ViewEntityType, type ViewLayout,
@@ -42,6 +42,8 @@ interface ViewSettingsPopoverProps {
    * property is offered only when its scope field is locked here.
    */
   lockedScopeFields?: Set<string>
+  /** The layout is picked in the card's header island (view-layout-switcher.tsx): no toggle here too. */
+  hideLayout?: boolean
 }
 
 function SettingsRow({ label, children }: { label: string; children: React.ReactNode }) {
@@ -53,7 +55,7 @@ function SettingsRow({ label, children }: { label: string; children: React.React
   )
 }
 
-export function ViewSettingsPopover({ config, entityType, onChange, lockedScopeFields, graphAvailable = false }: ViewSettingsPopoverProps) {
+export function ViewSettingsPopover({ config, entityType, onChange, lockedScopeFields, graphAvailable = false, hideLayout = false }: ViewSettingsPopoverProps) {
   /**
    * On a canvas, grouping / sub-grouping / ordering / display properties are
    * not "disabled" — they are MEANINGLESS, and each for its own reason.
@@ -134,41 +136,31 @@ export function ViewSettingsPopover({ config, entityType, onChange, lockedScopeF
       </Tooltip>
       <PopoverContent className="w-72 p-0" align="end">
         <div className="p-3 space-y-4">
-          {/* Layout toggle */}
-          {isTable && <ToggleGroup
+          {/* Layout toggle: the layouts view-layouts.ts offers (the header
+              island's switcher has them instead where there is one). */}
+          {!hideLayout && isTable && <ToggleGroup
             type="single"
             value={config.layout}
             onValueChange={v => v && onChange({ layout: v as ViewLayout })}
             className="grid w-full grid-cols-4 gap-1"
           >
-            {([['grid', 'Table', Table2], ['board', 'Board', LayoutGrid], ['calendar', 'Calendar', CalendarDays], ['gallery', 'Gallery', GalleryHorizontalEnd]] as const).map(([value, label, Icon]) => (
+            {layoutOptions(entityType).map(({ value, label, Icon }) => (
               <ToggleGroupItem key={value} value={value} aria-label={label} className="h-12 flex-col gap-1 px-1 text-[11px]">
                 <Icon className="h-3.5 w-3.5" /> {label}
               </ToggleGroupItem>
             ))}
           </ToggleGroup>}
-          {!isLibrary && !isTable && <ToggleGroup
+          {!hideLayout && !isLibrary && !isTable && <ToggleGroup
             type="single"
             value={config.layout}
             onValueChange={v => v && onChange({ layout: v as ViewLayout })}
             className="w-full"
           >
-            {graphAvailable && (
-              <ToggleGroupItem value="graph" className="flex-1 gap-2 h-8 text-xs">
-                <Share2 className="h-3.5 w-3.5" /> Graph
+            {layoutOptions(entityType, graphAvailable).map(({ value, label, Icon }) => (
+              <ToggleGroupItem key={value} value={value} className="flex-1 gap-2 h-8 text-xs" data-layout-option={value}>
+                <Icon className="h-3.5 w-3.5" /> {label}
               </ToggleGroupItem>
-            )}
-            <ToggleGroupItem value="list" className="flex-1 gap-2 h-8 text-xs">
-              <List className="h-3.5 w-3.5" /> List
-            </ToggleGroupItem>
-            <ToggleGroupItem value="board" className="flex-1 gap-2 h-8 text-xs">
-              <LayoutGrid className="h-3.5 w-3.5" /> Board
-            </ToggleGroupItem>
-            {supportsRoadmap(entityType) && (
-              <ToggleGroupItem value="roadmap" className="flex-1 gap-2 h-8 text-xs" data-layout-option="roadmap">
-                <GanttChart className="h-3.5 w-3.5" /> Roadmap
-              </ToggleGroupItem>
-            )}
+            ))}
           </ToggleGroup>}
 
           {!isGraph && <>

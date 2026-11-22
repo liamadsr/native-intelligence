@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/tooltip'
 import { ReminderHeaderPill } from '@/components/reminders/reminder-pill'
 import type { ReminderEntityType } from '@/lib/reminders/types'
+import { useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
 import { ViewHeader } from './view-header'
 
 /** Words kept before the breadcrumb elides the rest. */
@@ -152,6 +153,39 @@ export function DetailBreadcrumbHeader({
     </TooltipProvider>
   )
 
+  const reminder = reminderEntity && (
+    <ReminderHeaderPill
+      key={`${reminderEntity.type}:${reminderEntity.id}`}
+      entityType={reminderEntity.type}
+      entityId={reminderEntity.id}
+    />
+  )
+
+  // In a card the breadcrumb is its header's (Liam, 11-22): the card's title
+  // is the way back, the entity after it; the reminder and the arrows go to
+  // the header's right.
+  const inCard = useCardHeaderSlots() !== null
+  if (inCard) {
+    return (
+      <ViewHeader
+        place={{
+          label: (
+            <span data-detail-crumb="" className="flex min-w-0 items-center gap-1.5">
+              {detailIdentifier && <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{detailIdentifier}</span>}
+              <span className="min-w-0 truncate font-medium" title={detailTitle}>
+                {truncateBreadcrumbTitle(detailTitle)}
+              </span>
+            </span>
+          ),
+          onBack,
+          backLabel: `Back to ${viewTitle}`,
+        }}
+        actions={reminder || undefined}
+        navigation={navigation || undefined}
+      />
+    )
+  }
+
   return (
     <ViewHeader navigation={navigation}>
       {/* Breadcrumb */}
@@ -178,15 +212,7 @@ export function DetailBreadcrumbHeader({
           at all when this entity has none, so the header is unchanged for the
           overwhelming majority of opens. Keyed on the entity so switching
           entities in one panel refetches instead of showing the old label. */}
-      {reminderEntity && (
-        <div className="mr-2 flex items-center">
-          <ReminderHeaderPill
-            key={`${reminderEntity.type}:${reminderEntity.id}`}
-            entityType={reminderEntity.type}
-            entityId={reminderEntity.id}
-          />
-        </div>
-      )}
+      {reminder && <div className="mr-2 flex items-center">{reminder}</div>}
     </ViewHeader>
   )
 }

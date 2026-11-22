@@ -32,6 +32,7 @@ import { ViewHeader } from '../../views/view-header'
 import { errorMessage } from '../api'
 import { CenteredError, CenteredLoader } from '../load-states'
 import { SeoDataNotice, SeoSpendLine, buyBlockedReason, useSeoData, type SeoDataState } from '../shared/data-status'
+import { SeoHeaderAction, useInCard } from '../shared/header-controls'
 import { RunRail } from '../shared/run-rail'
 import { relativeWhen } from '../ui-helpers'
 import { runRailLine, trackerStatus, trackerSubline } from './ai-helpers'
@@ -74,6 +75,9 @@ export function AiVisibilityPage(props: AiVisibilityPageProps) {
 }
 
 function TrackerIndex({ seo, onOpenTracker, onCount }: { seo: SeoDataState } & Pick<AiVisibilityPageProps, 'onOpenTracker' | 'onCount'>) {
+  // In a card its header names the page and takes New tracker (Liam, 11-22):
+  // no row of the page's own above the list.
+  const inCard = useInCard()
   const [payload, setPayload] = React.useState<AiTrackerListPayload | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -138,7 +142,7 @@ function TrackerIndex({ seo, onOpenTracker, onCount }: { seo: SeoDataState } & P
 
   if (!payload) {
     return (
-      <div className="flex h-full min-h-0 flex-col">
+      <div className={cn('flex h-full min-h-0 flex-col', inCard && 'pt-2')}>
         <ViewHeader title={<PageTitle label="AI visibility" as="h1" />} />
         {error && !loading ? <CenteredError text={error} onRetry={() => void load()} /> : <CenteredLoader />}
       </div>
@@ -155,7 +159,7 @@ function TrackerIndex({ seo, onOpenTracker, onCount }: { seo: SeoDataState } & P
   const rail = liveRun ? runRailLine(liveRun) : null
 
   return (
-    <div data-seo-index="" className="flex h-full min-h-0 flex-col">
+    <div data-seo-index="" className={cn('flex h-full min-h-0 flex-col', inCard && 'pt-2')}>
       <ViewHeader
         title={<PageTitle label="AI visibility" as="h1" />}
         actions={
@@ -163,9 +167,9 @@ function TrackerIndex({ seo, onOpenTracker, onCount }: { seo: SeoDataState } & P
             <SeoSpendLine view={view} className="mr-2" />
             {/* With no trackers the first-run block carries the button. */}
             {!empty && (
-              <Button size="sm" className="h-8" data-seo-new-tracker="" disabled={atCap} title={newTitle} onClick={() => setDialogOpen(true)}>
+              <SeoHeaderAction data-seo-new-tracker="" disabled={atCap} title={newTitle} onClick={() => setDialogOpen(true)}>
                 New tracker
-              </Button>
+              </SeoHeaderAction>
             )}
           </>
         }

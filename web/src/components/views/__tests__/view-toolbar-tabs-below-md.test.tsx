@@ -76,7 +76,8 @@ async function renderToolbar(scopeTabsBelowMdOnly?: boolean, over: { activeViewI
         onConfigChange: vi.fn(),
         onScopeReset: vi.fn(),
         isDirty: over.isDirty ?? true,
-        overrides: {},
+        // The ribbon shows for unsaved filters (view-toolbar.tsx filtersChanged).
+        overrides: (over.isDirty ?? true) ? { filters: [] } : {},
         onSaveDraft: handlers.onSaveDraft,
         onDiscardDraft: vi.fn(),
         scopeTabsBelowMdOnly,
@@ -152,7 +153,8 @@ describe('the toolbar over a views layout (alignToContent)', () => {
   it('its view tabs on the content line whatever the layout: one padding, never the layout’s', async () => {
     await renderToolbar(true, { alignToContent: true })
     const row = container.querySelector<HTMLElement>('[data-view-toolbar-row]')!
-    expect(row.className).toContain('pl-10')
+    // The tab pills on the leading line, 18px in, where a row's checkbox and the header island's icon stand (Liam, 11-21).
+    expect(row.className).toContain('pl-[18px]')
     expect(row.className).not.toMatch(/\bpx-/)
   })
 })

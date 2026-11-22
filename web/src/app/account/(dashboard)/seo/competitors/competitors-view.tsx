@@ -14,10 +14,11 @@
  *                  newest stored overview of the workspace's own site opens,
  *                  if there is one; otherwise the first-run block, or the
  *                  Recent list of stored lookups (they reopen for free).
- *   A site         the crumb and the site, its market and when it was looked
- *                  up (Refresh buys again), the server's note when its top
- *                  keywords or pages could not be read (Refresh offered then
- *                  too), then three tabs: Overview,
+ *   A site         the crumb and the site (in a card, its header's
+ *                  breadcrumb, the title the way back), its market and when
+ *                  it was looked up (Refresh buys again), the server's note
+ *                  when its top keywords or pages could not be read (Refresh
+ *                  offered then too), then three tabs: Overview,
  *                  Keywords and Competitors (./overview-tab.tsx,
  *                  ./keywords-tab.tsx, ./competitors-tab.tsx).
  *
@@ -35,10 +36,12 @@ import type { DomainOverview } from '@/lib/seo/domain/view'
 import { describeMarket, type SeoMarketOptions } from '@/lib/seo/keywords/view'
 import type { SeoLookupSummary } from '@/lib/seo/lookup-view'
 import { isSeoRefusalCode, type SeoSpendView } from '@/lib/seo/spend-view'
+import { cn } from '@/lib/utils'
 import { ViewHeader } from '../../views/view-header'
 import { SeoRequestError, errorMessage } from '../api'
 import { CenteredError, CenteredLoader } from '../load-states'
 import { SeoDataNotice, SeoSpendLine, buyBlockedReason, useSeoData } from '../shared/data-status'
+import { SeoPlaceLabel, useInCard } from '../shared/header-controls'
 import { PartialNote, partialNoteText } from '../shared/partial-note'
 import { TabPills } from '../shared/tab-pills'
 import { relativeWhen } from '../ui-helpers'
@@ -76,6 +79,7 @@ interface Banner {
 
 export function CompetitorsPage({ tab, onTab, onCount }: CompetitorsPageProps) {
   const seoData = useSeoData()
+  const inCard = useInCard()
   const [booted, setBooted] = React.useState(false)
   const [bootError, setBootError] = React.useState(false)
   const [recent, setRecent] = React.useState<SeoLookupSummary[]>([])
@@ -238,13 +242,30 @@ export function CompetitorsPage({ tab, onTab, onCount }: CompetitorsPageProps) {
           <PageTitle label="Competitors" as="h1" />
         )
       }
+      // In a card the site on show is the header's breadcrumb, "Competitors ›
+      // example.com", the title the way back to the lookups (Liam, 11-22: "the
+      // back button should just be the breadcrum"); the spend line is the
+      // header's too.
+      place={
+        overview
+          ? {
+              label: (
+                <SeoPlaceLabel name={overview.domain} data-seo-site-title="">
+                  {isOwn && <YourSiteChip />}
+                </SeoPlaceLabel>
+              ),
+              onBack: back,
+              backLabel: 'Back to competitors',
+            }
+          : undefined
+      }
       actions={<SeoSpendLine view={view} />}
     />
   )
 
   if (!booted) {
     return (
-      <div className="flex h-full min-h-0 flex-col">
+      <div className={cn('flex h-full min-h-0 flex-col', inCard && 'pt-2')}>
         {header}
         {bootError ? <CenteredError text="Could not load your site lookups." onRetry={() => void boot()} /> : <CenteredLoader />}
       </div>
@@ -254,7 +275,7 @@ export function CompetitorsPage({ tab, onTab, onCount }: CompetitorsPageProps) {
   const locations = domainLocations(markets)
   const activeTab: CompetitorTab = tab && (COMPETITOR_TABS as readonly string[]).includes(tab) ? (tab as CompetitorTab) : 'overview'
   return (
-    <div data-seo-competitors-page="" data-seo-state={overview ? 'site' : 'index'} className="flex h-full min-h-0 flex-col">
+    <div data-seo-competitors-page="" data-seo-state={overview ? 'site' : 'index'} className={cn('flex h-full min-h-0 flex-col', inCard && 'pt-2')}>
       {header}
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6">
         <div className="max-w-3xl">

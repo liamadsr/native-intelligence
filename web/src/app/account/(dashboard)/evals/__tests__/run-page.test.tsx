@@ -57,6 +57,7 @@ import {
   nudgeLagText,
   stepCeilingFromChecks,
 } from '../run-page'
+import { CardHeaderSlotsProvider, type CardHeaderBack } from '@/components/chat-cards/card-header-slot'
 import { formatCost, formatDuration } from '../ui-helpers'
 
 // ── Fixtures ─────────────────────────────────────────────────────────────
@@ -1052,5 +1053,38 @@ describe('EvalRunPage — nudge results (live sidekick)', () => {
     routes({ trials: [trial({ checks: [check({ id: 'a', dimension: 'summary', outcome: 'pass' })] })] })
     await mount()
     expect(text()).not.toContain('Nudges')
+  })
+})
+
+// In a card (Liam, 11-22: "the back button should just be the breadcrumb"):
+// "Evals › Sales Discovery › Batch run · …" is the card header's, the card's
+// title back to the suites and the suite crumb back to the suite.
+describe('EvalRunPage — in a card', () => {
+  it('its breadcrumb is the card header’s; no title row in the page', async () => {
+    const right = document.createElement('div')
+    const trail = document.createElement('div')
+    document.body.append(right, trail)
+    let back: CardHeaderBack | null = null
+    const toSuite = vi.fn()
+    const toEvals = vi.fn()
+    await act(async () => {
+      root.render(
+        <CardHeaderSlotsProvider value={{ left: null, right, trail, setBack: (b) => (back = b) }}>
+          <EvalRunPage runId="run-1" suiteName="Sales Discovery" onBack={toSuite} onBackToEvals={toEvals} />
+        </CardHeaderSlotsProvider>,
+      )
+    })
+    await act(async () => {})
+    const crumb = trail.querySelector('[data-eval-run-crumb]')!
+    expect(crumb.textContent).toContain('Sales Discovery')
+    expect(crumb.textContent).toContain('run ·')
+    expect(container.querySelector('h1')).toBeNull()
+    act(() => crumb.querySelector('button')!.click())
+    expect(toSuite).toHaveBeenCalled()
+    expect(back!.label).toBe('Back to evals')
+    back!.go()
+    expect(toEvals).toHaveBeenCalled()
+    right.remove()
+    trail.remove()
   })
 })

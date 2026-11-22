@@ -34,6 +34,7 @@ vi.mock('../card-body', () => ({
 }))
 
 import FilesCard, { FILES_EMPTY_PAGES_MAX, fileIconOf } from '../pages/files-card'
+import { CardHeaderSlotsProvider } from '../card-header-slot'
 import type { PageCardSpec } from '@/lib/chat-cards/pages'
 import type { WorkspaceFile } from '@/lib/attachments/workspace-files-model'
 
@@ -222,6 +223,47 @@ describe('FilesCard', () => {
     expect(q('[data-files-empty]')!.textContent).toContain('No files yet')
     await click('[data-files-filter="document"]')
     expect(q('[data-files-empty]')!.textContent).toContain('No files match')
+  })
+
+  it('in a card: the name search is the header’s, the tabs stay the page’s own row, and none while a record is open over it (Liam, 11-22)', async () => {
+    const right = document.createElement('div')
+    const trail = document.createElement('div')
+    document.body.append(right, trail)
+    try {
+      await mount.render(
+        React.createElement(
+          CardHeaderSlotsProvider,
+          { value: { left: null, right, trail, setBack: vi.fn() } },
+          React.createElement(FilesCard, { toolCallId: 'files-1', spec, store: makeStore('files-1', spec), fullScreen: true }),
+        ),
+      )
+      await settle()
+      // The page keeps its tabs and draws no search of its own.
+      expect(q('[data-files-filter="all"]')).not.toBeNull()
+      expect(q('[data-files-search]')).toBeNull()
+      expect(mount.container.querySelector('input')).toBeNull()
+      // The header's search: a button that opens into a field, which searches the names.
+      const control = right.querySelector<HTMLElement>('[data-files-search-control]')!
+      expect(control).not.toBeNull()
+      await act(async () => control.querySelector<HTMLButtonElement>('button[aria-label="Search files"]')!.click())
+      const input = control.querySelector<HTMLInputElement>('input')!
+      pages = (url) => ({ files: url.searchParams.get('q') === 'quote' ? [QUOTE] : [], next_offset: null })
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'quote')
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+      await settle(300)
+      await settle()
+      expect(asked.at(-1)).toBe('/api/account/files?limit=50&q=quote')
+      expect(rowIds()).toEqual(['quote'])
+      // A record open over the list owns the header: the search goes.
+      await click('[data-files-row="quote"] [data-files-parent]')
+      expect(q('[data-record-panel]')).not.toBeNull()
+      expect(right.querySelector('[data-files-search-control]')).toBeNull()
+    } finally {
+      right.remove()
+      trail.remove()
+    }
   })
 
   it('gives each kind of file its icon', () => {

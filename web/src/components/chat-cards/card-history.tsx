@@ -327,11 +327,24 @@ export function cardFrameOf(node: Element | null): HTMLElement | null {
 }
 
 /**
- * The card header's Back and Forward: the same pair, icons, labels and
- * tooltips a window's header had (window-history.tsx on main), bound to this
- * card's history.
+ * In the app rail's header: round, the rail's tint for hover (app-rail.tsx
+ * ITEM), 24px and 1px apart (Liam, 11-21: "make sure the spacing between all
+ * these elements are perfect"): a chevron is 4.5px of ink, so 32px circles
+ * left 29.5px between the two where Search and Recent have 20.5px; these
+ * leave the same 20.5px.
  */
-export function CardHistoryButtons({ history }: { history: CardHistory }) {
+const RAIL_HISTORY_BUTTON =
+  'relative flex size-6 shrink-0 items-center justify-center rounded-full text-sidebar-foreground/65 transition-colors hover:bg-foreground/[0.05] hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none'
+
+/**
+ * Back and Forward: the same pair, icons, labels and tooltips a window's
+ * header had (window-history.tsx on main), bound to one card's history. In a
+ * card's header (`card`), or in the app rail's header for the page in front
+ * (`rail`; Liam, 11-21: "move the back and forward button out from the main
+ * pages to the top left").
+ */
+export function CardHistoryButtons({ history, variant = 'card' }: { history: CardHistory; variant?: 'card' | 'rail' }) {
+  const rail = variant === 'rail'
   React.useSyncExternalStore(history.subscribe, history.getVersion, history.getVersion)
   const groupRef = React.useRef<HTMLDivElement>(null)
   // A button the step disabled while it had the focus (Back pressed to the
@@ -346,7 +359,7 @@ export function CardHistoryButtons({ history }: { history: CardHistory }) {
     ;(other ?? cardFrameOf(stuck))?.focus({ preventScroll: true })
   })
   return (
-    <div ref={groupRef} className="flex shrink-0 items-center gap-0.5" role="group" aria-label="Card history">
+    <div ref={groupRef} className={`flex shrink-0 items-center ${rail ? 'gap-px' : 'gap-0.5'}`} role="group" aria-label={rail ? 'Page history' : 'Card history'}>
       {([-1, 1] as const).map((delta) => {
         const back = delta === -1
         const Icon = back ? ChevronLeft : ChevronRight
@@ -361,14 +374,14 @@ export function CardHistoryButtons({ history }: { history: CardHistory }) {
             type="button"
             aria-label={label}
             {...(hop?.unavailable ? { 'aria-description': hop.unavailable } : {})}
-            data-testid={back ? 'card-back' : 'card-forward'}
+            data-testid={`${rail ? 'rail' : 'card'}-${back ? 'back' : 'forward'}`}
             {...(hop ? { 'data-card-hop': hop.cardId } : {})}
             title={tip}
             disabled={back ? !history.canGoBack : !history.canGoForward}
             onClick={() => history.go(delta)}
-            className={`flex size-7 shrink-0 items-center justify-center ${CARD_HEADER_ICON_BUTTON} disabled:opacity-30 disabled:hover:bg-transparent`}
+            className={`${rail ? RAIL_HISTORY_BUTTON : `flex size-7 shrink-0 items-center justify-center ${CARD_HEADER_ICON_BUTTON}`} disabled:opacity-30 disabled:hover:bg-transparent`}
           >
-            <Icon className="size-3.5" aria-hidden />
+            <Icon className={rail ? 'size-[18px]' : 'size-3.5'} strokeWidth={rail ? 1.75 : 2} aria-hidden />
           </button>
         )
       })}
