@@ -424,6 +424,61 @@ non-agent row were untouched; a re-run changed nothing. Not applied to DEV or pr
 Not done: comments (phase 5, with the threads on cells), sharing with one person (decision 5),
 the activity log and copy link (they need database triggers and deep-link handling).
 
+### Phase 4 (first part): done
+
+Dropdowns and validation, checkboxes, conditional formatting and Goal Seek. Tables (typed
+columns, filter, group by, totals), charts and images are the rest of phase 4 and are **not**
+in this part.
+
+| Item | State |
+| --- | --- |
+| Extras foundation | Done. A typed, versioned `WorkbookExtras` (`lib/spreadsheets/extras.ts`: `{ v: 1, validations, checkboxes, charts, images, tables }`, a tolerant `readExtras` that drops what it does not understand and a 1 MB size guard) is held by the controller and changed only through `act`, so a change to the extras is ONE undo step together with any engine change in the same action (the undo stack carries an extras before/after beside the engine step count; undo and redo restore both). It is in `snapshot()` and bumps `dataVersion`. Ranges are keyed by the engine's stable `sheet_id`, never an index or name. `shiftExtras` moves them when rows or columns are inserted or deleted and when a sheet is deleted or duplicated (shift, shrink or drop), wired into those controller methods. The editor loads `record.extras` into the controller and sends `extras` with a save only when they changed; an agent's save (which sends no extras) leaves the record's extras untouched. |
+| Data validation — dropdowns | Done. "Dropdown…" from Format and data and from the cell menu opens a dialog: the range (prefilled from the selection), choices typed one per line OR a source range (`Sheet1!A2:A20`, read live, deduped), "Reject other values" (default on), and a palette color per choice shown as a chip in the cell. A cell has one rule; a new rule carves its range out of overlapping ones. A list cell draws a dropdown arrow; clicking it or Alt+Down opens a listbox (arrow keys, Enter, Escape, type-to-filter); choosing writes the value as one undo step. A rejecting rule refuses a typed value not in the list with a sentence (the cell keeps its old value); a non-rejecting rule accepts it and shows a warning corner with a tooltip. "Remove dropdown" / clear validation from the menus. |
+| Data validation — other kinds | Done in the model and enforcement (for imports later), not in the dialog: number, date and text-length rules (min/max, between, equal, and the rest). A typed value is pre-checked; a formula is not (its result is not known until it calculates). Number and text-length enforce exactly; a date rule compares the cell's displayed value as a number, which is best-effort. |
+| Paste and fill | Done. Both go through the same rejecting-rule check: a paste or a fill that would put a forbidden value in a rejecting cell is refused whole, naming the first bad cell, and nothing is written. |
+| Checkboxes | Done. Insert checkbox / Remove checkbox from the cell menu and a new "Insert" toolbar menu (between Paste special and View options, "Checkbox" for now). A blank becomes FALSE; a checkbox cell draws a centered box (checked for TRUE) instead of its text; a click or Space on the active cell toggles TRUE/FALSE as one undo step; the value is a real boolean in formulas. Which cells are checkboxes is stored in extras (ranges per sheet) and follows the same shift rules. |
+| Conditional formatting — drawing | Done. The grid draws what the engine computes: the winning rule's `style` (verified by a test), the `data_bar` (a bar behind the value, positive/negative colors, respecting show_value) and the `icon` (the 20 kinds as small lucide/CSS glyphs — our own drawings) in `cell-view.ts` and `sheet-grid.tsx`. |
+| Conditional formatting — editor | Done, and past Macro (which only keeps imported rules; the plan allows this). A side panel (Format and data → "Conditional formatting…") lists the sheet's rules in priority order with their range and a plain description, and adds, edits, deletes and reorders them, for: cell value (greater than, less than, between, equal, not equal), text contains / starts with / ends with, is blank / not blank, is an error, duplicate / unique values, above / below average, a custom formula, and a 2- or 3-color scale. The format is fill color, text color, bold and italic. All through the engine's own calls, each one undo step. |
+| Goal Seek | Done. Format and data → "Goal Seek…": Set cell (prefilled with the active cell), To value, By changing cell. The search (`lib/spreadsheets/goal-seek.ts`, a pure function) is a secant step then a bracketing bisection, run on a throwaway copy of the model read through a scratch cell, never on the open workbook. It shows the result ("B2 = 1,250 makes D9 = 5,000") or says plainly it found none; Apply writes the found value as one undo step. A quadratic with two roots finds whichever it brackets first; a non-numeric set cell is refused. |
+
+Not in this part, said plainly: tables (typed columns, filter, group by, totals), charts and
+images. They are the rest of phase 4.
+
+### Phase 4 (second part): done
+
+Tables, charts and images. All three live in `extras` (keyed by `sheet_id`, shifted by
+`shiftExtras`, read tolerantly), change through the controller's `act` as one undo step, and
+draw as overlays/floating objects in the grid without writing cell formats into the engine.
+
+| Item | State |
+| --- | --- |
+| Tables — model | Done. `WorkbookTable` in extras: `{ id, sheet (sheet_id), name (unique identifier, Table1…), range (header + data [+ total]), columns [{ name, type, total? }], style { color (one of ten), bandedRows, bandedColumns, boldFirstColumn, boldLastColumn, totalRow }, filters (per column), sort?, hiddenRows? }`. `shiftExtras` moves a table's range on row/column inserts and deletes, adds a "Column N" when a column is inserted inside it and drops columns deleted from inside it, copies it on a sheet duplicate and drops it on a sheet delete. |
+| Tables — convert | Done. Format and data → "Convert to table", the cell menu, and Ctrl/Cmd+Alt+T. A single cell converts the contiguous filled block around it; an empty cell makes a blank four-column table (headers Column 1..4, three empty rows); each column takes the type its values suggest (checkbox/date/percent/currency/number/text). Inside a table the same entries read "Table options". |
+| Tables — drawing | Done, as an overlay: the header row in the table's color with white bold labels and a per-header menu arrow; banded rows and banded columns as soft tints; the table outline; a total-row divider. Nothing is written into the engine's cell styles. |
+| Tables — column menu | Done: sort A→Z / Z→A (through the controller, one undo step, reusing the range sorter), filter (a condition: equals / does not equal / contains / greater than / less than / is empty / is not empty; and a searchable checklist of the column's distinct shown values), clear filter, column type, insert column left/right, delete column, rename (edits the header cell), group by. Filtering hides rows with `setRowsHidden` (so SUBTOTAL leaves them out) and remembers which rows the table hid, so "clear filters" unhides only those; a filtered column shows a dot on its arrow. |
+| Tables — total row | Done. Each column offers sum/average/count numbers/count filled/count empty/count unique/min/max/none, written as `SUBTOTAL` (109/101/102/103/104/105), `COUNTBLANK` or `COUNTA(UNIQUE(…))`, so hidden rows are excluded (except the unique count, which counts across hidden rows too). |
+| Tables — growth | Done. Typing in the row directly under a table (when it has no total row) extends it by that row; typing in the column directly right of it adds a column (header "Column N", or the text just typed if it was typed into the header row). A new row of a checkbox column becomes a checkbox; of a dropdown column, inherits the column's list validation. One undo step with the cell write. |
+| Tables — options panel | Done (Format and data / the menus → "Table options…"): rename, change range (validated, columns padded/trimmed), color (ten swatches), the five toggles, clear filters, Convert to range (writes the header fill, white bold header text, banded-row fills and bold total into the cells, then drops the table — keeps the look), Delete table (clears the cells and removes it). |
+| Tables — structured references | Done. A pure translator (`lib/spreadsheets/table-refs.ts`) rewrites `Sales[Amount]`, `[@Qty]`, `Sales[[#Totals],[Amount]]`, `Sales[#All]`/`[#Data]`/`[#Headers]` and a bare `Sales` to plain A1 before the engine sees them, in the controller's `setCell` path; a missing table or column becomes `#REF!`. The cell then stores the A1 form (decision 20). |
+| Tables — group by | Done. A read-only popover from the column menu: pick a column to summarise and an aggregate (sum/average/count/min/max); a small table of group → value, computed in JS from the shown values. |
+| Charts | Done. Insert → "Chart" makes a chart of the selection (first row = series names when text, first column = categories when text). Types, drawn as our own SVG (no library): column, bar, line, area, pie, doughnut, scatter. Stored in extras `{ id, sheet, type, title, legend, source (a range that follows shiftExtras), anchor { row, column, dx, dy }, width, height }`. A chart floats over the grid, scrolls with the sheet, is selectable, draggable to move and resizable by its corner; Delete (key or the handle's button) removes it; all undo steps. It re-reads its range's calculated values on every data change. "Edit chart" dialog: type, title, legend, data range. Axes use a `niceTicks` helper (tested), value labels are compact, colors come from a fixed accessible palette that reads on dark and light, a legend, and a quiet "No numbers in this range" for empty/invalid data. Pure preparation (range → series/categories/scales/pie angles) is in `lib/spreadsheets/charts.ts` with thorough tests; the SVG is in `components/spreadsheets/charts/`. |
+| Images | Done. Insert → "Image…" picks a PNG, JPEG, GIF or WebP, validated by its magic bytes, not its name (SVG and anything else refused with a sentence); stored in extras as a data URL (the lead's decision, no bucket — decision 19), one blob per content hash so identical images are stored once; caps 1 MB an image and 4 MB a workbook, refused with a sentence. Anchored to the active cell, floating like a chart (move, resize keeping aspect ratio, delete, undo). |
+| Agents and extras | The agents' tool file (`lib/ai/tools/spreadsheets.ts`) is unchanged and keeps a record's extras: it saves only the workbook, and `saveSpreadsheet` leaves `extras` untouched when none is passed. |
+
+Not built in this part, said plainly:
+
+- **Bold first/last column** is stored and offered, but drawn only as a faint banded tint, not as
+  actual bold text (the overlay does not re-draw cell text). Convert to range does not bake it either.
+- **The other chart kinds** Macro lists — radar, bubble, stock, contour, histogram, waterfall,
+  funnel, box and whisker, treemap, sunburst, pareto, pie of pie, bar of pie — are **not** here;
+  only the seven common ones are.
+- **Import of tables, charts and images from .xlsx is unchanged**: the reader still only warns about
+  them (phase 3). Export does not write them either.
+- **An agent edit that inserts or deletes rows/columns does not shift a table's, chart's or image's
+  stored ranges** (the tools write the engine model directly, bypassing `shiftExtras`), the same as
+  for validation and checkboxes in the first part. A person's edits do shift them.
+- **Chart tooltips** are not drawn (the plan left them optional).
+
 ## Decisions to review
 
 Made without asking, while the owner was away. Each can be changed.
@@ -462,6 +517,51 @@ Made without asking, while the owner was away. Each can be changed.
 12. **Pushes went out before the full test run finished**, several times: the session's
     stop hook requires unpushed commits to be pushed. The managing session was told each
     time to hold until the run's result, and merged only on its own evidence.
+13. **Validation, checkboxes and the conditional-formatting editor live in `extras`**, the
+    record's jsonb column, not in the engine (the engine evaluates conditional formatting
+    but has no data-validation or checkbox model). A change to them is one undo step with
+    the engine, and the ranges are keyed by `sheet_id` so they follow reorders, renames,
+    inserts and deletes. The conditional-formatting editor goes past Macro, which the plan
+    allows.
+14. **A rejecting validation rule pre-checks only a typed, non-formula value.** A formula
+    is allowed through (its result is not known until it calculates); a paste or fill is
+    re-checked after the write and rolled back whole if a rejecting cell ends up forbidden.
+    So a formula whose result is not in a list is not caught. The other choice is to check
+    every cell's computed value on each recalculation and mark it, which is heavier.
+15. **A date validation rule compares the cell's displayed value as a number** (best-effort),
+    since the engine gives no raw numeric read; number and text-length rules are exact. The
+    dialog only makes list rules, so this matters only for imported rules later.
+16. **Goal Seek is a secant step then a bracketing bisection** over a throwaway copy, read
+    through a scratch cell in General format. It finds whichever root it brackets first for
+    a function with several, and gives up after a fixed number of tries. A tighter solver
+    (Brent) or a user-set tolerance could replace it.
+17. **A dropdown's source range is read live from the displayed values**, deduped, in order,
+    capped at 5,000 rows. A very long source is cut; blanks are skipped.
+18. **Tables, charts and images live in `extras`**, keyed by `sheet_id`, drawn as overlays and
+    floating objects, never written into the engine's cells. A change to any of them is one undo
+    step with the engine, and `shiftExtras` moves them when rows, columns or sheets change. This
+    matches the first part's choice for validation and checkboxes (decision 13).
+19. **An image is stored as a data URL in `extras`, deduped by content hash** (the lead's decision:
+    no new storage bucket). Caps: 1 MB an image, 4 MB of images a workbook, refused with a sentence.
+    The file's kind is read from its magic bytes, not its name, so an SVG (which can carry script)
+    and anything that is not PNG/JPEG/GIF/WebP are refused. The image blobs are kept out of the 1 MB
+    extras size guard, which counts only the validation/table/chart data.
+20. **A structured table reference is rewritten to plain A1 when it is typed, and the cell stores the
+    A1 form.** `Sales[Amount]` becomes `B2:B10` before the engine (which knows nothing of tables)
+    sees it. The cell does not turn back into a structured reference, and it follows a later table
+    resize only as far as an A1 reference does (it does not re-expand when the table grows). A
+    missing table or column becomes `#REF!`. The alternative — teaching the engine about tables — is
+    not possible without patching it (we use upstream IronCalc).
+21. **A table's total row uses SUBTOTAL so filtered/hidden rows drop out**, except "count unique",
+    which is `COUNTA(UNIQUE(range))` and counts across hidden rows too (the engine has no
+    hidden-aware unique count). The other aggregates are exact.
+22. **Charts are our own SVG with a fixed seven types and a fixed palette.** No chart library was
+    added (the app has none and the plan promised none); the more exotic kinds Macro lists wait
+    until the common ones are right. A chart reads its range's calculated values on every data
+    change, so it always reflects the latest numbers.
+23. **"Bold first/last column" is drawn as a faint tint, not real bold text**, because the table
+    look is an overlay that does not re-draw cell text. The toggle is stored and offered; making it
+    real bold would mean writing cell styles (as Convert to range does) or re-drawing the text.
 
 ## Dependencies
 

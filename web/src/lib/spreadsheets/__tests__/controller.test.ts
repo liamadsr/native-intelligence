@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { MAX_CELL_CHARS } from '../a1'
+import { readCellView } from '../cell-view'
 import { START_COLUMNS, START_ROWS, WorkbookController, indexAt } from '../controller'
 import { loadModel, newModel } from '../engine-server'
 
@@ -591,5 +592,378 @@ describe('the toolbar’s formats', () => {
     wb.select(9, 9)
     wb.insertFunction('MAX')
     expect(wb.editing?.draft).toBe('=MAX(')
+  })
+})
+
+describe('data validation', () => {
+  it('a list rule shows its choices, accepts a listed value and refuses another when rejecting', () => {
+    const wb = open()
+    wb.selectRange({ r1: 1, c1: 1, r2: 3, c2: 1 })
+    expect(wb.setListValidation({ choices: [{ value: 'Open' }, { value: 'Done', color: '#1E8E3E' }], reject: true })).toEqual({ ok: true })
+    const view = wb.validationView(1, 1)!
+    expect(view.isList).toBe(true)
+    expect(view.choices.map((c) => c.value)).toEqual(['Open', 'Done'])
+    expect(wb.setCell(1, 1, 'Done')).toEqual({ ok: true })
+    expect(wb.validationView(1, 1)!.chipColor).toBe('#1E8E3E')
+    expect(wb.setCell(2, 1, 'Nope')).toMatchObject({ ok: false, message: expect.stringMatching(/A2 only takes/) })
+    expect(wb.text(2, 1)).toBe('')
+  })
+
+  it('a non-rejecting rule accepts an outside value but marks it with a warning', () => {
+    const wb = open()
+    wb.select(1, 1)
+    wb.setListValidation({ choices: [{ value: 'A' }], reject: false })
+    expect(wb.setCell(1, 1, 'B')).toEqual({ ok: true })
+    expect(wb.validationView(1, 1)!.warn).toBe(true)
+  })
+
+  it('reads choices live from a source range', () => {
+    const wb = open([[1, 3, 'Red'], [2, 3, 'Green'], [3, 3, 'Red']])
+    wb.select(1, 1)
+    wb.setListValidation({ source: 'Sheet1!C1:C3' })
+    expect(wb.listChoicesAt(1, 1).map((c) => c.value)).toEqual(['Red', 'Green'])
+  })
+
+  it('a new rule carves the old one, and a value becomes one undo step', () => {
+    const wb = open()
+    wb.selectRange({ r1: 1, c1: 1, r2: 1, c2: 1 })
+    wb.setListValidation({ choices: [{ value: 'x' }] })
+    wb.chooseValue(1, 1, 'x')
+    expect(wb.text(1, 1)).toBe('x')
+    wb.undo()
+    expect(wb.text(1, 1)).toBe('')
+    wb.clearValidation({ r1: 1, c1: 1, r2: 1, c2: 1 })
+    expect(wb.validationView(1, 1)).toBeNull()
+  })
+
+  it('a paste into a rejecting list cell is refused whole, naming the first bad cell', () => {
+    const wb = open()
+    wb.selectRange({ r1: 1, c1: 1, r2: 2, c2: 1 })
+    wb.setListValidation({ choices: [{ value: 'Yes' }], reject: true })
+    wb.select(1, 1)
+    expect(wb.pasteValues([['Yes'], ['Maybe']])).toMatchObject({ ok: false, message: expect.stringMatching(/A2 only takes/) })
+    expect(wb.text(1, 1)).toBe('')
+  })
+
+  it('a formula is not pre-checked against a list rule', () => {
+    const wb = open([[5, 1, '7']])
+    wb.select(1, 1)
+    wb.setListValidation({ choices: [{ value: 'Yes' }], reject: true })
+    expect(wb.setCell(1, 1, '=1+1')).toEqual({ ok: true })
+  })
+
+  it('a number rule rejects a value outside its bounds', () => {
+    const wb = open()
+    wb.select(1, 1)
+    wb.setValidationRule({ r1: 1, c1: 1, r2: 1, c2: 1 }, { type: 'number', operator: 'between', min: '1', max: '10', reject: true })
+    expect(wb.setCell(1, 1, '5')).toEqual({ ok: true })
+    expect(wb.setCell(1, 1, '50')).toMatchObject({ ok: false })
+    expect(wb.text(1, 1)).toBe('5')
+  })
+})
+
+describe('checkboxes', () => {
+  it('turns blanks into FALSE, toggles as a boolean, and removes', () => {
+    const wb = open([[1, 1, 'TRUE']])
+    wb.selectRange({ r1: 1, c1: 1, r2: 2, c2: 1 })
+    expect(wb.insertCheckboxes()).toEqual({ ok: true })
+    expect(wb.isCheckboxCell(1, 1)).toBe(true)
+    expect(wb.checkboxChecked(1, 1)).toBe(true)
+    expect(wb.text(2, 1)).toBe('FALSE')
+    expect(wb.checkboxChecked(2, 1)).toBe(false)
+    wb.toggleCheckbox(2, 1)
+    expect(wb.checkboxChecked(2, 1)).toBe(true)
+    // the value is a real boolean in a formula
+    wb.setCell(3, 1, '=IF(A2, 100, 0)')
+    expect(wb.text(3, 1)).toBe('100')
+    wb.toggleCheckbox(2, 1)
+    expect(wb.text(3, 1)).toBe('0')
+    wb.removeCheckboxes({ r1: 1, c1: 1, r2: 2, c2: 1 })
+    expect(wb.isCheckboxCell(1, 1)).toBe(false)
+  })
+
+  it('a checkbox follows an inserted row and is one undo step', () => {
+    const wb = open()
+    wb.select(2, 1)
+    wb.insertCheckboxes({ r1: 2, c1: 1, r2: 2, c2: 1 })
+    expect(wb.isCheckboxCell(2, 1)).toBe(true)
+    wb.insertRows(1, 1)
+    expect(wb.isCheckboxCell(3, 1)).toBe(true)
+    wb.undo()
+    expect(wb.isCheckboxCell(2, 1)).toBe(true)
+    wb.undo()
+    expect(wb.isCheckboxCell(2, 1)).toBe(false)
+  })
+})
+
+describe('conditional formatting', () => {
+  it('adds a rule the engine applies to the winning cells, and lists it', () => {
+    const wb = open([[1, 1, '10'], [2, 1, '40'], [3, 1, '60']])
+    wb.addConditionalRule(
+      { r1: 1, c1: 1, r2: 3, c2: 1 },
+      { type: 'CellIs', operator: 'GreaterThan', formula: '30', formula2: null, format: { fill: { color: '#FFEEEE' }, font: { b: true } }, stop_if_true: false },
+    )
+    expect(wb.conditionalRules()).toHaveLength(1)
+    // getCellStyle carries the winning rule's format.
+    expect(wb.style(1, 1).fill.color).toBeFalsy()
+    expect(wb.style(2, 1).fill.color).toBe('#FFEEEE')
+    expect(wb.style(2, 1).font.b).toBe(true)
+    wb.undo()
+    expect(wb.conditionalRules()).toHaveLength(0)
+  })
+
+  it('draws a data bar and an icon through the cell view', () => {
+    const wb = open([[1, 1, '10'], [2, 1, '50']])
+    wb.addConditionalRule({ r1: 1, c1: 1, r2: 2, c2: 1 }, { type: 'DataBar', min: null, max: null, positive_color: '#638EC6', negative_color: '#FF0000', is_gradient: true, show_value: true })
+    const view = readCellView(wb.model, wb.sheet, 2, 1)
+    expect(view.dataBar).not.toBeNull()
+    expect(view.dataBar!.fraction).toBeGreaterThan(0)
+  })
+
+  it('deletes and reorders rules', () => {
+    const wb = open([[1, 1, '5']])
+    const dxf = { fill: { color: '#EEE' } }
+    wb.addConditionalRule({ r1: 1, c1: 1, r2: 1, c2: 1 }, { type: 'CellIs', operator: 'GreaterThan', formula: '1', formula2: null, format: dxf, stop_if_true: false })
+    wb.addConditionalRule({ r1: 1, c1: 1, r2: 1, c2: 1 }, { type: 'CellIs', operator: 'LessThan', formula: '9', formula2: null, format: dxf, stop_if_true: false })
+    expect(wb.conditionalRules()).toHaveLength(2)
+    const first = wb.conditionalRules()[0].index
+    wb.deleteConditionalRule(first)
+    expect(wb.conditionalRules()).toHaveLength(1)
+  })
+})
+
+describe('tables', () => {
+  const numbers = (): [number, number, string][] => [
+    [1, 1, 'Region'], [1, 2, 'Amount'], [1, 3, 'Qty'],
+    [2, 1, 'North'], [2, 2, '10'], [2, 3, '1'],
+    [3, 1, 'South'], [3, 2, '20'], [3, 3, '2'],
+    [4, 1, 'East'], [4, 2, '30'], [4, 3, '3'],
+  ]
+
+  it('converts the filled block around a single cell, inferring column types', () => {
+    const wb = open(numbers())
+    wb.select(3, 2) // inside the block
+    expect(wb.convertToTable()).toEqual({ ok: true })
+    const table = wb.tables()[0]
+    expect(table.name).toBe('Table1')
+    expect(table.range).toEqual({ r1: 1, c1: 1, r2: 4, c2: 3 })
+    expect(table.columns.map((c) => c.name)).toEqual(['Region', 'Amount', 'Qty'])
+    expect(table.columns[0].type).toBe('text')
+    expect(table.columns[1].type).toBe('number')
+  })
+
+  it('makes a blank four-column table from an empty cell', () => {
+    const wb = open()
+    wb.select(2, 2)
+    wb.convertToTable()
+    const table = wb.tables()[0]
+    expect(table.range).toEqual({ r1: 2, c1: 2, r2: 5, c2: 5 })
+    expect(table.columns).toHaveLength(4)
+    expect(wb.input(2, 2)).toBe('Column 1')
+  })
+
+  it('writes a SUBTOTAL for a total row and recomputes it', () => {
+    const wb = open(numbers())
+    wb.selectRange({ r1: 1, c1: 1, r2: 4, c2: 3 })
+    wb.convertToTable()
+    const id = wb.tables()[0].id
+    wb.setTableStyle(id, { totalRow: true })
+    const total = wb.tables()[0].range.r2
+    wb.setColumnTotal(id, 1, 'sum')
+    expect(wb.input(total, 2)).toBe('=SUBTOTAL(109,B2:B4)')
+    expect(wb.text(total, 2)).toBe('60')
+  })
+
+  it('a filter hides the rows that fail and clear restores only those', () => {
+    const wb = open(numbers())
+    wb.selectRange({ r1: 1, c1: 1, r2: 4, c2: 3 })
+    wb.convertToTable()
+    const id = wb.tables()[0].id
+    wb.setTableFilter(id, 0, { values: ['North'] })
+    expect(wb.hiddenRows()).toEqual([3, 4])
+    wb.clearTableFilters(id)
+    expect(wb.hiddenRows()).toEqual([])
+  })
+
+  it('a total SUBTOTAL leaves filtered rows out', () => {
+    const wb = open(numbers())
+    wb.selectRange({ r1: 1, c1: 1, r2: 4, c2: 3 })
+    wb.convertToTable()
+    const id = wb.tables()[0].id
+    wb.setTableStyle(id, { totalRow: true })
+    wb.setColumnTotal(id, 1, 'sum')
+    wb.setTableFilter(id, 0, { condition: { op: 'equals', value: 'North' } })
+    const total = wb.tables()[0].range.r2
+    expect(wb.text(total, 2)).toBe('10') // only North's 10 counts
+  })
+
+  it('rewrites a structured reference typed into a cell to A1', () => {
+    const wb = open(numbers())
+    wb.selectRange({ r1: 1, c1: 1, r2: 4, c2: 3 })
+    wb.convertToTable()
+    wb.select(6, 1)
+    wb.setCell(6, 1, '=SUM(Table1[Amount])')
+    expect(wb.input(6, 1)).toBe('=SUM(B2:B4)')
+    expect(wb.text(6, 1)).toBe('60')
+  })
+
+  it('grows when a cell is typed just below or just right of it', () => {
+    const wb = open([[1, 1, 'H'], [2, 1, 'a']])
+    wb.selectRange({ r1: 1, c1: 1, r2: 2, c2: 1 })
+    wb.convertToTable()
+    const id = wb.tables()[0].id
+    wb.setCell(3, 1, 'b') // directly below
+    expect(wb.tableAtCell(3, 1)?.id).toBe(id)
+    expect(wb.tables()[0].range.r2).toBe(3)
+    wb.setCell(2, 2, 'x') // directly right
+    expect(wb.tables()[0].range.c2).toBe(2)
+    expect(wb.tables()[0].columns).toHaveLength(2)
+  })
+
+  it('sorts a table column through one undo step and undoes it whole', () => {
+    const wb = open(numbers())
+    wb.selectRange({ r1: 1, c1: 1, r2: 4, c2: 3 })
+    wb.convertToTable()
+    const id = wb.tables()[0].id
+    wb.sortTableColumn(id, 1, true) // Amount, descending
+    expect([wb.text(2, 1), wb.text(3, 1), wb.text(4, 1)]).toEqual(['East', 'South', 'North'])
+    wb.undo()
+    expect([wb.text(2, 1), wb.text(3, 1), wb.text(4, 1)]).toEqual(['North', 'South', 'East'])
+  })
+
+  it('a group-by summary totals one column by another', () => {
+    const wb = open([
+      [1, 1, 'Team'], [1, 2, 'Points'],
+      [2, 1, 'A'], [2, 2, '3'],
+      [3, 1, 'B'], [3, 2, '5'],
+      [4, 1, 'A'], [4, 2, '7'],
+    ])
+    wb.selectRange({ r1: 1, c1: 1, r2: 4, c2: 2 })
+    wb.convertToTable()
+    const id = wb.tables()[0].id
+    const summary = wb.groupBy(id, 0, 1, 'sum')
+    expect(summary).toEqual([{ group: 'A', value: 10, count: 2 }, { group: 'B', value: 5, count: 1 }])
+  })
+
+  it('deletes a table and clears its cells', () => {
+    const wb = open(numbers())
+    wb.selectRange({ r1: 1, c1: 1, r2: 4, c2: 3 })
+    wb.convertToTable()
+    const id = wb.tables()[0].id
+    wb.deleteTable(id)
+    expect(wb.tables()).toHaveLength(0)
+    expect(wb.text(1, 1)).toBe('')
+  })
+
+  it('convert to range keeps the look by writing the header fill', () => {
+    const wb = open(numbers())
+    wb.selectRange({ r1: 1, c1: 1, r2: 4, c2: 3 })
+    wb.convertToTable()
+    const id = wb.tables()[0].id
+    wb.convertTableToRange(id)
+    expect(wb.tables()).toHaveLength(0)
+    expect(wb.style(1, 1).fill.color).toBeTruthy()
+  })
+})
+
+describe('charts', () => {
+  const data = (): [number, number, string][] => [
+    [1, 1, 'Month'], [1, 2, 'Sales'],
+    [2, 1, 'Jan'], [2, 2, '100'],
+    [3, 1, 'Feb'], [3, 2, '150'],
+  ]
+
+  it('inserts a chart of the selection and reads its values', () => {
+    const wb = open(data())
+    wb.selectRange({ r1: 1, c1: 1, r2: 3, c2: 2 })
+    const { result, id } = wb.insertChart('column')
+    expect(result.ok).toBe(true)
+    expect(wb.charts()).toHaveLength(1)
+    const grid = wb.chartGrid(wb.charts()[0])
+    expect(grid[1][1].value).toBe(100)
+    expect(id).toMatch(/^cht_/)
+  })
+
+  it('moves, resizes, edits and deletes, each one undo step', () => {
+    const wb = open(data())
+    wb.selectRange({ r1: 1, c1: 1, r2: 3, c2: 2 })
+    const { id } = wb.insertChart('column')
+    wb.moveChart(id, { row: 5, column: 5, dx: 0, dy: 0 })
+    expect(wb.charts()[0].anchor.row).toBe(5)
+    wb.resizeChart(id, 600, 400)
+    expect(wb.charts()[0].width).toBe(600)
+    wb.updateChartSpec(id, { type: 'line', title: 'Sales', legend: false })
+    expect(wb.charts()[0].type).toBe('line')
+    wb.undo() // undoes the edit
+    expect(wb.charts()[0].type).toBe('column')
+    wb.deleteChart(id)
+    expect(wb.charts()).toHaveLength(0)
+    wb.undo()
+    expect(wb.charts()).toHaveLength(1)
+  })
+
+  it('follows a later edit to its data', () => {
+    const wb = open(data())
+    wb.selectRange({ r1: 1, c1: 1, r2: 3, c2: 2 })
+    wb.insertChart('column')
+    wb.setCell(2, 2, '999')
+    expect(wb.chartGrid(wb.charts()[0])[1][1].value).toBe(999)
+  })
+
+  it('moves its source when rows are inserted above it', () => {
+    const wb = open(data())
+    wb.selectRange({ r1: 2, c1: 1, r2: 3, c2: 2 })
+    wb.insertChart('column')
+    wb.insertRows(1, 1)
+    expect(wb.charts()[0].source.r1).toBe(3)
+  })
+})
+
+describe('images', () => {
+  const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4])
+  const svg = new TextEncoder().encode('<svg></svg>')
+
+  it('inserts a PNG and stores its data URL', () => {
+    const wb = open()
+    wb.select(2, 2)
+    const { result, id } = wb.insertImageFromBytes(png, 120, 90)
+    expect(result.ok).toBe(true)
+    expect(id).toMatch(/^img_/)
+    const image = wb.images()[0]
+    expect(image.anchor).toMatchObject({ row: 2, column: 2 })
+    expect(wb.imageUrl(image.hash)).toMatch(/^data:image\/png;base64,/)
+  })
+
+  it('refuses an SVG and anything that is not a known image', () => {
+    const wb = open()
+    expect(wb.insertImageFromBytes(svg, 10, 10).result.ok).toBe(false)
+    expect(wb.insertImageFromBytes(new Uint8Array([1, 2, 3]), 10, 10).result.ok).toBe(false)
+    expect(wb.images()).toHaveLength(0)
+  })
+
+  it('refuses an image past the per-image size cap', () => {
+    const wb = open()
+    const big = new Uint8Array(1_000_001)
+    big.set(png.subarray(0, 8))
+    expect(wb.insertImageFromBytes(big, 10, 10).result.ok).toBe(false)
+  })
+
+  it('stores two copies of one picture once, by content hash', () => {
+    const wb = open()
+    wb.select(1, 1)
+    wb.insertImageFromBytes(png, 50, 50)
+    wb.select(5, 5)
+    wb.insertImageFromBytes(png, 50, 50)
+    expect(wb.images()).toHaveLength(2)
+    expect(Object.keys(wb.extras.imageBlobs)).toHaveLength(1)
+  })
+
+  it('deletes an image and undoes the delete', () => {
+    const wb = open()
+    const { id } = wb.insertImageFromBytes(png, 50, 50)
+    wb.deleteImage(id as string)
+    expect(wb.images()).toHaveLength(0)
+    wb.undo()
+    expect(wb.images()).toHaveLength(1)
   })
 })
