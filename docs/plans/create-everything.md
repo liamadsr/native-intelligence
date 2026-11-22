@@ -140,8 +140,7 @@ No route itself changed.
    the owner named, open the composer instead.
 10. **The group header's inert `+`** in list views is left alone. Wiring it to the composer
     with the group's value (a status, a project) is a natural next step.
-11. **Email in the composer is still the Create dialog's own form.** The Create dialog had
-    an email form before this change, and this work added none. Mail's new composer
-    (`components/email/email-composer.tsx`, merged 11-22) does not have the dialog's Send
-    later or Save draft, so swapping it in would lose both. The next step is to move those
-    two into Mail's composer, then let the Create dialog's Email entry render it.
+11. **Email is Mail's composer.** Resolved on 11-22: mail phase 3 (#228) put
+    `components/email/email-composer.tsx`, with Send later, Save draft, Undo and files,
+    into the Create dialog's Email entry. C then M and the Create menu open it. Its own
+    keys apply (⌘↵ sends); the dialog's "Create another" key leaves it alone.

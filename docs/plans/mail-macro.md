@@ -110,6 +110,23 @@ Branch `claude/mail-macro`. Merged is not live: see "How production works" in `C
   chat…"; when the draft lands on the thread it fills in, or, if the person has started
   writing, offers "Use it". Nothing is sent without the person pressing Send.
 
+### New email (phase 3)
+
+- **One composer for everything.** The Create dialog's Email type (opened from Mail's pencil
+  and `c`, and from Create anywhere) is now the same `EmailComposer`, in `new` mode: To/Cc/Bcc,
+  subject, rich text, files, Save draft, Send later, Undo. The dialog keeps its header (the
+  type, and the From mailbox picker); its old plain-text form, footer and handlers are gone.
+- What is written is kept when the dialog closes (Esc, the ×, clicking outside), and is there
+  the next time New email opens; the composer's trash discards it. Undo on a send opens the
+  dialog again on it.
+- Send later needs a mailbox to send from: with none connected it is off.
+
+## Screenshots
+
+`/dev/mail-thread` (DEV ONLY, like `/dev/inbox-tidy`): the real thread pane and composer on a
+made-up thread, every mail request answered in the browser, nothing sent. `?compose=reply`,
+`replyAll` or `forward` opens the composer; `?theme=dark` draws it dark.
+
 ## Decisions to review
 
 1. **Forward starts a thread of its own** (no `thread_id`): Gmail threads a send only with
