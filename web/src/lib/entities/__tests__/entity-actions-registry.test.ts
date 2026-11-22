@@ -143,6 +143,18 @@ describe('deep links', () => {
     for (const t of ['sequence', 'prospect_list', 'action', 'project', 'initiative'] as const) expect(DEEP_LINK_TYPES).toContain(t)
   })
 
+  it('a spreadsheet has a boot deep link that opens its card (phase 6)', () => {
+    expect(DEEP_LINK_TYPES).toContain('spreadsheet')
+    const id = '00000000-0000-4000-8000-0000000000bb'
+    expect(entityLink('spreadsheet', id, 'https://app.example/')).toBe(`https://app.example/account?spreadsheet=${id}`)
+    // The param opens the Spreadsheets card on it.
+    const target = entityOpenTarget('spreadsheet', id)
+    expect(target && cardForTarget(target)).toBeTruthy()
+    // Copy link shows in the menu, after Open.
+    const actions = supportedEntityActions('spreadsheet')
+    expect(actions.slice(0, 3)).toEqual(['open', 'copy_link', 'copy_id'])
+  })
+
   it('links only kinds whose param opens their card', () => {
     for (const t of DEEP_LINK_TYPES) {
       const target = entityOpenTarget(t, '00000000-0000-4000-8000-000000000001')

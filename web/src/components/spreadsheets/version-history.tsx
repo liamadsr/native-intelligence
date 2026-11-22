@@ -68,7 +68,7 @@ export function VersionHistory({ spreadsheetId, revision, readOnly, dirty, onClo
   }
 
   return (
-    <aside aria-label="Version history" className={cn(FLOATING_CARD_CLASS, 'absolute bottom-3 right-3 top-3 z-40 flex w-[300px] max-w-[calc(100%-1.5rem)] flex-col shadow-lg')}>
+    <aside aria-label="Version history" className={cn(FLOATING_CARD_CLASS, 'absolute bottom-3 right-3 top-3 z-40 flex w-[300px] max-w-[calc(100%-1.5rem)] max-[480px]:!w-[calc(100%-1.5rem)] flex-col shadow-lg')}>
       <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border/60 px-3">
         <History className="h-3.5 w-3.5 text-muted-foreground" />
         <h2 className="flex-1 text-sm font-medium text-foreground">Version history</h2>

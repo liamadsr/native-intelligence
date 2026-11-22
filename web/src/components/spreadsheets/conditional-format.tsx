@@ -183,7 +183,7 @@ export function ConditionalFormat({ workbook, onClose, onMessage }: Props) {
   }
 
   return (
-    <aside aria-label="Conditional formatting" className={cn(FLOATING_CARD_CLASS, 'absolute bottom-3 right-3 top-3 z-40 flex w-[320px] max-w-[calc(100%-1.5rem)] flex-col shadow-lg')}>
+    <aside aria-label="Conditional formatting" className={cn(FLOATING_CARD_CLASS, 'absolute bottom-3 right-3 top-3 z-40 flex w-[320px] max-w-[calc(100%-1.5rem)] max-[480px]:!w-[calc(100%-1.5rem)] flex-col shadow-lg')}>
       <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border/60 px-3">
         <h2 className="flex-1 text-sm font-medium text-foreground">Conditional formatting</h2>
         <button type="button" aria-label="Close conditional formatting" className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground" onClick={onClose}>

@@ -284,7 +284,7 @@ takes here:
 | Version history | `spreadsheet_revision` | 3 |
 | Comments | See below | 3 and 5 |
 | Sharing | See below | 3 |
-| Icon and color | No `entity-identity` registry is on `main` yet. Icons go where they live today (create dialog, rail); the entry for that registry is listed in each report until it merges. | 1 |
+| Icon and color | The `entity-identity` registry (`lib/entities/entity-identity.ts`) is on `main` now, and a spreadsheet is in it: `spreadsheet: { icon: Sheet, color: 'green', label: 'Spreadsheet' }`. The icon also stands where it lived before (create dialog, rail, feed, command menu). | 1 |
 
 Two places where "like a document" meets a rule of this work, for the owner to know:
 
@@ -373,10 +373,12 @@ Not done in phase 1, and where it goes:
   in the database for each kind (migration 488's pattern); 675 has none, so a spreadsheet
   has no activity entries. It needs a migration number of its own.
 - **Copy link.** The app's deep links (`/account?…`) know nothing of spreadsheets yet.
+  (Built in phase 6: `/account?spreadsheet=<id>` opens the card.)
 - **A mention gives an agent the spreadsheet's id only** until the tools of phase 3.
 - **Icon and color:** the `entity-identity` registry is not on `main`. The icon (lucide
   `Sheet`) is set in the create dialog, the rail, the feed and the command menu; the entry
-  to add when it merges is kind `spreadsheet`, icon `Sheet`.
+  to add when it merges is kind `spreadsheet`, icon `Sheet`. (The registry is on `main`
+  now and carries that entry — see the "Where it shows up" table above.)
 
 ### Phase 2: done
 
@@ -398,8 +400,8 @@ Not done in phase 1, and where it goes:
 Not in phase 2, said plainly:
 
 - **Indent in and out.** The engine's cell style has no indent, so there is nothing to store it in. It would be this app's own addition (in `extras`), drawn by the grid and lost on export.
-- **Move a range by dragging its border.** Cut and paste does the same job; the drag is not built.
-- **A layout of its own for phones.** The editor works at any width (the toolbar scrolls sideways), and touch scrolls and taps select, but there are no drag handles on the selection and the footer does not follow the on-screen keyboard. Not tried on a phone.
+- **Move a range by dragging its border.** Cut and paste does the same job; the drag is not built. (Built in phase 6.)
+- **A layout of its own for phones.** The editor works at any width (the toolbar scrolls sideways), and touch scrolls and taps select, but there are no drag handles on the selection and the footer does not follow the on-screen keyboard. Not tried on a phone. (Phase 6 added the selection's touch drag handles and made the panels full-width on a phone; the footer still does not follow the keyboard.)
 - **The Insert and Comment controls** of Macro's toolbar come with what they insert: phases 4 and 5.
 
 ### Phase 3: done
@@ -412,7 +414,7 @@ Not in phase 2, said plainly:
 | Import .csv | Done: pasted at the active cell as one undo step, as Macro does; commas, semicolons or tabs; quoted fields with line breaks. |
 | Agents | Done, five tools in a Spreadsheets category (so also `ni_*` over MCP): `find_spreadsheets`, `read_spreadsheet` (a summary, or exact ranges up to 500 cells, with the revision), `calculate_spreadsheet` (up to 20 formulas with what-if inputs on a throwaway copy; nothing is written), `create_spreadsheet`, `edit_spreadsheet` (one batch, all or nothing, refused when the revision is stale; 25 operations and 2,000 cells at most; cells it wrote that show an error come back as warnings). A private spreadsheet of someone else is "not found" to a tool. Writes are kept out of team chat, as Tables' are. A mention of a spreadsheet now tells the agent to read it. No model call was added: the tools run through the existing registry and eve's tool proxy. Not yet tried with a live agent turn. |
 | Version history | Done: a History button in the title bar lists who changed it and when (an agent's change is marked), and restores a version as an ordinary save, so nothing is lost. One person's run of saves within ten minutes is one entry. |
-| Entity links | A spreadsheet is linkable in the entity registry since phase 1, and private ones are fenced. The side panel that shows a record's links is not on the spreadsheet's card yet. |
+| Entity links | A spreadsheet is linkable in the entity registry since phase 1, and private ones are fenced. The side panel that shows a record's links is not on the spreadsheet's card yet. (Built in phase 6: a Links panel on the card.) |
 
 **Migration 683** came with the tools: a new tool category would have silently narrowed every
 agent persona saved with "all categories on" (the app's rule, migrations 538, 623, 632), so
@@ -422,7 +424,8 @@ gained it with their other settings kept; a narrowed one, one with disabled tool
 non-agent row were untouched; a re-run changed nothing. Not applied to DEV or production.
 
 Not done: comments (phase 5, with the threads on cells), sharing with one person (decision 5),
-the activity log and copy link (they need database triggers and deep-link handling).
+the activity log and copy link (they need database triggers and deep-link handling). (Copy link
+was built in phase 6; the activity log still needs its own migration.)
 
 ### Phase 4 (first part): done
 
@@ -509,6 +512,63 @@ Not proven in this phase (said plainly): the merge was proven against two real e
 Models in tests, **not** with two live browsers on the server; there are no live cursors
 and no keystroke-live editing (the lead's decision: no Realtime channel and no new
 policies tonight — they cannot be verified without the dev project).
+
+### Phase 6: loose ends
+
+The last gaps against the inventory and the surroundings. No migration, no new
+dependency, no in-process model call.
+
+| Item | State |
+| --- | --- |
+| Copy link and deep link | Done. The spreadsheet kind is `link: true` in the entity actions registry, so `/account?spreadsheet=<id>` opens the Spreadsheets card on it (the same boot deep link every other kind uses; `cardForTarget`/`entityOpenTarget` already knew the kind). Copy link shows in the open card's ⋯ menu (`EntityActionsMenu`, with Open and Rename left out — the card IS the record and renames in place) and in each list row's right-click menu (`EntityContextMenu`), beside Rename, Make a task and Archive. Opening the link while signed in opens the card; a workspace it names switches first, as for any kind. |
+| Copy link to a cell or range | **Not built, said plainly.** A record deep link is `?spreadsheet=<id>` and nothing more; carrying a sheet and a range would need a seed the deep-link reader and the Spreadsheets card both learn to pass and read (`OpenCardSeed`, `cardForTarget`), which is new plumbing beyond a query parameter the card reads. Left for later. |
+| Links side panel | Done. A Links button in the title bar (beside Comments and Version history) toggles a panel at the grid's right that lists the records which reference this workbook — the same data and rows as every kind's "Referenced in" (`components/entity-links/referenced-in.tsx`, read through `useEntityReferences('spreadsheet', id)`): a document, task or chat that @-mentions it, newest first, each opening its own card. Private spreadsheets stay fenced by the viewer's RLS (675's restrictive `entity_link` policies); no policy changed. |
+| Move a range by dragging its border | Done. A grab zone on each edge of the selection (cursor `move`) drags the range; a dashed rectangle previews where it lands, Escape cancels, and dropping onto occupied cells asks first. The move is cut-and-paste under the hood (the engine has no rectangle-move call, only whole rows/columns), so values, formats, notes and the references inside the range follow, references that point AT the moved cells are rewritten, and the vacated cells clear — one undo step (`controller.moveSelection`). Not in read-only. **Extras do not move with it** (see below). |
+| Phone layout | Done, in part. At a narrow grid width (< 480px) the selection grows two large touch handles at its top-left and bottom-right corners that extend it by a drag; a mouse still uses Shift+click and the small fill handle. The comment thread card and composer become a bottom sheet, and the comments, conditional-formatting, version-history and links panels become full-width, on a phone-width screen (a `max-[480px]` breakpoint; desktop unchanged). **The footer still does not follow the on-screen keyboard**, and none of this was tried on a real phone. |
+| Selection summary (sum, average, count) | Not built, by the plan: the inventory marks it **No** for Macro, so it is skipped here too. |
+| Stale plan lines | Fixed. The `entity-identity` registry is on `main` and carries the spreadsheet entry (the "Where it shows up" table and the phase-1 note said it was not); copy link, the links panel, the border move and the phone handles are no longer listed as missing where a later phase made them real. |
+
+## What is still not built
+
+Everything left against the inventory and the surroundings, said plainly. None of it was
+in scope for phases 1–6 (each needs a migration, a policy, a channel, or an engine patch
+nobody has assigned), and nothing here is faked.
+
+- **The activity log and the Recent feed.** A spreadsheet writes no activity entries: the
+  app's activity log needs database triggers and a per-kind list (migration 488's pattern)
+  that 675 does not add. It needs a migration number of its own.
+- **Sharing a private spreadsheet with one person, a team or a channel.** Workspace or
+  private is all there is (decision 5). A per-person/-team/-channel grant (`entity_access`)
+  means widening a check constraint and restating five shared functions that Tables' tests
+  pin — a migration nobody has assigned. So a private spreadsheet @-mentioned in a channel
+  opens for nobody else, and its menu offers no Share.
+- **Copy link to a cell or range.** Only the workbook has a deep link; a cell or range would
+  need new seed plumbing (above).
+- **Presence and live cursors.** No "who else is here", no keystroke-live editing, no live
+  cursors (decision 24). Changes travel through the save path and a ~4-second poll, not a
+  Realtime channel; per-record presence needs its own table, route and policies.
+- **Mentions in spreadsheet comments do not notify.** The `mentions` column stores the
+  member ids, but the app's comment-mention machinery is written for the `comment` table's
+  kinds (`CommentableType` has no `spreadsheet`) and its sharing grants per-person access,
+  which a spreadsheet does not have (decisions 5, 25). A mention is recorded but silent.
+- **Indent in and out.** The engine's cell style has no indent to store it in; it would be
+  this app's own addition in `extras`, drawn by the grid and lost on export. Not built.
+- **AGGREGATE and GETPIVOTDATA.** Macro's two added functions are missing from upstream
+  IronCalc (decision 2); GETPIVOTDATA only means something with imported pivot tables, which
+  are not built either.
+- **The .xlsx round trip of tables, charts and images.** Import still only warns about them
+  and export does not write them (phases 3, 4); the reader and writer carry cells, formats,
+  layout and formulas, not these objects.
+- **A border move does not carry extras.** `moveSelection` is cut-and-paste, and
+  `shiftExtras` only knows row/column inserts and deletes, not a rectangle translation — there
+  is no helper to move a validation, checkbox, table, chart or image that lies inside a moved
+  range, so none of them travel with it (the same as an ordinary cut and paste). Adding a
+  rectangle-translate helper to `extras.ts` is the work it would take.
+- **The on-screen keyboard** does not push the footer up on a phone, and the phone layout was
+  not tried on a real device.
+- **The exotic chart kinds** (radar, bubble, stock, histogram, waterfall, funnel, box and
+  whisker, treemap, sunburst, pareto, pie of pie, bar of pie) and **building pivot tables**
+  are not built, as earlier phases said.
 
 ## Decisions to review
 
@@ -684,6 +744,35 @@ Made without asking, while the owner was away. Each can be changed.
     pending work is kept at its new addresses, so a save refused a second time does not fall back
     to the old row numbers. The notice says "Someone" when the refusal came from a save rather
     than a poll (the save's answer does not carry the other person's name).
+
+29. **A spreadsheet's deep link is `/account?spreadsheet=<id>` and opens the card** (phase 6),
+    turning on Copy link in the one entity actions menu. A link to a cell or a range is NOT
+    built: a record deep link carries only the id, and a sheet-and-range would need a seed the
+    deep-link reader and the Spreadsheets card both learn to pass and read — more than a query
+    parameter the card reads, so it was left out rather than half-built.
+    Browser check (dev server, shared test account, dark and light): Copy link is in the row's
+    menu and the card's menu and copies `/account?spreadsheet=<id>`. Opening that address opened
+    the card in some runs and not in others; a document's link missed in the same way from a
+    freshly started browser (6 tries, 3 of each kind, none opened), so the miss is in the app's
+    shared open-a-card-on-boot path in this environment, not in the spreadsheet's part. Not
+    chased here; worth a look by whoever owns deep links, with a real signed-in browser.
+30. **The Links panel reuses "Referenced in", not a new endpoint.** The spreadsheet card's Links
+    panel reads the same `/api/account/entities/spreadsheet/<id>/references` and draws the same
+    rows as every other kind, so private spreadsheets stay fenced by the viewer's RLS with no new
+    policy. It shows what links TO the spreadsheet; it is not an editor of links.
+31. **Move a range by its border is cut-and-paste, and does not carry extras.** The engine has no
+    rectangle-move call (only whole rows/columns), so `moveSelection` copies the selection and
+    pastes it at the target as a cut: values, formats, notes and inside-the-range references
+    follow and references pointing at the moved cells are rewritten, one undo step. Validations,
+    checkboxes, tables, charts and images that lie inside the moved range do NOT move with it —
+    `shiftExtras` only knows row/column inserts and deletes, not a rectangle translation, and no
+    helper for that was added (the same limit as an ordinary cut and paste, and as an agent edit,
+    decision 18's family). Dropping onto non-empty cells asks first; Escape cancels the drag.
+32. **The phone layout is a `max-[480px]` breakpoint, not a separate view.** Below 480px of grid
+    width the selection grows two touch handles that extend it, the comment cards become a bottom
+    sheet, and the side panels go full-width; desktop is untouched. The footer still does not
+    follow the on-screen keyboard, and none of it was tried on a real phone — a device pass and
+    the keyboard-aware footer are the remaining phone work.
 
 ## Open items
 

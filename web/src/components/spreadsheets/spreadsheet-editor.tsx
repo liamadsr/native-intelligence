@@ -14,12 +14,14 @@
  * save is refused, and that person is told and offered the newer version.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, History, Lock, MessageSquare } from 'lucide-react'
+import { ArrowLeft, History, Link2, Lock, MessageSquare } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { CardHeaderSlot, CardHeaderTrail, useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
 import { EntityIcon } from '@/components/entities/entity-icon'
+import { EntityActionsMenu, PANEL_OMIT } from '@/components/entities/entity-actions-menu'
+import { LinksPanel } from './links-panel'
 import { parseRange, rangeName } from '@/lib/spreadsheets/a1'
 import { WorkbookController } from '@/lib/spreadsheets/controller'
 import { openModel } from '@/lib/spreadsheets/engine-client'
@@ -181,6 +183,7 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
   const [chartEdit, setChartEdit] = useState<string | null>(null)
   const [resizing, setResizing] = useState<{ axis: 'row' | 'column'; from: number; to: number; value: string } | null>(null)
   const [showComments, setShowComments] = useState(false)
+  const [showLinks, setShowLinks] = useState(false)
   const [openThreadId, setOpenThreadId] = useState<string | null>(null)
   const [composingAnchor, setComposingAnchor] = useState<string | null>(null)
   const [updatedBy, setUpdatedBy] = useState<string | null>(null)
@@ -564,6 +567,29 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
     }
   }
 
+  // This workbook as the shared entity layer knows it: its ⋯ menu (Copy link,
+  // Make a task, Archive) is the one every kind's card shows, and Links toggles
+  // the references panel. Open and Rename are left out (this IS the record,
+  // open, and its title is renamed in place — PANEL_OMIT).
+  const entityRef = { type: 'spreadsheet', id: loaded.record.id, label: record.title }
+  const entityState = { archived: record.status === 'archived', status: record.status }
+  const linksButton = (standalone?: boolean) => (
+    <button
+      type="button"
+      aria-label="Links"
+      aria-pressed={showLinks}
+      title="Links"
+      onClick={() => setShowLinks((on) => !on)}
+      className={
+        standalone
+          ? cn('flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground', showLinks && 'bg-accent text-foreground')
+          : cn('flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground', showLinks && 'bg-foreground/[0.08] text-foreground')
+      }
+    >
+      <Link2 className={standalone ? 'size-4' : 'size-3.5'} strokeWidth={1.75} aria-hidden />
+    </button>
+  )
+
   // The name's field, in the card's header or the page's own title row.
   const nameProps = {
     'aria-label': 'Spreadsheet name',
@@ -616,16 +642,18 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
           </CardHeaderTrail>
           <CardHeaderSlot side="right">
             <CommentsButton count={comments.openCount} open={showComments} onClick={() => setShowComments((on) => !on)} />
+            {linksButton()}
             <button
               type="button"
               aria-label="Version history"
               aria-pressed={history}
               title="Version history"
               onClick={() => setHistory((on) => !on)}
-              className={cn('mr-1 flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground', history && 'bg-foreground/[0.08] text-foreground')}
+              className={cn('flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground', history && 'bg-foreground/[0.08] text-foreground')}
             >
               <History className="size-3.5" strokeWidth={1.75} aria-hidden />
             </button>
+            <EntityActionsMenu entity={entityRef} state={entityState} omit={PANEL_OMIT} className="mr-1 size-6 p-0 text-muted-foreground hover:text-foreground" />
             <span className="mr-2 flex items-center gap-2 empty:hidden">
               {updatedBy && <span className="text-xs text-muted-foreground">Updated by {updatedBy}</span>}
               <SaveNote state={workbook.readOnly ? 'saved' : save} readOnly={workbook.readOnly} onRetry={() => void saveNow()} guard={guard} onReload={onReload} />
@@ -649,9 +677,11 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
             </span>
           )}
           <CommentsButton count={comments.openCount} open={showComments} onClick={() => setShowComments((on) => !on)} standalone />
+          {linksButton(true)}
           <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" aria-label="Version history" aria-pressed={history} title="Version history" onClick={() => setHistory((on) => !on)}>
             <History className="h-4 w-4" />
           </Button>
+          <EntityActionsMenu entity={entityRef} state={entityState} omit={PANEL_OMIT} className="h-7 w-7 shrink-0 p-0 text-muted-foreground hover:text-foreground" />
           {updatedBy && <span className="shrink-0 text-xs text-muted-foreground">Updated by {updatedBy}</span>}
           <SaveNote state={workbook.readOnly ? 'saved' : save} readOnly={workbook.readOnly} onRetry={() => void saveNow()} guard={guard} onReload={onReload} />
         </div>
@@ -781,6 +811,15 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
               focusGrid()
             }}
             onGoTo={(thread) => goToThread(thread.id, thread.sheet_id, thread.anchor)}
+          />
+        )}
+        {showLinks && (
+          <LinksPanel
+            spreadsheetId={loaded.record.id}
+            onClose={() => {
+              setShowLinks(false)
+              focusGrid()
+            }}
           />
         )}
       </div>

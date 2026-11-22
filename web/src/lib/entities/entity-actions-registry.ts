@@ -320,12 +320,13 @@ export const ENTITY_ACTIONS: Readonly<Record<EntityType, EntityActionsDescriptor
   team: { ...inert('Teams are kept in their own page.'), open: 'team' },
   knowledge_package: { ...inert('Packages are kept in Knowledge.'), open: 'package' },
   // A spreadsheet (675) opens on the Spreadsheets page's card. Renamed and
-  // archived through its own route (PATCH { title } / { status }). Not shared
+  // archived through its own route (PATCH { title } / { status }). Its boot
+  // deep link is `/account?spreadsheet=<id>` (Copy link, phase 6). Not shared
   // to a channel yet: no per-person grant exists for the kind, so a private
   // one mentioned in a channel would open for nobody else.
   spreadsheet: {
     open: 'spreadsheet',
-    link: false,
+    link: true,
     rename: { route: 'spreadsheets', field: 'title' },
     archive: { kind: 'status', route: 'spreadsheets', via: 'patch', archived: 'archived', restore: 'active', restorePrevious: false },
     share: false,
