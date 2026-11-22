@@ -64,6 +64,14 @@ export interface GoToDef {
   why: string
 }
 
+/**
+ * Pages with no G-then-a-letter, by name and on purpose. Every letter but G
+ * itself is taken (2026-11-22), so a new page gets one only by taking
+ * another's, and that swap is the owner's to make. Canvases opens from the
+ * Drive group on the rail, the search palette and the Create dialog.
+ */
+export const PAGES_WITHOUT_GO_TO: readonly string[] = ['canvases']
+
 /** The sequences' first key. */
 export const GO_TO_PREFIX = 'g'
 

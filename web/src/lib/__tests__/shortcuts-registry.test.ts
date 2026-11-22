@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest'
 import {
   GO_TO,
   GO_TO_PREFIX,
+  PAGES_WITHOUT_GO_TO,
   SHORTCUTS,
   findShortcutConflicts,
   goToFor,
@@ -50,7 +51,11 @@ describe('the shortcut registry', () => {
     const own = new Set(GO_TO.flatMap((g) => (g.target.type === 'page' ? [g.target.slug] : [])))
     const groups = new Set(GO_TO.flatMap((g) => (g.target.type === 'group' ? PAGE_GROUPS[g.target.id].members : [])))
     const missing = CARD_PAGES.map((p) => p.slug).filter((slug) => !own.has(slug) && !groups.has(slug))
-    expect(missing).toEqual([])
+    // The alphabet is full: the pages left without a letter are named in the registry, not forgotten.
+    expect(missing).toEqual([...PAGES_WITHOUT_GO_TO])
+    // And the day a letter frees up, the list has to shrink: no page is both listed and reachable.
+    expect(PAGES_WITHOUT_GO_TO.filter((slug) => own.has(slug) || groups.has(slug))).toEqual([])
+    expect(new Set(GO_TO.map((g) => g.letter)).size).toBe(25)
     // Each go-to page is a real `/` page.
     const slugs = new Set(CARD_PAGES.map((p) => p.slug))
     expect([...own].filter((s) => !slugs.has(s))).toEqual([])
