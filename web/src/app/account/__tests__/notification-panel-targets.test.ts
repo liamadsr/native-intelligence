@@ -171,4 +171,9 @@ describe('resolveNotificationDetailPanel — the work ledger (migration 273 targ
       await resolveNotificationDetailPanel(digest({ type: 'email_send_failed', target_type: 'email_draft', target_id: 'sched-1', title: 'A scheduled email wasn’t sent' })),
     ).toEqual({ type: 'mail', id: 'scheduled', title: 'A scheduled email wasn’t sent' })
   })
+
+  it('a mention on a canvas or a spreadsheet resolves to that record, with no title of its own', async () => {
+    expect(await resolveNotificationDetailPanel({ type: 'mentioned', title: 'Ada mentioned you on Launch plan', body: 'the words', target_type: 'canvas', target_id: 'cv-1', context_type: null, context_id: null } as Parameters<typeof resolveNotificationDetailPanel>[0])).toEqual({ type: 'canvas', id: 'cv-1', title: '' })
+    expect(await resolveNotificationDetailPanel({ type: 'comment_reply', title: 't', body: 'b', target_type: 'spreadsheet', target_id: 'ss-1', context_type: null, context_id: null } as Parameters<typeof resolveNotificationDetailPanel>[0])).toEqual({ type: 'spreadsheet', id: 'ss-1', title: '' })
+  })
 })

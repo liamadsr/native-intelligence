@@ -4,7 +4,7 @@
  * asked of it, what is refused before it is asked, and how its refusals read.
  */
 import { describe, expect, it } from 'vitest'
-import { addComment, commentsMissing, CommentsUnavailable, deleteComment, listComments, threadsOf, updateComment, type CanvasComment } from '../comments'
+import { addComment, commentsMissing, CommentsUnavailable, deleteComment, getComment, listComments, markMissing, threadsOf, updateComment, type CanvasComment } from '../comments'
 import { fakeCanvasDb } from './fake-canvas-db'
 
 const WS = 'ws-1'
@@ -176,5 +176,49 @@ describe('changing and deleting a comment', () => {
     expect(f.rows.canvas_comment).toHaveLength(0)
     const again = await deleteComment(f.client, C, T1)
     expect(again.ok === false && again.reason).toBe('forbidden')
+  })
+})
+
+describe('mentions and the assistant\'s mark', () => {
+  it('stores who a comment mentions, once each, and reads them back as a list', async () => {
+    const f = seed()
+    const r = await addComment(f.client, WS, C, M1, { body: 'Hi @Ben Example', mentions: [M2, M2] })
+    expect(r.ok && r.value.mentions).toEqual([M2])
+    expect(f.rows.canvas_comment[0].mentions).toEqual([M2])
+    const plain = seed([comment(T1, { mentions: undefined as unknown as string[] })])
+    expect((await listComments(plain.client, WS, C))?.[0].mentions).toEqual([])
+  })
+
+  it('marks a comment the assistant wrote, and never sends the mark for a person\'s', async () => {
+    const f = seed()
+    const byHand = await addComment(f.client, WS, C, M1, { body: 'By hand' })
+    expect('via_agent' in f.rows.canvas_comment[0]).toBe(false)
+    expect(byHand.ok && byHand.value.via_agent).toBe(false)
+    const byAgent = await addComment(f.client, WS, C, M1, { body: 'For Ada', viaAgent: true })
+    expect(f.rows.canvas_comment[1].via_agent).toBe(true)
+    expect(byAgent.ok && byAgent.value.via_agent).toBe(true)
+  })
+
+  it('changes who an edited comment mentions only when the words change', async () => {
+    const f = seed([comment(T1, { mentions: [M2] })])
+    await updateComment(f.client, C, T1, M1, { resolved: true, mentions: [] })
+    expect(f.rows.canvas_comment[0].mentions).toEqual([M2])
+    await updateComment(f.client, C, T1, M1, { body: 'No names now', mentions: [] })
+    expect(f.rows.canvas_comment[0].mentions).toEqual([])
+  })
+
+  it('reads one comment, or null for one that is not there', async () => {
+    const f = seed([comment(T1, { via_agent: true, mentions: [M2] })])
+    expect(await getComment(f.client, C, T1)).toMatchObject({ id: T1, via_agent: true, mentions: [M2] })
+    expect(await getComment(f.client, C, R1)).toBeNull()
+    expect(await getComment(f.client, C, 'nope')).toBeNull()
+  })
+
+  it('knows a database without the column from any other error', () => {
+    expect(markMissing({ code: '42703', message: 'column canvas_comment.via_agent does not exist' })).toBe(true)
+    expect(markMissing({ code: 'PGRST204', message: "Could not find the 'via_agent' column of 'canvas_comment' in the schema cache" })).toBe(true)
+    expect(markMissing({ code: '42703', message: 'column canvas_comment.nope does not exist' })).toBe(false)
+    expect(markMissing({ code: '42501', message: 'via_agent' })).toBe(false)
+    expect(markMissing(null)).toBe(false)
   })
 })

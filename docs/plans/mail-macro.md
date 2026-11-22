@@ -129,6 +129,8 @@ made-up thread, every mail request answered in the browser, nothing sent. `?comp
 
 ## Decisions to review
 
+**Accepted by the owner as written, 2026-11-22.**
+
 1. **Forward starts a thread of its own** (no `thread_id`): Gmail threads a send only with
    matching References, and Outlook's forward path would need `createForward`. Gmail's own
    UI keeps a forward in the thread; ours shows it in Sent.

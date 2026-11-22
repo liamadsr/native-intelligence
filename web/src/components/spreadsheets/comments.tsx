@@ -13,7 +13,9 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { formatDistanceToNow } from 'date-fns'
-import { Check, MessageSquarePlus, Pencil, RotateCcw, Trash2, X } from 'lucide-react'
+import { Check, MessageSquarePlus, Pencil, RotateCcw, Sparkles, Trash2, X } from 'lucide-react'
+import { MentionTextarea } from '@/components/mentions/mention-textarea'
+import { useCommentMentions, useMentionMembers, type CommentMentionsPayload } from '@/components/mentions/use-comment-mentions'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { FLOATING_CARD_CLASS } from '@/components/attention/card-skin'
@@ -41,9 +43,10 @@ export interface CommentsApi {
   /** Thread ids whose cells were deleted in this session. */
   orphaned: Set<string>
   reload: () => Promise<void>
-  createThread: (input: { sheetId: number; anchor: string; body: string }) => Promise<boolean>
-  createReply: (parentId: string, body: string) => Promise<boolean>
-  editComment: (commentId: string, body: string) => Promise<boolean>
+  /** `named`: the teammates and records the words `@`-mention (use-comment-mentions.ts). */
+  createThread: (input: { sheetId: number; anchor: string; body: string }, named?: CommentMentionsPayload) => Promise<boolean>
+  createReply: (parentId: string, body: string, named?: CommentMentionsPayload) => Promise<boolean>
+  editComment: (commentId: string, body: string, named?: CommentMentionsPayload) => Promise<boolean>
   setResolved: (commentId: string, resolved: boolean) => Promise<boolean>
   remove: (commentId: string) => Promise<boolean>
   /** Move the anchors of threads affected by a structural change, and save them. Undo sends the inverse. */
@@ -108,9 +111,9 @@ export function useSpreadsheetComments(spreadsheetId: string, onError: (message:
     [base, onError, reload],
   )
 
-  const createThread = useCallback((input: { sheetId: number; anchor: string; body: string }) => post({ sheet_id: input.sheetId, anchor: input.anchor, body: input.body }), [post])
-  const createReply = useCallback((parentId: string, body: string) => post({ parent_id: parentId, body }), [post])
-  const editComment = useCallback((commentId: string, body: string) => patch(commentId, { body }), [patch])
+  const createThread = useCallback((input: { sheetId: number; anchor: string; body: string }, named?: CommentMentionsPayload) => post({ sheet_id: input.sheetId, anchor: input.anchor, body: input.body, ...(named ?? {}) }), [post])
+  const createReply = useCallback((parentId: string, body: string, named?: CommentMentionsPayload) => post({ parent_id: parentId, body, ...(named ?? {}) }), [post])
+  const editComment = useCallback((commentId: string, body: string, named?: CommentMentionsPayload) => patch(commentId, { body, ...(named ?? {}) }), [patch])
   const setResolved = useCallback((commentId: string, resolved: boolean) => patch(commentId, { resolved }), [patch])
 
   const remove = useCallback(
@@ -232,8 +235,9 @@ export function CommentOverlay({ workbook, sheet, layout, comments, memberId, op
           <Composer
             anchorLabel={composingAnchor ?? ''}
             onCancel={onCloseComposer}
-            onSubmit={async (body) => {
-              const ok = await comments.createThread({ sheetId, anchor: composingAnchor ?? '', body })
+            memberId={memberId}
+            onSubmit={async (body, named) => {
+              const ok = await comments.createThread({ sheetId, anchor: composingAnchor ?? '', body }, named)
               if (ok) onCloseComposer()
             }}
           />
@@ -276,8 +280,9 @@ function ThreadCard({ thread, comments, memberId, orphaned, onClose }: { thread:
             editing={editing === c.id}
             onEdit={() => setEditing(c.id)}
             onCancelEdit={() => setEditing(null)}
-            onSaveEdit={async (body) => {
-              const ok = await comments.editComment(c.id, body)
+            memberId={memberId}
+            onSaveEdit={async (body, named) => {
+              const ok = await comments.editComment(c.id, body, named)
               if (ok) setEditing(null)
             }}
             onDelete={() => void comments.remove(c.id)}
@@ -290,11 +295,13 @@ function ThreadCard({ thread, comments, memberId, orphaned, onClose }: { thread:
         <ReplyBox
           value={reply}
           onChange={setReply}
-          onSend={async () => {
+          memberId={memberId}
+          onSend={async (named) => {
             const body = reply.trim()
-            if (!body) return
-            const ok = await comments.createReply(thread.id, body)
+            if (!body) return false
+            const ok = await comments.createReply(thread.id, body, named(body))
             if (ok) setReply('')
+            return ok
           }}
         />
       )}
@@ -309,6 +316,7 @@ function CommentItem({
   onEdit,
   onCancelEdit,
   onSaveEdit,
+  memberId,
   onDelete,
 }: {
   comment: SpreadsheetComment
@@ -316,20 +324,30 @@ function CommentItem({
   editing: boolean
   onEdit: () => void
   onCancelEdit: () => void
-  onSaveEdit: (body: string) => void
+  onSaveEdit: (body: string, named: CommentMentionsPayload) => void
+  memberId: string
   onDelete: () => void
 }) {
   const [draft, setDraft] = useState(comment.body)
+  const mentions = useCommentMentions(useMentionMembers(memberId), comment.mentions)
   useEffect(() => setDraft(comment.body), [comment.body, editing])
   return (
     <div className="rounded-md bg-muted/40 px-2 py-1.5 text-sm">
       <div className="mb-0.5 flex items-center justify-between gap-2">
-        <span className="truncate text-xs font-medium text-foreground">{comment.author_name ?? 'Someone'}</span>
+        <span className="flex min-w-0 items-center gap-1">
+          <span className="truncate text-xs font-medium text-foreground">{comment.author_name ?? 'Someone'}</span>
+          {comment.via_agent ? (
+            <span data-comment-assistant title="Written by the assistant for them" className="flex shrink-0 items-center gap-0.5 rounded bg-foreground/[0.06] px-1 text-[10px] text-muted-foreground">
+              <Sparkles className="h-2.5 w-2.5" /> assistant
+            </span>
+          ) : null}
+        </span>
         <span className="shrink-0 text-[11px] text-muted-foreground">{relative(comment.created_at)}</span>
       </div>
       {editing ? (
         <div className="flex flex-col gap-1">
-          <textarea
+          <MentionTextarea
+            {...mentions.textareaProps}
             autoFocus
             aria-label="Edit comment"
             value={draft}
@@ -337,7 +355,7 @@ function CommentItem({
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault()
-                if (draft.trim()) onSaveEdit(draft.trim())
+                if (draft.trim()) onSaveEdit(draft.trim(), mentions.payload(draft.trim()))
               } else if (e.key === 'Escape') onCancelEdit()
             }}
             className="w-full resize-none rounded border border-border bg-background px-1.5 py-1 text-sm outline-none focus:border-primary"
@@ -345,7 +363,7 @@ function CommentItem({
           />
           <div className="flex justify-end gap-1">
             <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={onCancelEdit}>Cancel</Button>
-            <Button size="sm" className="h-6 px-2 text-xs" disabled={!draft.trim()} onClick={() => onSaveEdit(draft.trim())}>Save</Button>
+            <Button size="sm" className="h-6 px-2 text-xs" disabled={!draft.trim()} onClick={() => onSaveEdit(draft.trim(), mentions.payload(draft.trim()))}>Save</Button>
           </div>
         </div>
       ) : (
@@ -367,17 +385,19 @@ function CommentItem({
   )
 }
 
-function ReplyBox({ value, onChange, onSend }: { value: string; onChange: (v: string) => void; onSend: () => void }) {
+function ReplyBox({ value, onChange, onSend, memberId }: { value: string; onChange: (v: string) => void; onSend: (named: (text: string) => CommentMentionsPayload) => Promise<boolean>; memberId: string }) {
+  const mentions = useCommentMentions(useMentionMembers(memberId))
   return (
-    <textarea
+    <MentionTextarea
+      {...mentions.textareaProps}
       aria-label="Reply"
-      placeholder="Reply… (Enter to send, Shift+Enter for a new line)"
+      placeholder="Reply… (@ to mention, Enter to send)"
       value={value}
       onChange={(e) => onChange(e.target.value)}
       onKeyDown={(e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
           e.preventDefault()
-          onSend()
+          void onSend(mentions.payload).then((ok) => ok && mentions.reset())
         }
       }}
       className="w-full resize-none rounded-md border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary"
@@ -386,21 +406,23 @@ function ReplyBox({ value, onChange, onSend }: { value: string; onChange: (v: st
   )
 }
 
-function Composer({ anchorLabel, onCancel, onSubmit }: { anchorLabel: string; onCancel: () => void; onSubmit: (body: string) => void }) {
+function Composer({ anchorLabel, onCancel, onSubmit, memberId }: { anchorLabel: string; onCancel: () => void; onSubmit: (body: string, named: CommentMentionsPayload) => void; memberId: string }) {
   const [body, setBody] = useState('')
+  const mentions = useCommentMentions(useMentionMembers(memberId))
   return (
     <div className={cn(FLOATING_CARD_CLASS, 'flex w-72 max-[480px]:w-auto flex-col gap-2 p-3 shadow-lg')} data-comment-composer>
       <span className="font-mono text-xs text-muted-foreground">{anchorLabel}</span>
-      <textarea
+      <MentionTextarea
+        {...mentions.textareaProps}
         autoFocus
         aria-label="New comment"
-        placeholder="Comment… (Enter to send, Shift+Enter for a new line)"
+        placeholder="Comment… (@ to mention, Enter to send)"
         value={body}
         onChange={(e) => setBody(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault()
-            if (body.trim()) onSubmit(body.trim())
+            if (body.trim()) onSubmit(body.trim(), mentions.payload(body.trim()))
           } else if (e.key === 'Escape') onCancel()
         }}
         className="w-full resize-none rounded-md border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary"
@@ -408,7 +430,7 @@ function Composer({ anchorLabel, onCancel, onSubmit }: { anchorLabel: string; on
       />
       <div className="flex justify-end gap-1">
         <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={onCancel}>Cancel</Button>
-        <Button size="sm" className="h-7 px-2 text-xs" disabled={!body.trim()} onClick={() => body.trim() && onSubmit(body.trim())}>Comment</Button>
+        <Button size="sm" className="h-7 px-2 text-xs" disabled={!body.trim()} onClick={() => body.trim() && onSubmit(body.trim(), mentions.payload(body.trim()))}>Comment</Button>
       </div>
     </div>
   )

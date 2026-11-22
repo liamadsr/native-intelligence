@@ -2,7 +2,8 @@ import { tool } from 'ai'
 import { z } from 'zod'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { AGENT_COLOR_NAMES, AGENT_LIMITS, agentArtifactsEnabled, applyAgentOps, describeCanvas, describeThreads, type AgentOp, type AgentThread } from '@/lib/canvas/agent'
-import { listComments, threadsOf } from '@/lib/canvas/comments'
+import { addComment, getComment, listComments, threadsOf, updateComment } from '@/lib/canvas/comments'
+import { afterRecordComment, fenceRecordCommentMentions } from '@/lib/record-comments/mentions'
 import { ARTIFACT_LIMITS } from '@/lib/canvas/engine/artifact'
 import { syncCanvasRecordLinks } from '@/lib/canvas/links'
 import { createCanvas, listItems, writeItems } from '@/lib/canvas/store'
@@ -25,6 +26,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const ref = z.union([z.string().min(1).max(64), z.object({ x: z.number(), y: z.number() })])
 const ids = z.array(z.string().min(1).max(64)).min(1).max(200)
 const color = z.string().max(40).optional().describe(`One of ${AGENT_COLOR_NAMES.join(', ')}; "none"; or a hex like #2563eb.`)
+
+const MENTION_HELP = 'Teammates to @-mention: their member ids (from list_workspace_members). Write each as @Name in the body too. Only those who can open it are told.'
 
 const operation = z.discriminatedUnion('op', [
   z.object({ op: z.literal('create_shape'), key: z.string().max(40).optional().describe('A name for this item that later operations in this batch can use as its id.'), shape: z.enum(['rectangle', 'ellipse']), x: z.number(), y: z.number(), w: z.number().optional(), h: z.number().optional(), text: z.string().max(AGENT_LIMITS.text).optional().describe('A label, centered. The box grows to hold it.'), fill: color, stroke: color, radius: z.number().optional() }),
@@ -68,6 +71,12 @@ export function createCanvasTools(
   }
 
   const load = async (canvasId: string): Promise<CanvasItem[]> => (await listItems(supabase, canvasId)).map(rowToItem).filter((it): it is CanvasItem => !!it)
+
+  /** The person's member in the canvas's workspace: who a comment the assistant writes is by. */
+  const memberIn = async (ws: string): Promise<string | null> => {
+    const { data } = await supabase.from('member').select('id').eq('user_id', userId).eq('workspace_id', ws).maybeSingle()
+    return (data as { id?: string } | null)?.id ?? null
+  }
 
   /** People's open comment threads, when the server has comments; nothing when it does not, or they cannot be read. */
   const comments = async (ws: string, canvasId: string): Promise<{ comments?: AgentThread[]; open_comments?: number }> => {
@@ -143,6 +152,71 @@ export function createCanvasTools(
           }
         } catch (e) {
           return { success: false, error: e instanceof Error ? e.message : 'Could not change the canvas' }
+        }
+      },
+    }),
+
+    comment_on_canvas: tool({
+      description:
+        'Write a comment on a canvas for the person: start a thread about the whole canvas or about one item (item_id), or reply to a thread (reply_to, a thread id from read_canvas). The comment is the person\'s own and is shown as written by their assistant; everyone who can open the canvas sees it. Use it to leave a note or a question for people, not to answer the person you are talking to. You cannot edit or delete comments.',
+      inputSchema: z.object({
+        canvas_id: z.string().describe('The canvas.'),
+        body: z.string().min(1).max(4000).describe('The words. Plain text.'),
+        item_id: z.string().max(64).optional().describe('The item a new thread is about (an id from read_canvas). Leave out for the whole canvas.'),
+        reply_to: z.string().optional().describe('A thread id from read_canvas, to reply on that thread instead of starting one.'),
+        mention_member_ids: z.array(z.string()).max(10).optional().describe(MENTION_HELP),
+      }),
+      execute: async ({ canvas_id, body, item_id, reply_to, mention_member_ids }) => {
+        try {
+          // Anyone who can open a canvas comments on it, as a person can.
+          const found = await open(canvas_id, false)
+          if (!found.ok) return { success: false, error: found.error }
+          const ws = found.canvas.workspace_id
+          const me = await memberIn(ws)
+          if (!me) return { success: false, error: 'This person is not a member of that canvas\'s workspace.' }
+          const words = body.trim()
+          if (item_id && !reply_to && !(await load(canvas_id)).some((it) => it.id === item_id)) return { success: false, error: `No item ${JSON.stringify(item_id)} on this canvas. read_canvas lists them.` }
+          if (reply_to) {
+            const thread = await getComment(supabase, canvas_id, reply_to)
+            if (!thread || thread.parent_id) return { success: false, error: 'reply_to is the id of a thread on this canvas (read_canvas lists the open ones).' }
+          }
+          const mentions = await fenceRecordCommentMentions(supabase, { workspaceId: ws, userId }, { mentions: mention_member_ids }, words)
+          const saved = await addComment(supabase, ws, canvas_id, me, { body: words, parent_id: reply_to ?? null, item_id: item_id ?? null, mentions: mentions.memberIds, viaAgent: true })
+          if (!saved.ok) return { success: false, error: saved.error }
+          await afterRecordComment(supabase, { kind: 'canvas', recordId: canvas_id, workspaceId: ws, userId, memberId: me, commentId: saved.value.id, parentId: saved.value.parent_id, body: words, mentions, viaAgent: true })
+          return {
+            success: true,
+            comment: { id: saved.value.id, thread: saved.value.parent_id ?? saved.value.id, ...(saved.value.item_id ? { item: saved.value.item_id } : {}) },
+            mentioned: mentions.memberIds.length,
+            message: `Commented on "${found.canvas.title}" as the person, marked as written by their assistant.`,
+            ...workspaceEcho(ws),
+          }
+        } catch (e) {
+          return { success: false, error: e instanceof Error ? e.message : 'Could not comment on the canvas' }
+        }
+      },
+    }),
+
+    resolve_canvas_comment: tool({
+      description: 'Resolve a comment thread on a canvas, or reopen it (resolved: false). The thread is recorded as resolved by the person.',
+      inputSchema: z.object({
+        canvas_id: z.string().describe('The canvas.'),
+        thread_id: z.string().describe('A thread id from read_canvas.'),
+        resolved: z.boolean().optional().describe('Default true. false reopens a resolved thread.'),
+      }),
+      execute: async ({ canvas_id, thread_id, resolved }) => {
+        try {
+          const found = await open(canvas_id, false)
+          if (!found.ok) return { success: false, error: found.error }
+          const me = await memberIn(found.canvas.workspace_id)
+          if (!me) return { success: false, error: 'This person is not a member of that canvas\'s workspace.' }
+          const thread = await getComment(supabase, canvas_id, thread_id)
+          if (!thread || thread.parent_id) return { success: false, error: 'thread_id is the id of a thread on this canvas (read_canvas lists the open ones).' }
+          const done = await updateComment(supabase, canvas_id, thread_id, me, { resolved: resolved !== false })
+          if (!done.ok) return { success: false, error: done.error }
+          return { success: true, thread: thread_id, resolved: !!done.value.resolved_at, ...workspaceEcho(found.canvas.workspace_id) }
+        } catch (e) {
+          return { success: false, error: e instanceof Error ? e.message : 'Could not change the thread' }
         }
       },
     }),
