@@ -109,6 +109,19 @@ export function besideAppRail(): boolean {
   return window.matchMedia(DESKTOP_QUERY).matches && document.documentElement.hasAttribute(APP_RAIL_ATTR)
 }
 
+/** Tells `listener` when besideAppRail may have changed: the window crossing `md`, or the rail coming or going. */
+export function subscribeBesideAppRail(listener: () => void): () => void {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return () => {}
+  const media = window.matchMedia(DESKTOP_QUERY)
+  media.addEventListener?.('change', listener)
+  const observer = typeof MutationObserver === 'undefined' ? null : new MutationObserver(listener)
+  observer?.observe(document.documentElement, { attributes: true, attributeFilter: [APP_RAIL_ATTR] })
+  return () => {
+    media.removeEventListener?.('change', listener)
+    observer?.disconnect()
+  }
+}
+
 let current: MinimizedCard | null = null
 /** The frame's copy taken as it left full screen, waiting for the tile to draw it (takeFlightIn). */
 let flightIn: { id: string; snapshot: TileSnapshot } | null = null

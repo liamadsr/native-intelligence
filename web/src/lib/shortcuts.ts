@@ -115,6 +115,15 @@ export const GO_TO: readonly GoToDef[] = [
   page('z', 'evals', 'Evals', 'a leftover letter: E, V, A, L and S are taken (the owner can swap)'),
 ]
 
+/**
+ * `/` pages with no go-to of their own, and why. The Library (Liam, 11-21:
+ * Knowledge's library, its own page): every letter but G is taken, and it
+ * is one `]` from Knowledge, the page before it in Drive.
+ */
+export const NO_GO_TO_PAGES: Readonly<Record<string, string>> = {
+  library: 'every letter but G is taken: G K, then ] (the next page in Drive)',
+}
+
 /** A go-to's keys in the registry's notation (`g m`). */
 export const goToKeys = (letter: string): ShortcutKeys => `${GO_TO_PREFIX} ${letter}`
 

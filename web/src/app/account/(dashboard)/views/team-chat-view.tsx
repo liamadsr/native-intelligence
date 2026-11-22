@@ -113,6 +113,8 @@ import { Avatar, LinkPreviewCard, MessageAttachments, memberName, ReactButton, R
 import { lastTeamChat, publishTeamChatCard, unpublishTeamChatCard, type TeamChatPanelConversation } from '@/components/chat-cards/team-chat-card-controls'
 import { useRailShown } from '../rail/rail-media'
 import { useOwnSubnavShown } from '../page-panel/subnav-on-screen'
+import { CardHeaderSlot, CardHeaderTrail, useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
+import { CARD_HEADER_ICON_BUTTON } from '@/components/chat-cards/card-header-button'
 
 /**
  * Below this width the view shows one pane at a time (a phone, a narrow
@@ -250,6 +252,10 @@ export function TeamChatView({
   const railShown = useRailShown()
   const subnavShown = useOwnSubnavShown(cardId ? 'team-chat' : null)
   const listInPanel = !!cardId && !compact && railShown && subnavShown
+  // In a card its header is the page's (Liam, 11-22): the list has no title
+  // row of its own, and the open channel is the header's breadcrumb, "Team
+  // chat › #general", with its call and notifications at the header's right.
+  const inCard = useCardHeaderSlots() !== null
   const sectionRef = useRef<HTMLElement>(null)
   const threadOver = useNarrow(sectionRef, TEAM_CHAT_THREAD_BESIDE_MIN_PX)
   const [opened, setOpened] = useState(false)
@@ -897,6 +903,21 @@ export function TeamChatView({
       if (id) rootRef.current?.querySelector<HTMLElement>(`[data-team-chat-row="${id}"]`)?.focus({ preventScroll: true })
     })
   }, [])
+  // The card header's title, while a channel is its breadcrumb: back to the
+  // list where it is one pane at a time; where the list is on screen (beside
+  // the channel, or the sub-nav's), to the channel's row in it.
+  const toList = useCallback(() => {
+    if (narrow && !listInPanel) {
+      backToList()
+      return
+    }
+    const id = selectedRef.current
+    if (!id) return
+    const row =
+      rootRef.current?.querySelector<HTMLElement>(`[data-team-chat-row="${id}"]`) ??
+      document.querySelector<HTMLElement>(`[data-team-chat-panel-row="${id}"]`)
+    row?.focus({ preventScroll: true })
+  }, [narrow, listInPanel, backToList])
 
   /** A message into its list: its thread's, or its channel's. */
   const place = useCallback((m: Shown) => {
@@ -1002,11 +1023,14 @@ export function TeamChatView({
 
   const list = (
     <aside className={cn('flex min-h-0 flex-col', narrow ? (showList ? 'h-full w-full' : 'hidden') : 'h-full w-full')}>
-      <div className="flex h-14 shrink-0 items-center gap-2 px-4">
-        <MessageSquare className="h-4 w-4 text-muted-foreground" aria-hidden />
-        <h1 className="text-[15px] font-semibold text-foreground">Team chat</h1>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
+      {/* In a card its header names the page: no title row of its own. */}
+      {!inCard && (
+        <div className="flex h-14 shrink-0 items-center gap-2 px-4">
+          <MessageSquare className="h-4 w-4 text-muted-foreground" aria-hidden />
+          <h1 className="text-[15px] font-semibold text-foreground">Team chat</h1>
+        </div>
+      )}
+      <div className={cn('min-h-0 flex-1 overflow-y-auto px-2 pb-4', inCard && 'pt-2')}>
         {/* On a phone the list stands alone: a failed load says so here, not only in the hidden pane. */}
         {narrow && error && <p className="px-3 py-1.5 text-xs text-destructive">{error}</p>}
         <SectionHeading label="Channels" onAdd={() => startNewChannel()} addLabel="New channel" />
@@ -1095,6 +1119,7 @@ export function TeamChatView({
               windowed={!!windowed[selected.id]}
               onJumpToNewest={() => void loadMessages(selected.id, { fresh: true })}
               onBack={narrow && !listInPanel ? backToList : undefined}
+              onList={inCard ? toList : undefined}
               onNotify={(level) => void setNotify(selected.id, level)}
               focusId={focused && !focused.rootId && focused.channelId === selected.id ? focused.id : null}
               onFocusShown={onFocusShown}
@@ -1329,6 +1354,7 @@ function ChannelPane({
   windowed,
   onJumpToNewest,
   onBack,
+  onList,
   onNotify,
   focusId,
   onFocusShown,
@@ -1368,6 +1394,12 @@ function ChannelPane({
   onLoadEarlier: (before: string) => Promise<void>
   /** One pane at a time (a phone): back to the list of channels. */
   onBack?: () => void
+  /**
+   * In a card: the channel is its header's breadcrumb and this the title's
+   * press (back to the list), and its name, call and notifications are the
+   * header's, not a row here.
+   */
+  onList?: () => void
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   // Opened on a phone (it takes the screen): the focus starts on Back, the
@@ -1413,9 +1445,45 @@ function ChannelPane({
   // A meeting's live call with a guest let in (the call this page is in: its lobby, live): they read this chat (migration 670).
   const guestsRead = channel.kind === 'meeting' && callsHere.active?.channelId === channel.id && callsHere.active.guests.some((g) => g.state === 'admitted')
 
+  const callLabel = channel.kind === 'channel' ? `#${title}` : title
+  const kindIcon = (size: 'card' | 'page') =>
+    channel.kind === 'channel' ? (
+      <EntityIcon kind="team_chat_channel" size={size === 'card' ? 'sm' : 'xl'} />
+    ) : channel.kind === 'meeting' ? (
+      <Video className={cn('shrink-0 text-muted-foreground', size === 'card' ? 'size-3.5' : 'h-5 w-5')} />
+    ) : (
+      <Avatar name={memberName(dmPerson)} url={dmPerson?.avatar_url} size={size === 'card' ? 'xs' : 'sm'} />
+    )
+
   return (
     <>
-      {/* No rule under the channel's name (Liam, 11-09: no visible divider lines). */}
+      {onList ? (
+        // In a card: "Team chat › #general" in its header (Liam, 11-22: "the
+        // back button should just be the breadcrum"), the call and the
+        // notifications at its right.
+        <>
+          <CardHeaderTrail onBack={onList} backLabel="All channels">
+            {kindIcon('card')}
+            <span data-team-chat-trail="" className="min-w-0 truncate font-medium">
+              {title}
+            </span>
+            {teamName && (
+              <span className="flex shrink-0 items-center gap-1 rounded-full bg-foreground/[0.05] px-2 py-0.5 text-[11px] text-muted-foreground">
+                <Users className="h-3 w-3" />
+                {teamName}
+              </span>
+            )}
+            {channel.topic && <span className="hidden min-w-0 truncate text-xs text-muted-foreground sm:inline">{channel.topic}</span>}
+          </CardHeaderTrail>
+          <CardHeaderSlot side="right">
+            <div data-team-chat-header-controls="" className="flex items-center gap-0.5">
+              <CallButton channel={channel} label={callLabel} className="grid size-7 place-items-center rounded-full p-0 hover:bg-foreground/[0.06]" />
+              <NotifyMenu kind={channel.kind} level={channel.notify} onChange={onNotify} inHeader />
+            </div>
+          </CardHeaderSlot>
+        </>
+      ) : (
+      /* No rule under the channel's name (Liam, 11-09: no visible divider lines). */
       <div className={cn('flex h-14 shrink-0 items-center gap-2', onBack ? 'pl-2 pr-4' : 'px-5')}>
         {onBack && (
           <button
@@ -1430,13 +1498,7 @@ function ChannelPane({
             <ChevronLeft className="h-5 w-5" />
           </button>
         )}
-        {channel.kind === 'channel' ? (
-          <EntityIcon kind="team_chat_channel" size="xl" />
-        ) : channel.kind === 'meeting' ? (
-          <Video className="h-5 w-5 shrink-0 text-muted-foreground" />
-        ) : (
-          <Avatar name={memberName(dmPerson)} url={dmPerson?.avatar_url} size="sm" />
-        )}
+        {kindIcon('page')}
         <h2 className="truncate text-lg font-bold text-foreground">{title}</h2>
         {teamName && (
           <span className="flex shrink-0 items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
@@ -1446,9 +1508,10 @@ function ChannelPane({
         )}
         {channel.topic && <span className="min-w-0 truncate text-sm text-muted-foreground">{channel.topic}</span>}
         <span className="ml-auto" aria-hidden />
-        <CallButton channel={channel} label={channel.kind === 'channel' ? `#${title}` : title} />
+        <CallButton channel={channel} label={callLabel} />
         <NotifyMenu kind={channel.kind} level={channel.notify} onChange={onNotify} />
       </div>
+      )}
       {channel.kind === 'meeting' && meetingBar && (
         <MeetingLinkBar channelId={channel.id} meId={meId} live={Object.values(calls).some((c) => c.call.channel_id === channel.id && c.call.status === 'live')} />
       )}
@@ -1566,7 +1629,7 @@ const NOTIFY_OPTIONS: ReadonlyArray<{ level: TeamChatNotifyLevel; label: string;
 ]
 
 /** The channel header's menu: how loud it is for the person (migration 560). */
-function NotifyMenu({ kind, level, onChange }: { kind: TeamChatChannel['kind']; level: TeamChatNotifyLevel; onChange: (level: TeamChatNotifyLevel) => void }) {
+function NotifyMenu({ kind, level, onChange, inHeader = false }: { kind: TeamChatChannel['kind']; level: TeamChatNotifyLevel; onChange: (level: TeamChatNotifyLevel) => void; inHeader?: boolean }) {
   const Icon = level === 'muted' ? BellOff : Bell
   const label = level === 'muted' ? 'Muted' : level === 'all' ? 'All messages' : 'Mentions only'
   return (
@@ -1577,9 +1640,13 @@ function NotifyMenu({ kind, level, onChange }: { kind: TeamChatChannel['kind']; 
           data-team-chat-notify={level}
           aria-label={`Notifications: ${label}`}
           title={`Notifications: ${label}`}
-          className="shrink-0 rounded-lg p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground data-[state=open]:bg-accent"
+          className={
+            inHeader
+              ? cn('grid size-7 shrink-0 place-items-center data-[state=open]:bg-foreground/[0.06] data-[state=open]:text-foreground', CARD_HEADER_ICON_BUTTON)
+              : 'shrink-0 rounded-lg p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground data-[state=open]:bg-accent'
+          }
         >
-          <Icon className="h-4 w-4" />
+          <Icon className={inHeader ? 'size-3.5' : 'h-4 w-4'} strokeWidth={inHeader ? 1.75 : undefined} />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64">

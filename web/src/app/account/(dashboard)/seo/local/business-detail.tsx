@@ -2,8 +2,9 @@
 
 /**
  * One tracked business (the Local card's `seo_local_business` place): the
- * crumb back to the businesses and its name, a quiet line of where it is and
- * how it is rated, then three tabs, the card's tabs:
+ * crumb back to the businesses and its name (in a card, its header's
+ * breadcrumb, with the menu at the header's right), a quiet line of where it
+ * is and how it is rated, then three tabs, the card's tabs:
  *
  *   Map rankings  its rank grids: where it shows on Google Maps across the
  *                 town, point by point (./grid-tab.tsx)
@@ -16,9 +17,8 @@
  * the header: the page stays usable.
  */
 import * as React from 'react'
-import { MoreHorizontal, Trash2 } from 'lucide-react'
+import { Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
-import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { PageTitle } from '@/components/views/page-title'
@@ -28,6 +28,7 @@ import { ViewHeader } from '../../views/view-header'
 import { SeoRequestError, errorCode, errorMessage } from '../api'
 import { CenteredError, CenteredLoader } from '../load-states'
 import { SeoSpendLine, buyBlockedReason, type SeoDataState } from '../shared/data-status'
+import { SeoHeaderMore, SeoPlaceLabel, useInCard } from '../shared/header-controls'
 import { TabPills } from '../shared/tab-pills'
 import { DATA_OFF_CODES, fetchBusiness, readReviews, refreshProfile, removeBusiness, type BusinessDetailPayload } from './api'
 import { GridTab } from './grid-tab'
@@ -56,6 +57,7 @@ export function BusinessDetail({
   onBack: () => void
   onCount?: (count: number | null) => void
 }) {
+  const inCard = useInCard()
   const [detail, setDetail] = React.useState<BusinessDetailPayload | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -172,15 +174,18 @@ export function BusinessDetail({
           </h1>
         </div>
       }
+      // In a card the business is the header's breadcrumb, "Local › Name", the
+      // title the way back, and the spend line and the menu its right end
+      // (Liam, 11-22: "the back button should just be the breadcrum").
+      place={{ label: <SeoPlaceLabel name={name} />, onBack, backLabel: 'Back to businesses' }}
       actions={
         business ? (
           <>
-            <SeoSpendLine view={seo.view} className="mr-1 hidden @lg/local:inline" />
+            {/* The header gives way by truncating the name, so the spend line stays there; the page's own row hides it when narrow. */}
+            <SeoSpendLine view={seo.view} className={inCard ? 'mr-1' : 'mr-1 hidden @lg/local:inline'} />
             <Popover open={menuOpen} onOpenChange={setMenuOpen}>
               <PopoverTrigger asChild>
-                <Button variant="ghost" size="icon" data-seo-business-menu="" className="h-8 w-8 text-muted-foreground hover:text-foreground" title="More" aria-label="More">
-                  <MoreHorizontal className="h-4 w-4" />
-                </Button>
+                <SeoHeaderMore data-seo-business-menu="" />
               </PopoverTrigger>
               <PopoverContent align="end" className="w-52 p-1.5">
                 <button
@@ -205,7 +210,7 @@ export function BusinessDetail({
 
   if (!detail || !business) {
     return (
-      <div className="flex h-full min-h-0 flex-col">
+      <div className={cn('flex h-full min-h-0 flex-col', inCard && 'pt-2')}>
         {header}
         {error && !loading ? <CenteredError text={error} onRetry={() => void load()} /> : <CenteredLoader />}
       </div>
@@ -214,10 +219,11 @@ export function BusinessDetail({
 
   const line = businessLine(business)
   return (
-    <div data-seo-business={business.id} className="@container/local flex h-full min-h-0 flex-col">
+    <div data-seo-business={business.id} className={cn('@container/local flex h-full min-h-0 flex-col', inCard && 'pt-2')}>
       {header}
+      {/* In a card no header row stands above it: the page starts under the card's header. */}
       {line && (
-        <p data-seo-business-line="" className="-mt-1 truncate px-5 pb-2 text-xs tabular-nums text-muted-foreground" title={line}>
+        <p data-seo-business-line="" className={cn('truncate px-5 pb-2 text-xs tabular-nums text-muted-foreground', !inCard && '-mt-1')} title={line}>
           {line}
         </p>
       )}

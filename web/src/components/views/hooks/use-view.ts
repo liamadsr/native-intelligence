@@ -949,11 +949,26 @@ export function useViewConfig(
   // at the new baseline while the in-memory overrides still belong to the
   // old one. Reading the ref gives us the value that React state is
   // actually in sync with.
-  const discardOverrides = useCallback(() => {
+  //
+  // `fields`: drop only those (the ribbon's Cancel takes back the filters and
+  // leaves the layout, grouping and the rest as the person set them).
+  const discardOverrides = useCallback((fields?: readonly (keyof ViewConfig)[]) => {
     const currentBaselineId = lastBaselineIdRef.current
-    setOverridesState({})
-    if (cardRef.current) cardRef.current.onOverridesChange?.({})
-    else writeDraftIn(memoryDraftsRef.current, currentBaselineId, {})
+    if (!fields) {
+      setOverridesState({})
+      if (cardRef.current) cardRef.current.onOverridesChange?.({})
+      else writeDraftIn(memoryDraftsRef.current, currentBaselineId, {})
+      return
+    }
+    setOverridesState((prev) => {
+      const kept = { ...prev }
+      for (const field of fields) delete kept[field]
+      if (cardRef.current) {
+        // As in updateConfig: only changes to the agent's page are kept with the card.
+        if (currentBaselineId === CARD_BASELINE_ID) queueMicrotask(() => cardRef.current?.onOverridesChange?.(kept))
+      } else writeDraftIn(memoryDraftsRef.current, currentBaselineId, kept)
+      return kept
+    })
   }, [])
 
   // Atomic scope switch — used when changing scope tabs (assigned/created,

@@ -6,6 +6,8 @@ import { formatDate } from "date-fns";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { AccountFilterDropdown } from "@/components/account-filter-dropdown";
+import { CardHeaderSlot, useCardHeaderSlots } from "@/components/chat-cards/card-header-slot";
+import { CARD_HEADER_ICON_BUTTON, CARD_HEADER_PILL_BUTTON } from "@/components/chat-cards/card-header-button";
 
 import { useCalendar } from "@/calendar/contexts/calendar-context";
 import { AddEventDialog } from "@/calendar/components/dialogs/add-event-dialog";
@@ -23,8 +25,10 @@ interface IProps {
   onFilterChange?: (accountIds: string[] | null) => void;
   /**
    * A chat card: the card's own header is its title, so the window's title
-   * row goes; the account filter and New event move into the date row, and
-   * only the card's views are offered.
+   * row goes, and only the card's views are offered. The date row's controls
+   * are the card header's (CardCalendarHeader), or, where there is no header
+   * to hold them, its own row with the account filter and New event. (A
+   * record open over the calendar has the header: CardCovered.)
    */
   card?: { compact: boolean; views: readonly TCalendarView[] };
   /** Views the calendar can't show at its current size (the week, when narrow): left out of the switcher. */
@@ -43,6 +47,7 @@ const VIEW_BUTTONS: { view: TCalendarView; icon: typeof List; label: string }[] 
 
 export function CalendarHeader({ view, events, onViewChange, filterAccountIds, onFilterChange, card, unavailableViews, onOpenSidebar }: IProps) {
   const { selectedDate, setSelectedDate } = useCalendar();
+  const slots = useCardHeaderSlots();
   // In a floating content window, the title row carries the window's close button.
   const titleRowRef = useRef<HTMLDivElement>(null);
 
@@ -57,6 +62,25 @@ export function CalendarHeader({ view, events, onViewChange, filterAccountIds, o
   const viewButtons = VIEW_BUTTONS.filter(
     (b) => (!card || card.views.includes(b.view) || b.view === view) && !unavailableViews?.includes(b.view),
   );
+
+  // In a card's header (Liam, 11-22: a page's controls are its card header's,
+  // the page starts with its content): the date row is not drawn.
+  if (card && slots) {
+    return (
+      <CardCalendarHeader
+        view={view}
+        viewButtons={viewButtons}
+        onViewChange={onViewChange}
+        label={{ short: `${shortMonth} ${year}`, long: `${month} ${year}`, range: rangeText(view, selectedDate) }}
+        onToday={handleToday}
+        onPrevious={handlePrevious}
+        onNext={handleNext}
+        filterAccountIds={filterAccountIds}
+        onFilterChange={onFilterChange}
+        onOpenSidebar={onOpenSidebar}
+      />
+    );
+  }
 
   return (
     <>
@@ -177,6 +201,110 @@ export function CalendarHeader({ view, events, onViewChange, filterAccountIds, o
           </div>
         </div>
       </div>
+    </>
+  );
+}
+
+/**
+ * The header's controls shed as the card's header narrows: the inline one
+ * and the full-screen island beside the rail are both containers
+ * (show-tool-card.tsx), so a narrow page keeps its title in view.
+ */
+const FROM_26 = "hidden @[26rem]:inline-flex";
+const FROM_40 = "hidden @[40rem]:inline-flex";
+const FROM_44 = "hidden @[44rem]:inline-flex";
+
+/**
+ * A calendar card's controls in its header: the date (Today, the arrows, the
+ * month), then the account filter, Copy availability, New event and the view
+ * switcher at its right end; the sidebar's toggle at its left.
+ */
+function CardCalendarHeader({
+  view,
+  viewButtons,
+  onViewChange,
+  label,
+  onToday,
+  onPrevious,
+  onNext,
+  filterAccountIds,
+  onFilterChange,
+  onOpenSidebar,
+}: {
+  view: TCalendarView;
+  viewButtons: typeof VIEW_BUTTONS;
+  onViewChange: (view: TCalendarView) => void;
+  label: { short: string; long: string; range: string };
+  onToday: () => void;
+  onPrevious: () => void;
+  onNext: () => void;
+  filterAccountIds?: string[] | null;
+  onFilterChange?: (accountIds: string[] | null) => void;
+  onOpenSidebar?: () => void;
+}) {
+  const iconButton = cn("grid size-7 shrink-0 place-items-center", CARD_HEADER_ICON_BUTTON);
+  return (
+    <>
+      {onOpenSidebar && (
+        <CardHeaderSlot side="left">
+          <button type="button" className={iconButton} onClick={onOpenSidebar} aria-label="Show the sidebar" title="Show the sidebar">
+            <PanelLeftOpen className="size-3.5" strokeWidth={1.75} />
+          </button>
+        </CardHeaderSlot>
+      )}
+      <CardHeaderSlot side="right">
+        <div data-calendar-header-controls="" className="flex min-w-0 items-center gap-1">
+          <button type="button" className={cn(CARD_HEADER_PILL_BUTTON, FROM_26)} onClick={onToday}>
+            Today
+          </button>
+          <button type="button" className={iconButton} onClick={onPrevious} aria-label="Previous" title="Previous">
+            <ChevronLeft className="size-3.5" strokeWidth={1.75} />
+          </button>
+          <button type="button" className={iconButton} onClick={onNext} aria-label="Next" title="Next">
+            <ChevronRight className="size-3.5" strokeWidth={1.75} />
+          </button>
+          <span data-calendar-header-date="" className="flex min-w-0 items-baseline gap-2 whitespace-nowrap px-1 text-[13px]">
+            <span className="font-medium @[36rem]:hidden">{label.short}</span>
+            <span className="hidden font-medium @[36rem]:inline">{label.long}</span>
+            <span className="hidden text-xs text-muted-foreground @[52rem]:inline">{label.range}</span>
+          </span>
+          {onFilterChange && (
+            <span className={FROM_44}>
+              <AccountFilterDropdown
+                capability="calendar"
+                selectedAccountIds={filterAccountIds ?? null}
+                onSelectionChange={onFilterChange}
+                triggerClassName="border-transparent bg-foreground/[0.05] shadow-none hover:bg-foreground/[0.1]"
+              />
+            </span>
+          )}
+          <CopyAvailabilityButton compact className={cn(CARD_HEADER_ICON_BUTTON, FROM_40)} />
+          <AddEventDialog>
+            <button type="button" className={iconButton} aria-label="New event" title="New event">
+              <Plus className="size-3.5" strokeWidth={1.75} />
+            </button>
+          </AddEventDialog>
+          {/* The views: a capsule of segments, the one in use lifted, as the layout switcher's in every list's header. */}
+          <div role="group" aria-label="View" className="flex h-7 shrink-0 items-center overflow-hidden rounded-full bg-foreground/[0.05]">
+            {viewButtons.map((btn) => {
+              const Icon = btn.icon;
+              return (
+                <button
+                  key={btn.view}
+                  type="button"
+                  onClick={() => onViewChange(btn.view)}
+                  aria-label={btn.label}
+                  title={btn.label}
+                  aria-pressed={view === btn.view}
+                  className="flex h-full w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-foreground/[0.05] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring aria-pressed:bg-foreground/[0.1] aria-pressed:text-foreground motion-reduce:transition-none"
+                >
+                  <Icon className="size-3.5" strokeWidth={1.75} aria-hidden />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </CardHeaderSlot>
     </>
   );
 }

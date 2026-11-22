@@ -34,11 +34,17 @@
  * Client-safe: no server imports.
  */
 import type { CardSpec } from '@/lib/chat-cards/kinds'
+import type { CardHistory } from './card-history'
 
 export interface FrontCard {
   /** The card's id (its tool call or opened-card id). */
   id: string
   spec: CardSpec
+  /**
+   * Its Back and Forward: beside the rail they sit in the rail's header, for
+   * the page in front, not in the page's own (Liam, 11-21).
+   */
+  history?: CardHistory
   /** Put it back (out of full screen). */
   close: () => void
   /**

@@ -3,7 +3,7 @@
 /**
  * Tables (phase 1, migration 520): the workspace's own databases. The list of
  * tables, a way to make one (it starts with a Name column and three blank
- * rows; made in the Create composer, its starters a choice there), and one table open as its editable grid (phase 3,
+ * rows), and one table open as its editable grid (phase 3,
  * src/components/tables/table-detail.tsx). It owns its fetches against
  * /api/account/tables, like the Campaigns page.
  *
@@ -17,7 +17,10 @@ import { HandCoins, Lock, Plus, Table2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { TableDetail } from '@/components/tables/table-detail'
+import { CardHeaderSlot, useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
+import { CARD_HEADER_PILL_BUTTON } from '@/components/chat-cards/card-header-button'
 import { relativeTime } from '@/lib/work/presentation'
+import { cn } from '@/lib/utils'
 import type { DataTable } from '@/lib/tables/types'
 import { openCreateDialog } from '@/lib/create/open-create'
 import { ViewHeader } from './view-header'
@@ -52,6 +55,7 @@ export function TablesView({ onCount, card, pipelines = false }: { onCount?: (co
     else setOwnOpenId(id)
   }
   const [creating, setCreating] = useState(false)
+  const inCard = useCardHeaderSlots() !== null
   // How many there are, for a chat card's header (pages in the chat).
   const onCountRef = useRef(onCount)
   onCountRef.current = onCount
@@ -108,16 +112,30 @@ export function TablesView({ onCount, card, pipelines = false }: { onCount?: (co
 
   return (
     <div className="flex h-full flex-col">
-      <ViewHeader
-        title={pipelines ? 'Pipelines' : 'Tables'}
-        actions={
-          <Button size="sm" onClick={startCreate}>
-            <Plus className="h-3.5 w-3.5" />
+      {inCard ? (
+        // In a card its header names the page (Tables, or Deals for the
+        // pipelines), so the page draws no title of its own; New table or New
+        // pipeline goes there (Liam, 11-22: every control in the header).
+        <CardHeaderSlot side="right">
+          <button type="button" onClick={startCreate} data-new-table="" className={CARD_HEADER_PILL_BUTTON}>
+            <Plus className="size-3.5" strokeWidth={1.75} aria-hidden />
             {pipelines ? NEW_PIPELINE_LABEL : NEW_TABLE_LABEL}
-          </Button>
-        }
-      />
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6">
+          </button>
+        </CardHeaderSlot>
+      ) : (
+        <ViewHeader
+          title={pipelines ? 'Pipelines' : 'Tables'}
+          actions={
+            <Button size="sm" onClick={startCreate}>
+              <Plus className="h-3.5 w-3.5" />
+              {pipelines ? NEW_PIPELINE_LABEL : NEW_TABLE_LABEL}
+            </Button>
+          }
+        />
+      )}
+      {/* In a card, a row's icon and name stand under the header's icon and
+          title, as on Spreadsheets. */}
+      <div className={cn('min-h-0 flex-1 overflow-y-auto pb-6', inCard ? 'pl-[18px] pr-5 pt-2' : 'px-5')}>
         {creating && pipelines && (
           <NewPipelineForm
             onCancel={() => setCreating(false)}
@@ -138,14 +156,14 @@ export function TablesView({ onCount, card, pipelines = false }: { onCount?: (co
           <ul className="divide-y divide-border">
             {tables.map((t) => (
               <li key={t.id}>
-                <button type="button" onClick={() => setOpenId(t.id)} className="flex w-full items-center gap-3 py-2.5 text-left hover:bg-muted/40">
+                <button type="button" onClick={() => setOpenId(t.id)} className={cn('flex w-full items-center py-2.5 text-left hover:bg-muted/40', inCard ? 'gap-2' : 'gap-3')}>
                   {t.kind === 'pipeline' ? (
                     // A pipeline of companies or contacts (679) wears its record's icon.
                     <span role="img" aria-label={t.record_kind === 'company' ? 'Pipeline of companies' : t.record_kind === 'contact' ? 'Pipeline of contacts' : 'Pipeline'} className="flex shrink-0">
-                      <EntityIcon kind={t.record_kind ?? 'deal'} />
+                      <EntityIcon kind={t.record_kind ?? 'deal'} size={inCard ? 'sm' : 'md'} />
                     </span>
                   ) : (
-                    <EntityIcon kind="data_table" />
+                    <EntityIcon kind="data_table" size={inCard ? 'sm' : 'md'} />
                   )}
                   <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{t.name}</span>
                   {t.is_default && <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">Default</span>}

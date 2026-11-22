@@ -215,7 +215,7 @@ function PropertyPill(props: Omit<PropertyPillProps, 'variant'>) {
   return <SharedPropertyPill {...props} variant="attention" />
 }
 
-/** Resource types that open as a record card. 'package' opens the Knowledge card on it. */
+/** Resource types that open as a record card. 'package' opens the Library card on it. */
 const RESOURCE_RECORDS = new Set(['action', 'capture', 'document', 'contact', 'project', 'initiative'])
 
 export function AttentionCard({
@@ -327,7 +327,7 @@ export function AttentionCard({
 
   // A "Will use" resource chip. The resource belongs to the CARD's workspace,
   // so it opens as a card there (switched to first), never against whatever
-  // workspace is active. A package opens the Knowledge card on it; a record
+  // workspace is active. A package opens the Library card on it; a record
   // its record card. Best-effort: the card renders the pre-Start (unvalidated)
   // payload, so an id here may be one Start would drop; a dead id just opens
   // an empty record.

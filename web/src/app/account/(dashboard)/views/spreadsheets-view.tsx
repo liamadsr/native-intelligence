@@ -10,7 +10,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Lock, Plus, Sheet } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SpreadsheetEditor } from '@/components/spreadsheets/spreadsheet-editor'
+import { CardHeaderSlot } from '@/components/chat-cards/card-header-slot'
+import { CARD_HEADER_PILL_BUTTON } from '@/components/chat-cards/card-header-button'
 import { relativeTime } from '@/lib/work/presentation'
+import { cn } from '@/lib/utils'
 import type { SpreadsheetSummary } from '@/lib/spreadsheets/types'
 import { openCreateDialog } from '@/lib/create/open-create'
 import { ViewHeader } from './view-header'
@@ -84,16 +87,35 @@ export function SpreadsheetsView({ onCount, card }: { onCount?: (count: number) 
 
   return (
     <div className="flex h-full flex-col">
-      <ViewHeader
-        title="Spreadsheets"
-        actions={
-          <Button size="sm" onClick={create}>
-            <Plus className="h-3.5 w-3.5" />
+      {card ? (
+        // In a card its header already names the page (Liam, 11-22: "remove
+        // the duplicate title on the spreadsheets page"): New spreadsheet goes
+        // there, on the header's glass like the layout switcher's capsule.
+        <CardHeaderSlot side="right">
+          <button
+            type="button"
+            onClick={create}
+            data-new-spreadsheet=""
+            className={CARD_HEADER_PILL_BUTTON}
+          >
+            <Plus className="size-3.5" strokeWidth={1.75} aria-hidden />
             New spreadsheet
-          </Button>
-        }
-      />
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6">
+          </button>
+        </CardHeaderSlot>
+      ) : (
+        <ViewHeader
+          title="Spreadsheets"
+          actions={
+            <Button size="sm" onClick={create}>
+              <Plus className="h-3.5 w-3.5" />
+              New spreadsheet
+            </Button>
+          }
+        />
+      )}
+      {/* In a card, a row's icon and name stand under the header's icon and
+          title: 19px and 41px from the page's edge (show-tool-card.tsx, the island). */}
+      <div className={cn('min-h-0 flex-1 overflow-y-auto pb-6', card ? 'pl-[18px] pr-5 pt-2' : 'px-5')}>
         {sheets === null ? (
           <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>
         ) : error ? (
@@ -114,8 +136,8 @@ export function SpreadsheetsView({ onCount, card }: { onCount?: (count: number) 
           <ul className="divide-y divide-border">
             {sheets.map((s) => (
               <li key={s.id}>
-                <button type="button" onClick={() => setOpenId(s.id, s.title)} className="flex w-full items-center gap-3 py-2.5 text-left hover:bg-muted/40">
-                  <Sheet className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                <button type="button" onClick={() => setOpenId(s.id, s.title)} className={cn('flex w-full items-center py-2.5 text-left hover:bg-muted/40', card ? 'gap-2' : 'gap-3')}>
+                  <Sheet className={cn('shrink-0 text-muted-foreground', card ? 'size-3.5' : 'h-4 w-4')} aria-hidden />
                   <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{s.title}</span>
                   {s.sheet_names.length > 1 && <span className="shrink-0 text-xs text-muted-foreground">{s.sheet_names.length} sheets</span>}
                   {s.visibility === 'private' && <Lock className="h-3 w-3 shrink-0 text-muted-foreground" aria-label="Private" />}

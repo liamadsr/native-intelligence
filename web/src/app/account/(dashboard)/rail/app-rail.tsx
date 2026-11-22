@@ -98,7 +98,8 @@ import { openSearch } from '@/lib/chat/open-search'
 import { openCreateDialog } from '@/lib/create/open-create'
 import { useModKeyLabel } from '@/lib/hotkeys'
 import { goToFor, goToKeys, keysChips } from '@/lib/shortcuts'
-import { minimizeFrontCards } from '@/components/chat-cards/front-card'
+import { frontCard, minimizeFrontCards, subscribeFrontCard } from '@/components/chat-cards/front-card'
+import { CardHistory, CardHistoryButtons } from '@/components/chat-cards/card-history'
 import { COLUMN_CARD_SKIN } from '@/components/attention/card-skin'
 import { isDefaultRailPrefs, type RailPrefs } from '@/lib/rail-prefs'
 import { saveRailPrefs, useRailPrefs } from '@/lib/rail-prefs-store'
@@ -137,8 +138,13 @@ const NAV_STYLE: React.CSSProperties = { width: 'var(--app-rail-w)', top: 'calc(
 // A capsule (rounded-full): its ends follow the round buttons inside it, 4px
 // round them (Liam, 11-09: the circles and their containers didn't match).
 const PILL = cn('relative flex flex-col items-center gap-0.5 rounded-full border border-border/60 p-1', COLUMN_CARD_SKIN)
-/** The hairline between two of the bar's groups, and before Customize bar. */
-const HAIRLINE = 'my-1 h-px w-5 shrink-0 bg-foreground/10'
+/**
+ * The hairline between two of the bar's groups, and before Customize bar.
+ * 9px each side (with the bar's 2px gap, 27px from an icon's centre): about
+ * 20.5px from the icon above and the icon below, the space between two icons,
+ * as the header's divider has (Liam, 11-21: the spacing "perfect").
+ */
+const HAIRLINE = 'my-[9px] h-px w-5 shrink-0 bg-foreground/10'
 
 // A tint of the foreground for hover and the lit page: it reads on the rail's
 // surface in light and dark alike (bg-muted is the surface's own shade in light).
@@ -149,6 +155,29 @@ const ITEM =
 const ITEM_ACTIVE = 'bg-foreground/[0.08] text-sidebar-foreground hover:bg-foreground/[0.08]'
 const TIP = 'flex items-center gap-1.5 rounded-lg border bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-md'
 const KBD = 'inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-[4px] border bg-muted/60 px-1 text-[10px] font-medium text-muted-foreground'
+
+/** No page in front: Back and Forward stay in their place, off. */
+const NO_PAGE_HISTORY = new CardHistory()
+const noFrontCard = () => null
+
+/**
+ * Back and Forward for the page in front (Liam, 11-21: out of the pages'
+ * headers, "to the top left to the right of the search and recent panel
+ * button as a group"), after a hairline. The page's own history, the same
+ * buttons, tooltips and hops between cards as its header had; off, in their
+ * place, while the chat is in front.
+ */
+function FrontPageHistory() {
+  const front = useSyncExternalStore(subscribeFrontCard, frontCard, noFrontCard)
+  return (
+    <div data-app-rail-history="" className="flex items-center">
+      {/* Centred: 20.5px of space from the icon before it and from Back's
+          chevron, the gap between Search's and Recent's icons. */}
+      <div aria-hidden className="ml-[9px] mr-[11px] h-5 w-px shrink-0 bg-foreground/10" />
+      <CardHistoryButtons history={front?.history ?? NO_PAGE_HISTORY} variant="rail" />
+    </div>
+  )
+}
 
 /**
  * A rail item's go-to (lib/shortcuts.ts) in its tooltip: G, then its letter.
@@ -540,11 +569,12 @@ export function AppRail() {
             </RailButton>
             {/* The Recent panel beside the rail: opens and closes it (only while it has rows). */}
             <PagePanelToggle />
+            <FrontPageHistory />
           </TooltipProvider>
         ) : (
           // Its size until the controls mount (after hydration), so nothing moves.
           // The Recent button isn't counted: it comes only once its rows are read, after mount.
-          <div aria-hidden className="h-8 w-56" />
+          <div aria-hidden className="h-8 w-[288px]" />
         )}
       </div>
 
@@ -574,6 +604,8 @@ export function AppRail() {
                   >
                     <Plus className="size-[18px]" strokeWidth={2} />
                   </RailButton>
+                  {/* A hairline between Create and Home (Liam, 11-21). */}
+                  <div aria-hidden data-app-rail-create-line="" className={HAIRLINE} />
                   {/* Home (Liam, 11-11), fixed at the top: the chat, every card in front put away. Not one of the person's pages. */}
                   <RailButton label="Home" hint={<GoToHint home />} active={active === 'home'} onClick={minimizeFrontCards} data={{ 'data-app-rail-item': 'home' }}>
                     <House className="size-[18px]" strokeWidth={1.75} />

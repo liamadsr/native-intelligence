@@ -315,9 +315,12 @@ export function CompanyDetailPanel({
           ROW_GUTTER_PX): a list tab's own view tabs and rows start where
           these do (Liam, 11-20: "where the tables start doesn't match").
           Fixed there for every tab, the centered overview's too, so a tab
-          never moves under the pointer when another is picked. Its buttons
-          end on the card header's close button. */}
-      <div data-detail-tabs="" className="flex h-10 shrink-0 items-center pl-10 pr-3.5">
+          never moves under the pointer when another is picked. Its pills
+          start 18px in, on the leading line the header island's icon and
+          a row's checkbox stand on, left of the content line (Liam, 11-21:
+          "the pills should be more to the left"; view-toolbar.tsx
+          alignToContent); 48px tall, its end where a row's content ends. */}
+      <div data-detail-tabs="" className="flex h-12 shrink-0 items-center pl-[18px] pr-[17px]">
         <div className="flex items-center gap-1">
           {COMPANY_SECTIONS.map(tab => (
             <button
@@ -371,13 +374,12 @@ export function CompanyDetailPanel({
         ) : (
           <div ref={panelBodyRef} className="flex flex-1 min-h-0 justify-center">
             {/* Left: tab content */}
-            <div className={cn(
-              'w-full min-w-0 min-h-0 flex flex-col',
-              (activeTab === 'overview' || activeTab === 'details') && 'mx-auto max-w-[736px]',
-            )}>
+            {/* The whole card's width scrolls, with no bar drawn; the reading
+                column stays centred in it (Liam, 11-21). */}
+            <div className="w-full min-w-0 min-h-0 flex flex-col">
               {activeTab === 'overview' && (
-                <ScrollArea className="h-full">
-                  <div className="px-8 pb-28 space-y-5">
+                <ScrollArea scrollbar={false} className="h-full">
+                  <div className="mx-auto w-full max-w-[736px] px-8 pb-28 space-y-5">
                     {/* Logo + Name */}
                     <div className="pt-6 pb-2">
                       <div className="flex items-center gap-3">
@@ -472,8 +474,10 @@ export function CompanyDetailPanel({
               )}
 
               {activeTab === 'details' && (
-                <ScrollArea className="h-full">
-                  <CompanyDetailsTab company={company} enriching={enriching} />
+                <ScrollArea scrollbar={false} className="h-full">
+                  <div className="mx-auto w-full max-w-[736px]">
+                    <CompanyDetailsTab company={company} enriching={enriching} />
+                  </div>
                 </ScrollArea>
               )}
 

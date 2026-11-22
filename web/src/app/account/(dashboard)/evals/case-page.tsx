@@ -89,6 +89,8 @@ import {
 } from 'react'
 import { toast } from 'sonner'
 import { truncateBreadcrumbTitle } from '../views/detail-breadcrumb-header'
+import { useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
+import { CARD_HEADER_PILL_BUTTON } from '@/components/chat-cards/card-header-button'
 import { ViewHeader } from '../views/view-header'
 import { deleteCase, errorMessage, fetchCase, startRun } from './api'
 import { MODE_LABELS } from './ui-helpers'
@@ -848,6 +850,7 @@ export function EvalCasePage({
   caseId,
   suiteName,
   onBack,
+  onBackToEvals,
   onCaseNameLoaded,
   onSaved,
 }: {
@@ -856,6 +859,8 @@ export function EvalCasePage({
    *  the header falls back to a generic label rather than an empty crumb. */
   suiteName?: string
   onBack: () => void
+  /** In a card: what its title (Evals) goes back to, the suites; the suite is the crumb after it. */
+  onBackToEvals?: () => void
   /** Deep links arrive with a placeholder name; called once the page knows the
    *  real one so the caller can refresh the history entry/label. */
   onCaseNameLoaded?: (id: string, name: string) => void
@@ -872,6 +877,8 @@ export function EvalCasePage({
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [pasteOpen, setPasteOpen] = useState(false)
+  // In a card the header is the page's: "Evals › Suite › Case", its actions at the end (Liam, 11-22).
+  const inCard = useCardHeaderSlots() !== null
 
   // The draft. Kept as separate pieces of state rather than a cloned row, so a
   // save that returns a server-recomputed `chunks` can replace the whole row
@@ -1179,15 +1186,18 @@ export function EvalCasePage({
       <div className="flex h-full flex-col">
         <ViewHeader
           title="Case"
+          place={{ label: <span className="min-w-0 truncate font-medium">Case</span>, onBack, backLabel: 'Back to suite' }}
           actions={
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 text-xs"
-              onClick={onBack}
-            >
-              Back to suite
-            </Button>
+            inCard ? undefined : (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={onBack}
+              >
+                Back to suite
+              </Button>
+            )
           }
         />
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6">
@@ -1215,6 +1225,7 @@ export function EvalCasePage({
         viewTitle={truncateBreadcrumbTitle(suiteName ?? 'Suite')}
         viewTitleFull={suiteName ?? 'Suite'}
         onBack={onBack}
+        page={onBackToEvals ? { title: 'Evals', onBack: onBackToEvals } : undefined}
         name={name}
         onNameChange={setName}
         namePlaceholder="Untitled case"
@@ -1259,7 +1270,7 @@ export function EvalCasePage({
             <Button
               variant="outline"
               size="sm"
-              className="h-7 gap-1.5 text-xs"
+              className={inCard ? cn(CARD_HEADER_PILL_BUTTON, 'shadow-none') : 'h-7 gap-1.5 text-xs'}
               onClick={() => void run('live')}
               disabled={running !== null || dirty || !liveDeclared}
               title={
@@ -1279,7 +1290,7 @@ export function EvalCasePage({
             </Button>
             <Button
               size="sm"
-              className="h-7 text-xs"
+              className={inCard ? cn(CARD_HEADER_PILL_BUTTON, 'shadow-none') : 'h-7 text-xs'}
               onClick={() => void save()}
               disabled={saving || !dirty}
             >

@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest'
 import {
   GO_TO,
   GO_TO_PREFIX,
+  NO_GO_TO_PAGES,
   SHORTCUTS,
   findShortcutConflicts,
   goToFor,
@@ -46,11 +47,16 @@ describe('the shortcut registry', () => {
     expect(findShortcutConflicts([find])).toEqual([{ keys: 'mod+f', ids: ['find', 'find'], why: 'kept by the browser, the OS or the desktop app' }])
   })
 
-  it('gives every `/` page a go-to: its own, or (an SEO section) its group’s', () => {
+  it('gives every `/` page a go-to: its own, or (an SEO section) its group’s, or says why it has none', () => {
     const own = new Set(GO_TO.flatMap((g) => (g.target.type === 'page' ? [g.target.slug] : [])))
     const groups = new Set(GO_TO.flatMap((g) => (g.target.type === 'group' ? PAGE_GROUPS[g.target.id].members : [])))
-    const missing = CARD_PAGES.map((p) => p.slug).filter((slug) => !own.has(slug) && !groups.has(slug))
+    const missing = CARD_PAGES.map((p) => p.slug).filter((slug) => !own.has(slug) && !groups.has(slug) && !NO_GO_TO_PAGES[slug])
     expect(missing).toEqual([])
+    // A page said to have none really has none, and is a real `/` page.
+    for (const slug of Object.keys(NO_GO_TO_PAGES)) {
+      expect(own.has(slug), slug).toBe(false)
+      expect(CARD_PAGES.some((p) => p.slug === slug), slug).toBe(true)
+    }
     // Each go-to page is a real `/` page.
     const slugs = new Set(CARD_PAGES.map((p) => p.slug))
     expect([...own].filter((s) => !slugs.has(s))).toEqual([])

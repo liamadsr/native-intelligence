@@ -16,7 +16,10 @@ interface ExpandableSearchProps {
 }
 
 /** A compact header button. The field expands to its left over adjacent
- * controls, so narrow windows can offer a useful input without moving Close. */
+ * controls, so narrow windows can offer a useful input without moving Close.
+ * In a card's header (its island, or its row in the chat), it takes its room
+ * instead: the header widens and what stands left of it moves over (Liam,
+ * 11-21: "when this open up it should make room in the header"). */
 export const ExpandableSearch = forwardRef<ExpandableSearchHandle, ExpandableSearchProps>(function ExpandableSearch({
   value, onChange, label, placeholder,
 }, ref) {
@@ -24,6 +27,11 @@ export const ExpandableSearch = forwardRef<ExpandableSearchHandle, ExpandableSea
   const [width, setWidth] = useState(256)
   const expanded = open || value.length > 0
   const rootRef = useRef<HTMLDivElement>(null)
+  // In a card's header (portalled into its slot): read once it is in the page.
+  const [inHeader, setInHeader] = useState(false)
+  useLayoutEffect(() => {
+    setInHeader(!!rootRef.current?.closest('[data-card-header]'))
+  }, [])
   const buttonRef = useRef<HTMLButtonElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const focusRequested = useRef(false)
@@ -69,7 +77,9 @@ export const ExpandableSearch = forwardRef<ExpandableSearchHandle, ExpandableSea
   return (
     <div
       ref={rootRef}
-      className="relative size-8 shrink-0"
+      className={cn('relative h-8 shrink-0', inHeader ? 'transition-[width] duration-150 ease-out motion-reduce:transition-none' : 'w-8')}
+      // In a header the field's width is its own: the header makes room for it.
+      style={inHeader ? { width: expanded ? width : 32 } : undefined}
       onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget) && !value) setOpen(false)
       }}
@@ -91,7 +101,12 @@ export const ExpandableSearch = forwardRef<ExpandableSearchHandle, ExpandableSea
       <div
         id={inputId}
         aria-hidden={!expanded}
-        className={cn('absolute right-0 top-0 z-20 flex h-8 items-center overflow-hidden rounded-full border border-border bg-background shadow-sm transition-[width,opacity] duration-150 ease-out focus-within:ring-1 focus-within:ring-ring/30 motion-reduce:transition-none', expanded ? 'opacity-100' : 'pointer-events-none opacity-0')}
+        className={cn(
+          'absolute right-0 top-0 z-20 flex h-8 items-center overflow-hidden rounded-full border transition-[width,opacity] duration-150 ease-out focus-within:ring-1 focus-within:ring-ring/30 motion-reduce:transition-none',
+          // In a header, on its glass like the layout switcher's capsule; elsewhere a field over what it covers.
+          inHeader ? 'border-transparent bg-foreground/[0.05]' : 'border-border bg-background shadow-sm',
+          expanded ? 'opacity-100' : 'pointer-events-none opacity-0',
+        )}
         style={{ width: expanded ? width : 32 }}
       >
         {expanded && <>

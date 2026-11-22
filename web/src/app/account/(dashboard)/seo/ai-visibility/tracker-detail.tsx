@@ -2,8 +2,9 @@
 
 /**
  * One AI visibility tracker (the card's `seo_ai_tracker` place): the crumb
- * back to the trackers and the brand, a quiet line of what it asks and how
- * often, then
+ * back to the trackers and the brand (in a card, its header's breadcrumb,
+ * with Check now and the menu at the header's right), a quiet line of what
+ * it asks and how often, then
  *
  *   while a check runs   the run rail ("Asking the assistants · 18 of 30
  *                        answers in") with Stop, polled at the route's pace,
@@ -31,7 +32,7 @@
  * ordinary failure with Try again, which asks afresh.
  */
 import * as React from 'react'
-import { AlertTriangle, Download, MoreHorizontal, Pause, Pencil, Play, Trash2 } from 'lucide-react'
+import { AlertTriangle, Download, Pause, Pencil, Play, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
@@ -44,6 +45,7 @@ import { ViewHeader } from '../../views/view-header'
 import { SeoRequestError, errorCode, errorMessage } from '../api'
 import { CenteredError, CenteredLoader } from '../load-states'
 import { buyBlockedReason, type SeoDataState } from '../shared/data-status'
+import { SeoHeaderAction, SeoHeaderMore, SeoPlaceLabel, useInCard } from '../shared/header-controls'
 import { RunRail } from '../shared/run-rail'
 import { StatTiles, type StatTile } from '../shared/stat-tiles'
 import { TabPills } from '../shared/tab-pills'
@@ -95,6 +97,7 @@ export function TrackerDetail({
   onBack: () => void
   onCount?: (count: number | null) => void
 }) {
+  const inCard = useInCard()
   const [summary, setSummary] = React.useState<AiTrackerSummary | null>(null)
   const [trend, setTrend] = React.useState<AiTrend | null>(null)
   const [trendDays, setTrendDays] = React.useState<number>(DEFAULT_TREND_DAYS)
@@ -323,17 +326,19 @@ export function TrackerDetail({
           </h1>
         </div>
       }
+      // In a card the brand is the header's breadcrumb, "AI visibility › Brand",
+      // the title the way back, and Check now and the menu its right end
+      // (Liam, 11-22: "the back button should just be the breadcrum").
+      place={{ label: <SeoPlaceLabel name={brand} />, onBack, backLabel: 'Back to AI visibility' }}
       actions={
         tracker ? (
           <>
-            <Button size="sm" className="h-8" data-seo-check-now="" disabled={!!blocked || live || starting || activeCount === 0} title={checkTitle} onClick={() => void checkNow()}>
+            <SeoHeaderAction data-seo-check-now="" disabled={!!blocked || live || starting || activeCount === 0} title={checkTitle} onClick={() => void checkNow()}>
               Check now
-            </Button>
+            </SeoHeaderAction>
             <Popover open={menuOpen} onOpenChange={setMenuOpen}>
               <PopoverTrigger asChild>
-                <Button variant="ghost" size="icon" data-seo-tracker-menu="" className="h-8 w-8 text-muted-foreground hover:text-foreground" title="More" aria-label="More">
-                  <MoreHorizontal className="h-4 w-4" />
-                </Button>
+                <SeoHeaderMore data-seo-tracker-menu="" />
               </PopoverTrigger>
               <PopoverContent align="end" className="w-56 p-1.5">
                 <button
@@ -414,7 +419,7 @@ export function TrackerDetail({
 
   if (!summary || !tracker) {
     return (
-      <div className="flex h-full min-h-0 flex-col">
+      <div className={cn('flex h-full min-h-0 flex-col', inCard && 'pt-2')}>
         {header}
         {error && !loading ? <CenteredError text={error} onRetry={() => void load()} /> : <CenteredLoader />}
       </div>
@@ -458,9 +463,10 @@ export function TrackerDetail({
   const completedCount = summary.recent_runs.filter((r) => r.status === 'completed').length
 
   return (
-    <div data-seo-tracker={tracker.id} className="flex h-full min-h-0 flex-col">
+    <div data-seo-tracker={tracker.id} className={cn('flex h-full min-h-0 flex-col', inCard && 'pt-2')}>
       {header}
-      <p data-seo-tracker-settings="" className="-mt-1 truncate px-5 pb-2 text-xs text-muted-foreground">
+      {/* In a card no header row stands above it: the page starts under the card's header. */}
+      <p data-seo-tracker-settings="" className={cn('truncate px-5 pb-2 text-xs text-muted-foreground', !inCard && '-mt-1')}>
         {trackerSettingsLine(tracker)}
       </p>
       {rail && (

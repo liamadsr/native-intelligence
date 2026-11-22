@@ -18,6 +18,7 @@
  */
 import type { UIMessage } from 'ai'
 import { isCardSpec, type CardSpec } from './kinds'
+import { upgradeSavedPageSpec } from './pages'
 
 /** The data part's type. */
 export const OPENED_CARD_PART_TYPE = 'data-chat-card' as const
@@ -52,17 +53,22 @@ export function openedCardMessage(args: { id: string; spec: CardSpec; number: nu
   }
 }
 
-/** The card an opened-card part carries, or null for any other part (or a malformed one). */
+/**
+ * The card an opened-card part carries, or null for any other part (or a
+ * malformed one). One saved before a page split opens where it lives now
+ * (upgradeSavedPageSpec).
+ */
 export function openedCardFromPart(part: unknown): { id: string; spec: CardSpec; number: number | null } | null {
   if (!part || typeof part !== 'object') return null
   const p = part as { type?: unknown; id?: unknown; data?: unknown }
   if (p.type !== OPENED_CARD_PART_TYPE || typeof p.id !== 'string' || !p.id) return null
   const data = (p.data ?? {}) as Partial<OpenedCardData>
-  if (!isCardSpec(data.card)) return null
+  const card = upgradeSavedPageSpec(data.card)
+  if (!isCardSpec(card)) return null
   const n = data.card_number
   return {
     id: p.id,
-    spec: data.card,
+    spec: card,
     number: typeof n === 'number' && Number.isInteger(n) && n > 0 && n < MAX_CARD_NUMBER ? n : null,
   }
 }

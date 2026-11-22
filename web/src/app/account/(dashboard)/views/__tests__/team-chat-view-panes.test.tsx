@@ -35,6 +35,7 @@ vi.mock('@/lib/supabase/client', () => ({
 }))
 
 import { TEAM_CHAT_TWO_PANE_MIN_COMPACT_PX, TEAM_CHAT_TWO_PANE_MIN_PX, TeamChatView } from '../team-chat-view'
+import { CardHeaderSlotsProvider, type CardHeaderBack } from '@/components/chat-cards/card-header-slot'
 
 const CHANNELS = [
   { id: 'c-general', kind: 'channel', name: 'general', topic: null, team_id: null, dm_member_id: null, last_message_at: '2026-11-09T10:00:00Z', archived_at: null, unread: 2, mentions: 0 },
@@ -249,5 +250,79 @@ describe('team chat with room for two panes', () => {
     width = 0
     await render()
     expect(panes()).toBe('both')
+  })
+})
+
+/**
+ * In a card (Liam, 11-22: "the back button should just be the breadcrum"):
+ * the list has no title row (the card's header names the page), and the open
+ * channel is the header's breadcrumb, "Team chat › general", its
+ * notifications at the header's right, no row of its own in the pane. The
+ * header's title is the way back to the list.
+ */
+describe('team chat in a card', () => {
+  let right: HTMLDivElement
+  let trail: HTMLDivElement
+  let back: CardHeaderBack | null = null
+  const setBack = (next: CardHeaderBack | null) => {
+    back = next
+  }
+  beforeEach(() => {
+    width = 390
+    back = null
+    right = document.createElement('div')
+    trail = document.createElement('div')
+    document.body.append(right, trail)
+  })
+  afterEach(() => {
+    right.remove()
+    trail.remove()
+  })
+  async function renderInCard(props: { cardId?: string } = {}) {
+    await act(async () =>
+      root.render(
+        <CardHeaderSlotsProvider value={{ left: null, right, trail, setBack }}>
+          <TeamChatView {...props} />
+        </CardHeaderSlotsProvider>,
+      ),
+    )
+    await settle()
+  }
+
+  it('one pane at a time: the channel is the breadcrumb, and the title goes back to the list', async () => {
+    await renderInCard()
+    expect(panes()).toBe('list')
+    expect(aside().querySelector('h1')).toBeNull()
+    expect(trail.childElementCount).toBe(0)
+    await act(async () => row('general').click())
+    expect(panes()).toBe('channel')
+    expect(trail.querySelector('[data-team-chat-trail]')!.textContent).toBe('general')
+    expect(back?.label).toBe('All channels')
+    expect(right.querySelector('[data-team-chat-header-controls] button[aria-label^="Notifications"]')).not.toBeNull()
+    // No Back, no name row, no notifications of the pane's own.
+    expect(back).not.toBeNull()
+    expect(container.querySelector('[data-team-chat-back]')).toBeNull()
+    expect(section().querySelector('h2')).toBeNull()
+    expect(section().querySelector('button[aria-label^="Notifications"]')).toBeNull()
+    await act(async () => back!.go())
+    await settle()
+    expect(panes()).toBe('list')
+    expect(trail.childElementCount).toBe(0)
+  })
+
+  it('two panes: the channel beside the list is the breadcrumb too', async () => {
+    width = TEAM_CHAT_TWO_PANE_MIN_PX
+    await renderInCard()
+    expect(panes()).toBe('both')
+    expect(trail.querySelector('[data-team-chat-trail]')!.textContent).toBe('general')
+    expect(section().querySelector('h2')).toBeNull()
+  })
+
+  it('the list in the sub-nav beside the rail: the open channel is the breadcrumb', async () => {
+    width = TEAM_CHAT_TWO_PANE_MIN_PX
+    await renderInCard({ cardId: 'card-1' })
+    expect(panes()).toBe('channel')
+    expect(trail.querySelector('[data-team-chat-trail]')!.textContent).toBe('general')
+    expect(right.querySelector('button[aria-label^="Notifications"]')).not.toBeNull()
   })
 })
