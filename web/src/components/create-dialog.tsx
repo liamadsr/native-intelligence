@@ -19,7 +19,6 @@ import {
 } from '@/components/ui/command'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { plainTextToHtml } from '@/lib/email/plain-text-to-html'
 import { useScopedLabels } from '@/lib/labels/use-scoped-labels'
 import { groupLabelsByGroupName, type LabelScope } from '@/lib/labels/utils'
 import {
@@ -49,7 +48,6 @@ import {
   Briefcase,
   LinkIcon,
   Send,
-  Loader2,
   MapPin,
   Video,
   Workflow,
@@ -69,8 +67,8 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { DateTimePicker } from '@/components/ui/datetime-picker'
 import { EmailRecipientInput } from '@/components/email/email-recipient-input'
-import { SendLaterButton } from '@/components/email/send-later-button'
-import { scheduleSend } from '@/lib/email/send-later'
+import { EmailComposer } from '@/components/email/email-composer'
+import { composeDraftKey } from '@/lib/email/compose-drafts'
 import { cn } from '@/lib/utils'
 import { useHotkeys, useModKeyLabel } from '@/lib/hotkeys'
 import { OPEN_CREATE_EVENT, createKeyAllowed, type OpenCreateRequest } from '@/lib/create/open-create'
@@ -307,14 +305,8 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
   const [relationshipType, setRelationshipType] = useState('contact')
   const [linkedinUrl, setLinkedinUrl] = useState('')
 
-  // ── Email-specific fields ──
-  const [emailTo, setEmailTo] = useState<string[]>([])
-  const [emailCc, setEmailCc] = useState<string[]>([])
-  const [emailBcc, setEmailBcc] = useState<string[]>([])
-  const [emailSubject, setEmailSubject] = useState('')
-  const [emailBody, setEmailBody] = useState('')
-  const [showCcBcc, setShowCcBcc] = useState(false)
-  const [emailSending, setEmailSending] = useState(false)
+  // ── Email: Mail's own composer (components/email/email-composer.tsx)
+  // keeps what is written; the dialog only picks the From mailbox. ──
 
   // ── Event-specific fields ──
   const [eventStart, setEventStart] = useState<Date | undefined>(undefined)
@@ -640,13 +632,6 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
     setEventIsAllDay(false)
     setEventAttendees([])
     setEventAccountId(undefined)
-    // Email
-    setEmailTo([])
-    setEmailCc([])
-    setEmailBcc([])
-    setEmailSubject('')
-    setEmailBody('')
-    setShowCcBcc(false)
   }
 
   // ── Sub-action handlers ──
@@ -910,36 +895,6 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
     return data.contact
   }
 
-  async function handleSendEmail() {
-    if (emailTo.length === 0) return null
-    setEmailSending(true)
-
-    try {
-      const res = await fetch('/api/account/email/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          to: emailTo,
-          cc: emailCc.length > 0 ? emailCc : undefined,
-          bcc: emailBcc.length > 0 ? emailBcc : undefined,
-          subject: emailSubject,
-          body_html: plainTextToHtml(emailBody),
-          body_text: emailBody,
-          account_id: emailAccountId,
-        }),
-      })
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        throw new Error(typeof data.error === 'string' && data.error ? data.error : 'Could not send the email')
-      }
-      const data = await res.json()
-      return { id: data.message_id, subject: emailSubject, ...data }
-    } finally {
-      setEmailSending(false)
-    }
-  }
-
   async function handleCreateEvent() {
     if (!title.trim() || !eventStart || !eventEnd) return null
 
@@ -970,66 +925,6 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
       patchCalendarEventsCache((prev) => [...prev, newEvent])
     }
     return data.event
-  }
-
-  async function handleSaveEmailDraft() {
-    if (emailTo.length === 0) return
-    try {
-      const res = await fetch('/api/account/email/save-draft', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          to: emailTo,
-          cc: emailCc.length > 0 ? emailCc : undefined,
-          bcc: emailBcc.length > 0 ? emailBcc : undefined,
-          subject: emailSubject,
-          body_html: plainTextToHtml(emailBody),
-          account_id: emailAccountId,
-        }),
-      })
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        toast.error(data.error || 'Failed to save draft')
-        return
-      }
-      toast('Draft saved')
-      // Trigger email sync so draft appears in drafts folder
-      fetch('/api/account/email/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      }).catch(() => {})
-      resetForm()
-      setOpen(false)
-    } catch {
-      toast.error('Failed to save draft')
-    }
-  }
-
-  function handleCancelEmail() {
-    resetForm()
-    setOpen(false)
-  }
-
-  // Send later: the message is saved as a draft in the picked mailbox and sent
-  // at `at` (src/lib/email/send-later.ts). Scheduled, the composer closes and
-  // the toast says when, with Undo (a normal draft again).
-  async function handleScheduleEmail(at: Date) {
-    if (emailTo.length === 0 || !emailAccountId) return
-    const row = await scheduleSend(
-      {
-        account_id: emailAccountId,
-        to: emailTo,
-        cc: emailCc.length > 0 ? emailCc : undefined,
-        bcc: emailBcc.length > 0 ? emailBcc : undefined,
-        subject: emailSubject,
-        body_html: plainTextToHtml(emailBody),
-      },
-      at,
-    )
-    if (!row) return
-    resetForm()
-    setOpen(false)
   }
 
   // A quick type: its own route (quick-create.ts), then the new thing opened
@@ -1070,7 +965,8 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
     if (entityType === 'contact') {
       if (!title.trim() && !firstName.trim() && !contactEmail.trim()) return
     } else if (entityType === 'email') {
-      if (emailTo.length === 0) return
+      // The composer sends it (its own Send).
+      return
     } else if (entityType === 'event') {
       if (!title.trim() || !eventStart || !eventEnd) return
     } else {
@@ -1099,9 +995,6 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
           break
         case 'contact':
           result = await handleCreateContact()
-          break
-        case 'email':
-          result = await handleSendEmail()
           break
         case 'event':
           result = await handleCreateEvent()
@@ -1163,10 +1056,8 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
         resetForm()
         setOpen(false)
       }
-    } catch (err) {
-      toast.error(
-        entityType === 'email' && err instanceof Error ? err.message : 'Something went wrong. Please try again.',
-      )
+    } catch {
+      toast.error('Something went wrong. Please try again.')
     } finally {
       setCreating(false)
     }
@@ -1200,7 +1091,7 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
   const canCreate = entityType === 'contact'
     ? (title.trim() || firstName.trim() || contactEmail.trim())
     : entityType === 'email'
-    ? emailTo.length > 0
+    ? false
     : entityType === 'event'
     ? (title.trim() && eventStart && eventEnd)
     : title.trim()
@@ -1321,57 +1212,28 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
 
           {/* ═══════ Body — varies by entity type ═══════ */}
           {entityType === 'email' ? (
-            /* Email compose form — matches EmailDraftCard style. `ph-no-capture`:
-               PostHog session replay blocks the draft and autocapture skips it
-               (Native Intelligence never stores mail text). */
-            <div className="ph-no-capture">
-              {/* Recipients */}
-              <div className="space-y-1 border-t border-border/40 px-4 py-2 text-xs">
-                <div className="flex items-center gap-2">
-                  <span className="w-8 shrink-0 text-muted-foreground">To</span>
-                  <EmailRecipientInput values={emailTo} onChange={setEmailTo} placeholder="Type email or search contacts..." />
-                  {!showCcBcc && (
-                    <div className="flex gap-1">
-                      <button onClick={() => setShowCcBcc(true)} className="rounded px-1.5 py-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
-                        Cc/Bcc
-                      </button>
-                    </div>
-                  )}
-                </div>
-                {showCcBcc && (
-                  <>
-                    <div className="flex items-center gap-2">
-                      <span className="w-8 shrink-0 text-muted-foreground">Cc</span>
-                      <EmailRecipientInput values={emailCc} onChange={setEmailCc} placeholder="Search contacts..." />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="w-8 shrink-0 text-muted-foreground">Bcc</span>
-                      <EmailRecipientInput values={emailBcc} onChange={setEmailBcc} placeholder="Search contacts..." />
-                    </div>
-                  </>
-                )}
-                <div className="flex items-center gap-2">
-                  <span className="w-8 shrink-0 text-muted-foreground">Subj</span>
-                  <input
-                    ref={titleRef}
-                    value={emailSubject}
-                    onChange={(e) => setEmailSubject(e.target.value)}
-                    placeholder="Subject"
-                    className="flex-1 bg-transparent text-sm focus:outline-none h-7"
-                  />
-                </div>
-              </div>
-
-              {/* Body */}
-              <div className="border-t border-border/40 px-4 py-3">
-                <textarea
-                  value={emailBody}
-                  onChange={(e) => setEmailBody(e.target.value)}
-                  placeholder="Write your message..."
-                  className="w-full min-h-[150px] resize-none bg-transparent text-sm leading-relaxed placeholder:text-muted-foreground/40 focus:outline-none"
-                  autoFocus={emailTo.length > 0}
-                />
-              </div>
+            /* New email: Mail's own composer, the one Reply and Forward use
+               (rich text, files, Save draft, Send later, Undo). It keeps what
+               is written when the dialog closes; the header's picker is its
+               From. `ph-no-capture` is on the composer itself. */
+            <div className="border-t border-border/40">
+              <EmailComposer
+                mode="new"
+                source={null}
+                accountId={emailAccountId ?? null}
+                fromAddress={emailAccounts.find((a) => a.id === emailAccountId)?.email ?? null}
+                ownAddresses={new Set(emailAccounts.map((a) => a.email.toLowerCase()))}
+                draftKey={composeDraftKey(null)}
+                onSent={() => setOpen(false)}
+                onSavedToMailbox={() => setOpen(false)}
+                onReopen={() => document.dispatchEvent(new Event('open-create-email'))}
+                onClose={() => setOpen(false)}
+                onDiscard={() => {
+                  resetForm()
+                  setOpen(false)
+                }}
+                className="rounded-none bg-transparent shadow-none ring-0 backdrop-blur-none dark:bg-transparent"
+              />
             </div>
           ) : (
             /* Standard title + description form */
@@ -2358,23 +2220,8 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
           )}
 
           {/* Footer */}
-          <div className={cn('flex items-center justify-between px-4 py-2', showSubActionForm && entityType === 'action' && 'hidden')}>
-            {entityType === 'email' ? (
-              <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" className="h-8 px-3 text-muted-foreground hover:text-foreground" onClick={handleCancelEmail}>
-                  Cancel
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 px-3"
-                  disabled={emailTo.length === 0}
-                  onClick={handleSaveEmailDraft}
-                >
-                  Save draft
-                </Button>
-              </div>
-            ) : isQuickType(entityType) ? (
+          <div className={cn('flex items-center justify-between px-4 py-2', ((showSubActionForm && entityType === 'action') || entityType === 'email') && 'hidden')}>
+            {isQuickType(entityType) ? (
               <span />
             ) : (
               <button
@@ -2399,14 +2246,6 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
                 Create more
               </label>
               )}
-              {/* Send later, beside Send: a time picked, the composer closes. */}
-              {entityType === 'email' && (
-                <SendLaterButton
-                  className="h-8 px-3"
-                  disabled={!canCreate || creating || emailSending || !emailAccountId}
-                  onSchedule={handleScheduleEmail}
-                />
-              )}
               <TooltipProvider delayDuration={300}>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -2414,22 +2253,14 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
                       variant="default"
                       size="sm"
                       className="h-8 px-4"
-                      disabled={!canCreate || creating || emailSending}
+                      disabled={!canCreate || creating}
                       onClick={handleCreate}
                     >
-                      {entityType === 'email' ? (
-                        emailSending ? (
-                          <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Sending...</>
-                        ) : (
-                          'Send'
-                        )
-                      ) : (
-                        creating ? 'Creating...' : `Create ${currentEntityOption.label.toLowerCase()}`
-                      )}
+                      {creating ? 'Creating...' : `Create ${currentEntityOption.label.toLowerCase()}`}
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent side="top" className="flex items-center gap-2 bg-popover text-popover-foreground border shadow-md">
-                    <span>{entityType === 'email' ? 'Send email' : `Create ${currentEntityOption.label.toLowerCase()}`}</span>
+                    <span>{`Create ${currentEntityOption.label.toLowerCase()}`}</span>
                     <span className="flex items-center gap-0.5">
                       <kbd className="inline-flex h-5 min-w-5 items-center justify-center rounded border bg-muted px-1 text-[10px] font-medium text-muted-foreground">{modKey}</kbd>
                       <kbd className="inline-flex h-5 min-w-5 items-center justify-center rounded border bg-muted px-1 text-[10px] font-medium text-muted-foreground">↵</kbd>
