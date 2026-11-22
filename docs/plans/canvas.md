@@ -395,6 +395,14 @@ files 676 and 682 applied twice each without error, then as three people:
 | Resolve as oneself; the author edits their own words | allowed |
 | Delete another's comment / one's own thread | 0 rows / deleted, its reply with it |
 
+Checked in a browser on the dev server (no 682 there), 21 scripted checks:
+artifacts (a page's script runs; it is refused cookies, storage, the app's
+page, a fetch and an image from the app), opening and closing one, Present and
+its keys, editing a page, an unsent edit kept across a reload and then saved, a
+record link dropped in, and that without 682 the comments button is absent and
+nothing throws. That pass found one bug, fixed: Present did not hear its keys
+after being opened from the menu.
+
 Not proven anywhere: the policies against a real Realtime server (the rehearsal
 stands in for `realtime.topic()`), and the comments panel in a browser.
 

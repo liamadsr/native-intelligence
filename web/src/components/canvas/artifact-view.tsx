@@ -108,6 +108,31 @@ export function PresentArtifacts({ artifacts, start, onClose }: { artifacts: rea
     if (!artifacts.length) onClose()
   }, [artifacts.length, onClose])
 
+  // The keys are heard at the window, ahead of everything else: whatever opened
+  // Present (a menu) takes the focus back as it closes, and the canvas under it
+  // must not hear them. Keys pressed inside a page belong to that page.
+  const closeRef = React.useRef(onClose)
+  closeRef.current = onClose
+  React.useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      if (e.key === 'Escape') closeRef.current()
+      else if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') go(1)
+      else if (e.key === 'ArrowLeft' || e.key === 'PageUp') go(-1)
+      else if (e.key === 'Home') setIndex(0)
+      else if (e.key === 'End') setIndex(last)
+      else if (e.key !== 'Tab') {
+        // Nothing else reaches the canvas behind while presenting.
+        e.stopPropagation()
+        return
+      } else return
+      e.preventDefault()
+      e.stopPropagation()
+    }
+    window.addEventListener('keydown', key, true)
+    return () => window.removeEventListener('keydown', key, true)
+  }, [go, last])
+
   const current = artifacts[at]
   if (!current || typeof document === 'undefined') return null
   // The artifact keeps the size it has on the canvas and is scaled to the screen, so it lays out as it was made.
@@ -123,16 +148,6 @@ export function PresentArtifacts({ artifacts, start, onClose }: { artifacts: rea
       data-canvas-present
       tabIndex={-1}
       className="fixed inset-0 z-[100] flex items-center justify-center bg-background outline-none"
-      onKeyDown={(e) => {
-        e.stopPropagation()
-        if (e.key === 'Escape') onClose()
-        else if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ' || e.key === 'Enter') go(1)
-        else if (e.key === 'ArrowLeft' || e.key === 'PageUp' || e.key === 'Backspace') go(-1)
-        else if (e.key === 'Home') setIndex(0)
-        else if (e.key === 'End') setIndex(last)
-        else return
-        e.preventDefault()
-      }}
     >
       <div style={{ width: current.w, height: current.h, transform: `scale(${scale})`, flex: 'none' }} className="overflow-hidden rounded-lg border border-border/60 bg-background shadow-xl">
         <ArtifactFrame key={current.id} html={current.html} title={current.title} interactive style={{ width: '100%', height: '100%' }} />
