@@ -13,7 +13,7 @@ const html = (el: React.ReactElement) => renderToStaticMarkup(el)
 /** The one <svg> an element draws (null for none), read from its markup. */
 function drawn(el: React.ReactElement) {
   const markup = html(el)
-  const m = /^<svg([^>]*)>(.*)<\/svg>$/s.exec(markup)
+  const m = /^<svg([^>]*)>([\s\S]*)<\/svg>$/.exec(markup)
   if (!m) return null
   const attrs = new Map([...m[1].matchAll(/([\w-]+)="([^"]*)"/g)].map((a) => [a[1], a[2]]))
   return { innerHTML: m[2], getAttribute: (name: string) => attrs.get(name) ?? null }
