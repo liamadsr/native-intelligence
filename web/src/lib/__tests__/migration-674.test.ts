@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 // The app comments on five kinds of record; the comment table's row policies
 // must each have a branch for every kind. A CASE with no branch for a kind is
 // null, and the database then refuses that kind's comments outright (what
-// 088 and 493 did to projects and contacts until 673).
+// 088 and 493 did to projects and contacts until 674).
 const MIGRATIONS = join(process.cwd(), 'supabase/migrations')
 const sql = (file: string) => readFileSync(join(MIGRATIONS, file), 'utf8').replace(/--[^\n]*/g, '')
 const kindsIn = (text: string) => [...new Set([...text.matchAll(/when\s+'([a-z_]+)'/gi)].map((m) => m[1]))].sort()
@@ -24,8 +24,8 @@ function commentableTypes(): string[] {
   return [...line.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).sort()
 }
 
-describe('migration 673: comments on a project and a contact', () => {
-  const file = '673_comment_project_contact_policies.sql'
+describe('migration 674: comments on a project and a contact', () => {
+  const file = '674_comment_project_contact_policies.sql'
 
   it('carries no transaction of its own, so --single-transaction and a rolled-back rehearsal both hold', () => {
     expect(sql(file)).not.toMatch(/^\s*(begin|commit)\s*;/im)
@@ -64,7 +64,7 @@ describe('migration 673: comments on a project and a contact', () => {
   })
 
   it('no later migration replaces the policies it relies on without this test being looked at', () => {
-    const later = readdirSync(MIGRATIONS).filter((name) => Number.parseInt(name, 10) > 673)
+    const later = readdirSync(MIGRATIONS).filter((name) => Number.parseInt(name, 10) > 674)
     for (const name of later) {
       expect(sql(name), `${name} redefines a comment policy: check every kind still has a branch`).not.toMatch(/create\s+policy\s+[^;]*on\s+public\.comment\b/i)
     }

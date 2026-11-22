@@ -1,5 +1,7 @@
 -- ============================================================
--- 673: comments on a project and on a contact are allowed again.
+-- 674: comments on a project and on a contact are allowed again.
+-- (Written and applied to production as 673; renumbered when another 673
+-- reached main first. The statements are unchanged.)
 -- ============================================================
 -- Why: the app comments on five kinds of record (lib/comments.ts
 -- CommentableType: action, capture, document, project, contact), and the
