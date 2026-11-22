@@ -7,6 +7,7 @@
  * nothing for them until the view nears the edge of what is mounted.
  */
 import * as React from 'react'
+import { createPortal } from 'react-dom'
 import type { CanvasItem } from '@/lib/canvas/types'
 import { gridLevels, wheelZoom } from '@/lib/canvas/engine/camera'
 import { aabb, boxesIntersect } from '@/lib/canvas/engine/geometry'
@@ -85,6 +86,8 @@ export function CanvasSurface({ interaction, className, children }: { interactio
   const scene = useCanvas((s) => s.scene)
   const editingItem = editing ? scene.items[editing] : undefined
   const farMode = useFarMode()
+  /** Where the text editor's format bar is drawn: over the canvas, outside the zoomed layer. */
+  const [barHost, setBarHost] = React.useState<HTMLDivElement | null>(null)
 
   // The camera, applied straight to the DOM.
   const lastScale = React.useRef(1)
@@ -311,14 +314,22 @@ export function CanvasSurface({ interaction, className, children }: { interactio
       {farMode ? <FarLayer /> : null}
       <div ref={worldRef} data-canvas-world className="absolute left-0 top-0 h-0 w-0" style={{ transformOrigin: '0 0' }}>
         {farMode ? null : <ItemsLayer onMeasure={onMeasure} />}
-        {editingItem ? <TextEditor key={editingItem.id} item={editingItem} scene={scene} onFinish={(plain) => {
-              interaction.finishEditing(plain)
+        {editingItem ? (
+          <TextEditor
+            key={editingItem.id}
+            item={editingItem}
+            scene={scene}
+            renderBar={(bar) => (barHost ? createPortal(bar, barHost) : null)}
+            onFinish={(text) => {
+              interaction.finishEditing(text)
               // Back to the canvas, so the next key is a shortcut again.
               rootRef.current?.focus({ preventScroll: true })
             }}
-          /> : null}
+          />
+        ) : null}
       </div>
       <SelectionOverlay />
+      <div ref={setBarHost} data-canvas-chrome className="pointer-events-none absolute inset-x-0 top-16 z-20 flex justify-center px-3 [&>*]:pointer-events-auto" />
       {children}
     </div>
   )

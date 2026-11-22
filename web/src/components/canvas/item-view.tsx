@@ -14,6 +14,7 @@ import { sceneFromItems } from '@/lib/canvas/engine/scene'
 import { canvasMediaUrl } from '@/lib/canvas/media'
 import { EntityIcon } from '@/components/entities/entity-icon'
 import { CanvasContext } from './use-canvas'
+import { isRichDoc, RichText } from './rich-text'
 
 export const FONT_STACKS: Record<FontFamily, string> = {
   sans: 'inherit',
@@ -68,12 +69,46 @@ function frameStyle(item: CanvasItem, dim?: boolean): React.CSSProperties {
 
 const SVG_STYLE: React.CSSProperties = { position: 'absolute', left: 0, top: 0, overflow: 'visible', pointerEvents: 'none' }
 
+/** The words of a text or a label: formatted when it was saved with formatting, plain otherwise. */
+function Words({ text }: { text: { plain: string; rich?: unknown } }) {
+  return isRichDoc(text.rich) ? <RichText doc={text.rich} /> : <>{text.plain}</>
+}
+
 function Label({ item, editing }: { item: Extract<CanvasItem, { kind: 'rectangle' | 'ellipse' }>; editing?: boolean }) {
+  const box = React.useRef<HTMLDivElement>(null)
+  const words = React.useRef<HTMLDivElement>(null)
+  // A label too big for its shape shrinks to fit, evenly, down to a third of its size. Smaller words
+  // also get more room to a line, so the fit is found by trying sizes, not by one division.
+  React.useLayoutEffect(() => {
+    const outer = box.current
+    const inner = words.current
+    if (!outer || !inner) return
+    const cw = outer.clientWidth
+    const ch = outer.clientHeight
+    const fits = (k: number) => {
+      inner.style.width = k < 1 ? `${cw / k}px` : ''
+      return inner.scrollHeight * k <= ch + 0.5 && inner.scrollWidth * k <= cw + 0.5
+    }
+    let k = 1
+    if (cw > 0 && ch > 0 && !fits(1)) {
+      let lo = 0.33
+      let hi = 1
+      for (let i = 0; i < 6; i++) {
+        const mid = (lo + hi) / 2
+        if (fits(mid)) lo = mid
+        else hi = mid
+      }
+      k = lo
+      fits(k)
+    }
+    inner.style.transform = k < 1 ? `scale(${k.toFixed(3)})` : ''
+  })
   if (!item.label?.plain || editing) return null
   // An ellipse holds text in the box inscribed in it.
   const inset = item.kind === 'ellipse' ? { left: '14.6%', right: '14.6%', top: '14.6%', bottom: '14.6%' } : { left: 8, right: 8, top: 4, bottom: 4 }
   return (
     <div
+      ref={box}
       data-canvas-label
       style={{
         position: 'absolute',
@@ -81,13 +116,14 @@ function Label({ item, editing }: { item: Extract<CanvasItem, { kind: 'rectangle
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        overflow: 'hidden',
         whiteSpace: 'pre-wrap',
         overflowWrap: 'anywhere',
         ...textCss(item.text, DEFAULT_LABEL_STYLE),
       }}
     >
-      <span style={{ maxWidth: '100%' }}>{item.label.plain}</span>
+      <div ref={words} style={{ flexShrink: 0, maxWidth: 'none', transformOrigin: 'center' }}>
+        <Words text={item.label} />
+      </div>
     </div>
   )
 }
@@ -137,7 +173,7 @@ function ConnectorView({ item, startTarget, endTarget, dim, editing, far }: Item
             ...textCss(item.text, { ...DEFAULT_LABEL_STYLE, fontSize: 14 }),
           }}
         >
-          {item.label.plain}
+          <Words text={item.label} />
         </div>
       ) : null}
     </div>
@@ -167,7 +203,7 @@ function TextView({ item, dim, editing, onMeasure, far }: ItemViewProps & { item
           ...textCss(item.text, DEFAULT_TEXT_STYLE),
         }}
       >
-        {item.content.plain || ' '}
+        {item.content.plain ? <Words text={item.content} /> : ' '}
       </div>
     </div>
   )

@@ -594,19 +594,22 @@ export class Interaction {
   }
 
   /**
-   * Typing is over. `plain` is what the box holds (null: Escape on a new
-   * box). A new box with no words vanishes and leaves no undo step; an old
-   * one emptied is removed; a label emptied is taken off its shape.
+   * Typing is over. `text` is what the box holds: its words, and its
+   * formatting when it has any (null: nothing to save). A new box with no
+   * words vanishes and leaves no undo step; an old one emptied is removed; a
+   * label emptied is taken off its shape.
    */
-  finishEditing(plain: string | null): void {
+  finishEditing(input: string | { plain: string; rich?: unknown } | null): void {
     const store = this.store
     const state = store.getState()
     const id = state.editing
     if (!id) return
     const it = state.scene.items[id]
     const isNew = !state.base.items[id]
-    const words = (plain ?? '').replace(/ /g, ' ')
+    const given = typeof input === 'string' ? { plain: input } : input
+    const words = (given?.plain ?? '').replace(/\u00a0/g, ' ')
     const empty = !words.trim()
+    const text = { plain: words, ...(given?.rich && !empty ? { rich: given.rich } : {}) }
     if (!it) {
       store.setEditing(null)
       return
@@ -620,20 +623,21 @@ export class Interaction {
         } else store.apply((s) => deleteItems(s, [id]), { editing: null, selection: [] })
         return
       }
-      const next = { ...it, content: { plain: words } }
+      const next = { ...it, content: text }
       store.commit(patchScene(state.scene, [next]), { editing: null })
       if (isNew) store.toolDone([id])
       return
     }
     if (it.kind === 'rectangle' || it.kind === 'ellipse' || it.kind === 'connector') {
-      const had = it.label?.plain ?? ''
-      if (words === had || (empty && !had)) {
+      const had = it.label
+      const same = (had?.plain ?? '') === words && JSON.stringify(had?.rich ?? null) === JSON.stringify(text.rich ?? null)
+      if (same || (empty && !had?.plain)) {
         store.setEditing(null)
         return
       }
       const next = { ...it } as typeof it
       if (empty) delete next.label
-      else next.label = { plain: words }
+      else next.label = text
       store.commit(patchScene(state.base, [next as CanvasItem]), { editing: null })
       return
     }

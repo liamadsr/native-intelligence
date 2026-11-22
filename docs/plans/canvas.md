@@ -267,11 +267,13 @@ history, comments pinned to a spot on the canvas.
 
 ## Where it stands (2026-11-22)
 
-Built and checked in a browser against the dev project (40 scripted checks):
+Built and checked in a browser against the dev project (50 scripted checks):
 
 - **Phase 1, all of it.**
 - **Phase 2:** connector binding and routes; snapping and guides; align and
-  distribute; groups; shape labels (plain text); images and video (upload,
+  distribute; groups; shape labels that shrink to fit; rich text in text items
+  and labels (bold, italic, underline, strike, code, highlight, links, two
+  headings, quotes, lists), drawn as elements and never as HTML; images and video (upload,
   paste, drop, the picker; "Copy image" and "Save image"); record cards that
   write a link the record's "Referenced in" shows, and take it away when the
   card goes; the insert menu (I, or the paperclip); Excalidraw paste; JSON
@@ -290,9 +292,6 @@ Built and checked in a browser against the dev project (40 scripted checks):
 
 Not built yet:
 
-- **Rich text** in text items and labels (bold, italic, lists, links, headings).
-  Text is plain today, with font, size, color and alignment.
-- **Labels shrinking to fit** a small shape (they clip today).
 - **Artifacts** (sandboxed HTML items and "Present").
 - **Dragging a record from the app** onto the canvas (paste its link or use
   Reference today), and video play controls in the inspector.
@@ -308,6 +307,9 @@ Things to know:
   who knows a canvas's id can listen to that channel, including for a private
   canvas they cannot open. The canvas's contents are not on it. Closing this
   needs Realtime's private channels (policies on `realtime.messages`).
+- **A link in canvas text is drawn, not clickable**: clicks on the canvas
+  select and drag. And an agent's `set_text` writes plain words, so it takes
+  formatting off the text it rewrites.
 - **An agent sizes text by estimate.** There is no browser where the tools run,
   so a text box an agent makes takes its true size the next time someone opens
   the canvas.

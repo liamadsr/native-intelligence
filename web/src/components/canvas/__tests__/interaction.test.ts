@@ -313,6 +313,30 @@ describe('text', () => {
     expect((store.getState().scene.items[a] as Extract<CanvasItem, { kind: 'rectangle' }>).label).toBeUndefined()
   })
 
+  it('keeps formatting with the words, and drops it when there are no words', () => {
+    const rich = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Bold', marks: [{ type: 'bold' }] }] }] }
+    store.setTool('text')
+    click(100, 100)
+    ix.finishEditing({ plain: 'Bold', rich })
+    expect((items()[0] as TextItem).content).toEqual({ plain: 'Bold', rich })
+    const a = drawRect([300, 300], [400, 400])
+    ix.doubleClick(P(350, 350))
+    ix.finishEditing({ plain: 'Bold', rich })
+    const labelled = store.getState().history.past.length
+    expect((store.getState().scene.items[a] as Extract<CanvasItem, { kind: 'rectangle' }>).label).toEqual({ plain: 'Bold', rich })
+    // The same words and the same formatting again: nothing to undo.
+    store.setEditing(a)
+    ix.finishEditing({ plain: 'Bold', rich })
+    expect(store.getState().history.past).toHaveLength(labelled)
+    // The same words, the formatting gone: that is a change.
+    store.setEditing(a)
+    ix.finishEditing({ plain: 'Bold' })
+    expect((store.getState().scene.items[a] as Extract<CanvasItem, { kind: 'rectangle' }>).label).toEqual({ plain: 'Bold' })
+    store.setEditing(a)
+    ix.finishEditing({ plain: '  ', rich })
+    expect((store.getState().scene.items[a] as Extract<CanvasItem, { kind: 'rectangle' }>).label).toBeUndefined()
+  })
+
   it('removes an old text box that is emptied', () => {
     store.setTool('text')
     click(100, 100)
