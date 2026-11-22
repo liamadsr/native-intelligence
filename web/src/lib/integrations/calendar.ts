@@ -1016,18 +1016,37 @@ function mapMicrosoftAttendees(raw: unknown, organizerEmail?: string): CalendarE
   return out
 }
 
+/**
+ * A Graph event's start and end as CalendarEvent carries them.
+ *
+ * A timed event: the instants (Graph answers in UTC wall time with no offset,
+ * since no `Prefer: outlook.timezone` is sent).
+ *
+ * An all-day event: its DATES ('2026-11-26', the end exclusive), the same
+ * shape Google's all-day events have always had here. Graph says an all-day
+ * event as midnight to midnight with no zone; read as UTC instants (as this
+ * used to), "Thursday" was 4pm Wednesday to anyone west of Greenwich, and
+ * every reader that put the event in the person's zone (the assistant's
+ * calendar tools, the meeting watch, the spoken brief, the calendar card)
+ * saw it a day early. The date is taken from the text, never through a Date.
+ */
+export function microsoftEventTimes(e: { isAllDay?: unknown; start?: { dateTime?: unknown }; end?: { dateTime?: unknown } }): { start: string; end: string } {
+  const read = (value: unknown): string => {
+    if (typeof value !== 'string' || !value) return ''
+    if (e.isAllDay === true && /^\d{4}-\d{2}-\d{2}(T|$)/.test(value)) return value.slice(0, 10)
+    const at = new Date(/(Z|[+-]\d{2}:?\d{2})$/.test(value) ? value : value + 'Z')
+    return Number.isNaN(at.getTime()) ? '' : at.toISOString()
+  }
+  return { start: read(e.start?.dateTime), end: read(e.end?.dateTime) }
+}
+
 function parseMicrosoftEvents(items: any[], calendarId?: string): CalendarEvent[] {
   return items.map(
     (e: any): CalendarEvent => ({
       id: e.id as string,
       title: (e.subject as string) || '(No title)',
       description: (e.bodyPreview as string) || undefined,
-      start: e.start?.dateTime
-        ? new Date(e.start.dateTime + 'Z').toISOString()
-        : '',
-      end: e.end?.dateTime
-        ? new Date(e.end.dateTime + 'Z').toISOString()
-        : '',
+      ...microsoftEventTimes(e),
       location: e.location?.displayName || undefined,
       attendees: (e.attendees || []).map(
         (a: any) => a.emailAddress?.address || '',
@@ -1125,10 +1144,7 @@ async function createMicrosoftEvent(
   return {
     id: e.id,
     title: e.subject || '(No title)',
-    start: e.start?.dateTime
-      ? new Date(e.start.dateTime + 'Z').toISOString()
-      : '',
-    end: e.end?.dateTime ? new Date(e.end.dateTime + 'Z').toISOString() : '',
+    ...microsoftEventTimes(e),
     location: e.location?.displayName,
     isAllDay: e.isAllDay,
     htmlLink: e.webLink,
@@ -1180,10 +1196,7 @@ async function updateMicrosoftEvent(
   return {
     id: e.id,
     title: e.subject || '(No title)',
-    start: e.start?.dateTime
-      ? new Date(e.start.dateTime + 'Z').toISOString()
-      : '',
-    end: e.end?.dateTime ? new Date(e.end.dateTime + 'Z').toISOString() : '',
+    ...microsoftEventTimes(e),
     location: e.location?.displayName,
     htmlLink: e.webLink,
   }

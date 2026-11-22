@@ -9,6 +9,7 @@ import { materializeSearchHit } from '@/lib/email/materialize-thread'
 import { resolveWorkForDeliverable } from '@/lib/work/resolve'
 import { deleteProviderDraft } from '@/lib/email/provider-drafts'
 import { outlookDeletedItemsId } from './email-sync'
+import { outlookAttachmentList, outlookAttachmentMeta, outlookEventInvite } from '@/lib/email/outlook-invite'
 import { htmlToPlainText } from '@/lib/email/plain-text-to-html'
 
 // ---------------------------------------------------------------------------
@@ -368,14 +369,32 @@ async function fetchOutlookThreadFull(
   if (!res.ok) throw new Error(`Outlook thread fetch error: ${res.status}`)
 
   const data = await res.json()
-  return (data.value || []).map((msg: Record<string, unknown>) => {
+  const raw = (data.value || []) as Array<Record<string, unknown>>
+  // Per message, only where there is something to read: a meeting request's event (the invitation
+  // card), and the attachment list of a message that says it has attachments but came back with
+  // none listed (src/lib/email/outlook-invite.ts). Neither fails the thread.
+  const extras = await Promise.all(
+    raw.map(async (msg) => {
+      const listed = Array.isArray(msg.attachments) ? (msg.attachments as Array<Record<string, unknown>>) : null
+      const [invite, attachments] = await Promise.all([
+        msg.isDraft === true ? null : outlookEventInvite(accessToken, msg),
+        listed
+          ? listed.map(outlookAttachmentMeta)
+          : msg.hasAttachments === true && typeof msg.id === 'string'
+            ? outlookAttachmentList(accessToken, msg.id)
+            : [],
+      ])
+      return { invite, attachments }
+    }),
+  )
+  return raw.map((msg, index) => {
     const from = msg.from as Record<string, Record<string, string>> | undefined
     const toRecipients = (msg.toRecipients as Array<Record<string, Record<string, string>>>) || []
     const ccRecipients = (msg.ccRecipients as Array<Record<string, Record<string, string>>>) || []
     const bccRecipients = (msg.bccRecipients as Array<Record<string, Record<string, string>>>) || []
     const body = msg.body as Record<string, string> | undefined
     const flag = msg.flag as Record<string, string> | undefined
-    const attachments = (msg.attachments as Array<Record<string, unknown>>) || []
+    const { invite, attachments } = extras[index]
 
     return {
       id: msg.id as string,
@@ -406,11 +425,8 @@ async function fetchOutlookThreadFull(
       // moves it there): never offered to send, nor any when that folder is unknown.
       isDraft: msg.isDraft === true && deletedItems !== null && msg.parentFolderId !== deletedItems,
       hasAttachments: msg.hasAttachments as boolean,
-      attachments: attachments.map((a) => ({
-        name: (a.name as string) || 'attachment',
-        size: (a.size as number) || 0,
-        mimeType: (a.contentType as string) || 'application/octet-stream',
-      })),
+      attachments,
+      ...(invite ? { invite } : {}),
     }
   })
 }

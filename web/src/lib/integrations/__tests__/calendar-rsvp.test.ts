@@ -271,6 +271,92 @@ describe('respondToInvitation', () => {
   })
 })
 
+describe('a repeating event', () => {
+  const SERIES = { ...GOOGLE_EVENT, recurrence: ['RRULE:FREQ=WEEKLY;BYDAY=TH'] }
+  const INSTANCES = {
+    items: [
+      { id: 'g-evt-1_20261126T180000Z', status: 'cancelled', start: { dateTime: '2026-11-26T10:00:00-08:00' }, attendees: SERIES.attendees },
+      { id: 'g-evt-1_20261203T180000Z', status: 'confirmed', start: { dateTime: '2026-12-03T10:00:00-08:00' }, attendees: SERIES.attendees },
+      { id: 'g-evt-1_20261210T180000Z', status: 'confirmed', start: { dateTime: '2026-12-10T10:00:00-08:00' }, attendees: SERIES.attendees },
+    ],
+  }
+  const google = (call: Call) =>
+    call.method !== 'GET' ? { status: 200, json: {} } : call.url.includes('/instances?') ? { status: 200, json: INSTANCES } : { status: 200, json: { items: [SERIES] } }
+
+  it('Google: says it repeats and when its next occurrence is (events.instances from now, the first not cancelled)', async () => {
+    respond = google
+    const status = await invitationStatus(SCOPE, UID)
+    expect(status).toMatchObject({ found: true, recurring: true, nextOccurrence: '2026-12-03T10:00:00-08:00', canAnswer: true })
+    const instances = new URL(calls[1].url)
+    expect(instances.origin + instances.pathname).toBe('https://www.googleapis.com/calendar/v3/calendars/primary/events/g-evt-1/instances')
+    expect(Date.parse(instances.searchParams.get('timeMin')!)).toBeGreaterThan(Date.now() - 60_000)
+  })
+
+  it('Google: "all events" patches the series, "this event" the next occurrence’s own id and guest list', async () => {
+    respond = google
+    const all = await respondToInvitation(SCOPE, UID, 'accepted')
+    expect(calls[calls.length - 1].url).toBe('https://www.googleapis.com/calendar/v3/calendars/primary/events/g-evt-1?sendUpdates=all')
+    expect(all).toMatchObject({ response: 'accepted', answered: 'series' })
+
+    calls = []
+    const one = await respondToInvitation(SCOPE, UID, 'declined', 'occurrence')
+    const patch = calls[calls.length - 1]
+    expect(patch.method).toBe('PATCH')
+    expect(patch.url).toBe('https://www.googleapis.com/calendar/v3/calendars/primary/events/g-evt-1_20261203T180000Z?sendUpdates=all')
+    expect((patch.body as { attendees: Array<{ self?: boolean; responseStatus?: string }> }).attendees.find((a) => a.self)!.responseStatus).toBe('declined')
+    // The series' own answer is as the calendar had it: only the one occurrence was answered.
+    expect(one).toMatchObject({ response: 'pending', answered: 'occurrence', nextOccurrence: '2026-12-03T10:00:00-08:00' })
+  })
+
+  it('Microsoft: the series’ instances give the next occurrence an id of its own, which takes the same action', async () => {
+    state.accounts = [{ id: 'acc-m', provider: 'microsoft', account_email: 'sam@example.net' }]
+    respond = (call) => {
+      if (call.method !== 'GET') return { status: 202 }
+      if (call.url.includes('/instances?')) {
+        return {
+          status: 200,
+          json: {
+            value: [
+              { id: 'occ-2', isAllDay: false, start: { dateTime: '2026-12-10T18:00:00.0000000', timeZone: 'UTC' } },
+              { id: 'occ-0', isAllDay: false, isCancelled: true, start: { dateTime: '2026-11-26T18:00:00.0000000', timeZone: 'UTC' } },
+              { id: 'occ-1', isAllDay: false, start: { dateTime: '2026-12-03T18:00:00.0000000', timeZone: 'UTC' } },
+            ],
+          },
+        }
+      }
+      return { status: 200, json: { value: [{ ...MICROSOFT_EVENT, type: 'seriesMaster' }] } }
+    }
+    expect(await invitationStatus(SCOPE, UID)).toMatchObject({ recurring: true, nextOccurrence: '2026-12-03T18:00:00.000Z' })
+    const instances = new URL(calls[1].url)
+    expect(instances.origin + instances.pathname).toBe('https://graph.microsoft.com/v1.0/me/events/AAMk-evt%3D1/instances')
+    expect(instances.searchParams.get('startDateTime')).toBeTruthy()
+    expect(instances.searchParams.get('endDateTime')).toBeTruthy()
+
+    calls = []
+    await respondToInvitation(SCOPE, UID, 'tentative', 'occurrence')
+    expect(calls[calls.length - 1]).toMatchObject({ url: 'https://graph.microsoft.com/v1.0/me/events/occ-1/tentativelyAccept', method: 'POST', body: { sendResponse: true } })
+    calls = []
+    await respondToInvitation(SCOPE, UID, 'accepted', 'series')
+    expect(calls[calls.length - 1].url).toBe('https://graph.microsoft.com/v1.0/me/events/AAMk-evt%3D1/accept')
+  })
+
+  it('offers no single occurrence when the instances can’t be read, and the series can still be answered', async () => {
+    respond = (call) => (call.method !== 'GET' ? { status: 200, json: {} } : call.url.includes('/instances?') ? { status: 500 } : { status: 200, json: { items: [SERIES] } })
+    const status = await invitationStatus(SCOPE, UID)
+    expect(status).toMatchObject({ recurring: true, canAnswer: true })
+    expect((status as { nextOccurrence?: string }).nextOccurrence).toBeUndefined()
+    await expect(respondToInvitation(SCOPE, UID, 'accepted', 'occurrence')).rejects.toMatchObject({ code: 'no_occurrence' })
+    expect(calls.filter((c) => c.method !== 'GET')).toEqual([])
+    await expect(respondToInvitation(SCOPE, UID, 'accepted')).resolves.toMatchObject({ response: 'accepted' })
+  })
+
+  it('writes nothing when "this event" is asked of an event that doesn’t repeat', async () => {
+    respond = (call) => (call.method === 'GET' ? { status: 200, json: { items: [GOOGLE_EVENT] } } : { status: 200, json: {} })
+    await expect(respondToInvitation(SCOPE, UID, 'accepted', 'occurrence')).rejects.toMatchObject({ code: 'no_occurrence' })
+    expect(calls.filter((c) => c.method !== 'GET')).toEqual([])
+  })
+})
+
 describe('the scopes a reply uses', () => {
   it('are ones the app already asks for: Google calendar.events, Microsoft Calendars.ReadWrite', async () => {
     const { OAUTH_CONFIG } = await import('@/lib/oauth/config')

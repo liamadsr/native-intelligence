@@ -76,12 +76,21 @@ describe('POST /api/calendar/rsvp', () => {
 
   it('answers as the signed-in person in the current workspace and returns the calendar’s state', async () => {
     const res = await POST(post({ uid: 'evt-7781@example.com', response: 'tentative' }))
-    expect(mocks.respond).toHaveBeenCalledWith({ userId: 'u1', workspaceId: 'w1' }, 'evt-7781@example.com', 'tentative')
+    expect(mocks.respond).toHaveBeenCalledWith({ userId: 'u1', workspaceId: 'w1' }, 'evt-7781@example.com', 'tentative', 'series')
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual(FOUND)
   })
 
+  it('answers one occurrence of a repeating event when asked to, and refuses any other word for it', async () => {
+    await POST(post({ uid: 'evt-7781@example.com', response: 'declined', which: 'occurrence' }))
+    expect(mocks.respond).toHaveBeenLastCalledWith({ userId: 'u1', workspaceId: 'w1' }, 'evt-7781@example.com', 'declined', 'occurrence')
+    mocks.respond.mockClear()
+    expect((await POST(post({ uid: 'evt-7781@example.com', response: 'declined', which: 'following' }))).status).toBe(400)
+    expect(mocks.respond).not.toHaveBeenCalled()
+  })
+
   it.each([
+    ['no_occurrence', 409],
     ['not_on_calendar', 404],
     ['no_calendar', 404],
     ['gone', 404],

@@ -16,6 +16,11 @@
  *    sendResponse. Outlook removes a declined event from the calendar, as its
  *    own Decline does.
  *
+ * A repeating event can be answered whole (the default) or one occurrence at
+ * a time: Google's events.instances and Graph's /events/{id}/instances give
+ * the next occurrence its own id, which takes the same reply (no further
+ * scope). "This event" is that next occurrence.
+ *
  * Invitations land on the account's own (primary / default) calendar, so that
  * is the one read. An event only on the desktop's local Exchange calendar
  * (EventKit) has no provider call here and reads as not found.
@@ -54,7 +59,21 @@ export interface RsvpFound {
   link: string | null
   canAnswer: boolean
   blocked?: RsvpBlocked
+  /** The event repeats. */
+  recurring?: boolean
+  /**
+   * A repeating event's next occurrence (an instant, or a date for an all-day
+   * one), when it can be answered on its own: what "This event" means on the
+   * card. Absent: only the whole series can be answered.
+   */
+  nextOccurrence?: string
+  /** After a reply: what it was for. */
+  answered?: RsvpWhich
 }
+
+/** What a reply is for: every event of a series (and any single event), or one occurrence of a series. */
+export type RsvpWhich = 'series' | 'occurrence'
+export const RSVP_WHICH: readonly RsvpWhich[] = ['series', 'occurrence']
 
 export interface RsvpNotFound {
   found: false
@@ -81,6 +100,7 @@ export type RsvpErrorCode =
   | 'cancelled'
   | 'gone'
   | 'provider'
+  | 'no_occurrence'
 
 /** An answer that wasn't given, and why, in words the card can show. */
 export class RsvpError extends Error {
@@ -110,6 +130,8 @@ interface Located extends RsvpFound {
   eventId: string
   /** Google: the event's whole attendee list, sent back with the person's entry changed. */
   googleAttendees?: Array<Record<string, unknown>>
+  /** A repeating event's next occurrence, when the provider gave one. */
+  occurrence?: { eventId: string; start: string; googleAttendees?: Array<Record<string, unknown>> }
 }
 
 class ProviderHttpError extends Error {
@@ -177,7 +199,7 @@ async function locateGoogle(account: Account, token: string, uid: string): Promi
   const params = new URLSearchParams({
     iCalUID: uid,
     maxResults: '10',
-    fields: 'items(id,status,htmlLink,recurringEventId,organizer(self),attendees)',
+    fields: 'items(id,status,htmlLink,recurringEventId,recurrence,organizer(self),attendees)',
   })
   const res = await providerFetch(`${GOOGLE_EVENTS}?${params}`, token)
   if (!res.ok) throw new ProviderHttpError(res.status, 'Google Calendar read error')
@@ -189,9 +211,13 @@ async function locateGoogle(account: Account, token: string, uid: string): Promi
   const self = attendees.find((a) => a.self === true)
   const organizer = (event.organizer as { self?: boolean } | undefined)?.self === true
   const blocked: RsvpBlocked | undefined = event.status === 'cancelled' ? 'cancelled' : !self ? (organizer ? 'organizer' : 'not_invited') : undefined
+  const recurring = Array.isArray(event.recurrence) && event.recurrence.length > 0
+  const occurrence = recurring && !blocked ? await nextGoogleOccurrence(token, event.id as string) : undefined
   return {
     found: true,
     provider: 'google',
+    ...(recurring ? { recurring: true } : {}),
+    ...(occurrence ? { occurrence } : {}),
     accountId: account.id,
     accountEmail: account.account_email,
     eventId: event.id as string,
@@ -203,7 +229,33 @@ async function locateGoogle(account: Account, token: string, uid: string): Promi
   }
 }
 
-async function answerGoogle(token: string, at: Located, answer: RsvpAnswer): Promise<void> {
+/**
+ * A repeating Google event's next occurrence that the person is a guest of:
+ * events.instances from now, the first that isn't cancelled. Each instance has
+ * an id and an attendee list of its own, which is what a reply to it patches.
+ * Undefined when there is none, or it can't be read (the series can still be
+ * answered).
+ */
+async function nextGoogleOccurrence(token: string, eventId: string): Promise<Located['occurrence']> {
+  try {
+    const params = new URLSearchParams({ timeMin: new Date().toISOString(), maxResults: '5', fields: 'items(id,status,start,attendees)' })
+    const res = await providerFetch(`${GOOGLE_EVENTS}/${encodeURIComponent(eventId)}/instances?${params}`, token)
+    if (!res.ok) return undefined
+    const items = ((await res.json()) as { items?: Array<Record<string, unknown>> }).items ?? []
+    for (const item of items) {
+      const start = item.start as { dateTime?: unknown; date?: unknown } | undefined
+      const when = typeof start?.dateTime === 'string' ? start.dateTime : typeof start?.date === 'string' ? start.date : null
+      const attendees = Array.isArray(item.attendees) ? (item.attendees as Array<Record<string, unknown>>) : []
+      if (typeof item.id !== 'string' || item.status === 'cancelled' || !when || !attendees.some((a) => a.self === true)) continue
+      return { eventId: item.id, start: when, googleAttendees: attendees }
+    }
+  } catch {
+    // The series can still be answered.
+  }
+  return undefined
+}
+
+async function answerGoogle(token: string, at: Pick<Located, 'eventId' | 'googleAttendees'>, answer: RsvpAnswer): Promise<void> {
   // The whole list goes back (a patch replaces it); only the person's own entry changes.
   const attendees = (at.googleAttendees ?? []).map((a) => (a.self === true ? { ...a, responseStatus: answer } : a))
   const res = await providerFetch(`${GOOGLE_EVENTS}/${encodeURIComponent(at.eventId)}?sendUpdates=all`, token, { method: 'PATCH', body: { attendees } })
@@ -249,9 +301,13 @@ async function locateMicrosoft(account: Account, token: string, uid: string): Pr
   if (!event) return null
   const organizer = event.isOrganizer === true
   const blocked: RsvpBlocked | undefined = event.isCancelled === true ? 'cancelled' : organizer ? 'organizer' : undefined
+  const recurring = event.type === 'seriesMaster'
+  const occurrence = recurring && !blocked ? await nextMicrosoftOccurrence(token, event.id as string) : undefined
   return {
     found: true,
     provider: 'microsoft',
+    ...(recurring ? { recurring: true } : {}),
+    ...(occurrence ? { occurrence } : {}),
     accountId: account.id,
     accountEmail: account.account_email,
     eventId: event.id as string,
@@ -262,7 +318,43 @@ async function locateMicrosoft(account: Account, token: string, uid: string): Pr
   }
 }
 
-async function answerMicrosoft(token: string, at: Located, answer: RsvpAnswer): Promise<void> {
+/** How far ahead a repeating Outlook event's next occurrence is looked for. */
+const OCCURRENCE_HORIZON_MS = 366 * 24 * 60 * 60 * 1000
+
+/**
+ * A repeating Outlook event's next occurrence: the series' instances from
+ * now, the earliest that isn't cancelled. An occurrence has an id of its own,
+ * which takes the same accept / decline / tentativelyAccept actions.
+ */
+async function nextMicrosoftOccurrence(token: string, eventId: string): Promise<Located['occurrence']> {
+  try {
+    const now = Date.now()
+    const params = new URLSearchParams({
+      startDateTime: new Date(now).toISOString(),
+      endDateTime: new Date(now + OCCURRENCE_HORIZON_MS).toISOString(),
+      $select: 'id,start,isAllDay,isCancelled',
+      $top: '10',
+    })
+    const res = await providerFetch(`${GRAPH_EVENTS}/${encodeURIComponent(eventId)}/instances?${params}`, token)
+    if (!res.ok) return undefined
+    const items = ((await res.json()) as { value?: Array<Record<string, unknown>> }).value ?? []
+    const upcoming = items
+      .map((item) => {
+        const text = (item.start as { dateTime?: unknown } | undefined)?.dateTime
+        if (typeof item.id !== 'string' || item.isCancelled === true || typeof text !== 'string') return null
+        // An all-day occurrence is its date; a timed one an instant (Graph answers in UTC wall time).
+        const start = item.isAllDay === true ? text.slice(0, 10) : new Date(/(Z|[+-]\d{2}:?\d{2})$/.test(text) ? text : text + 'Z').toISOString()
+        return { eventId: item.id, start }
+      })
+      .filter((o): o is { eventId: string; start: string } => o !== null)
+      .sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0))
+    return upcoming[0]
+  } catch {
+    return undefined
+  }
+}
+
+async function answerMicrosoft(token: string, at: Pick<Located, 'eventId'>, answer: RsvpAnswer): Promise<void> {
   const res = await providerFetch(`${GRAPH_EVENTS}/${encodeURIComponent(at.eventId)}/${MICROSOFT_ACTION[answer]}`, token, {
     method: 'POST',
     body: { sendResponse: true },
@@ -323,6 +415,8 @@ function publicStatus(at: Located): RsvpFound {
     link: at.link,
     canAnswer: at.canAnswer,
     ...(at.blocked ? { blocked: at.blocked } : {}),
+    ...(at.recurring ? { recurring: true } : {}),
+    ...(at.occurrence ? { nextOccurrence: at.occurrence.start } : {}),
   }
 }
 
@@ -349,16 +443,25 @@ const MISS_ERROR: Record<RsvpNotFound['reason'], { code: RsvpErrorCode; message:
  * Answer the invitation as the person. Returns the calendar's state after the
  * reply; throws RsvpError (nothing was changed) when it can't be given.
  */
-export async function respondToInvitation(scope: RsvpScope, uid: string, answer: RsvpAnswer): Promise<RsvpFound> {
+export async function respondToInvitation(scope: RsvpScope, uid: string, answer: RsvpAnswer, which: RsvpWhich = 'series'): Promise<RsvpFound> {
   const { located, miss } = await search(scope, uid)
   if (!located) {
     const { code, message } = MISS_ERROR[miss.reason]
     throw new RsvpError(code, message, miss.accountEmail ?? null)
   }
   if (!located.canAnswer) throw new RsvpError(located.blocked ?? 'not_invited', BLOCKED_MESSAGE[located.blocked ?? 'not_invited'], located.accountEmail)
+  // One occurrence of a series: its own id (and, on Google, its own attendee list). The series is left as it was.
+  const target = which === 'occurrence' ? located.occurrence : located
+  if (!target) {
+    throw new RsvpError(
+      'no_occurrence',
+      located.recurring ? 'This event has no upcoming occurrence to answer on its own. Answer all events instead.' : 'This event doesn’t repeat, so there is only one to answer.',
+      located.accountEmail,
+    )
+  }
   try {
-    if (located.provider === 'google') await answerGoogle(located.token, located, answer)
-    else await answerMicrosoft(located.token, located, answer)
+    if (located.provider === 'google') await answerGoogle(located.token, target, answer)
+    else await answerMicrosoft(located.token, target, answer)
   } catch (err) {
     const status = err instanceof ProviderHttpError ? err.status : 0
     console.warn('[calendar-rsvp] reply not sent:', err instanceof Error ? err.message.slice(0, 120) : 'unknown')
@@ -366,5 +469,6 @@ export async function respondToInvitation(scope: RsvpScope, uid: string, answer:
     if (status === 404 || status === 410) throw new RsvpError('gone', 'This event is no longer on your calendar.', located.accountEmail)
     throw new RsvpError('provider', 'Your calendar didn’t take the answer. Try again in a moment.', located.accountEmail)
   }
-  return { ...publicStatus(located), response: answer }
+  // One occurrence answered: the series' own answer is unchanged, and is what the card keeps marked.
+  return which === 'occurrence' ? { ...publicStatus(located), answered: 'occurrence' } : { ...publicStatus(located), response: answer, answered: 'series' }
 }
