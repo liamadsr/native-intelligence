@@ -694,6 +694,7 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
             {record.visibility === 'private' && <Lock className="size-3 shrink-0 text-muted-foreground" aria-label="Private" />}
           </CardHeaderTrail>
           <CardHeaderSlot side="right">
+            <PeerFaces peers={peers} />
             <CommentsButton count={comments.openCount} open={showComments} onClick={() => setShowComments((on) => !on)} />
             {linksButton()}
             <button
@@ -729,6 +730,7 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
               <Lock className="h-3 w-3" /> Private
             </span>
           )}
+          <PeerFaces peers={peers} />
           <CommentsButton count={comments.openCount} open={showComments} onClick={() => setShowComments((on) => !on)} standalone />
           {linksButton(true)}
           <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" aria-label="Version history" aria-pressed={history} title="Version history" onClick={() => setHistory((on) => !on)}>
@@ -786,23 +788,26 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
           onEditChart={(id) => setChartEdit(id)}
           onTableShortcut={convertOrOptions}
           renderOverlay={({ sheet, layout }) => (
-            <CommentOverlay
-              workbook={workbook}
-              sheet={sheet}
-              layout={layout}
-              comments={comments}
-              memberId={loaded.memberId}
-              openThreadId={openThreadId}
-              composingAnchor={composingAnchor}
-              onOpenThread={(threadId) => {
-                setComposingAnchor(null)
-                setOpenThreadId(threadId)
-              }}
-              onCloseComposer={() => {
-                setComposingAnchor(null)
-                focusGrid()
-              }}
-            />
+            <>
+              <PresenceOverlay peers={peers} sheetId={workbook.sheetIdAt(sheet)} layout={layout} />
+              <CommentOverlay
+                workbook={workbook}
+                sheet={sheet}
+                layout={layout}
+                comments={comments}
+                memberId={loaded.memberId}
+                openThreadId={openThreadId}
+                composingAnchor={composingAnchor}
+                onOpenThread={(threadId) => {
+                  setComposingAnchor(null)
+                  setOpenThreadId(threadId)
+                }}
+                onCloseComposer={() => {
+                  setComposingAnchor(null)
+                  focusGrid()
+                }}
+              />
+            </>
           )}
         />
         {history && (
