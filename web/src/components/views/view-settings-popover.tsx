@@ -11,7 +11,8 @@ import {
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
-import { Settings2, List, LayoutGrid, ArrowUp, ArrowDown, Share2, Table2, CalendarDays, GalleryHorizontalEnd } from 'lucide-react'
+import { Settings2, List, LayoutGrid, ArrowUp, ArrowDown, Share2, Table2, CalendarDays, GalleryHorizontalEnd, GanttChart } from 'lucide-react'
+import { supportsRoadmap } from '@/lib/views/roadmap'
 import {
   FILTERABLE_FIELDS, DISPLAY_PROPERTIES,
   type ViewEntityType, type ViewLayout,
@@ -163,6 +164,11 @@ export function ViewSettingsPopover({ config, entityType, onChange, lockedScopeF
             <ToggleGroupItem value="board" className="flex-1 gap-2 h-8 text-xs">
               <LayoutGrid className="h-3.5 w-3.5" /> Board
             </ToggleGroupItem>
+            {supportsRoadmap(entityType) && (
+              <ToggleGroupItem value="roadmap" className="flex-1 gap-2 h-8 text-xs" data-layout-option="roadmap">
+                <GanttChart className="h-3.5 w-3.5" /> Roadmap
+              </ToggleGroupItem>
+            )}
           </ToggleGroup>}
 
           {!isGraph && <>
