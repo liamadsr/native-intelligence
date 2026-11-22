@@ -8,23 +8,7 @@
  * shape will look like.
  */
 import * as React from 'react'
-import {
-  AlignCenterHorizontal,
-  AlignCenterVertical,
-  AlignEndHorizontal,
-  AlignEndVertical,
-  AlignHorizontalSpaceAround,
-  AlignStartHorizontal,
-  AlignStartVertical,
-  AlignVerticalSpaceAround,
-  ArrowDownToLine,
-  ArrowUpToLine,
-  ChevronDown,
-  ChevronUp,
-  FlipHorizontal2,
-  FlipVertical2,
-  type LucideIcon,
-} from 'lucide-react'
+import { AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignHorizontalSpaceAround, AlignStartHorizontal, AlignStartVertical, AlignVerticalSpaceAround, ArrowDownToLine, ArrowUpToLine, ChevronDown, ChevronUp, FlipHorizontal2, FlipVertical2, type LucideIcon, Pause, Play } from 'lucide-react'
 import { FLOATING_CARD_CLASS } from '@/components/attention/card-skin'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -52,6 +36,42 @@ function common<T>(items: readonly CanvasItem[], get: (it: CanvasItem) => T | un
   return value
 }
 const known = <T,>(v: Maybe<T>): T | undefined => (v === MIXED ? undefined : v)
+
+/** Play and pause the video on the canvas (it is drawn muted, and takes no pointer of its own). */
+function VideoControls({ id }: { id: string }) {
+  const find = React.useCallback(() => document.querySelector<HTMLVideoElement>(`[data-canvas-item="${CSS.escape(id)}"] video`), [id])
+  const [playing, setPlaying] = React.useState(false)
+  React.useEffect(() => {
+    const v = find()
+    if (!v) return
+    const sync = () => setPlaying(!v.paused && !v.ended)
+    sync()
+    v.addEventListener('play', sync)
+    v.addEventListener('pause', sync)
+    v.addEventListener('ended', sync)
+    return () => {
+      v.removeEventListener('play', sync)
+      v.removeEventListener('pause', sync)
+      v.removeEventListener('ended', sync)
+    }
+  }, [find])
+  return (
+    <button
+      type="button"
+      data-canvas-video-toggle
+      onClick={() => {
+        const v = find()
+        if (!v) return
+        if (v.paused || v.ended) void v.play().catch(() => {})
+        else v.pause()
+      }}
+      className="flex h-8 w-full items-center justify-center gap-1.5 rounded-md border border-border/60 text-xs text-foreground hover:bg-foreground/[0.04]"
+    >
+      {playing ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+      {playing ? 'Pause' : 'Play'}
+    </button>
+  )
+}
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -359,6 +379,12 @@ export function CanvasInspector({ sheet = false }: { /** On a narrow screen: ope
             <IconToggle label="Flip horizontally" icon={FlipHorizontal2} onClick={() => store.flip('x')} />
             <IconToggle label="Flip vertically" icon={FlipVertical2} onClick={() => store.flip('y')} />
           </Row>
+        </Section>
+      ) : null}
+
+      {single?.kind === 'video' ? (
+        <Section title="Video">
+          <VideoControls key={single.id} id={single.id} />
         </Section>
       ) : null}
 

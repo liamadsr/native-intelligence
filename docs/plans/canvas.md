@@ -318,6 +318,8 @@ Built and checked in a browser against the dev project (50 scripted checks):
   dropped (from the address bar, or any link in the app). The app's own lists
   are not drag sources today, so a row cannot be dragged yet: that is a change
   to the views, not to the canvas.
+- **Play and pause for a video**, in the inspector (so for people who can
+  edit; the inspector is not shown to viewers).
 - **A canvas deleted for good takes its files** out of storage (archiving,
   which is what the editor's Delete does, keeps them).
 - **Phase 4:** `read_canvas`, `edit_canvas`, `create_canvas` in the tool
@@ -328,8 +330,11 @@ Built and checked in a browser against the dev project (50 scripted checks):
 
 Not built yet:
 
-- **Video play controls in the inspector.**
 - **Ghost cursors for an agent's edits** (the edits themselves arrive live).
+  A saved row does not say an agent wrote it, and an agent's tool call has no
+  place in the presence room, so there is nothing true to draw a cursor from.
+  It needs either a mark on the write (a column, so a migration) or the
+  server saying so on the room.
 - Per-person grants and public links: not now (the owner, 2026-11-22).
 - In comments: @-mentions and notifications, editing a comment's words in the
   panel (the route and the guard allow it), and comments in the agent tools.
