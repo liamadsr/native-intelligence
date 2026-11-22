@@ -1,8 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { ChevronDown, Loader2, Paperclip, Pencil, Reply, Send, Trash2 } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { Forward, Loader2, Paperclip, Pencil, Reply, ReplyAll, Send, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import type { DraftEdits } from '@/lib/email/draft-edits'
@@ -35,6 +34,8 @@ interface EmailMessageData {
   from: EmailAddress
   to: EmailAddress[]
   cc: EmailAddress[]
+  /** Its Reply-To, when it names one: a reply goes there. */
+  replyTo?: EmailAddress[]
   subject: string
   date: string
   bodyHtml: string | null
@@ -61,24 +62,72 @@ function getInitials(name: string): string {
     .toUpperCase()
 }
 
-function formatDate(dateStr: string): string {
+/**
+ * A message's date as the card shows it: the time today, "Sep 9" this year,
+ * "Sep 9, 2024" before. The full date and time is its title.
+ */
+export function formatMessageDate(dateStr: string, now: Date = new Date()): string {
   const date = new Date(dateStr)
-  const now = new Date()
-  const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24))
-
-  if (diffDays === 0) {
+  if (Number.isNaN(date.getTime())) return ''
+  if (date.toDateString() === now.toDateString()) {
     return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
   }
   return date.toLocaleDateString('en-US', {
-    month: 'short', day: 'numeric', year: diffDays > 365 ? 'numeric' : undefined,
-    hour: 'numeric', minute: '2-digit',
+    month: 'short',
+    day: 'numeric',
+    year: date.getFullYear() === now.getFullYear() ? undefined : 'numeric',
   })
+}
+
+function fullDate(dateStr: string): string {
+  const date = new Date(dateStr)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+}
+
+/**
+ * Who a message went to, as the card's muted "to …" reads: "Me" for the
+ * person's own addresses, a first name (else the address's local part) for
+ * anyone else, the first two then "+N". Empty: no recipients. Pure.
+ */
+export function recipientsLabel(
+  to: readonly EmailAddress[],
+  cc: readonly EmailAddress[],
+  own: ReadonlySet<string> | undefined,
+): string {
+  const seen = new Set<string>()
+  const names: string[] = []
+  for (const r of [...to, ...cc]) {
+    const email = r.email?.trim().toLowerCase()
+    if (!email || seen.has(email)) continue
+    seen.add(email)
+    names.push(own?.has(email) ? 'Me' : r.name?.trim().split(/\s+/)[0] || email.split('@')[0])
+  }
+  // "Me" first: it is what the reader looks for.
+  names.sort((a, b) => (a === 'Me' ? -1 : b === 'Me' ? 1 : 0))
+  if (names.length <= 2) return names.join(', ')
+  return `${names.slice(0, 2).join(', ')} +${names.length - 2}`
+}
+
+/** One line of a message, for its collapsed card. */
+export function messageSnippet(message: Pick<EmailMessageData, 'bodyText' | 'bodyHtml'>): string {
+  const text = message.bodyText?.trim()
+    ? message.bodyText
+    : (message.bodyHtml ?? '').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ')
+  // Not the quoted history: the snippet is what this message says.
+  const own = (text ?? '').split(/\n(?:>|On .{4,200}wrote:)/)[0]
+  return own.replace(/\s+/g, ' ').trim().slice(0, 160)
 }
 
 interface EmailMessageProps {
   message: EmailMessageData
   defaultExpanded: boolean
+  /** Opens the composer replying to this message (absent: no Reply on the card). */
   onReply?: () => void
+  /** Opens the composer replying to everyone on this message. */
+  onReplyAll?: () => void
+  /** Opens the composer forwarding this message. */
+  onForward?: () => void
   /** Sends this draft (draft messages only): as shown, or with the edits made in its editor. */
   onSend?: (edits?: DraftEdits) => void
   /** This draft's send is in flight. */
@@ -106,6 +155,8 @@ export function EmailMessage({
   message,
   defaultExpanded,
   onReply,
+  onReplyAll,
+  onForward,
   onSend,
   sending = false,
   onSendLater,
@@ -126,39 +177,56 @@ export function EmailMessage({
   // files is sent only as it is.
   const editable = !!message.isDraft && !!onSend && !message.hasAttachments
 
+  const toLabel = recipientsLabel(message.to, message.cc, ownAddresses)
+  const date = formatMessageDate(message.date)
+  const iconButton = 'rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground'
+
+  // Collapsed: one calm line (who, what it says, when); a click opens it.
+  if (!expanded) {
+    return (
+      <button
+        type="button"
+        data-email-message-collapsed=""
+        onClick={() => setExpanded(true)}
+        className="group flex w-full items-center gap-3 rounded-2xl bg-foreground/[0.025] px-4 py-2.5 text-left transition-colors hover:bg-foreground/[0.05] dark:bg-white/[0.035] dark:hover:bg-white/[0.06]"
+      >
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-foreground/[0.07] text-[11px] font-medium text-foreground/80">
+          {getInitials(displayName)}
+        </span>
+        <span className="shrink-0 text-sm font-medium">{displayName}</span>
+        {message.isDraft && <DraftBadge />}
+        <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">{messageSnippet(message) || 'No preview'}</span>
+        {message.hasAttachments && <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-label="Has attachments" />}
+        <span className="shrink-0 text-xs text-muted-foreground" title={fullDate(message.date)}>{date}</span>
+      </button>
+    )
+  }
+
   return (
     <div
-      className={cn(
-        'rounded-lg border',
-        expanded ? 'bg-background' : 'bg-muted/30',
-      )}
+      data-email-message-card=""
+      className="rounded-2xl bg-foreground/[0.025] px-5 pb-5 pt-4 dark:bg-white/[0.035]"
     >
       {/* Header (stays open while the draft is being edited, so no edit is lost) */}
       <div
-        className="flex items-center gap-3 px-4 py-3 cursor-pointer"
+        className="flex cursor-pointer items-center gap-3"
         onClick={() => {
-          if (!editing) setExpanded(!expanded)
+          if (!editing) setExpanded(false)
         }}
       >
-        <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0 text-xs font-medium">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-foreground/[0.07] text-xs font-medium text-foreground/80">
           {getInitials(displayName)}
         </div>
 
-        <div className="flex-1 min-w-0">
-          {/* select-text: sender name/address are things users copy out of a
-              mail client — keep them selectable under [data-desktop]. */}
-          <div className="select-text flex items-center gap-2">
-            <span className="text-sm font-medium">{displayName}</span>
-            <span className="text-xs text-muted-foreground">
-              {'<'}
-              {message.from.email}
-              {'>'}
-            </span>
-            {message.isDraft && (
-              <span className="shrink-0 rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400">
-                Draft
-              </span>
+        {/* select-text: sender name/address are things users copy out of a
+            mail client — keep them selectable under [data-desktop]. */}
+        <div className="min-w-0 flex-1 select-text">
+          <div className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+            <span className="truncate text-sm font-semibold" title={message.from.email}>{displayName}</span>
+            {message.from.name && message.from.name !== message.from.email && (
+              <span className="hidden truncate text-xs text-muted-foreground/70 sm:inline">{message.from.email}</span>
             )}
+            {message.isDraft && <DraftBadge />}
             {message.isDraft && scheduledAt && (
               <span data-scheduled-badge="" className="shrink-0 rounded-full bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-medium text-violet-700 dark:text-violet-300">
                 Scheduled · {scheduledForLabel(new Date(scheduledAt), new Date())}
@@ -170,35 +238,34 @@ export function EmailMessage({
               </span>
             )}
           </div>
-          {!expanded && (
-            <p className="text-xs text-muted-foreground truncate mt-0.5">
-              {message.bodyText?.substring(0, 100) || 'No preview'}
+          {toLabel && (
+            <p
+              className="truncate text-xs text-muted-foreground"
+              title={[...message.to, ...message.cc].map((r) => (r.name ? `${r.name} <${r.email}>` : r.email)).join(', ')}
+            >
+              to {toLabel}
             </p>
           )}
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
-          <span className="text-xs text-muted-foreground">
-            {formatDate(message.date)}
-          </span>
-          {message.hasAttachments && (
-            <Paperclip className="h-3.5 w-3.5 text-muted-foreground" />
-          )}
+        <div className="flex shrink-0 items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
+          {message.hasAttachments && <Paperclip className="mr-1 h-3.5 w-3.5 text-muted-foreground" aria-label="Has attachments" />}
           {onReply && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onReply() }}
-              className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              title="Reply with AI"
-            >
-              <Reply className="h-3.5 w-3.5" />
+            <button type="button" onClick={onReply} className={iconButton} aria-label="Reply" title="Reply (r)" data-message-reply="">
+              <Reply className="h-4 w-4" />
             </button>
           )}
-          <ChevronDown
-            className={cn(
-              'h-4 w-4 text-muted-foreground transition-transform',
-              expanded && 'rotate-180',
-            )}
-          />
+          {onReplyAll && (
+            <button type="button" onClick={onReplyAll} className={iconButton} aria-label="Reply all" title="Reply all (a)" data-message-reply-all="">
+              <ReplyAll className="h-4 w-4" />
+            </button>
+          )}
+          {onForward && (
+            <button type="button" onClick={onForward} className={iconButton} aria-label="Forward" title="Forward (f)" data-message-forward="">
+              <Forward className="h-4 w-4" />
+            </button>
+          )}
+          <span className="ml-1.5 text-xs text-muted-foreground" title={fullDate(message.date)}>{date}</span>
         </div>
       </div>
 
@@ -217,8 +284,8 @@ export function EmailMessage({
       )}
 
       {/* The draft, being edited */}
-      {expanded && editing && onSend && (
-        <div className="px-4 pb-4">
+      {editing && onSend && (
+        <div className="pt-4">
           {draftFormattingLost(message.bodyHtml) && (
             <p className="mb-2 text-xs text-muted-foreground">Sent as plain text: this draft&apos;s formatting isn&apos;t kept.</p>
           )}
@@ -245,33 +312,22 @@ export function EmailMessage({
       )}
 
       {/* Body */}
-      {expanded && !(editing && onSend) && (
-        <div className="px-4 pb-4">
-          <div className="select-text text-xs text-muted-foreground mb-3">
-            <span>
-              To: {message.to.map((r) => r.name || r.email).join(', ')}
-            </span>
-            {message.cc.length > 0 && (
-              <span className="ml-3">
-                CC: {message.cc.map((r) => r.name || r.email).join(', ')}
-              </span>
-            )}
-          </div>
-
+      {!(editing && onSend) && (
+        <div className="pt-4">
           {message.invite && !message.isDraft && <EmailInviteCard invite={message.invite} ownAddresses={ownAddresses} />}
           {/* No invitation in the message itself: one that came only as an attached .ics is read from the file. */}
           {!message.invite && !message.isDraft && inviteHref && (
             <EmailAttachedInvite attachments={message.attachments ?? []} hrefFor={inviteHref} ownAddresses={ownAddresses} />
           )}
 
-          <div className="email-body">
+          <div className="email-body text-[15px] leading-relaxed">
             {message.bodyHtml ? (
               <EmailContent
                 html={message.bodyHtml}
                 senderEmail={message.from.email}
               />
             ) : (
-              <pre className="whitespace-pre-wrap text-sm font-sans text-foreground">
+              <pre className="whitespace-pre-wrap font-sans text-[15px] leading-relaxed text-foreground">
                 <Linkify text={message.bodyText} />
               </pre>
             )}
@@ -282,7 +338,7 @@ export function EmailMessage({
           )}
 
           {message.isDraft && onSend && (
-            <div className="mt-4 flex items-center gap-2 border-t border-border/40 pt-3">
+            <div className="mt-4 flex items-center gap-2 pt-1">
               <Button size="sm" className="gap-1.5" onClick={() => onSend()} disabled={busy}>
                 {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
                 {sending ? 'Sending…' : 'Send'}
@@ -317,6 +373,14 @@ export function EmailMessage({
         </div>
       )}
     </div>
+  )
+}
+
+function DraftBadge() {
+  return (
+    <span className="shrink-0 rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400">
+      Draft
+    </span>
   )
 }
 

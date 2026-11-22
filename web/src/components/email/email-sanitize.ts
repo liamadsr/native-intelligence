@@ -165,7 +165,9 @@ function processEmailDisplay(sanitizedHtml: string, isDark: boolean, options: Em
     details.className = 'quoted-toggle'
 
     const summary = doc.createElement('summary')
-    summary.textContent = 'Show quoted text'
+    summary.textContent = '•••'
+    summary.setAttribute('title', 'Show quoted text')
+    summary.setAttribute('aria-label', 'Show quoted text')
     details.appendChild(summary)
 
     // Move quote content into details
@@ -231,8 +233,8 @@ function buildThemeStyles(isDark: boolean, canvas: { background: string; color?:
     background-color: ${canvas ? bg : 'transparent'};
     color: ${fg};
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-    font-size: 14px;
-    line-height: 1.6;
+    font-size: 15px;
+    line-height: 1.65;
     word-break: break-word;
     overflow-wrap: break-word;
     -webkit-font-smoothing: antialiased;
@@ -317,19 +319,30 @@ function buildThemeStyles(isDark: boolean, canvas: { background: string; color?:
 
   /* Quoted text toggle (collapsed by default) */
   details.quoted-toggle {
-    margin-top: 1em;
-    border-left: 2px solid ${borderColor};
-    padding-left: 12px;
+    margin-top: 0.75em;
   }
+  /* Collapsed, the history is a small "•••" pill; open, a soft rule on its left. */
   details.quoted-toggle summary {
+    display: inline-block;
+    list-style: none;
     cursor: pointer;
     color: ${fgMuted};
-    font-size: 12px;
+    background: ${quoteBg};
+    border: 1px solid ${borderColor};
+    border-radius: 999px;
+    font-size: 11px;
+    line-height: 1;
+    letter-spacing: 1px;
     user-select: none;
-    padding: 4px 0;
+    padding: 3px 8px;
   }
+  details.quoted-toggle summary::-webkit-details-marker { display: none; }
   details.quoted-toggle summary:hover {
     color: ${linkColor};
+  }
+  details.quoted-toggle[open] .quoted-content {
+    border-left: 2px solid ${borderColor};
+    padding-left: 12px;
   }
   details.quoted-toggle .quoted-content {
     margin-top: 8px;

@@ -156,6 +156,8 @@ export const SHORTCUTS_BESIDES_GO_TO: readonly ShortcutDef[] = [
   { id: 'mail-archive', keys: ['e'], label: 'Archive', section: 'Mail', scope: 'mail' },
   { id: 'mail-reply', keys: ['r'], label: 'Reply', section: 'Mail', scope: 'mail' },
   { id: 'mail-reply-all', keys: ['a'], label: 'Reply all', section: 'Mail', scope: 'mail' },
+  { id: 'mail-forward', keys: ['f'], label: 'Forward', section: 'Mail', scope: 'mail' },
+  { id: 'mail-send', keys: ['mod+enter'], label: 'Send (in the composer)', section: 'Mail', scope: 'mail' },
   { id: 'mail-unread', keys: ['u'], label: 'Mark unread', section: 'Mail', scope: 'mail' },
 ]
 
