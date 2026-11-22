@@ -337,7 +337,7 @@ describe('PATCH /api/account/projects/[id]', () => {
   })
 })
 
-/** A project's priority (migration 691): the actions' five values, or null; nothing else. */
+/** A project's priority (migration 691): the actions' five values; cleared is 'none' (production's column is NOT NULL); nothing else. */
 describe('PATCH /api/account/projects/[id] — priority', () => {
   function projectsUpdate() {
     const patches: Record<string, unknown>[] = []
@@ -352,12 +352,13 @@ describe('PATCH /api/account/projects/[id] — priority', () => {
     return patches
   }
 
-  it('sets one of the five values, and clears with null', async () => {
+  it("sets one of the five values, and a null clear writes 'none', never null", async () => {
     happyAuth()
     const patches = projectsUpdate()
     expect((await PATCH(patchReq({ priority: 'high' }), makeParams())).status).toBe(200)
     expect((await PATCH(patchReq({ priority: null }), makeParams())).status).toBe(200)
-    expect(patches).toEqual([{ priority: 'high' }, { priority: null }])
+    expect((await PATCH(patchReq({ priority: 'none' }), makeParams())).status).toBe(200)
+    expect(patches).toEqual([{ priority: 'high' }, { priority: 'none' }, { priority: 'none' }])
   })
 
   it('refuses anything else with a 400, writing nothing', async () => {
