@@ -479,6 +479,35 @@ Not built in this part, said plainly:
   for validation and checkboxes in the first part. A person's edits do shift them.
 - **Chart tooltips** are not drawn (the plan left them optional).
 
+### Phase 5: done
+
+Comment threads on cells, and several people editing one spreadsheet merged through the
+save path. Presence is **not** built (see below).
+
+| Item | State |
+| --- | --- |
+| Comments on cells | Done. A thread is anchored to a cell range (the engine's stable `sheet_id` + an A1 range). "Comment" in the cell menu, a Comment button in the toolbar after Find and replace, and Ctrl/Cmd+Alt+M open a card beside the selected cell(s) to write the first comment. A cell with an open thread shows a small corner marker (resolved threads: none); clicking it, or the shortcut on that cell, opens the thread: each comment with author and relative time, a reply box (Enter sends, Shift+Enter a new line), reply count, Resolve / Reopen, and edit and delete on one's own comments. A "Comments" header button (beside Version history, badged with the count of open threads) opens a side panel listing every thread grouped by sheet, open first, with a toggle to show resolved ones; choosing one goes to its cell (switching sheet). Stored in `spreadsheet_comment` (675); `lib/spreadsheets/comments.ts` and the routes under `/api/account/spreadsheets/[id]/comments`, with `requireWorkspaceMember`, the member's display name on each comment, the caller's own client (RLS decides), 404 for a spreadsheet the caller cannot read. |
+| Comments — mentions | Stored, **not** notified. The `mentions` column takes the mentioned member ids (validated UUIDs), but a mention does NOT notify or share: the app's comment-mention machinery is written for the `comment` table's kinds (`CommentableType` has no `spreadsheet`) and its sharing path grants per-person access, which a spreadsheet does not have (decision 5). Said plainly, not faked (decision 25). |
+| Comments — anchors follow cells | Done. Inserting or deleting rows or columns in this editor shifts the anchors of that sheet's threads (reusing `shiftCommentAnchor` over the extras range-shift helpers) and saves the changed ones; undo of the structural edit moves them back (the controller emits the inverse change). A thread whose cells were deleted keeps living, shown as "its cells were deleted". A sheet delete marks its threads the same way (its undo does not restore them — decision 27). Comments are otherwise not part of undo history. |
+| Editing together — merge on a conflict | Done, replacing the old lose-your-work answer (decision 7, 26). A save refused with 409 loads the newer workbook, replays this editor's unsaved actions onto it with the engine's change sets (`lib/spreadsheets/sync.ts` + the controller's `pendingDiffs()`/`adopt()`), adopts the merged workbook keeping the active sheet (by id), the selection and any open cell edit, and saves again against the new revision (bounded retries, then the existing "Not saved / Try again"). `WorkbookExtras` merge per top-level kind: theirs for kinds I did not touch, mine for the kinds I did. |
+| Editing together — polling | Done. Every ~4 s while the tab is visible (paused when hidden, resumed at once on `visibilitychange`) the editor asks a new cheap route `GET /api/account/spreadsheets/[id]/revision` (`{ revision, last_edited_by, updated_at, editor_name }`). When it is ahead of mine: with nothing pending I fetch and adopt their workbook (selection, sheet and any open draft kept); with pending work I rebase and save. A quiet "Updated by <name>" shows for a few seconds. |
+| Presence (who else has it open) | **NOT built, on purpose** (decision 24). The only presence the app has is global app-presence (`lib/presence`, `user_presence`: "is this person at a Native Intelligence app at all"), not per-record, and it needs its own table and route. No existing code uses Supabase Realtime channel presence for any record kind in an authorised way, and 675 adds no realtime publication for a spreadsheet. Building per-record presence would mean a channel carrying the spreadsheet id and a name in its payload, with no authorised precedent — the lead ruled it out tonight. So no "who else is here" is shown. |
+
+What the engine's change sets carry, checked against the real runtime with a scratch
+script before any of this was written (and pinned in `sync.test.ts`): cell inputs,
+formulas **with their results**, styles and number formats, and sheet add, rename and
+delete all travel and replay. Disjoint cells merge; the same cell ends with the replayed
+(my) value — **last writer wins**. A change set is applied at its **absolute** address: a
+row the other person inserted above a cell I edited does **not** re-base my edit (it lands
+on its original row number). A change set aimed at a sheet the other person deleted throws
+"Invalid sheet index"; it is caught, that one action is dropped with a one-sentence note,
+and the rest still replay.
+
+Not proven in this phase (said plainly): the merge was proven against two real engine
+Models in tests, **not** with two live browsers on the server; there are no live cursors
+and no keystroke-live editing (the lead's decision: no Realtime channel and no new
+policies tonight — they cannot be verified without the dev project).
+
 ## Decisions to review
 
 Made without asking, while the owner was away. Each can be changed.
@@ -503,8 +532,10 @@ Made without asking, while the owner was away. Each can be changed.
    who sees it, and its maker or a workspace owner or admin deletes it. Documents have finer
    rules (system documents, product documents); a spreadsheet has no such kinds.
 7. **Saving is the whole workbook against a revision.** Two people editing at once: the
-   second save is refused and that person is offered the newer version. Their unsaved
-   changes are lost when they take it. Live editing (phase 5) is what removes this.
+   second save is refused with 409. Phase 5 replaced the old "you lose your work" answer
+   with a merge (decision 26): the editor loads the newer workbook, replays its own
+   unsaved changes onto it and saves again, so nobody's work is lost. It is not
+   keystroke-live and shows no live cursors; others' changes arrive within a few seconds.
 8. **A fill with no text color gets dark or white text by the fill's brightness**, in both
    themes, so a pale header row stays readable in the dark theme. Excel would draw black.
 9. **Text typed into a plain-text cell is stored with the engine's quote prefix**, so
@@ -562,6 +593,38 @@ Made without asking, while the owner was away. Each can be changed.
 23. **"Bold first/last column" is drawn as a faint tint, not real bold text**, because the table
     look is an overlay that does not re-draw cell text. The toggle is stored and offered; making it
     real bold would mean writing cell styles (as Convert to range does) or re-drawing the text.
+24. **No presence and no live channel tonight (the lead's call for phase 5).** Changes travel
+    through the save path and a ~4-second poll, not a Realtime channel, and no "who else is here"
+    is shown. The app's only presence is global app-presence (`user_presence`), not per-record;
+    there is no authorised precedent for Realtime channel presence on a record kind, and 675 adds
+    no publication. A per-record channel (carrying the spreadsheet id and a name) and the policies
+    it needs wait for the owner's word and the dev project to verify them. Not keystroke-live; no
+    live cursors.
+25. **A spreadsheet comment's @-mentions are stored but do not notify or share.** The `mentions`
+    column holds the validated member ids, but the app's comment-mention machinery is written for
+    the `comment` table's kinds (`CommentableType` has no `spreadsheet`) and its mention-sharing
+    grants per-person access, which a spreadsheet does not have (decision 5). Wiring it would need
+    a schema/type change and per-person sharing, so a mention is recorded but silent for now.
+26. **A save conflict merges instead of losing work (replaces decision 7).** The engine keeps a
+    change set per action; the editor flushes one after each action (`pendingDiffs()`), and on a
+    409 loads the newer workbook, replays those change sets onto it (`rebasePending`), and
+    `adopt`s the result in place. Last writer wins on a shared cell; a cell edit lands at its
+    absolute address even if the other person inserted rows above it (the engine's change sets are
+    not rebased around structural edits); `WorkbookExtras` merge per top-level kind. `adopt` clears
+    the undo history, because the engine model is replaced and the old step counts no longer match
+    it — the one place soundness could not be kept. Bounded retries, then the existing "Not saved".
+    The change sets stay pending until a save lands, so a save refused a second time replays the
+    same work onto the next newer workbook, and merged extras are sent with that save. Known
+    limits: when two people change the same kind of extra (both add a chart, say) between saves,
+    the later saver's set of that kind replaces the other's; and extras ranges, like cell edits,
+    are not moved around the other person's row or column inserts. **Not checked in a browser with
+    two real people**: only in tests, with two engine models and a stubbed server.
+27. **Comment anchors follow row/column inserts and deletes, and move back on undo.** The
+    controller emits a structural change (and its inverse on undo/redo) that the editor applies to
+    the threads of that sheet, saving the moved anchors. A thread whose cells were wholly deleted
+    survives, clamped to the cut and shown as "its cells were deleted". A sheet delete marks its
+    threads the same way, but has no simple inverse, so undo of a sheet delete does not restore
+    their anchors (the thread lives on, flagged).
 
 ## Dependencies
 

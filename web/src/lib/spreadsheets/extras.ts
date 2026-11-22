@@ -574,6 +574,26 @@ function shiftTable(table: WorkbookTable, change: ExtrasChange): WorkbookTable |
   return { ...table, range: nextRange, columns, filters }
 }
 
+/**
+ * A comment thread's cell anchor after a structural change, for a thread on
+ * the changed sheet. Unlike the stored ranges above, a comment is never
+ * dropped: when its cells are deleted it survives, clamped to the cut point,
+ * with `removed: true` so the editor can mark it "its cells were deleted". A
+ * sheet delete removes the ground under every thread on that sheet.
+ */
+export function shiftCommentAnchor(range: CellRange, change: ExtrasChange): { range: CellRange; removed: boolean } {
+  if (change.type === 'deleteSheet') return { range, removed: true }
+  if (change.type === 'duplicateSheet') return { range, removed: false }
+  const axis: 'row' | 'column' = change.type === 'insertRows' || change.type === 'deleteRows' ? 'row' : 'column'
+  const kind: 'insert' | 'delete' = change.type.startsWith('insert') ? 'insert' : 'delete'
+  const next = shiftRange(range, axis, { kind, at: change.at, count: change.count })
+  if (next) return { range: next, removed: false }
+  // Wholly inside a deleted band: keep the thread, clamp its anchor to the cut.
+  const at = Math.max(1, change.at)
+  const clamped = axis === 'row' ? { r1: at, c1: range.c1, r2: at, c2: range.c2 } : { r1: range.r1, c1: at, r2: range.r2, c2: at }
+  return { range: clamped, removed: true }
+}
+
 /** Move the stored ranges and objects with a structural change to the sheet. Returns new extras (unchanged object when nothing moved). */
 export function shiftExtras(extras: WorkbookExtras, change: ExtrasChange): WorkbookExtras {
   const validations = mapAreas(extras.validations, change)
