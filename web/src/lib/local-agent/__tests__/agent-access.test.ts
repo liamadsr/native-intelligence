@@ -228,12 +228,12 @@ describe('the caller class and the claim field', () => {
   })
 
   it('the usage limit’s refusal comes back as is; anything else it throws is a 503, never a bare 500', async () => {
-    expect(await usageRefusal(USER)).toBeNull()
+    expect(await usageRefusal(USER, WS)).toBeNull()
     m.checkUsageLimits.mockRejectedValueOnce(new Response('{}', { status: 429 }))
-    expect((await usageRefusal(USER))?.status).toBe(429)
+    expect((await usageRefusal(USER, WS))?.status).toBe(429)
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
     m.checkUsageLimits.mockRejectedValueOnce(new Error('rpc down'))
-    const res = await usageRefusal(USER)
+    const res = await usageRefusal(USER, WS)
     expect(res?.status).toBe(503)
     expect((await res!.json()).code).toBe('BILLING_UNAVAILABLE')
   })

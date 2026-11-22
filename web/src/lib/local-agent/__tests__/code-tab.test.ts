@@ -83,8 +83,8 @@ describe('the choice, per conversation', () => {
 
   it('a conversation opens on its stored choice; else, with a Code job, on Code with the newest job’s agent and folder; else Chat with the defaults', () => {
     const jobs: CodeJob[] = [
-      { sessionId: 's-1', requestId: 'r-1', worker: null, folderId: 'f-1', status: 'cancelled', createdAt: '2026-11-14T10:00:00Z' },
-      { sessionId: 's-2', requestId: 'r-2', worker: 'claude-code', folderId: 'f-3', status: 'waiting', createdAt: '2026-11-14T11:00:00Z' },
+      { sessionId: 's-1', requestId: 'r-1', worker: null, folderId: 'f-1', folderLabel: 'f-1', deviceName: 'Mac', trackedJobId: null, asking: false, status: 'cancelled', createdAt: '2026-11-14T10:00:00Z' },
+      { sessionId: 's-2', requestId: 'r-2', worker: 'claude-code', folderId: 'f-3', folderLabel: 'f-3', deviceName: 'Mac', trackedJobId: null, asking: false, status: 'waiting', createdAt: '2026-11-14T11:00:00Z' },
     ]
     const defaults = { agent: 'codex', folderId: 'f-1' }
     expect(openingCodeChoice({ tab: 'chat', agent: null, folderId: null }, jobs, defaults)).toEqual({ tab: 'chat', agent: null, folderId: null })

@@ -21,7 +21,7 @@ npm run test           # Run test suite once
 npm run test:watch     # Run tests in watch mode
 npm run test:coverage  # Generate v8 coverage report
 npm run lint           # Run ESLint on src/
-npm run typecheck      # Standalone tsc --noEmit
+npm run typecheck      # tsc over everything, tests included, in 4 shards under 8 GB (scripts/typecheck.mjs)
 ```
 
 ## Conventions

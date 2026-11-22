@@ -14,7 +14,8 @@ import { createDocumentTools } from '../documents'
 import { createInitiativeTools } from '../initiatives'
 import { createProjectTools } from '../projects'
 import { createContactTools } from '../contacts'
-import { customFieldsForModel, withCustomFields, type CustomFieldDefinition } from '@/lib/crm/custom-fields'
+import { customFieldsForModel, withCustomFields, type CustomFieldDefinition, type CustomFieldEntity } from '@/lib/crm/custom-fields'
+import type { CustomFieldType } from '@/lib/crm/custom-field-types'
 
 vi.mock('@/lib/inngest/client', () => ({ inngest: { send: vi.fn(async () => {}) } }))
 
@@ -22,8 +23,8 @@ const WS = 'ws-1'
 const ME = 'user-me'
 const OPTS = { toolCallId: 't', messages: [], context: {} } satisfies ToolExecutionOptions<Record<string, unknown>>
 
-const def = (entity_type: string, key: string, label: string, position: number, field_type = 'text'): CustomFieldDefinition =>
-  ({ id: `def-${entity_type}-${key}`, workspace_id: WS, entity_type, key, label, field_type, options: [], position }) as CustomFieldDefinition
+const def = (entity_type: CustomFieldEntity, key: string, label: string, position: number, field_type: CustomFieldType = 'text'): CustomFieldDefinition =>
+  ({ id: `def-${entity_type}-${key}`, workspace_id: WS, entity_type, key, label, field_type, options: [], config: {}, position })
 
 function world(): FakeSupabase {
   const db = makeFakeSupabase()
