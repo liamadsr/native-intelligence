@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CanvasItem, ConnectorItem, RectangleItem, TextItem } from '../types'
-import { AGENT_ARTIFACTS_OFF, agentArtifactsEnabled, agentColor, applyAgentOps, describeCanvas, estimateText, type AgentOp } from '../agent'
+import { AGENT_ARTIFACTS_OFF, AGENT_LIMITS, agentArtifactsEnabled, describeThreads, agentColor, applyAgentOps, describeCanvas, estimateText, type AgentOp } from '../agent'
 import { ordered } from '../engine/scene'
 
 const run = (items: readonly CanvasItem[], ops: AgentOp[]) => applyAgentOps(items, ops)
@@ -218,5 +218,27 @@ describe('artifacts are off for agents unless the server says otherwise', () => 
     expect(agentArtifactsEnabled({})).toBe(false)
     for (const v of ['', '0', 'true', 'yes', ' 1', 'on']) expect(agentArtifactsEnabled({ CANVAS_AGENT_ARTIFACTS: v }), v).toBe(false)
     expect(agentArtifactsEnabled({ CANVAS_AGENT_ARTIFACTS: '1' })).toBe(true)
+  })
+})
+
+describe('an agent reads what people said about a canvas', () => {
+  const t = (id: string, extra: Record<string, unknown> = {}, replies: Array<{ author_name: string | null; body: string }> = []) => ({ root: { id, item_id: null, author_name: 'Ada Example', body: `About ${id}`, resolved_at: null, ...extra }, replies })
+
+  it('lists open threads with who said what and the item, and leaves resolved ones out', () => {
+    const read = describeThreads([t('a', { item_id: 'shape-1' }, [{ author_name: 'Ben Example', body: 'Agreed' }, { author_name: null, body: 'x'.repeat(500) }]), t('b', { resolved_at: '2026-11-21T09:00:00Z' }), t('c', { author_name: null })])
+    expect(read.open).toBe(2)
+    expect(read.threads.map((x) => x.id)).toEqual(['a', 'c'])
+    expect(read.threads[0]).toMatchObject({ item: 'shape-1', by: 'Ada Example', text: 'About a' })
+    expect(read.threads[0].replies?.[0]).toEqual({ by: 'Ben Example', text: 'Agreed' })
+    expect(read.threads[0].replies?.[1].text).toHaveLength(401)
+    expect(read.threads[1]).toEqual({ id: 'c', by: 'Someone', text: 'About c' })
+  })
+
+  it('keeps the newest when there are too many, and says how many it left out', () => {
+    const many = Array.from({ length: AGENT_LIMITS.threads + 7 }, (_, i) => t(`t${i}`))
+    const read = describeThreads(many)
+    expect(read.threads).toHaveLength(AGENT_LIMITS.threads)
+    expect(read.omitted).toBe(7)
+    expect(read.threads.at(-1)?.id).toBe(`t${AGENT_LIMITS.threads + 6}`)
   })
 })

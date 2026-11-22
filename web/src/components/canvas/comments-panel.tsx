@@ -8,7 +8,7 @@
  * rules, migration 682; this only hides the buttons that would be refused).
  */
 import * as React from 'react'
-import { Check, CornerDownRight, Loader2, MessageSquare, RotateCcw, Trash2, X } from 'lucide-react'
+import { Check, CornerDownRight, Loader2, MessageSquare, Pencil, RotateCcw, Trash2, X } from 'lucide-react'
 import { FLOATING_CARD_CLASS } from '@/components/attention/card-skin'
 import { createClient } from '@/lib/supabase/client'
 import { threadsOf, type CanvasComment, type CanvasThread } from '@/lib/canvas/comments'
@@ -27,6 +27,8 @@ export interface CanvasComments {
   open: number
   add: (input: { body: string; parent_id?: string; item_id?: string | null; x?: number; y?: number }) => Promise<string | null>
   resolve: (id: string, resolved: boolean) => Promise<string | null>
+  /** New words for one's own comment. */
+  edit: (id: string, body: string) => Promise<string | null>
   remove: (id: string) => Promise<string | null>
 }
 
@@ -117,6 +119,7 @@ export function useCanvasComments(canvasId: string): CanvasComments {
       open,
       add: (input) => call(base, 'POST', input).then(after),
       resolve: (id, resolved) => call(`${base}/${id}`, 'PATCH', { resolved }).then(after),
+      edit: (id, body) => call(`${base}/${id}`, 'PATCH', { body }).then(after),
       remove: (id) => call(`${base}/${id}`, 'DELETE').then(after),
     }),
     [state, threads, me, open, base, after],
@@ -151,8 +154,8 @@ function when(iso: string): string {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
-function Composer({ placeholder, label, autoFocus, onSend }: { placeholder: string; label: string; autoFocus?: boolean; onSend: (body: string) => Promise<string | null> }) {
-  const [text, setText] = React.useState('')
+function Composer({ placeholder, label, autoFocus, initial = '', send: sendLabel = 'Send', onSend, onCancel }: { placeholder: string; label: string; autoFocus?: boolean; initial?: string; send?: string; onSend: (body: string) => Promise<string | null>; onCancel?: () => void }) {
+  const [text, setText] = React.useState(initial)
   const [busy, setBusy] = React.useState(false)
   const [err, setErr] = React.useState<string | null>(null)
   const send = async () => {
@@ -178,6 +181,7 @@ function Composer({ placeholder, label, autoFocus, onSend }: { placeholder: stri
           onKeyDown={(e) => {
             // The canvas's own keys (delete, tools) stay out of the text.
             e.stopPropagation()
+            if (e.key === 'Escape' && onCancel) onCancel()
             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault()
               void send()
@@ -186,7 +190,7 @@ function Composer({ placeholder, label, autoFocus, onSend }: { placeholder: stri
           className="max-h-32 min-h-8 flex-1 resize-none rounded-md border border-border/60 bg-background/60 px-2 py-1.5 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-foreground/30 [field-sizing:content]"
         />
         <button type="button" disabled={!text.trim() || busy} onClick={() => void send()} className="flex h-8 shrink-0 items-center rounded-md bg-foreground px-2.5 text-xs font-medium text-background disabled:opacity-40">
-          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Send'}
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : sendLabel}
         </button>
       </div>
       {err ? <p role="alert" className="pt-1 text-[11px] text-red-500">{err}</p> : null}
@@ -194,14 +198,38 @@ function Composer({ placeholder, label, autoFocus, onSend }: { placeholder: stri
   )
 }
 
-function Words({ comment, mine, onDelete }: { comment: CanvasComment; mine: boolean; onDelete: () => void }) {
+function Words({ comment, mine, onDelete, onEdit }: { comment: CanvasComment; mine: boolean; onDelete: () => void; onEdit: (body: string) => Promise<string | null> }) {
+  const [editing, setEditing] = React.useState(false)
+  if (editing) {
+    return (
+      <Composer
+        autoFocus
+        label="Edit comment"
+        placeholder="Edit comment…"
+        initial={comment.body}
+        send="Save"
+        onCancel={() => setEditing(false)}
+        onSend={async (body) => {
+          const e = body === comment.body ? null : await onEdit(body)
+          if (!e) setEditing(false)
+          return e
+        }}
+      />
+    )
+  }
   return (
     <div className="group/comment">
       <div className="flex items-baseline gap-1.5">
         <span className="truncate text-xs font-medium text-foreground">{comment.author_name ?? (mine ? 'You' : 'Someone')}</span>
         <span className="shrink-0 text-[11px] text-muted-foreground">{when(comment.created_at)}</span>
+        {comment.updated_at > comment.created_at && !comment.resolved_at ? <span className="shrink-0 text-[11px] text-muted-foreground">edited</span> : null}
         {mine ? (
-          <button type="button" aria-label="Delete comment" onClick={onDelete} className="ml-auto shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:text-red-500 focus:opacity-100 group-hover/comment:opacity-100">
+          <button type="button" aria-label="Edit comment" onClick={() => setEditing(true)} className="ml-auto shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:text-foreground focus:opacity-100 group-hover/comment:opacity-100">
+            <Pencil className="h-3 w-3" />
+          </button>
+        ) : null}
+        {mine ? (
+          <button type="button" aria-label="Delete comment" onClick={onDelete} className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:text-red-500 focus:opacity-100 group-hover/comment:opacity-100">
             <Trash2 className="h-3 w-3" />
           </button>
         ) : null}
@@ -235,12 +263,12 @@ function Thread({ thread, comments, active, onFocus }: { thread: CanvasThread; c
           <CornerDownRight className="h-3 w-3" /> {itemThere ? 'On an item: show it' : 'On an item that was deleted'}
         </button>
       ) : null}
-      <Words comment={root} mine={!!comments.me && root.author_id === comments.me} onDelete={() => (replies.length && !window.confirm('Delete this thread and its replies?') ? undefined : act(comments.remove(root.id)))} />
+      <Words comment={root} mine={!!comments.me && root.author_id === comments.me} onEdit={(body) => comments.edit(root.id, body)} onDelete={() => (replies.length && !window.confirm('Delete this thread and its replies?') ? undefined : act(comments.remove(root.id)))} />
       {replies.length ? (
         <ul className="mt-2 space-y-2 border-l border-border/60 pl-2.5">
           {replies.map((r) => (
             <li key={r.id}>
-              <Words comment={r} mine={!!comments.me && r.author_id === comments.me} onDelete={() => act(comments.remove(r.id))} />
+              <Words comment={r} mine={!!comments.me && r.author_id === comments.me} onEdit={(body) => comments.edit(r.id, body)} onDelete={() => act(comments.remove(r.id))} />
             </li>
           ))}
         </ul>

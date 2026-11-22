@@ -15,7 +15,35 @@ import { diffScenes, type Step } from './engine/history'
 import { deleteItems, groupItems, moveItems, reorderItems, setPose, setStyle, ungroupItems, type OrderMove } from './engine/ops'
 import { frontKey, itemBounds, ordered, patchScene, rootOf, sceneBounds, sceneFromItems, type Scene } from './engine/scene'
 
-export const AGENT_LIMITS = { ops: 100, read: 300, text: 4000 } as const
+export const AGENT_LIMITS = { ops: 100, read: 300, text: 4000, threads: 50 } as const
+
+/** A comment thread as an agent reads it. */
+export interface AgentThread {
+  id: string
+  /** The item it is about; absent for a thread about the whole canvas. */
+  item?: string
+  by: string
+  text: string
+  replies?: Array<{ by: string; text: string }>
+}
+
+/** The open threads, oldest first, capped, words trimmed: what people have said about the canvas and not yet settled. */
+export function describeThreads(threads: ReadonlyArray<{ root: { id: string; item_id: string | null; author_name: string | null; body: string; resolved_at: string | null }; replies: ReadonlyArray<{ author_name: string | null; body: string }> }>): { threads: AgentThread[]; open: number; omitted: number } {
+  const cut = (t: string) => (t.length > 400 ? `${t.slice(0, 400)}…` : t)
+  const open = threads.filter((t) => !t.root.resolved_at)
+  const shown = open.slice(-AGENT_LIMITS.threads)
+  return {
+    open: open.length,
+    omitted: open.length - shown.length,
+    threads: shown.map((t) => ({
+      id: t.root.id,
+      ...(t.root.item_id ? { item: t.root.item_id } : {}),
+      by: t.root.author_name ?? 'Someone',
+      text: cut(t.root.body),
+      ...(t.replies.length ? { replies: t.replies.slice(-10).map((r) => ({ by: r.author_name ?? 'Someone', text: cut(r.body) })) } : {}),
+    })),
+  }
+}
 
 // ── Reading ─────────────────────────────────────────────────────────────────
 

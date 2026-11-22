@@ -28,7 +28,7 @@ const c = (id: string, extra: Partial<CanvasComment> = {}): CanvasComment => ({
 const never = async () => null
 function comments(list: CanvasComment[], state: CanvasComments['state'] = 'ready'): CanvasComments {
   const threads = threadsOf(list)
-  return { state, threads, me: ME, open: threads.filter((t) => !t.root.resolved_at).length, add: never, resolve: never, remove: never }
+  return { state, threads, me: ME, open: threads.filter((t) => !t.root.resolved_at).length, add: never, resolve: never, edit: never, remove: never }
 }
 
 function draw(node: React.ReactNode, items: CanvasItem[] = [box('a', 100)], selection: string[] = []) {
@@ -63,6 +63,7 @@ describe('the comments panel', () => {
     const html = draw(<CommentsPanel comments={comments(LIST)} focus={null} onFocus={() => {}} onClose={() => {}} />)
     // t1 and t4 are the caller's; r1 and t2 are someone else's.
     expect(html.match(/aria-label="Delete comment"/g)).toHaveLength(2)
+    expect(html.match(/aria-label="Edit comment"/g)).toHaveLength(2)
   })
 
   it('aims a new comment at the one selected item, shows a focused resolved thread, and says when it cannot load', () => {
