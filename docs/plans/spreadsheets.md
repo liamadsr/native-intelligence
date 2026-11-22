@@ -617,8 +617,10 @@ Made without asking, while the owner was away. Each can be changed.
     same work onto the next newer workbook, and merged extras are sent with that save. Known
     limits: when two people change the same kind of extra (both add a chart, say) between saves,
     the later saver's set of that kind replaces the other's; and extras ranges, like cell edits,
-    are not moved around the other person's row or column inserts. **Not checked in a browser with
-    two real people**: only in tests, with two engine models and a stubbed server.
+    are not moved around the other person's row or column inserts. Checked in a browser on the dev server with two windows on one
+    spreadsheet, both signed in as the same test account: edits to different cells, made apart and
+    at the same moment (a real 409), ended up in both windows and on the server. **Not checked
+    with two different people**, nor with a private spreadsheet.
 27. **Comment anchors follow row/column inserts and deletes, and move back on undo.** The
     controller emits a structural change (and its inverse on undo/redo) that the editor applies to
     the threads of that sheet, saving the moved anchors. A thread whose cells were wholly deleted

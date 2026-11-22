@@ -782,6 +782,10 @@ export function SheetGrid({ workbook, caret, showGridlines = true, showFormulas 
 
   // ── The keyboard ─────────────────────────────────────────────────────────
   const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    // Keys typed into a field that lives inside the grid (a comment or reply
+    // box, a chart title) belong to that field, not to the cells.
+    const from = event.target as HTMLElement
+    if (from !== event.currentTarget && (from.tagName === 'TEXTAREA' || from.tagName === 'INPUT' || from.tagName === 'SELECT' || from.isContentEditable)) return
     if (workbook.editing) return
     if (event.nativeEvent.isComposing) return
     const mod = event.metaKey || event.ctrlKey

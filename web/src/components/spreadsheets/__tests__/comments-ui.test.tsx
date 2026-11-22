@@ -146,6 +146,20 @@ describe('comment markers and the thread card', () => {
     expect(posted?.body).toMatchObject({ parent_id: TID, body: 'Done' })
   })
 
+  it('typing in the reply box types there: the grid does not take the keys or start a cell edit', async () => {
+    await open()
+    await act(async () => {
+      marker()!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }))
+    })
+    const reply = container.querySelector('[data-comment-thread] [aria-label="Reply"]') as HTMLTextAreaElement
+    const key = new KeyboardEvent('keydown', { key: 'a', bubbles: true, cancelable: true })
+    act(() => {
+      reply.dispatchEvent(key)
+    })
+    expect(key.defaultPrevented).toBe(false)
+    expect(container.querySelector('textarea[aria-label^="Editing"]')).toBeNull()
+  })
+
   it('resolves the thread', async () => {
     await open()
     await act(async () => {
