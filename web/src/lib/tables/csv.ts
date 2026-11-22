@@ -245,7 +245,7 @@ export function csvField(value: string): string {
 }
 
 /** A text that a spreadsheet would read as a formula, made safe to open. */
-function safeText(text: string): string {
+export function safeText(text: string): string {
   return /^[=+\-@\t\r]/.test(text) ? `'${text}` : text
 }
 

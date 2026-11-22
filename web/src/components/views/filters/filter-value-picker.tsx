@@ -350,6 +350,17 @@ function DynamicEnumPicker({
           setLoaded(true)
         })
         .catch(() => { if (!cancelled) setLoaded(true) })
+    } else if (source === 'company_stages') {
+      // A company's stage (migration 679): the workspace's stages, in order.
+      fetch('/api/account/company-stages')
+        .then(r => r.ok ? r.json() : null)
+        .then((json) => {
+          if (cancelled) return
+          const stages = (json?.stages ?? []) as { id: string; name: string }[]
+          setOptions(stages.map(s => ({ id: s.id, name: s.name, ids: [s.id] })))
+          setLoaded(true)
+        })
+        .catch(() => { if (!cancelled) setLoaded(true) })
     } else {
       setLoaded(true)
     }

@@ -354,7 +354,7 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       { name: 'get_company_overview', sideEffect: 'read', label: 'Company Overview', description: 'Get account-level company overview: visible people, open actions, pending commitments, meetings, emails, decisions' },
       { name: 'list_companies', sideEffect: 'read', label: 'List Companies', description: 'List the companies in the CRM with contact/meeting counts and last interaction — the way to find a company_id' },
       { name: 'create_company', sideEffect: 'internal-write', writeTarget: 'crm', label: 'Create Company', description: 'Add a company to the CRM' },
-      { name: 'update_company', sideEffect: 'internal-write', writeTarget: 'crm', label: 'Update Company', description: 'Edit a company: name, domain, industry, size, address, tags' },
+      { name: 'update_company', sideEffect: 'internal-write', writeTarget: 'crm', label: 'Update Company', description: 'Edit a company: name, domain, industry, size, address, tags, stage, owner, revenue' },
       // Deals (roadmap #8, src/lib/ai/tools/deals.ts): every write is logged with its before and after,
       // so the agent applies a change an email, meeting or text makes and the person undoes it (no queue).
       { name: 'find_deals', sideEffect: 'read', label: 'Find Deals', description: 'Find deals by name, stage, open/won/lost, company or contact, with every pipeline\'s stages' },

@@ -136,8 +136,9 @@ export function TablesView({ onCount, card, pipelines = false }: { onCount?: (co
               <li key={t.id}>
                 <button type="button" onClick={() => setOpenId(t.id)} className="flex w-full items-center gap-3 py-2.5 text-left hover:bg-muted/40">
                   {t.kind === 'pipeline' ? (
-                    <span role="img" aria-label="Pipeline" className="flex shrink-0">
-                      <EntityIcon kind="deal" />
+                    // A pipeline of companies or contacts (679) wears its record's icon.
+                    <span role="img" aria-label={t.record_kind === 'company' ? 'Pipeline of companies' : t.record_kind === 'contact' ? 'Pipeline of contacts' : 'Pipeline'} className="flex shrink-0">
+                      <EntityIcon kind={t.record_kind ?? 'deal'} />
                     </span>
                   ) : (
                     <EntityIcon kind="data_table" />
@@ -174,9 +175,22 @@ function EmptyState({ onCreate, pipelines }: { onCreate: () => void; pipelines: 
   )
 }
 
-/** A new pipeline: a name; it starts with Lead, Qualified, Proposal, Won, Lost (Edit stages changes them). */
+/** What a new pipeline tracks (679): deals as before, or companies or contacts (each row points to one). */
+const PIPELINE_KINDS = [
+  { value: 'deal', label: 'Deals' },
+  { value: 'company', label: 'Companies' },
+  { value: 'contact', label: 'Contacts' },
+] as const
+type PipelineKindChoice = (typeof PIPELINE_KINDS)[number]['value']
+
+/**
+ * A new pipeline: what it tracks and a name. A deal pipeline starts with
+ * Lead, Qualified, Proposal, Won, Lost; a companies or contacts pipeline with
+ * its kind's stages (Edit stages changes them).
+ */
 function NewPipelineForm({ onCancel, onCreated }: { onCancel: () => void; onCreated: (table: DataTable) => void }) {
   const [name, setName] = useState('')
+  const [kind, setKind] = useState<PipelineKindChoice>('deal')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const submit = async (e: React.FormEvent) => {
@@ -186,7 +200,7 @@ function NewPipelineForm({ onCancel, onCreated }: { onCancel: () => void; onCrea
     setError(null)
     try {
       const made = await readJson<{ id: string }>(
-        await fetch('/api/account/pipelines', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) }),
+        await fetch('/api/account/pipelines', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, ...(kind === 'deal' ? {} : { record_kind: kind }) }) }),
       )
       const json = await readJson<{ table: DataTable }>(await fetch(`/api/account/tables/${made.id}`))
       onCreated(json.table)
@@ -197,6 +211,21 @@ function NewPipelineForm({ onCancel, onCreated }: { onCancel: () => void; onCrea
   }
   return (
     <form onSubmit={submit} className="flex flex-wrap items-center gap-2 py-3" data-new-pipeline="">
+      <div role="radiogroup" aria-label="What the pipeline tracks" className="flex h-8 items-center rounded-md border border-border p-0.5 text-xs">
+        {PIPELINE_KINDS.map((k) => (
+          <button
+            key={k.value}
+            type="button"
+            role="radio"
+            aria-checked={kind === k.value}
+            data-pipeline-kind={k.value}
+            onClick={() => setKind(k.value)}
+            className={kind === k.value ? 'h-full rounded px-2.5 font-medium bg-foreground text-background' : 'h-full rounded px-2.5 text-muted-foreground hover:text-foreground'}
+          >
+            {k.label}
+          </button>
+        ))}
+      </div>
       <Input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Name the pipeline" maxLength={200} className="h-8 max-w-xs" aria-label="Pipeline name" />
       <Button size="sm" type="submit" disabled={!name.trim() || saving}>
         {saving ? 'Making…' : 'Make pipeline'}

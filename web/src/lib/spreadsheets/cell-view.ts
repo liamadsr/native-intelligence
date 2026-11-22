@@ -65,6 +65,23 @@ function textColor(color: string, fill: string | null): string | null {
   return color
 }
 
+/**
+ * Text on a fill that has no color of its own: near-black on a light fill,
+ * white on a dark one, whatever the app's theme. The app's own text color
+ * is light in the dark theme and would vanish on a pale fill.
+ */
+export function contrastOn(fill: string): string | null {
+  const m = /^#?([0-9a-f]{6})$/i.exec(fill.trim())
+  if (!m) return null
+  const n = parseInt(m[1], 16)
+  const channel = (v: number) => {
+    const c = v / 255
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+  }
+  const luminance = 0.2126 * channel((n >> 16) & 255) + 0.7152 * channel((n >> 8) & 255) + 0.0722 * channel(n & 255)
+  return luminance > 0.4 ? '#111111' : '#FFFFFF'
+}
+
 export function cellView(text: string, type: number, style: CellStyle, resolve: (c: Color) => string): CellView {
   const fill = resolve(style.fill?.color) || null
   const horizontal = style.alignment?.horizontal ?? 'general'
@@ -89,7 +106,7 @@ export function cellView(text: string, type: number, style: CellStyle, resolve: 
     underline: font?.u ?? false,
     strike: font?.strike ?? false,
     fontPx: Math.max(6, Math.round((font?.sz ?? DEFAULT_FONT_POINTS) * FONT_SCALE * 10) / 10),
-    color: textColor(resolve(font?.color), fill),
+    color: textColor(resolve(font?.color), fill) ?? (fill ? contrastOn(fill) : null),
     fill,
     // The engine's default face stands for "the app's font".
     fontFamily: !name || name === 'Inter' || name === 'Calibri' ? null : name,

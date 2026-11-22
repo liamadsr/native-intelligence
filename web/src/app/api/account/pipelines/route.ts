@@ -1,12 +1,14 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { requireWorkspace } from '@/lib/api-auth'
 import { badRequest, serverError } from '@/lib/api-errors'
-import { createPipeline, listPipelines, type DealStageKind } from '@/lib/crm/deals'
+import { createPipeline, createRecordPipeline, listPipelines, type DealStageKind } from '@/lib/crm/deals'
 
 /**
  * GET: the workspace's pipelines (Tables, phase 7: a pipeline is a table),
  * the default first, each with its stages; makes the default ("Sales") the
- * first time. POST { name, stages? }: a new pipeline.
+ * first time (the deal pipelines). POST { name, stages?, record_kind? }: a new
+ * pipeline of deals, or (record_kind 'company' / 'contact', 679) of companies
+ * or contacts.
  */
 export async function GET() {
   const auth = await requireWorkspace()
@@ -35,7 +37,12 @@ export async function POST(request: NextRequest) {
         .map((s) => ({ name: s.name as string, outcome: (['won', 'lost'].includes(s.outcome as string) ? s.outcome : 'open') as DealStageKind }))
     : undefined
   try {
-    const result = await createPipeline(supabase, workspaceId, { name: body.name, stages }, { userId: user.id, source: 'person' })
+    // What it tracks (679): deals (as before), or companies or contacts, each row pointing to one.
+    const recordKind = body.record_kind === 'company' || body.record_kind === 'contact' ? body.record_kind : null
+    if (body.record_kind != null && body.record_kind !== 'deal' && !recordKind) return badRequest('A pipeline tracks deals, companies or contacts.')
+    const result = recordKind
+      ? await createRecordPipeline(supabase, workspaceId, { name: body.name, recordKind, stages }, { userId: user.id, source: 'person' })
+      : await createPipeline(supabase, workspaceId, { name: body.name, stages }, { userId: user.id, source: 'person' })
     if (!result.ok) return badRequest(result.error)
     return NextResponse.json({ id: result.id }, { status: 201 })
   } catch (e) {

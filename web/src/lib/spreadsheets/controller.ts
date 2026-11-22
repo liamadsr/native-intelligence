@@ -8,21 +8,27 @@
  * counts the engine's own steps so Undo takes back the whole action, tells
  * the listeners, and marks the workbook as needing a save.
  */
-import type { Area, CellStyle, Model } from '@ironcalc/wasm'
+import type { Area, BorderArea, CellStyle, Model } from '@ironcalc/wasm'
 import {
   MAX_CELL_CHARS,
   MAX_COLUMNS,
   MAX_ROWS,
   MAX_SHEETS,
+  cellName,
   columnName,
   rangeCellCount,
   sheetNameProblem,
   type CellRange,
   type CellRef,
 } from './a1'
+import { DEFAULT_FONT_POINTS } from './cell-view'
+import { GENERAL, PLAIN_TEXT, changeDecimals, clampFontSize } from './formats'
 import { CELL_TYPE, listSheets, saveWorkbook, usedRange, type SheetInfo } from './workbook'
 
 export type Direction = 'up' | 'down' | 'left' | 'right'
+
+/** Which edges of the selection a border goes on (the engine's own names). */
+export type BorderKind = 'All' | 'Inner' | 'Outer' | 'Top' | 'Right' | 'Bottom' | 'Left' | 'CenterH' | 'CenterV' | 'None'
 
 const ARROW: Record<Direction, string> = { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight' }
 
@@ -472,7 +478,11 @@ export class WorkbookController {
     if (input.length > MAX_CELL_CHARS) return no(`A cell holds ${MAX_CELL_CHARS.toLocaleString('en-US')} characters at most.`)
     if (row > MAX_ROWS || column > MAX_COLUMNS) return no('That cell is past the edge of the sheet.')
     this.reach(sheet, row, column)
-    return this.act(() => this.mut(() => this.model.setUserInput(sheet, row, column, input)))
+    // A cell formatted as plain text keeps what is typed as text: a formula stays a formula's
+    // words and 007 keeps its zeros (the engine's quote prefix, which a person can also type).
+    const plain = input !== '' && !input.startsWith("'") && this.model.getCellStyle(sheet, row, column).style.num_fmt === PLAIN_TEXT
+    const typed = plain ? `'${input}` : input
+    return this.act(() => this.mut(() => this.model.setUserInput(sheet, row, column, typed)))
   }
 
   /** Delete or Backspace: the values go, the formats stay. */
@@ -858,6 +868,131 @@ export class WorkbookController {
     const { range } = this.selection()
     const sheet = this.sheet
     return this.act(() => this.mut(() => this.model.updateRangeStyle(area(sheet, range), path, value)), { layout: true })
+  }
+
+  /** The format code of the active cell: what the toolbar shows and steps from. */
+  numberFormat(): string {
+    const { row, column } = this.selection()
+    return this.style(row, column).num_fmt || GENERAL
+  }
+
+  setNumberFormat(code: string): ActionResult {
+    return this.setStyle('num_fmt', code || GENERAL)
+  }
+
+  /** More or fewer decimal places, from the active cell's format, on the whole selection. */
+  changeDecimals(delta: number): ActionResult {
+    const { row, column } = this.selection()
+    const next = changeDecimals(this.numberFormat(), delta, this.text(row, column))
+    return next === this.numberFormat() ? OK : this.setStyle('num_fmt', next)
+  }
+
+  setFontSize(points: number): ActionResult {
+    return this.setStyle('font.size', String(clampFontSize(points)))
+  }
+
+  /** One step larger or smaller, from the active cell's size. */
+  stepFontSize(direction: 1 | -1): ActionResult {
+    const { row, column } = this.selection()
+    const now = this.style(row, column).font?.sz ?? DEFAULT_FONT_POINTS
+    return this.setFontSize(clampFontSize(now + direction))
+  }
+
+  /**
+   * The font of the selection. The engine has no path for a font's name, so
+   * each cell's whole style is read, given the name and written back in one
+   * step; a selection is cut to what the sheet uses, and to 50,000 cells.
+   */
+  setFontFamily(name: string): ActionResult {
+    const sheet = this.sheet
+    const { range, row, column } = this.selection()
+    const used = usedRange(this.model, sheet)
+    const r2 = Math.min(range.r2, Math.max(used?.r2 ?? range.r1, range.r1))
+    const c2 = Math.min(range.c2, Math.max(used?.c2 ?? range.c1, range.c1))
+    if (rangeCellCount({ ...range, r2, c2 }) > 50_000) return no('That is too many cells to restyle at once.')
+    const styles: CellStyle[][] = []
+    for (let r = range.r1; r <= r2; r++) {
+      const line: CellStyle[] = []
+      for (let c = range.c1; c <= c2; c++) {
+        const style = this.model.getCellStyle(sheet, r, c).style
+        line.push({ ...style, font: { ...style.font, name } })
+      }
+      styles.push(line)
+    }
+    return this.act(() => {
+      this.model.setSelectedCell(range.r1, range.c1)
+      this.model.setSelectedRange(range.r1, range.c1, r2, c2)
+      this.mut(() => this.model.onPasteStyles(styles))
+      this.model.setSelectedCell(row, column)
+      this.model.setSelectedRange(range.r1, range.c1, range.r2, range.c2)
+    })
+  }
+
+  /** Borders on the selection: all, inner, outer, one edge, or none. */
+  setBorders(type: BorderKind, options: { style?: 'thin' | 'medium' | 'thick' | 'dotted' | 'double'; color?: string } = {}): ActionResult {
+    const { range } = this.selection()
+    const sheet = this.sheet
+    const border = { item: { style: options.style ?? 'thin', color: options.color ?? '#000000' }, type } as unknown as BorderArea
+    return this.act(() => this.mut(() => this.model.setAreaWithBorder(area(sheet, range), border)))
+  }
+
+  /** Whether the sheet's grid lines are drawn (kept with the workbook). */
+  showGridLines(sheet = this.sheet): boolean {
+    return this.model.getShowGridLines(sheet)
+  }
+
+  setShowGridLines(show: boolean): ActionResult {
+    const sheet = this.sheet
+    if (this.showGridLines(sheet) === show) return OK
+    return this.act(() => this.mut(() => this.model.setShowGridLines(sheet, show)))
+  }
+
+  /** Spaces at the ends of the selection's text cells go, and runs of spaces inside become one. Formulas are left alone. */
+  trimWhitespace(): ActionResult & { trimmed?: number } {
+    const sheet = this.sheet
+    const { range } = this.selection()
+    const used = usedRange(this.model, sheet)
+    if (!used) return { ok: true, trimmed: 0 }
+    let trimmed = 0
+    const result = this.act(() => {
+      for (let row = Math.max(range.r1, used.r1); row <= Math.min(range.r2, used.r2); row++) {
+        for (const column of this.model.getColumnsWithData(sheet, row)) {
+          if (column < range.c1 || column > range.c2) continue
+          const before = this.model.getCellContent(sheet, row, column)
+          if (before.startsWith('=')) continue
+          const after = before.replace(/[ \t ]+/g, ' ').trim()
+          if (after === before) continue
+          this.mut(() => this.model.setUserInput(sheet, row, column, after))
+          trimmed += 1
+        }
+      }
+    })
+    return result.ok ? { ok: true, trimmed } : result
+  }
+
+  /** Put a function over the selection's numbers into the cell under them (or beside a single row). */
+  insertFunction(name: string): ActionResult {
+    const { range, row, column } = this.selection()
+    const single = range.r1 === range.r2 && range.c1 === range.c2
+    if (single) {
+      // On one cell: start the formula and let the person point at its range.
+      if (!this.startEdit({ initial: `=${name}(` })) return no('You can view this spreadsheet but not change it.')
+      return OK
+    }
+    const sheet = this.sheet
+    const across = range.r1 === range.r2
+    return this.act(() => {
+      if (across) {
+        const target = range.c2 + 1
+        this.mut(() => this.model.setUserInput(sheet, range.r1, target, `=${name}(${cellName(range.r1, range.c1)}:${cellName(range.r1, range.c2)})`))
+      } else {
+        for (let c = range.c1; c <= range.c2; c++) {
+          this.mut(() => this.model.setUserInput(sheet, range.r2 + 1, c, `=${name}(${cellName(range.r1, c)}:${cellName(range.r2, c)})`))
+        }
+      }
+      this.model.setSelectedCell(row, column)
+      this.model.setSelectedRange(range.r1, range.c1, range.r2, range.c2)
+    })
   }
 
   // ── Sort ─────────────────────────────────────────────────────────────────

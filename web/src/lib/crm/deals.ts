@@ -161,6 +161,8 @@ export async function listPipelines(db: SupabaseClient, workspaceId: string, opt
   await ensureDefaultPipeline(db, workspaceId, opts.viewer ?? null)
   let tables = await listTables(db, workspaceId, { kind: 'pipeline' })
   if (opts.archived) tables = [...tables, ...(await listTables(db, workspaceId, { kind: 'pipeline', archived: true }))]
+  // A pipeline of companies or contacts (679) holds no deals: deals keep to the deal pipelines.
+  tables = tables.filter((t) => t.record_kind == null)
   if (opts.readable && tables.length) {
     const ok = await opts.readable(tables.map((t) => t.id))
     tables = tables.filter((t) => ok.has(t.id))
@@ -903,6 +905,43 @@ export async function createPipeline(
     p_reason: actor.reason ?? null,
     p_default: false,
     p_currency: currency,
+  })
+  if (error) return { ok: false, error: error.message.charAt(0).toUpperCase() + error.message.slice(1) }
+  return { ok: true, id: String((data as { table_id?: string } | null)?.table_id ?? '') }
+}
+
+/**
+ * A new pipeline of companies or contacts (679's create_record_pipeline):
+ * 540's columns and checks, its stages (each kind has defaults), each row
+ * pointing to one record. Never the default: the default holds deals.
+ */
+export async function createRecordPipeline(
+  db: SupabaseClient,
+  workspaceId: string,
+  input: { name: string; recordKind: 'company' | 'contact'; stages?: Array<{ name: string; outcome?: DealStageKind }> },
+  actor: DealActor & { asUserId?: string | null },
+): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  const name = input.name.trim()
+  if (!name) return { ok: false, error: 'A pipeline needs a name.' }
+  if (name.length > 200) return { ok: false, error: "A pipeline's name is at most 200 characters." }
+  if (input.recordKind !== 'company' && input.recordKind !== 'contact') return { ok: false, error: 'A pipeline tracks deals, companies or contacts.' }
+  const seen = new Set<string>()
+  const stages = (input.stages ?? [])
+    .map((s) => ({ name: s.name.trim().slice(0, 60), outcome: s.outcome === 'won' || s.outcome === 'lost' ? s.outcome : 'open' }))
+    .filter((s) => {
+      if (!s.name || seen.has(s.name.toLowerCase())) return false
+      seen.add(s.name.toLowerCase())
+      return true
+    })
+    .slice(0, 50)
+  const { data, error } = await db.rpc('create_record_pipeline', {
+    p_workspace_id: workspaceId,
+    p_name: name,
+    p_record_kind: input.recordKind,
+    p_stages: stages.length ? stages : null,
+    p_source: actor.source,
+    p_as_user: actor.asUserId ?? null,
+    p_reason: actor.reason ?? null,
   })
   if (error) return { ok: false, error: error.message.charAt(0).toUpperCase() + error.message.slice(1) }
   return { ok: true, id: String((data as { table_id?: string } | null)?.table_id ?? '') }

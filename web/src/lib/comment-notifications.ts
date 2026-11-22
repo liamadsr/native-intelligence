@@ -5,7 +5,7 @@ import { getServiceClient } from '@/lib/admin'
 interface CommentNotificationParams {
   supabase: SupabaseClient
   workspaceId: string
-  commentableType: 'action' | 'capture' | 'document' | 'project' | 'contact'
+  commentableType: 'action' | 'capture' | 'document' | 'project' | 'contact' | 'company'
   commentableId: string
   authorMemberId: string
   commentBody: string
@@ -39,6 +39,9 @@ export async function sendCommentNotifications(params: CommentNotificationParams
     let parentTitle = ''
     // Set for a private document: the one member who may hear about it.
     let privateTo: string | null | undefined
+    // Set for a company (679): a member hears of it only while they can see
+    // the company (company_visible_to, the company's own read rule).
+    let mayHear: ((memberId: string) => Promise<boolean>) | undefined
     if (params.commentableType === 'action') {
       const { data } = await service
         .from('actions')
@@ -70,6 +73,29 @@ export async function sendCommentNotifications(params: CommentNotificationParams
         .eq('id', params.commentableId)
         .single()
       parentTitle = data?.name || 'a project'
+    } else if (params.commentableType === 'company') {
+      const { data } = await service
+        .from('company')
+        .select('name')
+        .eq('id', params.commentableId)
+        .single()
+      parentTitle = data?.name || 'a company'
+      const seen = new Map<string, boolean>()
+      mayHear = async (memberId: string) => {
+        if (seen.has(memberId)) return seen.get(memberId)!
+        let ok = false
+        try {
+          const { data: m } = await service.from('member').select('user_id').eq('id', memberId).eq('workspace_id', params.workspaceId).maybeSingle()
+          if (m?.user_id) {
+            const { data: visible } = await service.rpc('company_visible_to', { p_company_id: params.commentableId, p_user_id: m.user_id })
+            ok = visible === true
+          }
+        } catch {
+          ok = false
+        }
+        seen.set(memberId, ok)
+        return ok
+      }
     } else {
       // A contact's name is not repeated into notices: contacts can be private.
       parentTitle = `a ${params.commentableType}`
@@ -104,7 +130,8 @@ export async function sendCommentNotifications(params: CommentNotificationParams
       if (
         parentComment?.author_id &&
         parentComment.author_id !== params.authorMemberId &&
-        (privateTo === undefined || parentComment.author_id === privateTo)
+        (privateTo === undefined || parentComment.author_id === privateTo) &&
+        (!mayHear || (await mayHear(parentComment.author_id)))
       ) {
         await createNotification({
           workspaceId: params.workspaceId,
@@ -130,6 +157,7 @@ export async function sendCommentNotifications(params: CommentNotificationParams
     for (const recipientId of new Set(params.mentionedMemberIds ?? [])) {
       if (recipientId === params.authorMemberId || notified.has(recipientId)) continue
       if (privateTo !== undefined && recipientId !== privateTo) continue
+      if (mayHear && !(await mayHear(recipientId))) continue
       await createNotification({
         workspaceId: params.workspaceId,
         recipientId,
@@ -178,6 +206,13 @@ export async function sendCommentNotifications(params: CommentNotificationParams
         .eq('id', params.commentableId)
         .single()
       if (data?.created_by) recipients.add(data.created_by)
+    } else if (params.commentableType === 'company') {
+      const { data } = await service
+        .from('company')
+        .select('owner_member_id')
+        .eq('id', params.commentableId)
+        .single()
+      if (data?.owner_member_id) recipients.add(data.owner_member_id)
     }
 
     // 3. Previous commenters on this entity
@@ -203,6 +238,7 @@ export async function sendCommentNotifications(params: CommentNotificationParams
     // Send comment_added to all recipients who haven't already gotten a reply notification
     for (const recipientId of recipients) {
       if (notified.has(recipientId)) continue
+      if (mayHear && !(await mayHear(recipientId))) continue
       await createNotification({
         workspaceId: params.workspaceId,
         recipientId,

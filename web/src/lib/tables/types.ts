@@ -14,6 +14,12 @@
  */
 import type { CustomFieldConfig, CustomFieldType, CustomFieldValue } from '@/lib/crm/custom-fields'
 
+/** What a pipeline of records tracks (679): companies or contacts. */
+export type PipelineRecordKind = 'company' | 'contact'
+export const PIPELINE_RECORD_KINDS: readonly PipelineRecordKind[] = ['company', 'contact']
+/** The system column holding a record pipeline row's record (679's pipeline_record_key). */
+export const pipelineRecordKey = (kind: PipelineRecordKind): 'company' | 'contacts' => (kind === 'company' ? 'company' : 'contacts')
+
 export type DataTableVisibility = 'workspace' | 'private'
 
 /** A table, or a pipeline: its rows are deals (migration 540). */
@@ -87,6 +93,12 @@ export interface DataTable {
   kind?: DataTableKind
   /** The workspace's default pipeline. */
   is_default?: boolean
+  /**
+   * A pipeline of records (migration 679): each row points to one company
+   * (its system Company column) or one contact (its system Contacts column).
+   * Null or absent: a pipeline of deals, or a table.
+   */
+  record_kind?: PipelineRecordKind | null
   version: number
   position: number
   archived_at: string | null

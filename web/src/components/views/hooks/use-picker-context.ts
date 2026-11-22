@@ -30,7 +30,7 @@ const ENTITY_CONTEXT_REQUIREMENTS: Record<ViewEntityType, ContextKey[]> = {
   initiative: ['members', 'labels'],
   capture: ['projects', 'members'],
   contact: ['companies'],
-  company: [],
+  company: ['members'],
   document: ['members', 'projects'],
   email_thread: ['labels'],
   flow: [],

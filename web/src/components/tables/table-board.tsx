@@ -17,7 +17,8 @@ import { Plus } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { boardLanes, boardMoveEdit, cardColumns, NO_VALUE, type BoardLane } from '@/lib/tables/views'
-import type { DataColumn, DataRow } from '@/lib/tables/types'
+import { pipelineRecordKey, type DataColumn, type DataRow, type PipelineRecordKind } from '@/lib/tables/types'
+import { RecordPicker, takenRecords } from './record-picker'
 import { formatTotals, RowCard } from './row-card'
 import { newId } from './table-grid'
 import type { TableData } from './use-table-data'
@@ -77,6 +78,18 @@ export function TableBoard({
     onOpenRow(id)
   }
 
+  // A pipeline of companies or contacts (679): a lane adds a row by picking its record.
+  const recordKind = data.table?.record_kind ?? null
+  const recordKey = recordKind ? pipelineRecordKey(recordKind) : null
+  const taken = useMemo(() => (recordKey ? takenRecords(rows, recordKey) : new Set<string>()), [rows, recordKey])
+  const addRecordTo = (laneKey: string, record: { id: string; title: string }) => {
+    if (!recordKey) return
+    const id = newId()
+    const values = { [recordKey]: [record.id], ...(laneKey === NO_VALUE ? {} : { [column.key]: laneKey }) }
+    const refused = data.edit([], [{ id, title: record.title, values }])
+    if (refused.length) toast.error(refused[0].error)
+  }
+
   return (
     <DndProvider backend={HTML5Backend}>
       <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto border-t border-border p-4" data-table-board={column.key}>
@@ -89,7 +102,8 @@ export function TableBoard({
             totalColumn={totalColumn}
             canEdit={canEdit}
             onDrop={move}
-            onAdd={canEdit ? () => addTo(lane.key) : undefined}
+            onAdd={canEdit && !recordKind ? () => addTo(lane.key) : undefined}
+            addRecord={canEdit && recordKind ? { kind: recordKind, taken, onPick: (r) => addRecordTo(lane.key, r) } : undefined}
             onOpenRow={onOpenRow}
           />
         ))}
@@ -106,6 +120,7 @@ function Lane({
   canEdit,
   onDrop,
   onAdd,
+  addRecord,
   onOpenRow,
 }: {
   lane: BoardLane
@@ -115,6 +130,7 @@ function Lane({
   canEdit: boolean
   onDrop: (rowId: string, laneKey: string) => void
   onAdd?: () => void
+  addRecord?: { kind: PipelineRecordKind; taken: ReadonlySet<string>; onPick: (record: { id: string; title: string }) => void }
   onOpenRow: (rowId: string) => void
 }) {
   const [limit, setLimit] = useState(LANE_CARDS)
@@ -151,6 +167,14 @@ function Lane({
           <button type="button" className="rounded-md py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => setLimit((n) => n + LANE_CARDS)}>
             Show {Math.min(LANE_CARDS, lane.rows.length - limit)} more
           </button>
+        )}
+        {addRecord && (
+          <RecordPicker
+            kind={addRecord.kind}
+            taken={addRecord.taken}
+            onPick={addRecord.onPick}
+            className="flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+          />
         )}
         {onAdd && (
           <button type="button" onClick={onAdd} className="flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground">

@@ -14,6 +14,8 @@
  * A viewer who can't change the table gets the same grid read-only: select,
  * copy, sort and hide, nothing that writes.
  */
+import { RecordPicker, takenRecords } from './record-picker'
+import { pipelineRecordKey } from '@/lib/tables/types'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertCircle, ArrowDown, ArrowUp, EyeOff, ListOrdered, Maximize2, Pencil, Plus, Shapes, Sigma, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -134,6 +136,19 @@ export function TableGrid({
     focusNewRow.current = id
     data.edit([], [{ id, title: '' }])
   }, [data])
+
+  // A pipeline of companies or contacts (679): a row is added by picking its record.
+  const recordKind = data.table?.record_kind ?? null
+  const recordKey = recordKind ? pipelineRecordKey(recordKind) : null
+  const takenIds = useMemo(() => (recordKey ? takenRecords(rows, recordKey) : new Set<string>()), [rows, recordKey])
+  const addRecordRow = useCallback(
+    (record: { id: string; title: string }) => {
+      if (!recordKey) return
+      const refused = data.edit([], [{ id: newId(), title: record.title, values: { [recordKey]: [record.id] } }])
+      if (refused.length) toast.error(refused[0].error)
+    },
+    [data, recordKey],
+  )
 
   const gridColumns = useMemo<GridColumn[]>(() => {
     const header = (col: CellColumn, type: DataColumnType, problem?: string) => (
@@ -351,7 +366,14 @@ export function TableGrid({
                   : undefined
               }
               footer={
-                canEdit ? (
+                canEdit && recordKind ? (
+                  <RecordPicker
+                    kind={recordKind}
+                    taken={takenIds}
+                    onPick={addRecordRow}
+                    className="flex h-full w-full items-center gap-1.5 px-3 text-sm text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+                  />
+                ) : canEdit ? (
                   <button type="button" onClick={addRow} className="flex h-full w-full items-center gap-1.5 px-3 text-sm text-muted-foreground hover:bg-muted/40 hover:text-foreground">
                     <Plus className="h-3.5 w-3.5" />
                     New
