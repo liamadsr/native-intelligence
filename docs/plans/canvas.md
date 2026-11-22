@@ -309,6 +309,15 @@ Built and checked in a browser against the dev project (50 scripted checks):
   markup from its menu ("Edit page…"). Not built: Macro's per-canvas library
   of named styles and components, and a person making an artifact from
   nothing (the insert menu has Macro's three choices).
+- **Unsent edits survive a reload.** What the server does not have yet is
+  kept in the browser (localStorage), per canvas and per person, from the
+  moment an edit is made until its write is answered. Opening the canvas again
+  lays it over the server's items, says so, and sends it. Entries older than
+  two weeks, or over about 3 MB, are not kept.
+- **A record's link dragged onto the canvas** lands as its card where it is
+  dropped (from the address bar, or any link in the app). The app's own lists
+  are not drag sources today, so a row cannot be dragged yet: that is a change
+  to the views, not to the canvas.
 - **A canvas deleted for good takes its files** out of storage (archiving,
   which is what the editor's Delete does, keeps them).
 - **Phase 4:** `read_canvas`, `edit_canvas`, `create_canvas` in the tool
@@ -319,11 +328,8 @@ Built and checked in a browser against the dev project (50 scripted checks):
 
 Not built yet:
 
-- **Dragging a record from the app** onto the canvas (paste its link or use
-  Reference today), and video play controls in the inspector.
+- **Video play controls in the inspector.**
 - **Ghost cursors for an agent's edits** (the edits themselves arrive live).
-- **Unsent edits kept across a reload** (they are kept and retried while the
-  page is open).
 - Per-person grants and public links: not now (the owner, 2026-11-22).
 - In comments: @-mentions and notifications, editing a comment's words in the
   panel (the route and the guard allow it), and comments in the agent tools.
@@ -446,3 +452,13 @@ Made without asking, while working through the night of 2026-11-22.
     two operations from `operation` in `src/lib/ai/tools/canvas.ts`.
 11. **An artifact opens for someone who can only view the canvas** (a page is
     there to be used); they cannot change it.
+12. **Unsent edits restored after a reload overwrite what others saved to the
+    same items meanwhile** (the same last-write-wins as live editing), and an
+    item someone else deleted comes back if it was among them. They are kept
+    in localStorage, readable by anything running on the app's origin in that
+    browser, like the rest of the page's data; they are keyed by the person's
+    id, so the next person to sign in on that browser does not get them, but
+    signing out does not erase them.
+13. **The canvas's GET now also returns `viewer`** (the caller's own user id),
+    for that key.
+

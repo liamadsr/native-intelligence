@@ -24,7 +24,7 @@ import { THEME_COLORS } from '@/lib/canvas/engine/colors'
 import { ordered } from '@/lib/canvas/engine/scene'
 import { cn } from '@/lib/utils'
 import { CanvasContextMenu } from './canvas-context-menu'
-import { insertRecord, mediaFiles, readPaste, writeCopy } from './clipboard'
+import { dragHasLink, insertRecord, mediaFiles, readPaste, recordFromDrop, writeCopy } from './clipboard'
 import { InsertMenu, MediaPicker, ReferencePicker, type InsertChoice } from './insert-menu'
 import { insertMediaFiles, uploadTo } from './media-client'
 import { entityOpenTarget } from '@/lib/entity-links/open-entity'
@@ -698,15 +698,26 @@ export default function CanvasEditor({ canvasId, onBack, onTitle }: CanvasEditor
           }}
           onPointerLeave={() => presence.current?.update({ cursor: null })}
           onDragOver={(e) => {
-            if (loaded.canEdit && [...e.dataTransfer.types].includes('Files')) e.preventDefault()
+            const types = [...e.dataTransfer.types]
+            // The canvas's own drags (none today) aside: files, or a link that may be a record's.
+            if (loaded.canEdit && (types.includes('Files') || dragHasLink(types))) e.preventDefault()
           }}
           onDrop={(e) => {
             if (!loaded.canEdit) return
-            const files = mediaFiles(e.dataTransfer)
-            if (!files.length) return
-            e.preventDefault()
             const rect = e.currentTarget.getBoundingClientRect()
-            void addFiles(files, toWorld(store.camera, { x: e.clientX - rect.left, y: e.clientY - rect.top }))
+            const at = toWorld(store.camera, { x: e.clientX - rect.left, y: e.clientY - rect.top })
+            const files = mediaFiles(e.dataTransfer)
+            if (files.length) {
+              e.preventDefault()
+              void addFiles(files, at)
+              return
+            }
+            // A record's link, dragged in from the app: its card, where it was dropped.
+            const ref = recordFromDrop(e.dataTransfer, window.location.origin)
+            if (!ref) return
+            e.preventDefault()
+            insertRecord(store, ref, at)
+            refocus()
           }}
         >
           <input

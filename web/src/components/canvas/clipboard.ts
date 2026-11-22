@@ -57,6 +57,28 @@ export function recordFromLink(text: string, origin: string): { type: string; id
   return null
 }
 
+/**
+ * The record a drag carries, if it carries a link to one: a link dragged from
+ * anywhere in the app (or from the address bar) lands as that record's card.
+ * A drag's link is its `text/uri-list` (first line that is not a comment), or
+ * its plain text.
+ */
+export function recordFromDrop(data: Pick<DataTransfer, 'getData'> | null, origin: string): { type: string; id: string } | null {
+  if (!data) return null
+  const uris = (data.getData('text/uri-list') || '')
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith('#'))
+  for (const candidate of [...uris.slice(0, 1), data.getData('text/plain') || '']) {
+    const ref = candidate ? recordFromLink(candidate, origin) : null
+    if (ref) return ref
+  }
+  return null
+}
+
+/** Could this drag be a link? (Its contents cannot be read until it is dropped.) */
+export const dragHasLink = (types: readonly string[]): boolean => types.includes('text/uri-list') || types.includes('text/plain')
+
 /** Put a record's card in the middle of the view, in front. */
 export function insertRecord(store: CanvasStore, ref: { type: string; id: string; label?: string }, at = store.viewCenter()): void {
   const state = store.getState()
