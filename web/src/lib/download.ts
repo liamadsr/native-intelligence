@@ -58,8 +58,19 @@ export async function downloadFile(
   onHeaders?.(res.headers)
   const fileName =
     filenameFromContentDisposition(res.headers.get('Content-Disposition')) ?? fallbackName
-  const buffer = await res.arrayBuffer()
+  return saveBytes(fileName, await res.arrayBuffer())
+}
 
+/**
+ * Save text made in the page (an event's .ics, say) as a file: the native
+ * save dialog on desktop, a blob-anchor click in the browser. Returns where it
+ * went, or null if the desktop save dialog was cancelled.
+ */
+export async function saveTextFile(fileName: string, text: string, type = 'text/plain'): Promise<string | null> {
+  return saveBytes(fileName, new TextEncoder().encode(text).buffer as ArrayBuffer, type)
+}
+
+async function saveBytes(fileName: string, buffer: ArrayBuffer, type?: string): Promise<string | null> {
   if (isDesktopApp()) {
     try {
       return await tauriBridge.saveFile(fileName, Array.from(new Uint8Array(buffer)))
@@ -72,7 +83,7 @@ export async function downloadFile(
     }
   }
 
-  const blobUrl = URL.createObjectURL(new Blob([buffer]))
+  const blobUrl = URL.createObjectURL(new Blob([buffer], type ? { type } : undefined))
   const a = document.createElement('a')
   a.href = blobUrl
   a.download = fileName

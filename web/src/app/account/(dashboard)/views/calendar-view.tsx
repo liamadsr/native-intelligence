@@ -18,11 +18,14 @@ import type { CalendarCardView as CardView } from '@/lib/chat-cards/kinds'
 
 interface CalendarSelectProps {
   onSelectAction?: (actionId: string) => void
+  /** The full event panel: the event card on the grid links to it. */
   onSelectEvent?: (event: IEvent) => void
+  /** Open a capture (the event card's View capture). */
+  onOpenCapture?: (captureId: string, title: string) => void
 }
 
 /** The Calendar page: the shared events (one cache with the Capture button's calendar) and the shared account filter. */
-export function CalendarView({ onSelectAction, onSelectEvent }: CalendarSelectProps) {
+export function CalendarView({ onSelectAction, onSelectEvent, onOpenCapture }: CalendarSelectProps) {
   const { events, loading, error, filterAccountIds, setFilterAccountIds } = useCalendarEvents()
   const [view, setView] = useState<TCalendarView>('day')
   return (
@@ -36,6 +39,7 @@ export function CalendarView({ onSelectAction, onSelectEvent }: CalendarSelectPr
       onFilterChange={setFilterAccountIds}
       onSelectAction={onSelectAction}
       onSelectEvent={onSelectEvent}
+      onOpenCapture={onOpenCapture}
       sidebar={{}}
     />
   )
@@ -106,7 +110,7 @@ const CARD_VIEWS: readonly TCalendarView[] = ['day', 'week', 'month']
  * page's shared events or account filter, so a card never moves the Calendar
  * page or the Capture button's calendar, and the page never moves a card.
  */
-export function CalendarCardView({ initial, compact, onStateChange, onEvents, onSelectAction, onSelectEvent }: CalendarCardViewProps) {
+export function CalendarCardView({ initial, compact, onStateChange, onEvents, onSelectAction, onSelectEvent, onOpenCapture }: CalendarCardViewProps) {
   const [state, setState] = useState<CalendarCardState>(initial)
   const [initialDate] = useState(() => localMidnight(initial.date))
   const range = calendarRange(state.view, state.date)
@@ -152,6 +156,7 @@ export function CalendarCardView({ initial, compact, onStateChange, onEvents, on
       onFilterChange={(accounts) => setState((prev) => ({ ...prev, accounts }))}
       onSelectAction={onSelectAction}
       onSelectEvent={onSelectEvent}
+      onOpenCapture={onOpenCapture}
       sidebar={compact ? undefined : { upcoming: upcoming.events }}
       card={{
         compact: !!compact,
@@ -184,6 +189,7 @@ function CalendarSurface({
   onFilterChange,
   onSelectAction,
   onSelectEvent,
+  onOpenCapture,
   card,
   sidebar: withSidebar,
 }: CalendarSelectProps & {
@@ -273,6 +279,7 @@ function CalendarSurface({
         events={shownEvents}
         onSelectAction={onSelectAction}
         onSelectEvent={onSelectEvent}
+        onOpenCapture={onOpenCapture}
         initialDate={card?.initialDate}
         onSelectedDateChange={card?.onDateChange}
       >
