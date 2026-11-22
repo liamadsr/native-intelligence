@@ -1009,6 +1009,17 @@ html[data-sky-tone] [data-on-sky] {
   html[data-app-rail] .card-page-layer::before {
     display: none;
   }
+  /* The page's glass there is its tint alone, no blur (Liam, 11-22: "what is
+     this line that shows randomly as you hover over different documents or
+     projects"): hovering redraws part of the page, and Chromium redrew the
+     blurred backdrop for that part only, so a band of it came out lighter
+     than the rest, edged with a straight line across the page. The sky
+     behind a page in front is held still (sky-activity's `full` hold) and
+     soft, so the blur showed almost nothing anyway. */
+  html[data-app-rail] .card-page-layer [data-card-glass] {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
   /* Opacity too: a child with `transition: all` would ease its visibility out
      over its duration, showing beside the page meanwhile. */
   html[data-app-rail][data-card-front] [data-windows-row] > :not([data-page-panel]):not(#ni-chat-strip-slot):not([data-fading-blur]),
