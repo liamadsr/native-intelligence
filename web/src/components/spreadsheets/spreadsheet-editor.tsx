@@ -257,6 +257,7 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
       return 'stopped'
     }
     workbook.adopt(theirs, workbook.extrasDirty ? mergeExtras(workbook.baseExtras, workbook.extras, theirExtras) : theirExtras, theirExtras)
+    workbook.replacePending(result.pending)
     revision.current = latest.revision
     setRecord((prev) => ({ ...prev, revision: latest.revision, last_edited_by: latest.last_edited_by }))
     const note = droppedNote(result.dropped)
@@ -358,6 +359,7 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
                   return
                 }
                 workbook.adopt(theirs, workbook.extrasDirty ? mergeExtras(workbook.baseExtras, workbook.extras, theirExtras) : theirExtras, theirExtras)
+                workbook.replacePending(result.pending)
                 revision.current = latest.revision
                 setRecord((prev) => ({ ...prev, revision: latest.revision, last_edited_by: latest.last_edited_by }))
                 if (!minePending.length && !workbook.extrasDirty && unsavedStructure.current.length === 0) {

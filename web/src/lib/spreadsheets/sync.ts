@@ -94,7 +94,18 @@ export interface RebaseWithLogInput {
 }
 
 export type RebaseWithLogResult =
-  | { status: 'merged'; model: Model; dropped: number }
+  | {
+      status: 'merged'
+      model: Model
+      dropped: number
+      /**
+       * My pending work as it now stands in the merged workbook: moved cells at
+       * their new addresses, dropped actions gone. It is still unsaved, so the
+       * editor keeps THIS list; a save refused again must not replay the old
+       * addresses onto a log that no longer mentions what moved them.
+       */
+      pending: PendingEntry[]
+    }
   /** A late edit could not be placed with certainty: keep the person's own version, do not adopt. */
   | { status: 'stop' }
 
@@ -168,6 +179,7 @@ export function rebaseWithLog(input: RebaseWithLogInput): RebaseWithLogResult {
     | { kind: 'diff'; diff: Uint8Array }
 
   const ops: Op[] = []
+  const rebased: PendingEntry[] = []
   let dropped = 0
 
   // First pass: plan every action, detecting a stop before anything is applied.
@@ -180,6 +192,7 @@ export function rebaseWithLog(input: RebaseWithLogInput): RebaseWithLogResult {
         continue
       }
       const entries = relevant.filter((e) => e.sheetId === action.sheetId && ROW_COL.has(e.type))
+      const kept: Array<{ row: number; column: number; input: string }> = []
       for (const cell of action.cells) {
         const moved = moveCell(cell.row, cell.column, entries)
         if (!moved) {
@@ -187,7 +200,9 @@ export function rebaseWithLog(input: RebaseWithLogInput): RebaseWithLogResult {
           continue
         }
         ops.push({ kind: 'cell', sheetIndex: theirIndex, row: moved.row, column: moved.column, input: cell.input })
+        kept.push({ row: moved.row, column: moved.column, input: cell.input })
       }
+      if (kept.length) rebased.push({ diff, action: { kind: 'cells', sheetId: action.sheetId, cells: kept } })
       continue
     }
     if (action.kind === 'structure') {
@@ -203,6 +218,7 @@ export function rebaseWithLog(input: RebaseWithLogInput): RebaseWithLogResult {
       const theyChangedStructure = relevant.some((e) => e.sheetId === sheetId && ROW_COL.has(e.type))
       if (theyChangedStructure) return { status: 'stop' } // both sides changed structure on one sheet
       ops.push({ kind: 'structure', sheetIndex: theirIndex, change })
+      rebased.push({ diff, action })
       continue
     }
     // opaque
@@ -212,6 +228,7 @@ export function rebaseWithLog(input: RebaseWithLogInput): RebaseWithLogResult {
       // The action's sheet is unknown: safe only when nothing structural moved and no sheet was added, deleted or moved.
       if (relevant.length || sheetMapChanged(myIndexById, theirIndexById)) return { status: 'stop' }
       ops.push({ kind: 'diff', diff })
+      rebased.push({ diff, action })
       continue
     }
     const theirIndex = theirIndexById.get(sheetId)
@@ -222,6 +239,7 @@ export function rebaseWithLog(input: RebaseWithLogInput): RebaseWithLogResult {
     if (relevant.some((e) => e.sheetId === sheetId)) return { status: 'stop' } // structure touched its sheet
     if (myIndexById.get(sheetId) !== theirIndex) return { status: 'stop' } // the sheet moved: its diff's index would miss
     ops.push({ kind: 'diff', diff })
+    rebased.push({ diff, action })
   }
 
   // Second pass: apply, in order. Row/column inserts and deletes do not move
@@ -246,7 +264,7 @@ export function rebaseWithLog(input: RebaseWithLogInput): RebaseWithLogResult {
     }
   }
   theirs.evaluate()
-  return { status: 'merged', model: theirs, dropped }
+  return { status: 'merged', model: theirs, dropped, pending: rebased }
 }
 
 /**

@@ -361,6 +361,32 @@ describe('rebaseWithLog moves late cell edits onto the newer layout', () => {
     expect(theirs.getFormattedCellValue(0, 5, 1)).toBe('Paper')
     expect(theirs.getFormattedCellValue(0, 5, 2)).toBe('20')
     expect(theirs.getFormattedCellValue(0, 7, 2)).toBe('40') // Tape
+
+    // The save after that merge is refused too: A inserted a THIRD row (revision 4,
+    // made over 3). What is replayed now is the pending work as the first merge
+    // left it (555 on row 6), moved once more, not the address B first typed at.
+    expect(result.status === 'merged' && result.pending).toEqual([
+      expect.objectContaining({ action: { kind: 'cells', sheetId, cells: [{ row: 6, column: 2, input: '555' }] } }),
+    ])
+    const rev3 = loadModel(rev2)
+    rev3.insertRows(0, 3, 1)
+    rev3.evaluate()
+    const third = loadModel(saveWorkbook(rev3))
+    rev3.free()
+    third.insertRows(0, 3, 1)
+    third.evaluate()
+    const again = rebaseWithLog({
+      theirs: third,
+      theirsExtras: extrasWith([...log, { base: 3, sheetId, type: 'insertRows', at: 3, count: 1 }]),
+      myBaseRevision: 3,
+      mySheets: listSheets(theirs),
+      pending: result.status === 'merged' ? result.pending : [],
+    })
+    expect(again.status).toBe('merged')
+    expect(third.getFormattedCellValue(0, 7, 1)).toBe('Clips')
+    expect(third.getFormattedCellValue(0, 7, 2)).toBe('555')
+    expect(third.getFormattedCellValue(0, 6, 2)).toBe('20') // Paper, untouched
+    third.free()
     mine.dispose()
     theirs.free()
   })

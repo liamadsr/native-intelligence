@@ -354,6 +354,11 @@ export class WorkbookController {
     return this.pending.slice()
   }
 
+  /** After a merge: my unsaved work re-expressed in the merged workbook's addresses (sync.ts). */
+  replacePending(entries: readonly PendingEntry[]) {
+    this.pending = entries.slice()
+  }
+
   /** Whether any unsaved action-diffs are waiting (what the editor rebases on a conflict). */
   hasPending(): boolean {
     return this.pending.length > 0
