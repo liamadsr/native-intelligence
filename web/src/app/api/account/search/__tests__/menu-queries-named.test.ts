@@ -40,6 +40,11 @@ beforeEach(() => {
       { id: 't-deals', workspace_id: WS, name: 'Harbor pipeline', visibility: 'workspace', table_kind: 'pipeline', archived_at: null, updated_at: at(3) },
       { id: 't-gone', workspace_id: WS, name: 'Harbor archive', visibility: 'workspace', table_kind: 'table', archived_at: at(1), updated_at: at(1) },
     ],
+    spreadsheet: [
+      { id: 'x-budget', workspace_id: WS, title: 'Harbor budget', visibility: 'private', status: 'active', updated_at: at(2) },
+      { id: 'x-old', workspace_id: WS, title: 'Harbor 2024', visibility: 'workspace', status: 'archived', updated_at: at(3) },
+      { id: 'x-other', workspace_id: OTHER, title: 'Harbor elsewhere', visibility: 'workspace', status: 'active', updated_at: at(4) },
+    ],
     data_row: [
       { id: 'r-bakery', workspace_id: WS, title: 'Harbor bakery', table_id: 't-vendors', archived_at: null, updated_at: at(2), data_table: { name: 'Harbor vendors' }, 'data_table.table_kind': 'table', 'data_table.archived_at': null },
       { id: 'r-deal', workspace_id: WS, title: 'Harbor renewal', table_id: 't-deals', archived_at: null, updated_at: at(3), data_table: { name: 'Harbor pipeline' }, 'data_table.table_kind': 'pipeline', 'data_table.archived_at': null },
@@ -104,6 +109,16 @@ describe('kinds found by a name', () => {
     const rows = await MENU_QUERIES.data_table(ctx('harbor'))
     expect(ids(rows)).toEqual(['t-vendors'])
     expect(rows[0]).toMatchObject({ status: 'Private' })
+  })
+
+  it('spreadsheets: this workspace’s, not an archived one, opening the Spreadsheets page on it', async () => {
+    // Two letters: by title alone (a longer query also asks the cells' words through `fts`, which the in-memory database does not have).
+    const rows = await MENU_QUERIES.spreadsheet(ctx('ha'))
+    expect(ids(rows)).toEqual(['x-budget'])
+    expect(rows[0]).toMatchObject({ status: 'Private' })
+    expect(menuRowTarget(rows[0])).toEqual({ type: 'spreadsheet', id: 'x-budget', title: 'Harbor budget' })
+    // Nothing typed: the most recent.
+    expect(ids(await MENU_QUERIES.spreadsheet(ctx('')))).toEqual(['x-budget'])
   })
 
   it('rows: not a deal, each saying its table and opening in it', async () => {

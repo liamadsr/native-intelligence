@@ -152,7 +152,7 @@ export type OpenTarget =
   | { type: 'calendar-event'; id: string; title?: string | null; /** Its start (ISO), to open on its day. */ start?: string | null }
   | { type: 'mail'; folder?: string | null; threadId?: string | null; draftId?: string | null; title?: string | null }
   | { type: 'flow'; id: string; title?: string | null; runId?: string | null }
-  | { type: 'sequence' | 'prospect_list' | 'eval_suite' | 'package' | 'agent' | 'skill' | 'team'; id: string; title?: string | null }
+  | { type: 'sequence' | 'prospect_list' | 'eval_suite' | 'package' | 'agent' | 'skill' | 'team' | 'spreadsheet'; id: string; title?: string | null }
   | { type: 'eval_case' | 'eval_run'; id: string; title?: string | null; suiteId: string; suiteName?: string | null }
   /** A deal: a pipeline's row (Tables, phase 7), open on the Deals page. */
   | { type: 'deal'; id: string; title?: string | null; pipelineId: string }
@@ -325,6 +325,8 @@ export function cardForTarget(target: OpenTarget, now: Date = new Date()): Targe
           target: { type: 'data_row', id: target.id, label: label(target.title, 'Row'), ...(target.tableId ? { in: target.tableId } : {}) },
         },
       }
+    case 'spreadsheet':
+      return { spec: { kind: 'spreadsheets', title: label(target.title, 'Spreadsheet'), target: { type: 'spreadsheet', id: target.id, label: label(target.title, 'Spreadsheet') } } }
     case 'team':
       return { spec: { kind: 'teams', title: label(target.title, 'Team'), target: { type: 'team', id: target.id, label: label(target.title, 'Team') } } }
     case 'team_board':

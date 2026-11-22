@@ -139,6 +139,8 @@ async function candidates(scope: PageScope, type: PagePlaceType, resolved: Resol
       return []
     case 'canvas':
       return (await visibleCanvases(scope)).map((c) => ({ id: c.id, name: c.name, type }))
+    case 'spreadsheet':
+      return (await visibleSpreadsheets(scope)).map((s) => ({ id: s.id, name: s.title, type }))
     case 'studio_project':
     case 'studio_video': {
       // The workspace's own, out of the trash, by title (Studio, migration 620).
@@ -183,6 +185,27 @@ async function visibleCanvases(scope: PageScope): Promise<Array<{ id: string; na
   const all = await listCanvases(scope.supabase, scope.workspaceId)
   const seen = await visiblePrivateKindIds(scope.supabase, 'canvas', scope.userId, all.map((c) => c.id), scope.workspaceId, scope.grants === false ? { grants: false } : {})
   return all.filter((c) => seen.has(c.id)).map((c) => ({ id: c.id, name: c.title }))
+}
+
+/**
+ * The workspace's live spreadsheets the person can read (675: a workspace
+ * one, or their own private one), most recently changed first. Without the
+ * workbooks: a list never carries them.
+ */
+async function visibleSpreadsheets(scope: PageScope): Promise<Array<{ id: string; title: string; sheet_names: string[]; updated_at: string | null }>> {
+  const { data, error } = await scope.supabase
+    .from('spreadsheet')
+    .select('id, title, sheet_names, updated_at')
+    .eq('workspace_id', scope.workspaceId)
+    .eq('status', 'active')
+    .order('updated_at', { ascending: false })
+    .limit(500)
+  if (error) throw new Error(`could not read spreadsheets: ${error.message}`)
+  const all = (data ?? []) as Array<{ id: string; title: string | null; sheet_names: string[] | null; updated_at: string | null }>
+  const seen = await visiblePrivateKindIds(scope.supabase, 'spreadsheet', scope.userId, all.map((s) => s.id), scope.workspaceId)
+  return all
+    .filter((s) => seen.has(s.id))
+    .map((s) => ({ id: s.id, title: s.title || 'Untitled spreadsheet', sheet_names: Array.isArray(s.sheet_names) ? s.sheet_names : [], updated_at: s.updated_at }))
 }
 
 /** A row's place on the Deals page: only a pipeline's row is a deal. */
@@ -309,6 +332,11 @@ async function checkPlace(scope: PageScope, kind: PageKind, place: PagePlace): P
       if (kind !== 'canvases') return null
       const canvas = (await visibleCanvases(scope)).find((c) => c.id === place.id)
       return canvas ? ok(canvas.name) : null
+    }
+    case 'spreadsheet': {
+      if (kind !== 'spreadsheets' || !isUuid(place.id)) return null
+      const sheet = (await visibleSpreadsheets(scope)).find((s) => s.id === place.id)
+      return sheet ? ok(sheet.title) : null
     }
     case 'studio_project':
     case 'studio_video': {
@@ -541,6 +569,17 @@ export async function readPageRows(
         return { count: one ? 1 : 0, rows: one ? [{ id: one.id, title: one.name }] : [], noun: 'canvases' }
       }
       return { count: canvases.length, rows: canvases.slice(0, limit).map((c) => ({ id: c.id, title: c.name })), noun: 'canvases' }
+    }
+    case 'spreadsheets': {
+      const sheets = await visibleSpreadsheets(scope)
+      // One spreadsheet: its sheets, by name (its cells are read with the spreadsheet tools).
+      if (place?.type === 'spreadsheet') {
+        const open = sheets.find((s) => s.id === place.id)
+        if (!open) break
+        const rows = open.sheet_names.slice(0, limit).map((name, i) => ({ id: `${open.id}:${i}`, title: name }))
+        return { count: open.sheet_names.length, rows, noun: 'sheets' }
+      }
+      return { count: sheets.length, rows: sheets.slice(0, limit).map((s) => ({ id: s.id, title: s.title, sheets: s.sheet_names.length, updated_at: s.updated_at })), noun: 'spreadsheets' }
     }
     case 'studio': {
       // One video: itself. One Studio project: its videos. The top level: the

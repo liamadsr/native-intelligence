@@ -1049,6 +1049,7 @@ function rowText(item: MenuItem): { title: string; detail: string | null; meta: 
     case 'prospect_list':
       return { title: row.title, detail: row.status ? statusLabel(row.status) : null, meta: null }
     case 'data_table':
+    case 'spreadsheet':
     case 'data_row':
     case 'canvas':
     case 'team_chat_channel':

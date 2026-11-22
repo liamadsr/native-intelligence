@@ -72,6 +72,7 @@ describe('the lists derived from it', () => {
       'sequence',
       'prospect_list',
       'data_table',
+      'spreadsheet',
       'data_row',
       'team_chat_channel',
       'decision',

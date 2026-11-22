@@ -38,6 +38,13 @@ describe('quick create: each feature’s own route, then the thing opened', () =
     expect(openCard).toHaveBeenCalledWith({ kind: 'tables', title: 'Tables', target: { type: 'data_table', id: 't1', label: 'Vendors' } }, { from: 'create' })
   })
 
+  it('a spreadsheet opens the Spreadsheets page on it', async () => {
+    const f = fetcherFor({ spreadsheet: { id: 's1', title: 'Hiring plan' } })
+    ;(await QUICK_CREATE.spreadsheet.run({ name: 'Hiring plan', secondary: '' }, f)).open()
+    expect(sent(f)).toEqual({ url: '/api/account/spreadsheets', body: { title: 'Hiring plan' } })
+    expect(openCard).toHaveBeenCalledWith({ kind: 'spreadsheets', title: 'Spreadsheets', target: { type: 'spreadsheet', id: 's1', label: 'Hiring plan' } }, { from: 'create' })
+  })
+
   it('a channel, with its topic, opens team chat on it', async () => {
     const f = fetcherFor({ id: 'ch1' })
     ;(await QUICK_CREATE.channel.run({ name: 'launch', secondary: 'The launch' }, f)).open()

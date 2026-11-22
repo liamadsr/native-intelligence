@@ -848,6 +848,24 @@ export const ENTITY_REGISTRY = [
     citable: false,
     sourceable: false,
   },
+  {
+    // A spreadsheet (migration 675): a workbook of sheets with formulas.
+    // Private-capable (visibility 'private' is its maker's alone), so it is
+    // fenced in src/lib/knowledge/entity-fences.ts and by 675's restrictive
+    // entity_link policies. Not realtime: the row carries the whole workbook
+    // and 675 adds no publication. Not in the activity log: 675 has no
+    // entity_activity triggers for it.
+    id: 'spreadsheet',
+    table: 'spreadsheet',
+    workspaceScoped: { kind: 'column', table: 'spreadsheet' },
+    label: { table: 'spreadsheet', columns: 'title', render: (r) => str(r.title) },
+    realtime: false,
+    linkable: true,
+    activity: false,
+    customFields: false,
+    citable: false,
+    sourceable: false,
+  },
 ] as const satisfies readonly EntityTypeDescriptor[]
 
 /** The union of every registered type id — derived, never hand-written. */

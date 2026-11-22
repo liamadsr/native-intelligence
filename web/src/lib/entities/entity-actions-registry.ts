@@ -37,7 +37,7 @@ import { isMentionableType, type MentionableType } from '@/lib/entity-links/ment
  *   'studio'          the Studio page's card on it (a video, a Studio project);
  *   null              nothing opens it on its own.
  */
-export type EntityOpen = 'record' | 'calendar-event' | 'flow' | 'sequence' | 'prospect_list' | 'eval_suite' | 'team-chat' | 'table-row' | 'studio' | 'team' | 'package' | 'canvas' | null
+export type EntityOpen = 'record' | 'calendar-event' | 'flow' | 'sequence' | 'prospect_list' | 'eval_suite' | 'team-chat' | 'table-row' | 'studio' | 'team' | 'package' | 'spreadsheet' | 'canvas' | null
 
 /**
  * How a kind archives and comes back, as it already does:
@@ -319,6 +319,18 @@ export const ENTITY_ACTIONS: Readonly<Record<EntityType, EntityActionsDescriptor
   // Open only (their page's card on them): renamed, archived and shared from their own pages.
   team: { ...inert('Teams are kept in their own page.'), open: 'team' },
   knowledge_package: { ...inert('Packages are kept in Knowledge.'), open: 'package' },
+  // A spreadsheet (675) opens on the Spreadsheets page's card. Renamed and
+  // archived through its own route (PATCH { title } / { status }). Not shared
+  // to a channel yet: no per-person grant exists for the kind, so a private
+  // one mentioned in a channel would open for nobody else.
+  spreadsheet: {
+    open: 'spreadsheet',
+    link: false,
+    rename: { route: 'spreadsheets', field: 'title' },
+    archive: { kind: 'status', route: 'spreadsheets', via: 'patch', archived: 'archived', restore: 'active', restorePrevious: false },
+    share: false,
+    makeTask: true,
+  },
   recipe: inert('Skills are kept in the library.'),
   flow_run: inert("A run is its loop's history."),
   email_draft: inert('A draft lives with its mail.'),

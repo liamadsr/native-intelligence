@@ -356,7 +356,7 @@ describe('page groups (Liam, 11-11: "Contacts: Companies, Contacts, Deals · Out
       ['outreach', 'Outreach', ['prospecting', 'sequences', 'campaigns', 'studio'], 'prospecting'],
       ['seo', 'SEO', ['seo-audit', 'seo-keywords', 'seo-rankings', 'seo-search', 'seo-competitors', 'seo-backlinks', 'seo-ai-visibility', 'seo-local'], 'seo-audit'],
       ['calendar', 'Calendar', ['calendar', 'availability', 'captures'], 'calendar'],
-      ['drive', 'Drive', ['docs', 'knowledge', 'files', 'tables', 'canvases'], 'docs'],
+      ['drive', 'Drive', ['docs', 'knowledge', 'files', 'tables', 'spreadsheets', 'canvases'], 'docs'],
       ['agents', 'Agents', ['agents', 'flows', 'evals'], 'agents'],
     ])
     for (const g of Object.values(PAGE_GROUPS)) {
@@ -471,11 +471,11 @@ describe('Drive and Agents (Liam, 11-11: "Drive: Docs, Knowledge, and a new page
   it('stand where Docs and Agents & skills stood, their members with no icons of their own', () => {
     const ids = offered().map((p) => p.def.id)
     expect(ids[0]).toBe('drive')
-    for (const slug of ['docs', 'knowledge', 'files', 'tables', 'canvases', 'flows', 'evals']) expect(ids, slug).not.toContain(slug)
+    for (const slug of ['docs', 'knowledge', 'files', 'tables', 'spreadsheets', 'canvases', 'flows', 'evals']) expect(ids, slug).not.toContain(slug)
     const drive = offered().find((p) => p.def.id === 'drive')!
     expect(drive.label).toBe('Drive')
     expect(drive.page.slug).toBe('docs')
-    expect(drive.members!.map((m) => m.slug)).toEqual(['docs', 'knowledge', 'files', 'tables', 'canvases'])
+    expect(drive.members!.map((m) => m.slug)).toEqual(['docs', 'knowledge', 'files', 'tables', 'spreadsheets', 'canvases'])
     const agents = offered().find((p) => p.def.id === 'agents')!
     expect(agents.label).toBe('Agents')
     expect(agents.page.slug).toBe('agents')
@@ -484,7 +484,7 @@ describe('Drive and Agents (Liam, 11-11: "Drive: Docs, Knowledge, and a new page
   })
 
   it('select their group for any member page’s own card', () => {
-    for (const slug of ['docs', 'knowledge', 'files', 'tables', 'canvases']) expect(pageOfCard(own(slug), NOW), slug).toBe('drive')
+    for (const slug of ['docs', 'knowledge', 'files', 'tables', 'spreadsheets', 'canvases']) expect(pageOfCard(own(slug), NOW), slug).toBe('drive')
     for (const slug of ['agents', 'flows']) expect(pageOfCard(own(slug), NOW), slug).toBe('agents')
   })
 
@@ -505,9 +505,9 @@ describe('Drive and Agents (Liam, 11-11: "Drive: Docs, Knowledge, and a new page
     expect(knowledgeLast.indexOf('drive')).toBeGreaterThan(knowledgeLast.indexOf('mail'))
     expect(shown({ order: [], hidden: ['docs'] })).toContain('drive')
     expect(shown({ order: [], hidden: ['knowledge', 'flows'] })).toEqual(expect.arrayContaining(['drive', 'agents']))
-    expect(shown({ order: [], hidden: ['docs', 'knowledge', 'files', 'tables', 'canvases'] })).not.toContain('drive')
+    expect(shown({ order: [], hidden: ['docs', 'knowledge', 'files', 'tables', 'spreadsheets', 'canvases'] })).not.toContain('drive')
     expect(shown({ order: [], hidden: ['agents', 'flows', 'evals'] })).not.toContain('agents')
-    expect(setRailPagePinned(null, 'drive', false)).toEqual({ order: [], hidden: ['docs', 'knowledge', 'files', 'tables', 'canvases'] })
+    expect(setRailPagePinned(null, 'drive', false)).toEqual({ order: [], hidden: ['docs', 'knowledge', 'files', 'tables', 'spreadsheets', 'canvases'] })
   })
 })
 
@@ -554,7 +554,7 @@ describe('the Studio in Outreach (Liam, 11-13: "I think it should be part of the
     expect(studioOnly.label).toBe('Studio')
     const seqOnly = railPagesFor(pagesOf(withEffectiveSurface(full, { prospecting: 'off', campaigns: 'off', studio: 'off' }))).find((p) => p.def.id === 'outreach')!
     expect(seqOnly.label).toBe('Sequences')
-    const docsOnly = railPagesFor(pagesOf().filter((p) => !['knowledge', 'files', 'tables', 'canvases'].includes(p.slug))).find((p) => p.def.id === 'drive')!
+    const docsOnly = railPagesFor(pagesOf().filter((p) => !['knowledge', 'files', 'tables', 'spreadsheets', 'canvases'].includes(p.slug))).find((p) => p.def.id === 'drive')!
     expect(docsOnly.label).toBe('Docs')
     expect(noStudio.label).toBe('Outreach')
   })

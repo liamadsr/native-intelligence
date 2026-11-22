@@ -730,6 +730,41 @@ const searchTables = nameSearch({
   status: (r) => (r.visibility === 'private' ? 'Private' : null),
 })
 
+/**
+ * Spreadsheets (675): by title, and by the words in their cells (the row's
+ * `fts`, made from its title and its digest). The caller's own client, so a
+ * private one is found only by its maker.
+ */
+async function searchSpreadsheets(ctx: MenuQueryContext): Promise<MenuSearchRow[]> {
+  const { supabase, workspaceId, query, limit } = ctx
+  const words = matchWords(query)
+  const q = normalizeQuery(query)
+  type Row = { id: string; title: string | null; visibility: string | null }
+  const base = () => supabase.from('spreadsheet').select('id, title, visibility').eq('workspace_id', workspaceId).eq('status', 'active')
+  const toRow = (r: Row, score: number): MenuSearchRow => ({
+    kind: 'spreadsheet',
+    id: r.id,
+    title: (text(r.title) ?? 'Untitled spreadsheet').replace(/\s+/g, ' ').slice(0, 200),
+    status: r.visibility === 'private' ? 'Private' : null,
+    parentId: null,
+    score,
+  })
+  if (!words.length) {
+    const rows = await rowsOf<Row>('spreadsheet', base().order('updated_at', { ascending: false }).limit(limit))
+    return rows.map((r) => toRow(r, 0))
+  }
+  const [title, body] = await Promise.all([
+    rowsOf<Row>('spreadsheet', words.reduce((b, w) => b.ilike('title', `%${w}%`), base()).order('updated_at', { ascending: false }).limit(FETCH)),
+    q.length >= BODY_MIN_QUERY
+      ? rowsOf<Row>('spreadsheet', base().textSearch('fts', query.trim(), { type: 'websearch', config: 'english' }).order('updated_at', { ascending: false }).limit(FETCH))
+      : Promise.resolve([] as Row[]),
+  ])
+  return rank(
+    mergeById(title, body).map((r) => toRow(r, scoreText(r.title, q) || BODY_MATCH_SCORE)),
+    limit,
+  )
+}
+
 /** Rows of the tables that are not pipelines, each saying its table. */
 const searchTableRows = nameSearch({
   kind: 'data_row',
@@ -930,6 +965,7 @@ export const MENU_QUERIES: Record<MenuSearchKind, (ctx: MenuQueryContext) => Pro
   sequence: searchSequences,
   prospect_list: searchProspectLists,
   data_table: searchTables,
+  spreadsheet: searchSpreadsheets,
   canvas: searchCanvases,
   data_row: searchTableRows,
   team_chat_channel: searchChannels,

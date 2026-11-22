@@ -35,6 +35,7 @@ export const PAGE_KIND_NAMES = [
   'evals',
   'campaigns',
   'tables',
+  'spreadsheets',
   'pipelines',
   'canvases',
   'knowledge',
@@ -80,6 +81,7 @@ export const PAGE_PLACE_TYPES = [
   'team_chat_message',
   'data_table',
   'data_row',
+  'spreadsheet',
   'canvas',
   'studio_project',
   'studio_video',
@@ -200,6 +202,14 @@ export const PAGE_KINDS: Record<PageKind, PageKindDef> = {
     view: 'docs',
     target: { types: ['data_table', 'data_row'] },
     tabs: ['grid', 'board', 'calendar', 'gallery'],
+  },
+  // Spreadsheets (migration 675): workbooks with formulas. Gated with Docs,
+  // as Tables are. `target` is one spreadsheet: the card opens on its editor.
+  spreadsheets: {
+    label: 'Spreadsheets',
+    rows: 'spreadsheets',
+    view: 'docs',
+    target: { types: ['spreadsheet'] },
   },
   // Deals (Tables, phase 7): the pipelines, each a table whose rows are
   // deals. It opens on the default pipeline's board; `target` is a pipeline,
@@ -379,6 +389,7 @@ export const PLACE_NOUN: Record<PagePlaceType, string> = {
   team_chat_message: 'message',
   data_table: 'table',
   data_row: 'row',
+  spreadsheet: 'spreadsheet',
   canvas: 'canvas',
   studio_project: 'Studio project',
   studio_video: 'video',

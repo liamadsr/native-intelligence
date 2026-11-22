@@ -52,7 +52,7 @@ export interface ShortcutDef {
 // ── G then a letter ────────────────────────────────────────
 
 /** Where a go-to letter leads: a `/` page (its slug), home (the chat), or a rail page group (its member last used). */
-export type GoToTarget = { type: 'home' } | { type: 'page'; slug: string } | { type: 'group'; id: 'seo' }
+export type GoToTarget = { type: 'home' } | { type: 'page'; slug: string } | { type: 'group'; id: 'seo' | 'drive' }
 
 export interface GoToDef {
   /** The second key, a lower-case letter (G is the first). */
@@ -63,14 +63,6 @@ export interface GoToDef {
   /** Why this letter (docs/plans/keyboard-shortcuts.md has the same). */
   why: string
 }
-
-/**
- * Pages with no G-then-a-letter, by name and on purpose. Every letter but G
- * itself is taken (2026-11-22), so a new page gets one only by taking
- * another's, and that swap is the owner's to make. Canvases opens from the
- * Drive group on the rail, the search palette and the Create dialog.
- */
-export const PAGES_WITHOUT_GO_TO: readonly string[] = ['canvases']
 
 /** The sequences' first key. */
 export const GO_TO_PREFIX = 'g'
@@ -88,7 +80,10 @@ export const GO_TO: readonly GoToDef[] = [
   page('c', 'calendar', 'Calendar', 'Calendar (the owner’s example), so Contacts, Captures, Companies and Campaigns take another letter'),
   page('a', 'actions', 'My Actions', 'Actions'),
   page('t', 'team-chat', 'Team chat', 'Team chat (on the rail, used daily; Teams takes E)'),
-  page('d', 'docs', 'Docs', 'Docs, the Drive group’s first page'),
+  // Drive as a group since Spreadsheets joined it (11-22): 25 letters were taken by 25 pages, so one more page
+  // has no letter of its own. G D opens Drive on its page last used (Docs the first time), as the rail does;
+  // Knowledge, Files and Tables keep their own letters; Spreadsheets and Canvases are reached through this one.
+  { letter: 'd', target: { type: 'group', id: 'drive' }, label: 'Drive', why: 'Drive, on its page last used (Docs at first), as the rail opens it' },
   page('k', 'knowledge', 'Knowledge', 'Knowledge'),
   page('f', 'files', 'Files', 'Files'),
   page('l', 'tables', 'Tables', 'Lists (Tables’ own keyword); T is Team chat'),

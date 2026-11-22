@@ -50,6 +50,8 @@ export const MENTIONABLE_TYPES = [
   // Teams and knowledge packages (673): a private team to its members, a package by its own rule (visibility, shares).
   'team',
   'knowledge_package',
+  // A spreadsheet (675): a workspace one is every member's, a private one its maker's (spreadsheetFence).
+  'spreadsheet',
   // Canvas (676): a whiteboard, fenced by its own rule (workspace, or its owner).
   'canvas',
   // Owner-only (decision 1): mail and agent chats, fenced on user_id.
