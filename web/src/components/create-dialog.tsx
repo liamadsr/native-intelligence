@@ -1054,7 +1054,10 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
         template,
         projectId: type === 'document' ? projectId : null,
         teamId: type === 'channel' ? channelTeamId : null,
+        // A folder it was made in (Drive folders, 690): × on the chip clears the context's place.
+        folderId: contextDefaults(type, context).folderId ?? null,
       })
+      if (made.warning) toast.error(made.warning)
       const entity = { id: made.id, name: made.title, title: made.title }
       onCreated?.(entity)
       window.dispatchEvent(new CustomEvent('ni:entity-created', { detail: { entityType: type, entity } }))

@@ -15,10 +15,14 @@
  *   company     a contact works there; an action is about it
  *   contact     an action is about them
  *   deal, row   an action is about it (a deal is a pipeline row; any table row)
+ *   folder      a doc, table, spreadsheet or canvas is filed in it; a folder
+ *               sits in it (Drive folders, migration 690)
  *
  * Every link goes through the type's own route and its own checks: an
  * action's `about` (POST /api/account/actions, fenced by task-about.ts), a
- * project's `initiative_id`, a doc's `project_id`, a contact's `company_id`.
+ * project's `initiative_id`, a doc's `project_id`, a contact's `company_id`,
+ * a record's folder (POST /api/account/folders/<id>/items, after it is made;
+ * a folder's `parent_id`).
  * A type a place gives nothing (a table in a company, say) is still made,
  * just not linked; the chip says "Create in" only where it links.
  *
@@ -26,7 +30,7 @@
  */
 import type { CreateTypeId } from './create-types'
 
-export type CreateContainerKind = 'project' | 'initiative' | 'team' | 'company' | 'contact' | 'deal' | 'row'
+export type CreateContainerKind = 'project' | 'initiative' | 'team' | 'company' | 'contact' | 'deal' | 'row' | 'folder'
 
 export interface CreateContainer {
   kind: CreateContainerKind
@@ -80,6 +84,8 @@ export interface ContextDefaults {
   teamId?: string
   companyId?: string
   about?: AboutRef
+  /** The folder it is filed in (a folder: the one it sits in). */
+  folderId?: string
 }
 
 const ABOUT_KIND: Partial<Record<CreateContainerKind, AboutRef['type']>> = {
@@ -106,6 +112,13 @@ export function contextDefaults(type: CreateTypeId, ctx: CreateContext | null | 
       break
     case 'document':
       if (c?.kind === 'project') out.projectId = c.id
+      if (c?.kind === 'folder') out.folderId = c.id
+      break
+    case 'table':
+    case 'spreadsheet':
+    case 'canvas':
+    case 'folder':
+      if (c?.kind === 'folder') out.folderId = c.id
       break
     case 'contact':
       if (c?.kind === 'company') out.companyId = c.id
