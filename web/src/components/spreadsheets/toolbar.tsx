@@ -13,7 +13,7 @@
 import { useState } from 'react'
 import {
   AlignCenter, AlignLeft, AlignRight, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, AlignVerticalJustifyStart,
-  Baseline, Bold, ChartColumn, ChevronDown, ClipboardPaste, DollarSign, Eye, Grid2x2, Image as ImageIcon, Italic, Minus, PaintBucket, Percent, Plus, Redo2,
+  Baseline, Bold, ChartColumn, ChevronDown, ClipboardPaste, DollarSign, Eye, Grid2x2, Image as ImageIcon, Italic, MessageSquare, Minus, PaintBucket, Percent, Plus, Redo2,
   Search, SquareCheck, SquarePlus, Sigma, SlidersHorizontal, Strikethrough, Type, Underline, Undo2, WrapText,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -44,6 +44,8 @@ interface Props {
   view: ViewOptions
   onView: (next: ViewOptions) => void
   onFind: () => void
+  /** Comment on the selected cell(s) (opens a thread card beside them). */
+  onComment: () => void
   onPaste: (valuesOnly?: boolean) => void
   onMessage: (message: string) => void
   focusGrid: () => void
@@ -140,7 +142,7 @@ function Swatches({ label, current, onPick, onClear, clearLabel }: { label: stri
   )
 }
 
-export function Toolbar({ workbook, view, onView, onFind, onPaste, onMessage, focusGrid, onDropdown, onConditionalFormatting, onGoalSeek, onInsertChart, onInsertImage, onConvertToTable, onTableOptions }: Props) {
+export function Toolbar({ workbook, view, onView, onFind, onComment, onPaste, onMessage, focusGrid, onDropdown, onConditionalFormatting, onGoalSeek, onInsertChart, onInsertImage, onConvertToTable, onTableOptions }: Props) {
   const readOnly = workbook.readOnly
   const { row, column } = workbook.selection()
   const activeTable = workbook.tableAtCell(row, column)
@@ -211,6 +213,7 @@ export function Toolbar({ workbook, view, onView, onFind, onPaste, onMessage, fo
       <Button label="Wrap text" pressed={wrap} disabled={readOnly} onClick={() => set('alignment.wrap_text', wrap ? 'false' : 'true')}><WrapText className={ICON} /></Button>
       <Divider />
       <Button label="Find and replace" onClick={onFind}><Search className={ICON} /></Button>
+      <Button label="Comment" onClick={onComment}><MessageSquare className={ICON} /></Button>
       <Divider />
 
       {/* Number format */}

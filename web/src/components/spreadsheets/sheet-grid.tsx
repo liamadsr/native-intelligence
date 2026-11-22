@@ -87,6 +87,8 @@ export interface SheetGridProps {
   onEditChart?: (id: string) => void
   /** Ctrl/Cmd+Alt+T: convert the selection to a table, or open the options when the cell is already in one. */
   onTableShortcut?: () => void
+  /** An overlay drawn in the sheet's content space (scrolls with the cells): comment markers and an open thread. */
+  renderOverlay?: (ctx: { sheet: number; layout: SheetLayout }) => React.ReactNode
   className?: string
   ariaLabel: string
 }
@@ -443,7 +445,7 @@ function rectOf(layout: SheetLayout, range: CellRange): { left: number; top: num
   return { left, top, width: layout.columnStarts[c2] - left, height: layout.rowStarts[r2] - top }
 }
 
-export function SheetGrid({ workbook, caret, showGridlines = true, showFormulas = false, onMessage, onContextMenu, onEditorKey, onTableColumnMenu, onEditChart, onTableShortcut, className, ariaLabel }: SheetGridProps) {
+export function SheetGrid({ workbook, caret, showGridlines = true, showFormulas = false, onMessage, onContextMenu, onEditorKey, onTableColumnMenu, onEditChart, onTableShortcut, renderOverlay, className, ariaLabel }: SheetGridProps) {
   useWorkbook(workbook)
   const sheet = workbook.sheet
   const layout = workbook.layout(sheet)
@@ -1163,6 +1165,9 @@ export function SheetGrid({ workbook, caret, showGridlines = true, showFormulas 
 
           {/* Charts and images floating over the sheet. */}
           <FloatingObjects workbook={workbook} sheet={sheet} layout={layout} selectedId={selectedObject} onSelect={setSelectedObject} onEditChart={(id) => onEditChart?.(id)} onMessage={onMessage} />
+
+          {/* Comment markers and an open thread, in the sheet's content space. */}
+          {renderOverlay?.({ sheet, layout })}
 
           {/* The selected range: a tint that leaves the active cell clear. */}
           {!single && rangeRect.width > 0 && rangeRect.height > 0 && (

@@ -14,16 +14,19 @@
  * save is refused, and that person is told and offered the newer version.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, History, Lock } from 'lucide-react'
+import { ArrowLeft, History, Lock, MessageSquare } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { CardHeaderSlot, CardHeaderTrail, useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
 import { EntityIcon } from '@/components/entities/entity-icon'
+import { parseRange, rangeName } from '@/lib/spreadsheets/a1'
 import { WorkbookController } from '@/lib/spreadsheets/controller'
 import { openModel } from '@/lib/spreadsheets/engine-client'
 import { readExtras } from '@/lib/spreadsheets/extras'
+import { droppedNote, mergeExtras, rebasePending } from '@/lib/spreadsheets/sync'
 import type { SpreadsheetRecord, SpreadsheetSummary } from '@/lib/spreadsheets/types'
+import { CommentOverlay, CommentsPanel, useSpreadsheetComments } from './comments'
 import { ChartDialog } from './chart-dialog'
 import { ConditionalFormat } from './conditional-format'
 import { DataValidationDialog } from './data-validation'
@@ -42,12 +45,17 @@ import { useWorkbook } from './use-workbook'
 
 /** How long after the last change a save goes out. */
 const SAVE_DELAY_MS = 1200
+/** How often, while the tab is visible, the editor asks whether someone else saved. */
+const POLL_MS = 4000
+/** How many times a save retries the rebase-and-save loop before giving up. */
+const MAX_MERGE_ATTEMPTS = 4
 
-type SaveState = 'saved' | 'unsaved' | 'saving' | 'conflict' | 'failed'
+type SaveState = 'saved' | 'unsaved' | 'saving' | 'failed'
 
 interface Loaded {
   record: SpreadsheetRecord
   workbook: WorkbookController
+  memberId: string
 }
 
 export interface SpreadsheetEditorProps {
@@ -70,7 +78,7 @@ export function SpreadsheetEditor({ spreadsheetId, onBack, onOpen }: Spreadsheet
     void (async () => {
       try {
         const res = await fetch(`/api/account/spreadsheets/${spreadsheetId}`)
-        const json = (await res.json().catch(() => ({}))) as { spreadsheet?: SpreadsheetRecord; error?: string }
+        const json = (await res.json().catch(() => ({}))) as { spreadsheet?: SpreadsheetRecord; member_id?: string; error?: string }
         if (!res.ok || !json.spreadsheet) throw new Error(json.error || 'Could not load the spreadsheet')
         const model = await openModel(json.spreadsheet.workbook, json.spreadsheet.title)
         if (!live) {
@@ -78,7 +86,7 @@ export function SpreadsheetEditor({ spreadsheetId, onBack, onOpen }: Spreadsheet
           return
         }
         made = new WorkbookController(model, { readOnly: json.spreadsheet.status === 'archived', extras: readExtras(json.spreadsheet.extras) })
-        setLoaded({ record: json.spreadsheet, workbook: made })
+        setLoaded({ record: json.spreadsheet, workbook: made, memberId: json.member_id ?? '' })
       } catch (e) {
         if (live) setError(e instanceof Error ? e.message : 'Could not load the spreadsheet')
       }
@@ -104,6 +112,13 @@ export function SpreadsheetEditor({ spreadsheetId, onBack, onOpen }: Spreadsheet
   }
   if (!loaded) return <GridSkeleton onBack={onBack} />
   return <OpenSpreadsheet key={`${loaded.record.id}:${attempt}`} loaded={loaded} onBack={onBack} onOpen={onOpen} onReload={() => setAttempt((n) => n + 1)} />
+}
+
+/** The newer record a poll or a conflict pointed at, with its workbook, loaded fresh. */
+async function fetchRecord(id: string): Promise<SpreadsheetRecord | null> {
+  const res = await fetch(`/api/account/spreadsheets/${id}`)
+  const json = (await res.json().catch(() => ({}))) as { spreadsheet?: SpreadsheetRecord }
+  return res.ok && json.spreadsheet ? json.spreadsheet : null
 }
 
 /** The grid's outline while the workbook loads. */
@@ -156,6 +171,10 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
   const [tablePanel, setTablePanel] = useState<string | null>(null)
   const [chartEdit, setChartEdit] = useState<string | null>(null)
   const [resizing, setResizing] = useState<{ axis: 'row' | 'column'; from: number; to: number; value: string } | null>(null)
+  const [showComments, setShowComments] = useState(false)
+  const [openThreadId, setOpenThreadId] = useState<string | null>(null)
+  const [composingAnchor, setComposingAnchor] = useState<string | null>(null)
+  const [updatedBy, setUpdatedBy] = useState<string | null>(null)
   const caret = useRef<CaretState>({ start: 0, end: 0, pointed: null })
   const suggest = useRef<FormulaSuggestHandle | null>(null)
   const gridHost = useRef<HTMLDivElement>(null)
@@ -163,51 +182,177 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
   const revision = useRef(loaded.record.revision)
   const saving = useRef(false)
   const stopped = useRef(false)
+  // The dataVersion a save gave up at, so a failed save does not auto-retry
+  // forever; a new edit (a higher dataVersion) or a manual retry resumes it.
+  const giveUp = useRef(-1)
 
   const focusGrid = useCallback(() => {
     gridHost.current?.querySelector<HTMLElement>('[role="grid"]')?.focus({ preventScroll: true })
   }, [])
   const onMessage = useCallback((message: string) => toast.error(message), [])
+  const comments = useSpreadsheetComments(loaded.record.id, onMessage)
 
-  // ── Saving ───────────────────────────────────────────────────────────────
+  // A quiet "Updated by …" note for a few seconds after someone else's change lands.
+  const noteUpdatedBy = useCallback((name: string | null) => {
+    if (!name) return
+    setUpdatedBy(name)
+    setTimeout(() => setUpdatedBy(null), 4000)
+  }, [])
+
+  // ── Saving, with merge on a conflict ──────────────────────────────────────
+  // Load the newer workbook, replay my unsaved work onto it, adopt the result,
+  // and keep saving against the new revision. Nobody's work is lost.
+  const rebaseOntoLatest = useCallback(async (): Promise<boolean> => {
+    const latest = await fetchRecord(loaded.record.id)
+    if (!latest) return false
+    const theirs = await openModel(latest.workbook, latest.title)
+    const { dropped } = rebasePending(theirs, workbook.pendingDiffs())
+    workbook.adopt(theirs, mergeExtras(workbook.baseExtras, workbook.extras, readExtras(latest.extras)))
+    revision.current = latest.revision
+    setRecord((prev) => ({ ...prev, revision: latest.revision, last_edited_by: latest.last_edited_by }))
+    const note = droppedNote(dropped)
+    if (note) onMessage(note)
+    return true
+  }, [workbook, loaded.record.id, onMessage])
+
   const saveNow = useCallback(async () => {
     if (saving.current || stopped.current || !workbook.dirty || workbook.readOnly) return
     saving.current = true
     setSave('saving')
-    const snapshot = workbook.snapshot()
-    // Send the extras only when they changed, so an ordinary edit does not rewrite them.
-    const extrasDirty = workbook.extrasDirty
     try {
-      const res = await fetch(`/api/account/spreadsheets/${loaded.record.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ base_revision: revision.current, workbook: snapshot.workbook, ...(extrasDirty ? { extras: snapshot.extras } : {}) }),
-      })
-      const json = (await res.json().catch(() => ({}))) as { spreadsheet?: SpreadsheetSummary; error?: string; code?: string }
-      if (res.status === 409) {
-        stopped.current = true
-        setSave('conflict')
+      for (let attempt = 0; attempt < MAX_MERGE_ATTEMPTS; attempt++) {
+        const snapshot = workbook.snapshot()
+        const extrasDirty = workbook.extrasDirty
+        const res = await fetch(`/api/account/spreadsheets/${loaded.record.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ base_revision: revision.current, workbook: snapshot.workbook, ...(extrasDirty ? { extras: snapshot.extras } : {}) }),
+        })
+        const json = (await res.json().catch(() => ({}))) as { spreadsheet?: SpreadsheetSummary; error?: string }
+        if (res.status === 409) {
+          if (!(await rebaseOntoLatest())) {
+            giveUp.current = workbook.dataVersion
+            setSave('failed')
+            return
+          }
+          continue // save again, now against the newer revision
+        }
+        if (!res.ok || !json.spreadsheet) throw new Error(json.error || 'Could not save')
+        revision.current = json.spreadsheet.revision
+        giveUp.current = -1
+        setRecord((prev) => ({ ...prev, ...json.spreadsheet }))
+        workbook.markSaved(snapshot.version, snapshot.extras, snapshot.pending)
+        setSave(workbook.dirty ? 'unsaved' : 'saved')
         return
       }
-      if (!res.ok || !json.spreadsheet) throw new Error(json.error || 'Could not save')
-      revision.current = json.spreadsheet.revision
-      setRecord((prev) => ({ ...prev, ...json.spreadsheet }))
-      workbook.markSaved(snapshot.version, snapshot.extras)
-      setSave(workbook.dirty ? 'unsaved' : 'saved')
+      giveUp.current = workbook.dataVersion
+      setSave('failed')
     } catch {
+      giveUp.current = workbook.dataVersion
       setSave('failed')
     } finally {
       saving.current = false
     }
-  }, [workbook, loaded.record.id])
+  }, [workbook, loaded.record.id, rebaseOntoLatest])
 
   const dataVersion = workbook.dataVersion
   useEffect(() => {
     if (!workbook.dirty || stopped.current) return
+    // A save that gave up (merge retries exhausted, or the server is down) does
+    // not auto-retry until a new edit lifts dataVersion past where it gave up.
+    if (save === 'failed' && workbook.dataVersion <= giveUp.current) return
     setSave((s) => (s === 'saving' ? s : 'unsaved'))
     const timer = setTimeout(() => void saveNow(), SAVE_DELAY_MS)
     return () => clearTimeout(timer)
-  }, [dataVersion, workbook, saveNow, save === 'saving'])
+  }, [dataVersion, workbook, saveNow, save])
+
+  // ── Polling: others' changes arrive within a few seconds ──────────────────
+  // While the tab is visible, ask the cheap revision route whether someone else
+  // saved. With nothing of my own pending, adopt their workbook (selection,
+  // sheet and any open draft kept); with pending work, rebase and save it.
+  const saveNowRef = useRef(saveNow)
+  saveNowRef.current = saveNow
+  useEffect(() => {
+    if (workbook.readOnly) return
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const poll = async () => {
+      if (!cancelled && !document.hidden && !stopped.current && !saving.current) {
+        try {
+          const res = await fetch(`/api/account/spreadsheets/${loaded.record.id}/revision`)
+          const json = (await res.json().catch(() => ({}))) as { revision?: number; editor_name?: string | null }
+          if (!cancelled && typeof json.revision === 'number' && json.revision > revision.current) {
+            if (!workbook.dirty && !workbook.hasPending()) {
+              const latest = await fetchRecord(loaded.record.id)
+              if (latest && !workbook.dirty && !workbook.hasPending()) {
+                const theirs = await openModel(latest.workbook, latest.title)
+                workbook.adopt(theirs, readExtras(latest.extras))
+                revision.current = latest.revision
+                workbook.markSaved(workbook.dataVersion, readExtras(latest.extras))
+                setRecord((prev) => ({ ...prev, revision: latest.revision, last_edited_by: latest.last_edited_by }))
+                setSave('saved')
+                void comments.reload()
+                noteUpdatedBy(json.editor_name ?? null)
+              }
+            } else {
+              await saveNowRef.current()
+              void comments.reload()
+              noteUpdatedBy(json.editor_name ?? null)
+            }
+          }
+        } catch {
+          // A failed poll is harmless; the next one tries again.
+        }
+      }
+      if (!cancelled) timer = setTimeout(() => void poll(), POLL_MS)
+    }
+    const onVisible = () => {
+      if (!document.hidden && !cancelled) void poll()
+    }
+    timer = setTimeout(() => void poll(), POLL_MS)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [workbook, loaded.record.id, comments, noteUpdatedBy])
+
+  // Comment anchors follow structural edits (and move back on undo).
+  useEffect(() => workbook.onStructural((change) => comments.shiftAnchors(change)), [workbook, comments])
+
+  // Open a comment thread on the active cell, or start a new one there.
+  const commentHere = useCallback(() => {
+    if (workbook.readOnly) return
+    if (workbook.editing) workbook.commitEdit()
+    const sel = workbook.selection()
+    const sheetId = workbook.sheetIdAt()
+    const existing = comments.threads.find((t) => {
+      if (t.resolved_at || t.sheet_id !== sheetId || !t.anchor) return false
+      const r = parseRange(t.anchor)
+      return !!r && r.r1 === sel.row && r.c1 === sel.column
+    })
+    if (existing) {
+      setComposingAnchor(null)
+      setOpenThreadId(existing.id)
+    } else {
+      setOpenThreadId(null)
+      setComposingAnchor(rangeName(sel.range))
+    }
+  }, [workbook, comments.threads])
+
+  const goToThread = useCallback(
+    (threadId: string, sheetId: number | null, anchor: string | null) => {
+      const sheets = workbook.sheets()
+      const idx = sheetId === null ? -1 : sheets.findIndex((s) => s.id === sheetId)
+      if (idx >= 0 && idx !== workbook.sheet) workbook.selectSheet(idx)
+      const r = anchor ? parseRange(anchor) : null
+      if (r) workbook.selectRange(r, { row: r.r1, column: r.c1 })
+      setComposingAnchor(null)
+      setOpenThreadId(threadId)
+    },
+    [workbook],
+  )
 
   // Leaving with something unsaved: save it, and let the browser ask before a tab closes.
   useEffect(() => {
@@ -303,6 +448,7 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
       focusGrid()
     },
     tableOptions: (id) => setTablePanel(id),
+    comment: commentHere,
   }
 
   const insertImage = () => imageInput.current?.click()
@@ -357,6 +503,11 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
           if (workbook.editing) workbook.commitEdit()
           setFinding(true)
         }
+        // Ctrl/Cmd+Alt+M: comment on the selected cell(s), or open the thread there.
+        if ((event.metaKey || event.ctrlKey) && event.altKey && event.key.toLowerCase() === 'm') {
+          event.preventDefault()
+          commentHere()
+        }
       }}
     >
       {inHeader && onBack ? (
@@ -375,6 +526,7 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
             {record.visibility === 'private' && <Lock className="size-3 shrink-0 text-muted-foreground" aria-label="Private" />}
           </CardHeaderTrail>
           <CardHeaderSlot side="right">
+            <CommentsButton count={comments.openCount} open={showComments} onClick={() => setShowComments((on) => !on)} />
             <button
               type="button"
               aria-label="Version history"
@@ -385,8 +537,9 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
             >
               <History className="size-3.5" strokeWidth={1.75} aria-hidden />
             </button>
-            <span className="mr-2 flex items-center empty:hidden">
-              <SaveNote state={workbook.readOnly ? 'saved' : save} readOnly={workbook.readOnly} onRetry={() => void saveNow()} onReload={onReload} />
+            <span className="mr-2 flex items-center gap-2 empty:hidden">
+              {updatedBy && <span className="text-xs text-muted-foreground">Updated by {updatedBy}</span>}
+              <SaveNote state={workbook.readOnly ? 'saved' : save} readOnly={workbook.readOnly} onRetry={() => void saveNow()} />
             </span>
           </CardHeaderSlot>
         </>
@@ -406,10 +559,12 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
               <Lock className="h-3 w-3" /> Private
             </span>
           )}
+          <CommentsButton count={comments.openCount} open={showComments} onClick={() => setShowComments((on) => !on)} standalone />
           <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" aria-label="Version history" aria-pressed={history} title="Version history" onClick={() => setHistory((on) => !on)}>
             <History className="h-4 w-4" />
           </Button>
-          <SaveNote state={workbook.readOnly ? 'saved' : save} readOnly={workbook.readOnly} onRetry={() => void saveNow()} onReload={onReload} />
+          {updatedBy && <span className="shrink-0 text-xs text-muted-foreground">Updated by {updatedBy}</span>}
+          <SaveNote state={workbook.readOnly ? 'saved' : save} readOnly={workbook.readOnly} onRetry={() => void saveNow()} />
         </div>
       )}
 
@@ -418,6 +573,7 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
         view={view}
         onView={setView}
         onFind={() => setFinding(true)}
+        onComment={commentHere}
         onPaste={(valuesOnly) => commands.paste(valuesOnly)}
         onMessage={onMessage}
         focusGrid={focusGrid}
@@ -449,6 +605,25 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
           onTableColumnMenu={(table, offset, at) => setTableMenu({ table, offset, x: at.x, y: at.y })}
           onEditChart={(id) => setChartEdit(id)}
           onTableShortcut={convertOrOptions}
+          renderOverlay={({ sheet, layout }) => (
+            <CommentOverlay
+              workbook={workbook}
+              sheet={sheet}
+              layout={layout}
+              comments={comments}
+              memberId={loaded.memberId}
+              openThreadId={openThreadId}
+              composingAnchor={composingAnchor}
+              onOpenThread={(threadId) => {
+                setComposingAnchor(null)
+                setOpenThreadId(threadId)
+              }}
+              onCloseComposer={() => {
+                setComposingAnchor(null)
+                focusGrid()
+              }}
+            />
+          )}
         />
         {history && (
           <VersionHistory
@@ -498,6 +673,17 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
               setTablePanel(null)
               focusGrid()
             }}
+          />
+        )}
+        {showComments && (
+          <CommentsPanel
+            workbook={workbook}
+            comments={comments}
+            onClose={() => {
+              setShowComments(false)
+              focusGrid()
+            }}
+            onGoTo={(thread) => goToThread(thread.id, thread.sheet_id, thread.anchor)}
           />
         )}
       </div>
@@ -615,16 +801,33 @@ async function imageDimensions(file: File): Promise<{ width: number; height: num
   }
 }
 
-function SaveNote({ state, readOnly, onRetry, onReload }: { state: SaveState; readOnly: boolean; onRetry: () => void; onReload: () => void }) {
-  if (readOnly) return <span className="shrink-0 text-xs text-muted-foreground">Archived: view only</span>
-  if (state === 'conflict') {
+function CommentsButton({ count, open, onClick, standalone }: { count: number; open: boolean; onClick: () => void; standalone?: boolean }) {
+  const label = count > 0 ? `Comments (${count} open)` : 'Comments'
+  if (standalone) {
     return (
-      <span role="alert" className="flex shrink-0 items-center gap-2 text-xs text-destructive">
-        Someone else changed this spreadsheet. Your last changes are not saved.
-        <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={onReload}>Load their version</Button>
-      </span>
+      <Button size="icon" variant="ghost" className="relative h-7 w-7 shrink-0" aria-label={label} aria-pressed={open} title={label} onClick={onClick}>
+        <MessageSquare className="h-4 w-4" />
+        {count > 0 && <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-0.5 text-[9px] font-medium text-primary-foreground">{count}</span>}
+      </Button>
     )
   }
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={open}
+      title={label}
+      onClick={onClick}
+      className={cn('relative mr-1 flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground', open && 'bg-foreground/[0.08] text-foreground')}
+    >
+      <MessageSquare className="size-3.5" strokeWidth={1.75} aria-hidden />
+      {count > 0 && <span className="absolute -right-0.5 -top-0.5 flex h-3 min-w-3 items-center justify-center rounded-full bg-primary px-0.5 text-[8px] font-medium text-primary-foreground">{count}</span>}
+    </button>
+  )
+}
+
+function SaveNote({ state, readOnly, onRetry }: { state: SaveState; readOnly: boolean; onRetry: () => void }) {
+  if (readOnly) return <span className="shrink-0 text-xs text-muted-foreground">Archived: view only</span>
   if (state === 'failed') {
     return (
       <span role="alert" className="flex shrink-0 items-center gap-2 text-xs text-destructive">
