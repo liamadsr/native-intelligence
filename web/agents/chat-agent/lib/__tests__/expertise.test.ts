@@ -470,6 +470,8 @@ describe('page cards load their area', () => {
     for (const kind of ['sequences', 'prospecting', 'flows', 'evals', 'campaigns', 'knowledge', 'library']) {
       expect(areaOf({ kind, title: kind }), kind).toBe(kind)
     }
+    // The Library (Knowledge's packages, its own page since 11-21) is Knowledge's area.
+    expect(areaOf({ kind: 'knowledge_library', title: 'Library' })).toBe('knowledge')
     expect(areaOf({ kind: 'teams', title: 'T' })).toBeNull()
     // The in-app browser page retired with the WebKit browser (cloud browser C5).
     expect(areaOf({ kind: 'browser', title: 'B' })).toBeNull()

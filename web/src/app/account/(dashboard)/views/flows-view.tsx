@@ -19,6 +19,8 @@ import { AlertTriangle, Plus, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { UnifiedViewLayout } from '@/components/views/unified-view-layout'
 import { FlowCanvasEditor } from './flows/flow-canvas-editor'
+import { useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
+import { CARD_HEADER_PILL_BUTTON } from '@/components/chat-cards/card-header-button'
 import { ViewHeader } from './view-header'
 import type { PausedFlow } from '@/lib/flows/paused-flows'
 
@@ -46,6 +48,9 @@ export function FlowsView({ card }: { card: FlowsCardMode }) {
   const cardRef = useRef(card)
   cardRef.current = card
   const setEditing = useCallback((next: string | '__new__' | null) => cardRef.current.onEdit(next), [])
+  // In a card its header says Flows: no title here, New flow there (Liam,
+  // 11-22). While the canvas is open the header is the canvas's.
+  const inCard = useCardHeaderSlots() !== null
 
   // WS-4b visual — loops the AI usage limit has PAUSED. A dead engine must look
   // dead (F5): the per-flow rows are rendered by the shared views system (not
@@ -79,16 +84,25 @@ export function FlowsView({ card }: { card: FlowsCardMode }) {
       <ViewHeader
         title="Flows"
         actions={
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 text-muted-foreground hover:text-foreground"
-            onClick={() => setEditing('__new__')}
-            title={NEW_FLOW_LABEL}
-            aria-label={NEW_FLOW_LABEL}
-          >
-            <Plus className="h-4 w-4" />
-          </Button>
+          inCard ? (
+            editing === null && (
+              <button type="button" data-new-flow="" onClick={() => setEditing('__new__')} className={CARD_HEADER_PILL_BUTTON}>
+                <Plus className="size-3.5" strokeWidth={1.75} aria-hidden />
+                {NEW_FLOW_LABEL}
+              </button>
+            )
+          ) : (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-muted-foreground hover:text-foreground"
+              onClick={() => setEditing('__new__')}
+              title={NEW_FLOW_LABEL}
+              aria-label={NEW_FLOW_LABEL}
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+          )
         }
       />
 

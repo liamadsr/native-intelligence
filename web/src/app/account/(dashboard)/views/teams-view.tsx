@@ -80,6 +80,8 @@ import {
   wasRecentlyMutatedLocally,
 } from '@/lib/entity-events'
 import { SYSTEM_TEAMMATE_BLURBS, type SystemTeammateKey } from '@/lib/work/system-teammates'
+import { useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
+import { CARD_HEADER_PILL_BUTTON } from '@/components/chat-cards/card-header-button'
 import { AiTeammateDialog, type LibraryRef } from './ai-teammate-dialog'
 import { ViewHeader } from './view-header'
 
@@ -264,6 +266,8 @@ function TeamsIndex({
   const [newPrefix, setNewPrefix] = useState('')
   const [prefixTouched, setPrefixTouched] = useState(false)
   const [createError, setCreateError] = useState('')
+  // In a card its header names the page: no title here, New team there (Liam, 11-22).
+  const inCard = useCardHeaderSlots() !== null
 
   const fetchTeams = useCallback(async () => {
     const res = await fetch('/api/account/teams')
@@ -325,23 +329,31 @@ function TeamsIndex({
           )
         }
         actions={
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 text-muted-foreground hover:text-foreground"
-            onClick={() => setShowCreate(true)}
-            title="New team"
-            aria-label="New team"
-          >
-            <Plus className="h-4 w-4" />
-          </Button>
+          inCard ? (
+            <button type="button" data-new-team="" onClick={() => setShowCreate(true)} className={CARD_HEADER_PILL_BUTTON}>
+              <Plus className="size-3.5" strokeWidth={1.75} aria-hidden />
+              New team
+            </button>
+          ) : (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-muted-foreground hover:text-foreground"
+              onClick={() => setShowCreate(true)}
+              title="New team"
+              aria-label="New team"
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+          )
         }
       />
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-5xl px-8 py-10">
+        <div className={inCard ? 'mx-auto max-w-5xl px-8 pb-10 pt-4' : 'mx-auto max-w-5xl px-8 py-10'}>
           <div>
-            <h1 className="text-2xl font-bold">Teams</h1>
-            <p className="mt-1 text-muted-foreground">
+            {/* The card's header already says Teams. */}
+            {!inCard && <h1 className="text-2xl font-bold">Teams</h1>}
+            <p className={inCard ? 'text-muted-foreground' : 'mt-1 text-muted-foreground'}>
               Teams in this workspace — humans and AI teammates, working together.
             </p>
           </div>
@@ -598,6 +610,9 @@ function TeamDetailPanel({
   const [showAiDialog, setShowAiDialog] = useState(false)
   const [editAiTarget, setEditAiTarget] = useState<AiMember | null>(null)
   const [deleteAiTarget, setDeleteAiTarget] = useState<AiMember | null>(null)
+  // In a card the team is a place in its header, "Teams › Design", the
+  // card's title the way back to the teams (Liam, 11-22).
+  const inCard = useCardHeaderSlots() !== null
 
   const fetchAll = useCallback(async () => {
     const [teamRes, membersRes, aiRes, wsRes, statesRes, flowsRes] = await Promise.all([
@@ -889,11 +904,29 @@ function TeamDetailPanel({
             <span className="font-semibold text-foreground">Settings</span>
           </nav>
         }
+        place={{
+          label: (
+            <span data-team-crumb="" className="flex min-w-0 items-center gap-1.5">
+              <span className="min-w-0 truncate font-medium">{team.name}</span>
+              <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{team.issue_prefix}</span>
+              {team.is_private && <Lock className="size-3 shrink-0 text-muted-foreground" aria-label="Private" />}
+            </span>
+          ),
+          onBack,
+          backLabel: 'Back to teams',
+        }}
         actions={
-          <Button variant="outline" size="sm" onClick={() => onOpenBoard(team.id, team.name)}>
-            <LayoutGrid className="mr-1 h-3.5 w-3.5" />
-            Open board
-          </Button>
+          inCard ? (
+            <button type="button" data-open-team-board="" onClick={() => onOpenBoard(team.id, team.name)} className={CARD_HEADER_PILL_BUTTON}>
+              <LayoutGrid className="size-3.5" strokeWidth={1.75} aria-hidden />
+              Open board
+            </button>
+          ) : (
+            <Button variant="outline" size="sm" onClick={() => onOpenBoard(team.id, team.name)}>
+              <LayoutGrid className="mr-1 h-3.5 w-3.5" />
+              Open board
+            </Button>
+          )
         }
       />
 

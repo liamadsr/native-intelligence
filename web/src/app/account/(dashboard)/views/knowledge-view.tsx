@@ -1,27 +1,25 @@
 'use client'
 
 /**
- * The Knowledge page.
+ * The Knowledge page: the claims. It had a second surface, the Library (the
+ * workspace brief, the per-project rollups, the curated packages), picked
+ * with a pill; that is a page of its own now, next to this one in Drive
+ * (Liam, 11-21: "split the Knowledge page into two pages";
+ * components/chat-cards/pages/knowledge-library-card.tsx).
  *
  * Shape, top to bottom — the same shape as the Team board and every other
  * collection in the product:
  *
- *   ViewHeader:   Knowledge  [Graph ⌄]        ← the pill picks the SURFACE
+ *   Header:       the search, at the right (in its card, the card's header)
  *   ViewToolbar:  saved-view tabs · filter · settings · Promote
  *   FilterChips:  Type is any of Fact, Decision   ×
  *   Body:         <canvas> | <list> | <board>     ← the view's LAYOUT
  *
- * The pill and the layout toggle are two different questions, which is why
- * there are two controls. The pill picks WHAT you are looking at: the claims
- * (Graph) or the reading surface built on top of them (Library — the workspace
- * brief, the per-project rollups, the curated packages). The layout toggle
- * picks HOW: a knowledge map, a list or a board, over one saved filter set.
- * A claim view opens on the map because that is a claim's natural reading, and
- * the other two are one click away in the view settings.
- *
- * Only the Graph side is a views surface. The Library is not a list of claims —
- * it has no row entity for filters or sorting to act on — so it keeps its own
- * layout under the same header.
+ * The layout toggle picks HOW the claims read: a knowledge map, a list or a
+ * board, over one saved filter set. A claim view opens on the map because
+ * that is a claim's natural reading, and the other two are one click away in
+ * the view settings. Promote turns the view into a package, which the
+ * Library keeps.
  *
  * ONE INSPECTOR, THREE LAYOUTS. The selection lives here rather than inside the
  * canvas, so clicking a node and clicking a row open the same panel with the
@@ -29,27 +27,18 @@
  * claim's full record by key.
  */
 
-import { PageTitle } from '@/components/views/page-title'
-import { useWorkspaceId } from '@/app/account/workspace-switcher'
 import { Button } from '@/components/ui/button'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import { BookOpen, Check, ChevronsUpDown, Network, Package } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Network, Package } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { toast } from 'sonner'
 import { ListHeaderControls } from '@/components/views/list-header-controls'
+import { CardHeaderSlot } from '@/components/chat-cards/card-header-slot'
 import { UnifiedViewLayout } from '@/components/views/unified-view-layout'
+import { openTarget } from '@/lib/chat-cards/open-card'
 import type { MapMeta } from '@/lib/knowledge/graph-map/types'
 import type { ViewFilter } from '@/lib/views/types'
 import type { SelectedMapNode } from '@/components/knowledge-map/types'
-import {
-  KnowledgeLibrary,
-  PromotePackageDialog,
-  type PromoteLiveRules,
-} from './knowledge-library'
+import { PromotePackageDialog, type PromoteLiveRules } from './knowledge-library'
 import {
   ClaimBody,
   EntityBody,
@@ -86,35 +75,6 @@ function legacyRendererRequested(): boolean {
   }
 }
 
-/**
- * The remembered surface for a workspace, or null.
- *
- * Wrapped because a bare `localStorage.getItem` THROWS in a private window and
- * wherever site data is blocked — and this one runs inside an effect, so the
- * throw took the whole page down rather than degrading to the default. Only an
- * explicit, recognised value is returned: an unreadable store and a corrupted
- * one both mean "no preference recorded", which leaves the default in place.
- */
-function readStoredMode(workspaceId: string | null): 'library' | 'graph' | null {
-  if (!workspaceId) return null
-  try {
-    const stored = window.localStorage.getItem(`knowledge-view-mode:${workspaceId}`)
-    return stored === 'graph' || stored === 'library' ? stored : null
-  } catch {
-    return null
-  }
-}
-
-function writeStoredMode(workspaceId: string | null, mode: 'library' | 'graph'): void {
-  if (!workspaceId) return
-  try {
-    window.localStorage.setItem(`knowledge-view-mode:${workspaceId}`, mode)
-  } catch {
-    // Quota / private mode — accept losing the preference rather than failing
-    // the click that set it.
-  }
-}
-
 interface PromoteContext {
   liveRules: PromoteLiveRules | undefined
   frozenClaimIds: string[]
@@ -123,18 +83,14 @@ interface PromoteContext {
 
 /**
  * Knowledge in a chat card (src/components/chat-cards/pages/knowledge-card.tsx).
- * The card owns the surface (Graph or Library), so the page's remembered
- * choice is neither read nor written; and the map, WebGL, runs only where the
- * card allows it (full screen, one at a time). Elsewhere the graph layout
- * shows a still with the way to full screen.
+ * The map, WebGL, runs only where the card allows it (full screen, one at a
+ * time). Elsewhere the graph layout shows a still with the way to full screen.
  */
 export interface KnowledgeCardMode {
-  mode: 'library' | 'graph'
-  onMode: (mode: 'library' | 'graph') => void
   mapAllowed: boolean
   onWantMap: () => void
-  /** The person opened (or closed) a package in the library. */
-  onPackageChange?: (pkg: { id: string; name?: string } | null) => void
+  /** A record is open over the page: it owns the card's header. */
+  covered?: boolean
 }
 
 /** What a chat card shows where the map would run, inline or while another card holds it. */
@@ -152,35 +108,15 @@ function MapStill({ onWantMap }: { onWantMap: () => void }) {
 
 export function KnowledgeView({
   onOpenEntity,
-  initialPackageId,
   card,
 }: {
   onOpenEntity?: OpenEntity
-  /** Deep link: open the library's PackagePanel for this package once. Forces
-   *  library mode (the graph has no package panel). Read-once — see the effect
-   *  below and KnowledgeLibrary's own consume-once guard. */
-  initialPackageId?: string
   card?: KnowledgeCardMode
 }) {
-  const workspaceId = useWorkspaceId()
-  /**
-   * THE GRAPH IS THE DEFAULT SURFACE.
-   *
-   * It used to be the Library, from when the graph was a slow inspection tool
-   * you opened deliberately. That is no longer what it is: it loads on demand,
-   * it carries the saved views, and it is what someone means when they say
-   * "knowledge". A returning viewer's own choice still wins — `switchMode`
-   * records it per workspace and the effect below restores it — so this is the
-   * FIRST-VISIT answer, not an override of anyone's preference.
-   */
-  const [ownMode, setMode] = useState<'library' | 'graph'>('graph')
-  const mode = card ? card.mode : ownMode
-  const inCard = !!card
-
   // Renderer choice. `useLegacy` starts false on the server and is settled in
   // an effect, because localStorage is unreadable during SSR/hydration. An
-  // 'unsupported' probe result sticks for the session, so toggling modes does
-  // not re-probe a browser that already said no.
+  // 'unsupported' probe result sticks, so a browser that already said no is
+  // not probed again.
   const [useLegacy, setUseLegacy] = useState(false)
   useEffect(() => {
     if (legacyRendererRequested()) setUseLegacy(true)
@@ -208,54 +144,6 @@ export function KnowledgeView({
   // The selected node — shared by the canvas, the list and the board.
   const [selected, setSelected] = useState<SelectedMapNode | null>(null)
   const detail = useMapNodeDetail(selected?.key ?? null)
-
-  // A package deep link (e.g. a work-run resource chip) forces LIBRARY mode —
-  // the graph has no PackagePanel. Consumed once per distinct id so switching
-  // to the graph after arriving (or re-navigating to the same package) isn't
-  // fought. `deepLinkForcedRef` keeps the force alive across a LATE workspace
-  // resolution (the stored-mode restore below re-fires then and must not
-  // override it); the user's own mode switch clears it.
-  const consumedPackageIdRef = useRef<string | null>(null)
-  const deepLinkForcedRef = useRef(false)
-  useEffect(() => {
-    if (!initialPackageId) {
-      consumedPackageIdRef.current = null
-      deepLinkForcedRef.current = false
-      return
-    }
-    if (consumedPackageIdRef.current === initialPackageId) return
-    consumedPackageIdRef.current = initialPackageId
-    deepLinkForcedRef.current = true
-    setMode('library')
-  }, [initialPackageId])
-
-  // Restore the last-used mode per workspace, so someone who prefers the
-  // Library keeps landing on it. Only an explicit stored value moves the mode:
-  // absent or unreadable storage leaves the graph default above in place,
-  // rather than falling back to the other surface. A pending or just-consumed
-  // package deep link wins until the user switches modes.
-  useEffect(() => {
-    if (!workspaceId || inCard) return
-    if (deepLinkForcedRef.current) return
-    if (initialPackageId && consumedPackageIdRef.current !== initialPackageId) return
-    const stored = readStoredMode(workspaceId)
-    if (stored) setMode(stored)
-  }, [workspaceId, initialPackageId, inCard])
-
-  const switchMode = (m: 'library' | 'graph') => {
-    if (card) {
-      card.onMode(m)
-      return
-    }
-    deepLinkForcedRef.current = false
-    setMode(m)
-    writeStoredMode(workspaceId, m)
-  }
-
-  // Leaving the graph clears the selection — the panel belongs to the claims.
-  useEffect(() => {
-    if (mode !== 'graph') setSelected(null)
-  }, [mode])
 
   /**
    * A row click, from the list or the board, becomes the same selection a node
@@ -301,49 +189,28 @@ export function KnowledgeView({
     ? (legacyPromote?.frozenClaimIds.length ?? 0) > 0
     : (mapMeta?.counts.claims ?? 0) > 0
 
-  const graphIsMap = mode === 'graph' && !useLegacy
+  const graphIsMap = !useLegacy
   // A card where the map may not run (inline, or another card holds it).
   const mapStill = !!card && !card.mapAllowed
 
+  // The map's search. The legacy renderer keeps its own filter state, so the
+  // box is not offered over it.
+  const searchControl = graphIsMap ? (
+    <ListHeaderControls
+      searchValue={search}
+      onSearchChange={setSearch}
+      searchPlaceholder="Search knowledge…"
+      searchLabel="Search knowledge"
+      // No create button: a claim is extracted from a meeting or a document,
+      // never authored here.
+    />
+  ) : null
+
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <ViewHeader
-        history="custom"
-        className="gap-3"
-        // `title` takes a NODE, so the name and the surface pill stay a single
-        // left-anchored group while `actions` pins the search to the far right
-        // — the layout contract ViewHeader already enforces everywhere else.
-        title={
-          <div className="flex min-w-0 items-center gap-3">
-            <PageTitle label="Knowledge" as="h1" />
-            {/* Surface switcher — a pill dropdown, matching the Team / Calendar
-                view pickers so the pattern reads the same across the app. */}
-            <SurfacePill mode={mode} onSelect={switchMode} />
-          </div>
-        }
-        // Only the claims surface consumes a search term. The Library is a
-        // brief and a shelf of packages with no query behind it, so rendering
-        // the box there would be a control that does nothing — worse than not
-        // offering it, because it invites the reader to type into it.
-        actions={
-          graphIsMap ? (
-            <ListHeaderControls
-              searchValue={search}
-              onSearchChange={setSearch}
-              searchPlaceholder="Search knowledge…"
-              searchLabel="Search knowledge"
-              // No create button: a claim is extracted from a meeting or a
-              // document, never authored here.
-            />
-          ) : undefined
-        }
-      />
+      {!card && <ViewHeader history="custom" className="gap-3" title="Knowledge" actions={searchControl ?? undefined} />}
 
-      {mode === 'library' ? (
-        <div className="relative min-h-0 flex-1">
-          <KnowledgeLibrary onOpenEntity={onOpenEntity} initialPackageId={initialPackageId} onPackageChange={card?.onPackageChange} />
-        </div>
-      ) : graphIsMap ? (
+      {graphIsMap ? (
         /* `relative` so the inspector can overlay the whole views column —
            including the toolbar — rather than sitting beside the body and
            resizing the canvas every time it opens. */
@@ -354,9 +221,11 @@ export function KnowledgeView({
             selectedItemId={selected?.kind === 'claim' ? selected.key.slice('claim:'.length) : null}
             toolbarActions={
               <Button
-                variant="outline"
+                // Clear on the card's glass, like the view tabs: the outline
+                // variant's solid fill read as a dark block (Liam, 11-21).
+                variant="ghost"
                 size="sm"
-                className="h-7 gap-1 text-xs"
+                className="h-7 gap-1.5 rounded-full border border-border px-3 text-xs text-muted-foreground hover:bg-muted hover:text-foreground dark:shadow-none"
                 disabled={!canPromote}
                 onClick={() => setPromoteOpen(true)}
                 title="Create a gated, shareable package from the current view"
@@ -403,6 +272,12 @@ export function KnowledgeView({
         />
       )}
 
+      {/* In its card, the search sits in the card's own header, as every other
+          page's search does (Liam, 11-21); none while a record is open over
+          the page, which owns the header then. After the views layout, so it
+          lands after the layout switcher there, as on every page. */}
+      {card && !card.covered && searchControl && <CardHeaderSlot side="right">{searchControl}</CardHeaderSlot>}
+
       {promoteOpen && promote && (
         <PromotePackageDialog
           open
@@ -416,47 +291,17 @@ export function KnowledgeView({
           }
           frozenClaimIds={promote.frozenClaimIds}
           frozenTotal={useLegacy ? undefined : mapMeta?.promote.total}
-          onCreated={() => setPromoteOpen(false)}
+          onCreated={(pkg) => {
+            setPromoteOpen(false)
+            // The package is the Library's, a page away since the split
+            // (Liam, 11-21): say where it is, one click from it.
+            toast.success(`“${pkg.name}” is in the Library`, {
+              action: { label: 'Open', onClick: () => openTarget({ type: 'package', id: pkg.id, title: pkg.name }, { from: 'knowledge' }) },
+            })
+          }}
         />
       )}
     </div>
-  )
-}
-
-/** The surface switcher — Graph or Library. A pill dropdown, matching the Team
- *  and Calendar view pickers so the pattern reads the same across the app. */
-function SurfacePill({
-  mode,
-  onSelect,
-}: {
-  mode: 'library' | 'graph'
-  onSelect: (mode: 'library' | 'graph') => void
-}) {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-border px-3 text-xs font-semibold text-foreground shadow-sm transition-colors hover:bg-muted data-[state=open]:bg-muted dark:shadow-none">
-        {mode === 'library' ? (
-          <BookOpen className="h-3.5 w-3.5" />
-        ) : (
-          <Network className="h-3.5 w-3.5" />
-        )}
-        {mode === 'library' ? 'Library' : 'Graph'}
-        <ChevronsUpDown className="h-3 w-3 opacity-50" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-40">
-        {(['library', 'graph'] as const).map((m) => (
-          <DropdownMenuItem key={m} onClick={() => onSelect(m)} className="gap-2">
-            {m === 'library' ? (
-              <BookOpen className="h-3.5 w-3.5 text-muted-foreground" />
-            ) : (
-              <Network className="h-3.5 w-3.5 text-muted-foreground" />
-            )}
-            <span className="flex-1">{m === 'library' ? 'Library' : 'Graph'}</span>
-            {mode === m && <Check className="h-3.5 w-3.5" />}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
   )
 }
 

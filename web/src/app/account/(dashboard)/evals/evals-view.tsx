@@ -55,6 +55,8 @@
 import { Loader2, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { UnifiedViewLayout } from '@/components/views/unified-view-layout'
+import { useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
+import { CARD_HEADER_PILL_BUTTON } from '@/components/chat-cards/card-header-button'
 import type { EvalSuiteTab } from '@/app/account/(dashboard)/evals/suite-tabs'
 import { ViewHeader } from '../views/view-header'
 import { EvalCasePage } from './case-page'
@@ -123,6 +125,8 @@ export function EvalsView({
   /** Return to the index as a history step. */
   onCloseDetail: () => void
 }) {
+  // In a card its header says Evals: no title here, New eval suite there (Liam, 11-22).
+  const inCard = useCardHeaderSlots() !== null
   // The deepest location wins: a case or a run is opened FROM a suite and the
   // location keeps the suite id so Back has somewhere to go.
   if (caseId) {
@@ -131,6 +135,7 @@ export function EvalsView({
         caseId={caseId}
         suiteName={suiteName}
         onBack={onBackToSuite ?? onCloseDetail}
+        onBackToEvals={onCloseDetail}
         onCaseNameLoaded={onCaseNameLoaded}
       />
     )
@@ -142,6 +147,7 @@ export function EvalsView({
         runId={runId}
         suiteName={suiteName}
         onBack={onBackToSuite ?? onCloseDetail}
+        onBackToEvals={onCloseDetail}
         onRunLabelLoaded={onRunLabelLoaded}
       />
     )
@@ -173,16 +179,23 @@ export function EvalsView({
           /* Ghost icon-only create — the house convention. It fires the
              /create-eval skill rather than opening a form; see the module
              header. */
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 text-muted-foreground hover:text-foreground"
-            onClick={openCreateEvalSkill}
-            title="New eval suite"
-            aria-label="New eval suite"
-          >
-            <Plus className="h-4 w-4" />
-          </Button>
+          inCard ? (
+            <button type="button" data-new-eval-suite="" onClick={openCreateEvalSkill} className={CARD_HEADER_PILL_BUTTON}>
+              <Plus className="size-3.5" strokeWidth={1.75} aria-hidden />
+              New eval suite
+            </button>
+          ) : (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-muted-foreground hover:text-foreground"
+              onClick={openCreateEvalSkill}
+              title="New eval suite"
+              aria-label="New eval suite"
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+          )
         }
       />
 

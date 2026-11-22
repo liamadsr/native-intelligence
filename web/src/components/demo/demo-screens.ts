@@ -39,10 +39,12 @@ export const DEMO_WINDOWS: Record<DemoScreen, { width: number; height: number }>
  * again if the app's layout moves (the picture and the app are cut alike, so a stale number
  * shows the wrong part of both, never a mismatch between them).
  */
+// Measured again 11-22: the page's header is an island above it now, as wide
+// as the page (374 to the window's edge less 10), from 3px down.
 export const DEMO_CUTS: Partial<Record<DemoScreen, { x: number; y: number; width: number; height: number }>> = {
-  contact: { x: 416, y: 38, width: 612, height: 594 },
-  notes: { x: 416, y: 38, width: 612, height: 594 },
-  transcript: { x: 416, y: 38, width: 612, height: 594 },
-  list: { x: 416, y: 38, width: 812, height: 654 },
+  contact: { x: 366, y: 0, width: 714, height: 628 },
+  notes: { x: 366, y: 0, width: 714, height: 628 },
+  transcript: { x: 366, y: 0, width: 714, height: 628 },
+  list: { x: 366, y: 0, width: 914, height: 688 },
   chat: { x: 390, y: 96, width: 624, height: 644 },
 }

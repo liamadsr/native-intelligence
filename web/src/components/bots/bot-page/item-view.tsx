@@ -7,7 +7,7 @@
  * lists.
  *
  *   ItemPane   the work side, on the page's right: the way back to the bot's
- *              lists, then one of the page's cards (BotPageCard, filling the
+ *              lists (in a card, its header's breadcrumb instead), then one of the page's cards (BotPageCard, filling the
  *              column, titled by the item's kind) holding the work item panel
  *              as an embedded view (work-item-detail-panel.tsx `embedded`):
  *              what happened, what it has for you, what it delivered,
@@ -52,12 +52,14 @@ import { localAgentSessionIdOf } from '@/lib/local-agent/transcript-view'
 import { LocalAgentPanel } from '@/components/local-agent/local-agent-panel'
 import { TeammateChat, type TeammateChatAbout, type TeammateChatVoice } from '../teammate-chat'
 import { BotPageCard } from './bot-page-card'
+import { useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
 
 /** The work side: back to the bot's lists, then the item as a card (the page's cards: BotPageCard). */
 export function ItemPane({
   itemId,
   name,
   label,
+  title,
   shown,
   onBack,
   onItem,
@@ -67,6 +69,8 @@ export function ItemPane({
   name: string
   /** The card's title: what kind of work it is ("Work run", "Loop run"). */
   label: string
+  /** The item's title as the page's card header shows it (its breadcrumb), so the panel needn't draw it again. */
+  title?: string
   /** The page shows this side now (a narrow page shows Work or Chat). */
   shown: boolean
   /** Back to the bot's lists. */
@@ -74,23 +78,29 @@ export function ItemPane({
   /** The item as the panel loads it (null until then); `failed` once it couldn't. */
   onItem: (item: WorkItem | null, failed: boolean) => void
 }) {
+  // In a card the way back is its header's breadcrumb, the agent's name
+  // (teammate-chat-page.tsx; Liam, 11-22: "the back button should just be the
+  // breadcrum"): no button of its own here.
+  const inCard = useCardHeaderSlots() !== null
   return (
     // The cards' stack insets (bot-work.tsx): the column clips, and the card's shadow fades out in them.
     <div data-bot-page-item={itemId} className="flex h-full min-h-0 flex-col gap-2 px-4 pb-6 pt-2">
-      <div className="flex shrink-0 items-center">
-        <button
-          type="button"
-          data-bot-page-item-back=""
-          onClick={onBack}
-          aria-label={`Back to ${name}’s work`}
-          className="inline-flex h-7 min-w-0 items-center gap-1 rounded-full px-2 text-xs text-muted-foreground transition-colors hover:bg-black/[0.05] hover:text-foreground dark:hover:bg-white/[0.08]"
-        >
-          <ChevronLeft aria-hidden className="h-3.5 w-3.5 shrink-0" />
-          <span className="truncate">{name}’s work</span>
-        </button>
-      </div>
+      {!inCard && (
+        <div className="flex shrink-0 items-center">
+          <button
+            type="button"
+            data-bot-page-item-back=""
+            onClick={onBack}
+            aria-label={`Back to ${name}’s work`}
+            className="inline-flex h-7 min-w-0 items-center gap-1 rounded-full px-2 text-xs text-muted-foreground transition-colors hover:bg-black/[0.05] hover:text-foreground dark:hover:bg-white/[0.08]"
+          >
+            <ChevronLeft aria-hidden className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">{name}’s work</span>
+          </button>
+        </div>
+      )}
       <BotPageCard section="item" title={label} fill>
-        <WorkItemDetailPanel key={itemId} itemId={itemId} embedded shown={shown} onItem={onItem} conversationBeside />
+        <WorkItemDetailPanel key={itemId} itemId={itemId} embedded shown={shown} onItem={onItem} conversationBeside titleShown={inCard ? title : undefined} />
       </BotPageCard>
     </div>
   )

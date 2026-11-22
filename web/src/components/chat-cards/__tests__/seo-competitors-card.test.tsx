@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as React from 'react'
 import { act } from 'react'
 import { makeStore, mountRoot } from './page-card-harness'
+import { seoHeaderHosts } from './seo-header-hosts'
 import { stubAppFetch } from '@/test/app-fetch-stub'
 
 const hoisted = vi.hoisted(() => ({ toast: Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn() }) }))
@@ -525,5 +526,39 @@ describe('SeoCompetitorsCard: Competitors tab', () => {
     await click('[data-seo-find-competitors]')
     expect(posts[0].body.keywords).toEqual(['linen throw 0'])
     expect(q('[data-seo-competitors-empty]')!.textContent).toBe('No competitors found for these searches')
+  })
+})
+
+describe('SeoCompetitorsCard: in a card’s header', () => {
+  // Liam, 11-22: the page never repeats its title, its controls are the
+  // header's, and the site on show is a breadcrumb after the card's title.
+  let hosts: ReturnType<typeof seoHeaderHosts>
+  beforeEach(() => {
+    hosts = seoHeaderHosts()
+  })
+  afterEach(() => hosts.remove())
+  const renderInCard = async () => {
+    await mount.render(hosts.wrap(React.createElement(SeoCompetitorsCard, { toolCallId: 'cmp-1', spec, store, fullScreen: true })))
+    await settle()
+    await settle()
+  }
+
+  it('a site: its name and the own-site mark are the breadcrumb, the spend the header’s, and the title goes back to the lookups', async () => {
+    await renderInCard()
+    expect(q('[data-seo-competitors-page]')!.dataset.seoState).toBe('site')
+    expect(hosts.trail.querySelector('[data-seo-site-title]')!.textContent).toBe(OWN)
+    expect(hosts.trail.querySelector('[data-seo-own-chip]')).not.toBeNull()
+    expect(mount.container.querySelector('h1')).toBeNull()
+    expect(mount.container.querySelector('[data-seo-site-title]')).toBeNull()
+    expect(hosts.right.querySelector('[data-seo-spend]')!.textContent).toContain('$3.40 of $20 this month')
+    expect(mount.container.querySelector('[data-seo-spend]')).toBeNull()
+    expect(hosts.back()!.label).toBe('Back to competitors')
+    await act(async () => hosts.back()!.go())
+    await settle()
+    expect(q('[data-seo-competitors-page]')!.dataset.seoState).toBe('index')
+    expect(hosts.trail.childElementCount).toBe(0)
+    // The index names nothing of its own either: the card's title says it.
+    expect(mount.container.querySelector('h1')).toBeNull()
+    expect(hosts.right.querySelector('[data-seo-spend]')).not.toBeNull()
   })
 })

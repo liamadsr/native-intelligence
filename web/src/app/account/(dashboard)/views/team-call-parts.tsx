@@ -32,8 +32,8 @@ import { inCallNow, teamCallSummary, type TeamCallView } from '@/lib/team-calls/
 import type { TeamChatChannel, TeamChatMessage } from '@/lib/team-chat/types'
 import { Avatar, memberName, type Member } from './team-chat-message-parts'
 
-/** The header's call button: start a call here, or open the one this page is in. */
-export function CallButton({ channel, label }: { channel: TeamChatChannel; label: string }) {
+/** The header's call button: start a call here, or open the one this page is in. `className`: its shape where it stands (a card's header: round). */
+export function CallButton({ channel, label, className }: { channel: TeamChatChannel; label: string; className?: string }) {
   const { available, active, startCall, setMinimized } = useTeamCalls()
   if (!available || channel.archived_at) return null
   const here = active?.channelId === channel.id
@@ -48,6 +48,7 @@ export function CallButton({ channel, label }: { channel: TeamChatChannel; label
       className={cn(
         'shrink-0 rounded-lg p-1.5 hover:bg-accent hover:text-foreground',
         here ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : 'text-muted-foreground',
+        className,
       )}
     >
       <Phone className="h-4 w-4" />

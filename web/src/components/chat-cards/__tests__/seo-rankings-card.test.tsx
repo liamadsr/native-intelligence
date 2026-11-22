@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as React from 'react'
 import { act } from 'react'
 import { makeStore, mountRoot } from './page-card-harness'
+import { seoHeaderHosts } from './seo-header-hosts'
 import { stubAppFetch } from '@/test/app-fetch-stub'
 
 const hoisted = vi.hoisted(() => ({ toast: Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn() }) }))
@@ -734,5 +735,52 @@ describe('SeoRankingsCard: settings', () => {
     await settle()
     expect(writes().at(-1)).toEqual({ method: 'DELETE', path: `/api/account/seo/rank/trackers/${T1}`, body: null })
     expect(store.state('rank-1').at).toBeNull()
+  })
+})
+
+describe('SeoRankingsCard: in a card’s header', () => {
+  // Liam, 11-22: the page never repeats its title, its controls are the
+  // header's, and a tracker is a breadcrumb after the card's title.
+  let hosts: ReturnType<typeof seoHeaderHosts>
+  beforeEach(() => {
+    hosts = seoHeaderHosts()
+  })
+  afterEach(() => hosts.remove())
+  const renderInCard = async () => {
+    await mount.render(hosts.wrap(React.createElement(SeoRankingsCard, { toolCallId: 'rank-1', spec, store, fullScreen: true })))
+    await settle()
+    await settle()
+  }
+
+  it('the index: no title row of its own; New tracker is a pill at the header’s right, beside the spend', async () => {
+    await renderInCard()
+    expect(mount.container.querySelector('[data-seo-index]')).not.toBeNull()
+    expect(mount.container.querySelector('h1')).toBeNull()
+    expect(mount.container.querySelector('[data-seo-new-tracker]')).toBeNull()
+    const button = hosts.right.querySelector<HTMLButtonElement>('[data-seo-new-tracker]')!
+    expect(button.textContent).toBe('New tracker')
+    expect(button.className).toContain('rounded-full')
+    expect(hosts.right.querySelector('[data-seo-spend]')!.textContent).toContain('$3.40 of $20 this month')
+    expect(hosts.trail.childElementCount).toBe(0)
+  })
+
+  it('a tracker: the site is the breadcrumb, Check now and the menu the header’s, and the title goes back', async () => {
+    openTracker()
+    await renderInCard()
+    expect(hosts.trail.textContent).toBe('fernhillstudio.example')
+    expect(mount.container.querySelector('h1')).toBeNull()
+    expect(mount.container.querySelector('[data-seo-check-now]')).toBeNull()
+    expect(mount.container.querySelector('[data-seo-tracker-settings]')).not.toBeNull()
+    expect(hosts.right.querySelector('[data-seo-check-now]')!.className).toContain('rounded-full')
+    // The menu opens from the header.
+    await click(hosts.right.querySelector<HTMLElement>('[data-seo-tracker-menu]')!)
+    expect(q('[data-seo-menu-add]')).not.toBeNull()
+    expect(hosts.back()!.label).toBe('Back to rankings')
+    await act(async () => hosts.back()!.go())
+    await settle()
+    await settle()
+    expect(store.state('rank-1').at).toBeNull()
+    expect(mount.container.querySelector('[data-seo-index]')).not.toBeNull()
+    expect(hosts.trail.childElementCount).toBe(0)
   })
 })

@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 /**
- * The knowledge card draws the real KnowledgeView beside the real page. The
- * surface it is on is the card's: switching it never writes the page's
- * remembered choice, and the page's choice never moves the card. Inline the
- * map is a still; full screen it runs, one card at a time.
+ * The Knowledge card draws the real KnowledgeView, on the claims alone; the
+ * Library is its own card since the split (Liam, 11-21). Inline the map is a
+ * still; full screen it runs, one card at a time. The Library card draws the
+ * real KnowledgeLibrary, opens on the package the agent or a link named, and
+ * moves to the package the person opens.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as React from 'react'
@@ -23,16 +24,16 @@ vi.mock('@/app/account/(dashboard)/views/knowledge-library', () => ({
       'div',
       { 'data-library': initialPackageId ?? '' },
       React.createElement('button', { 'data-open-package': '', onClick: () => onPackageChange?.({ id: 'p2', name: 'Board prep' }) }, 'open'),
+      React.createElement('button', { 'data-close-package': '', onClick: () => onPackageChange?.(null) }, 'close'),
     ),
   PromotePackageDialog: () => null,
 }))
 
 import KnowledgeCard from '../pages/knowledge-card'
-import { KnowledgeView } from '@/app/account/(dashboard)/views/knowledge-view'
+import KnowledgeLibraryCard from '../pages/knowledge-library-card'
 import type { PageCardSpec } from '@/lib/chat-cards/pages'
 
 const spec: PageCardSpec = { kind: 'knowledge', title: 'Knowledge' }
-const MODE_KEY = 'knowledge-view-mode:ws-1'
 
 let mount: ReturnType<typeof mountRoot>
 beforeEach(() => {
@@ -46,39 +47,22 @@ afterEach(() => {
 })
 
 function card(id: string, store: ReturnType<typeof makeStore>, fullScreen: boolean, s: PageCardSpec = spec) {
-  return React.createElement('section', { 'data-card': id }, React.createElement(KnowledgeCard, { toolCallId: id, spec: s, store, fullScreen }))
+  const Body = s.kind === 'knowledge_library' ? KnowledgeLibraryCard : KnowledgeCard
+  return React.createElement('section', { 'data-card': id }, React.createElement(Body, { toolCallId: id, spec: s, store, fullScreen }))
 }
 
 describe('KnowledgeCard', () => {
-  it("keeps its surface to itself: the page's remembered choice is neither read nor written", async () => {
-    window.localStorage.setItem(MODE_KEY, 'library')
+  it('draws the claims, never the Library, whatever the old picker remembered', async () => {
+    window.localStorage.setItem('knowledge-view-mode:ws-1', 'library')
     const store = makeStore('k1', spec)
-    await mount.render(
-      React.createElement('div', null, React.createElement('section', { 'data-real-page': '' }, React.createElement(KnowledgeView)), card('k1', store, false)),
-    )
-    // The page restored its library; the card stays on the claims.
-    expect(mount.container.querySelector('[data-real-page] [data-library]')).not.toBeNull()
+    await mount.render(card('k1', store, false))
     expect(mount.container.querySelector('[data-card="k1"] [data-probe-list="claim"]')).not.toBeNull()
+    expect(mount.container.querySelector('[data-library]')).toBeNull()
     // Inline, the map is a still with the way to full screen.
     expect(mount.container.querySelector('[data-card="k1"] [data-map]')).toBeNull()
     expect(mount.container.querySelector('[data-card="k1"]')!.textContent).toContain('The knowledge map opens in full screen.')
     await act(async () => (Array.from(mount.container.querySelectorAll('[data-card="k1"] button')).find((b) => b.textContent === 'Open the map') as HTMLElement).click())
     expect(store.fullScreen()).toBe('k1')
-    expect(window.localStorage.getItem(MODE_KEY)).toBe('library')
-  })
-
-  it('opens on a package in the library when the agent named one', async () => {
-    const pkgSpec: PageCardSpec = { kind: 'knowledge', title: 'Playbook', target: { type: 'package', id: 'p1', label: 'Sales playbook' }, tab: 'library' }
-    await mount.render(card('k1', makeStore('k1', pkgSpec), false, pkgSpec))
-    expect(mount.container.querySelector('[data-library="p1"]')).not.toBeNull()
-  })
-
-  it('moves the card to a package the person opens in the library', async () => {
-    const libSpec: PageCardSpec = { kind: 'knowledge', title: 'Library', tab: 'library' }
-    const store = makeStore('k1', libSpec)
-    await mount.render(card('k1', store, false, libSpec))
-    await act(async () => (mount.container.querySelector('[data-open-package]') as HTMLElement).click())
-    expect(store.contextEntries()[0]).toMatchObject({ at: { type: 'package', id: 'p2', label: 'Board prep' }, moved: true, tab: 'library' })
   })
 
   it('runs the map full screen, and only one card at a time', async () => {
@@ -91,5 +75,33 @@ describe('KnowledgeCard', () => {
     await mount.render(React.createElement('div', null, card('k1', a, false), card('k2', b, true)))
     expect(mount.container.querySelectorAll('[data-map]')).toHaveLength(1)
     expect(mount.container.querySelector('[data-card="k2"] [data-map]')).not.toBeNull()
+  })
+})
+
+describe('KnowledgeLibraryCard (the Library, Liam, 11-21)', () => {
+  const library: PageCardSpec = { kind: 'knowledge_library', title: 'Library' }
+
+  it('draws the Library, not the claims', async () => {
+    await mount.render(card('l1', makeStore('l1', library), false, library))
+    expect(mount.container.querySelector('[data-library=""]')).not.toBeNull()
+    expect(mount.container.querySelector('[data-probe-list]')).toBeNull()
+  })
+
+  it('opens on a package when the agent or a link named one', async () => {
+    const pkgSpec: PageCardSpec = { kind: 'knowledge_library', title: 'Playbook', target: { type: 'package', id: 'p1', label: 'Sales playbook' } }
+    await mount.render(card('l1', makeStore('l1', pkgSpec), false, pkgSpec))
+    expect(mount.container.querySelector('[data-library="p1"]')).not.toBeNull()
+  })
+
+  it('moves the card to a package the person opens, and back to the top when they close it', async () => {
+    const store = makeStore('l1', library)
+    await mount.render(card('l1', store, false, library))
+    await act(async () => (mount.container.querySelector('[data-open-package]') as HTMLElement).click())
+    const entry = store.contextEntries()[0]
+    expect(entry).toMatchObject({ kind: 'knowledge_library', at: { type: 'package', id: 'p2', label: 'Board prep' }, moved: true })
+    expect(entry.tab).toBeUndefined()
+    expect(mount.container.querySelector('[data-library="p2"]')).not.toBeNull()
+    await act(async () => (mount.container.querySelector('[data-close-package]') as HTMLElement).click())
+    expect(store.contextEntries()[0].at).toBeUndefined()
   })
 })

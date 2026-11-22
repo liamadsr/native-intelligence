@@ -20,7 +20,6 @@
 import * as React from 'react'
 import { ScanSearch } from 'lucide-react'
 import { toast } from 'sonner'
-import { Button } from '@/components/ui/button'
 import { PageTitle } from '@/components/views/page-title'
 import { ISSUE_SEVERITIES, isLiveAudit, type SiteAuditView } from '@/lib/seo/audit/view'
 import { cn } from '@/lib/utils'
@@ -29,6 +28,7 @@ import { cancelAudit, errorMessage, fetchAudits, type AuditListPayload } from '.
 import { AuditDetail } from './audit-detail'
 import { AuditRunRail } from './audit-run-rail'
 import { CenteredError, CenteredLoader } from './load-states'
+import { SeoHeaderAction, useInCard } from './shared/header-controls'
 import { InlineStartForm, StartAuditDialog } from './start-audit'
 import { SEVERITY_CHIP, STATUS_WORD, count, relativeWhen, severityCountLabel } from './ui-helpers'
 import { useAuditPoll } from './use-audit-poll'
@@ -66,6 +66,9 @@ export function SiteAuditPage(props: SiteAuditViewProps) {
 }
 
 function AuditIndex({ onOpenAudit, onCount }: Pick<SiteAuditViewProps, 'onOpenAudit' | 'onCount'>) {
+  // In a card its header names the page and takes New audit (Liam, 11-22):
+  // no row of the page's own above the list.
+  const inCard = useInCard()
   const [payload, setPayload] = React.useState<AuditListPayload | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -127,7 +130,7 @@ function AuditIndex({ onOpenAudit, onCount }: Pick<SiteAuditViewProps, 'onOpenAu
 
   if (!payload) {
     return (
-      <div className="flex h-full min-h-0 flex-col">
+      <div className={cn('flex h-full min-h-0 flex-col', inCard && 'pt-2')}>
         <ViewHeader title={<PageTitle label="Site audit" as="h1" />} />
         {error && !loading ? <CenteredError text={error} onRetry={() => void load()} /> : <CenteredLoader />}
       </div>
@@ -136,21 +139,19 @@ function AuditIndex({ onOpenAudit, onCount }: Pick<SiteAuditViewProps, 'onOpenAu
 
   const empty = audits.length === 0
   return (
-    <div data-seo-index="" className="flex h-full min-h-0 flex-col">
+    <div data-seo-index="" className={cn('flex h-full min-h-0 flex-col', inCard && 'pt-2')}>
       <ViewHeader
         title={<PageTitle label="Site audit" as="h1" />}
         actions={
           empty ? null : (
-            <Button
-              size="sm"
-              className="h-8"
+            <SeoHeaderAction
               data-seo-new-audit=""
               disabled={!!live}
               title={live ? `An audit of ${live.host} is running. One runs at a time.` : 'Check a website for search problems'}
               onClick={() => setDialogOpen(true)}
             >
               New audit
-            </Button>
+            </SeoHeaderAction>
           )
         }
       />

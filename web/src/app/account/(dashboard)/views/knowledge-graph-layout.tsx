@@ -37,11 +37,13 @@ import { createNetworkDataSource } from '@/components/knowledge-map/data-source'
 import type { MapStatus, SelectedMapNode } from '@/components/knowledge-map/types'
 import { countBadgeText } from './knowledge-filter-bar'
 
-// WebGL2 context creation touches `window` at module scope → client-only, with
-// a loading fallback so switching layouts does not flash empty.
+// WebGL2 context creation touches `window` at module scope → client-only. No
+// fallback of its own: the loading overlay below is always up while this chunk
+// loads (status starts 'loading', meta null), and a second orb under it was a
+// second paint loop stacked under the first (Liam, 11-21).
 const KnowledgeMap = dynamic(() => import('@/components/knowledge-map/knowledge-map'), {
   ssr: false,
-  loading: () => <PageLoadingOrb label="Loading knowledge graph…" />,
+  loading: () => null,
 })
 
 export interface KnowledgeGraphLayoutProps {
@@ -181,9 +183,11 @@ export function KnowledgeGraphLayout({
       />
 
       {/* The loading orb sits OVER the canvas rather than replacing it, so a
-          realtime revalidation never unmounts the GL context. */}
+          realtime revalidation never unmounts the GL context. No tint of its
+          own: the canvas is clear, so the orb sits on the card's glass like
+          the rest of the page (Liam, 11-21: "too dark"). */}
       {status === 'loading' && !meta && (
-        <div className="bg-background/60 absolute inset-0">
+        <div className="absolute inset-0">
           <PageLoadingOrb label="Loading knowledge graph…" />
         </div>
       )}
@@ -214,9 +218,9 @@ export function KnowledgeGraphLayout({
       {/* Both empty states OVERLAY the canvas rather than replacing it.
           Unmounting the map would take `onMeta`/`onStatus` with it, so a
           workspace that gets its first claim from a realtime write would have
-          nothing left to notice it. */}
+          nothing left to notice it. On the card's glass, as the loader is. */}
       {noClaimsAtAll && (
-        <div className="bg-background pointer-events-none absolute inset-0 flex items-center justify-center">
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <div className="flex flex-col items-center gap-3 text-center">
             <Network className="text-muted-foreground/40 h-10 w-10" />
             <div>

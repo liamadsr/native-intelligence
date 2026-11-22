@@ -49,18 +49,28 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { useEntityListSync } from '@/hooks/use-entity-sync'
+import { CardHeaderSlot, CardHeaderTrail, useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
+import { CARD_HEADER_ICON_BUTTON, CARD_HEADER_PILL_BUTTON } from '@/components/chat-cards/card-header-button'
 import type { OpenEntity } from './knowledge-view'
 
 /**
- * Knowledge library — the brief-first, auto-populating sibling of the graph:
+ * The Library page (Liam, 11-21: once Knowledge's library tab, its own page
+ * next to Knowledge in Drive; its card is
+ * components/chat-cards/pages/knowledge-library-card.tsx) — the brief-first,
+ * auto-populating sibling of the graph:
  *
  *   - workspace brief (compiled world model)
  *   - one row per project WITH knowledge (claims and/or reference docs) —
  *     these appear automatically as the product is used
  *   - packages: the curated, gated scopes — created deliberately, usually by
- *     PROMOTING a project (or a graph filter, see knowledge-view)
+ *     PROMOTING a project (or a Knowledge view, see knowledge-view)
  *
  * The graph stays the inspection surface; this is the reading/managing one.
+ *
+ * In its card (Liam, 11-22: a page's controls live in its card's header, and
+ * a place inside it is the header's breadcrumb): the Review queue and Refresh
+ * briefs, which act on the whole Library, are the header's; a package open in
+ * its panel is "Library › <package>", the title the way back.
  */
 
 // ─── API payload types ───────────────────────────────────────────────────────
@@ -81,6 +91,15 @@ interface LibraryProject {
   brief: BriefPayload | null
   spec_docs: Array<{ id: string; slug: string; title: string }>
 }
+
+/**
+ * The Library sits on the card's glass like every page (Liam, 11-21): its
+ * panels are a faint lift with a hairline, not solid dark blocks, and its
+ * buttons are clear pills, like the view tabs.
+ */
+const GLASS_PANEL = 'border-border/60 bg-foreground/[0.03]'
+const GLASS_PILL_BUTTON =
+  'h-7 shrink-0 gap-1.5 rounded-full border border-border px-3 text-xs text-muted-foreground hover:bg-muted hover:text-foreground dark:shadow-none'
 
 export interface LibraryPackage {
   id: string
@@ -180,6 +199,9 @@ export function KnowledgeLibrary({
   initialPackageId?: string
 }) {
   const workspaceId = useWorkspaceId()
+  // In a card its header holds the page's controls and the open package (see the header comment).
+  // (A record open over it has the header: CardCovered gives the page none.)
+  const inCard = useCardHeaderSlots() !== null
   const [data, setData] = useState<LibraryData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -273,6 +295,7 @@ export function KnowledgeLibrary({
             brief={data.workspace_brief}
             totalClaims={data.total_claims}
             suggestedClaims={data.suggested_claims}
+            actionsInHeader={inCard}
           />
 
           {/* Projects — the rows that appear automatically */}
@@ -311,7 +334,7 @@ export function KnowledgeLibrary({
                 Packages
               </h2>
               <span className="text-muted-foreground text-[11px]">
-                curated &amp; gated — promote a project or a graph filter to create one
+                curated &amp; gated — promote a project, or a view on Knowledge, to create one
               </span>
             </div>
             {data.packages.length === 0 ? (
@@ -329,7 +352,7 @@ export function KnowledgeLibrary({
                       setOpenPackageId(pkg.id)
                       onPackageChange?.({ id: pkg.id, name: pkg.name })
                     }}
-                    className="border-border bg-card hover:border-foreground/30 flex w-full items-center gap-3 rounded-md border p-3 text-left transition-colors"
+                    className={cn(GLASS_PANEL, 'hover:border-foreground/30 flex w-full items-center gap-3 rounded-md border p-3 text-left transition-colors')}
                   >
                     <EntityIcon kind="knowledge_package" />
                     <div className="min-w-0 flex-1">
@@ -356,9 +379,20 @@ export function KnowledgeLibrary({
         </div>
       </ScrollArea>
 
+      {inCard && (
+        <CardHeaderSlot side="right">
+          <div data-library-header-controls="" className="flex items-center gap-1">
+            <ReviewQueueLink suggestedClaims={data.suggested_claims} inHeader />
+            <RefreshBriefsButton inHeader />
+          </div>
+        </CardHeaderSlot>
+      )}
+
       {openPackageId && (
         <PackagePanel
           packageId={openPackageId}
+          knownName={data.packages.find((p) => p.id === openPackageId)?.name}
+          trail={inCard}
           onClose={() => {
             setOpenPackageId(null)
             onPackageChange?.(null)
@@ -391,14 +425,17 @@ function WorkspaceBriefCard({
   brief,
   totalClaims,
   suggestedClaims,
+  actionsInHeader = false,
 }: {
   brief: BriefPayload | null
   totalClaims: number
   suggestedClaims: number
+  /** In a card the Review queue and Refresh briefs are the card header's, not this row's. */
+  actionsInHeader?: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
   return (
-    <section className="border-border bg-card rounded-lg border">
+    <section className={cn(GLASS_PANEL, 'rounded-lg border')}>
       <div className="px-4 pt-3">
         {/* Title row: title left, actions right. The actions stay a fixed size;
             the title truncates first so the row never wraps into a bunched block. */}
@@ -407,10 +444,12 @@ function WorkspaceBriefCard({
             <BookOpen className="text-muted-foreground h-4 w-4 shrink-0" />
             <h2 className="text-foreground truncate text-sm font-semibold">Workspace brief</h2>
           </div>
-          <div className="ml-auto flex shrink-0 items-center gap-2">
-            <ReviewQueueLink suggestedClaims={suggestedClaims} />
-            <RefreshBriefsButton />
-          </div>
+          {!actionsInHeader && (
+            <div className="ml-auto flex shrink-0 items-center gap-2">
+              <ReviewQueueLink suggestedClaims={suggestedClaims} />
+              <RefreshBriefsButton />
+            </div>
+          )}
         </div>
         {/* Meta on its own full-width line so it reads cleanly at any panel
             width instead of being squeezed between the title and the buttons. */}
@@ -461,10 +500,25 @@ function WorkspaceBriefCard({
  * in the dashboard rather than sending them to a dead-end full-screen route.
  * Badges the count of suggested claims from the library rollup — no extra query.
  */
-function ReviewQueueLink({ suggestedClaims }: { suggestedClaims: number }) {
+function ReviewQueueLink({ suggestedClaims, inHeader = false }: { suggestedClaims: number; inHeader?: boolean }) {
+  if (inHeader) {
+    return (
+      <ReviewQueueDialog suggestedClaims={suggestedClaims}>
+        <button type="button" data-library-review-queue="" className={CARD_HEADER_PILL_BUTTON}>
+          <ListChecks className="size-3.5" strokeWidth={1.75} aria-hidden />
+          Review queue
+          {suggestedClaims > 0 && (
+            <span className="inline-flex min-w-4 items-center justify-center rounded-full bg-foreground/[0.08] px-1 text-[10px] font-medium tabular-nums text-muted-foreground">
+              {suggestedClaims}
+            </span>
+          )}
+        </button>
+      </ReviewQueueDialog>
+    )
+  }
   return (
     <ReviewQueueDialog suggestedClaims={suggestedClaims}>
-      <Button variant="outline" size="sm" className="h-7 shrink-0 gap-1 text-xs">
+      <Button variant="ghost" size="sm" className={GLASS_PILL_BUTTON}>
         <ListChecks className="h-3 w-3" />
         Review queue
         {suggestedClaims > 0 && (
@@ -484,7 +538,7 @@ function ReviewQueueLink({ suggestedClaims }: { suggestedClaims: number }) {
  * load once the pass completes. Rate-limited server-side (10-min cooldown per
  * workspace); a 429 surfaces the cooldown message.
  */
-function RefreshBriefsButton() {
+function RefreshBriefsButton({ inHeader = false }: { inHeader?: boolean }) {
   const [state, setState] = useState<'idle' | 'busy' | 'queued'>('idle')
 
   const refresh = useCallback(async () => {
@@ -507,11 +561,28 @@ function RefreshBriefsButton() {
     }
   }, [])
 
+  if (inHeader) {
+    // A round icon in the header, as a refresh is on every page; its name in the tooltip.
+    const label = state === 'queued' ? 'Brief refresh queued' : 'Refresh briefs'
+    return (
+      <button
+        type="button"
+        data-library-refresh-briefs=""
+        aria-label={label}
+        title={label}
+        onClick={() => void refresh()}
+        disabled={state !== 'idle'}
+        className={cn('grid size-7 shrink-0 place-items-center disabled:opacity-50', CARD_HEADER_ICON_BUTTON)}
+      >
+        {state === 'busy' ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <RefreshCw className="size-3.5" strokeWidth={1.75} aria-hidden />}
+      </button>
+    )
+  }
   return (
     <Button
-      variant="outline"
+      variant="ghost"
       size="sm"
-      className="h-7 shrink-0 gap-1 text-xs"
+      className={GLASS_PILL_BUTTON}
       onClick={() => void refresh()}
       disabled={state !== 'idle'}
     >
@@ -538,7 +609,7 @@ function ProjectRow({
 }) {
   const [expanded, setExpanded] = useState(false)
   return (
-    <div className="border-border bg-card rounded-md border">
+    <div className={cn(GLASS_PANEL, 'rounded-md border')}>
       <div className="flex items-center gap-2 p-3">
         <button
           type="button"
@@ -574,7 +645,7 @@ function ProjectRow({
           )}
           <span>{timeAgo(project.last_claim_at)}</span>
         </div>
-        <Button variant="outline" size="sm" className="h-7 shrink-0 gap-1 text-xs" onClick={onPromote}>
+        <Button variant="ghost" size="sm" className={GLASS_PILL_BUTTON} onClick={onPromote}>
           <Package className="h-3 w-3" />
           Promote
         </Button>
@@ -625,11 +696,22 @@ function ProjectRow({
 
 function PackagePanel({
   packageId,
+  knownName,
+  trail = false,
   onClose,
   onChanged,
   onOpenEntity,
 }: {
   packageId: string
+  /** Its name as the Library's list has it, until the panel has read its own. */
+  knownName?: string
+  /**
+   * In a card: the package is the header's breadcrumb, "Library › <package>",
+   * whose title closes it (Liam, 11-22: "the back button should just be the
+   * breadcrum"), so the panel draws neither its own label and close nor the
+   * name again.
+   */
+  trail?: boolean
   onClose: () => void
   onChanged: () => void
   onOpenEntity?: OpenEntity
@@ -755,19 +837,28 @@ function PackagePanel({
   }
 
   return (
-    <div className="border-border bg-card absolute inset-y-0 right-0 z-20 flex w-[26rem] shrink-0 flex-col border-l shadow-xl">
-      <div className="border-border flex shrink-0 items-center justify-between border-b px-4 py-3">
-        <span className="text-muted-foreground text-xs font-semibold tracking-wider uppercase">
-          Package
-        </span>
-        <button
-          onClick={onClose}
-          className="text-muted-foreground hover:bg-muted hover:text-foreground rounded p-1 transition-colors"
-          aria-label="Close"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
+    <div data-library-package-panel={packageId} className="border-border bg-card absolute inset-y-0 right-0 z-20 flex w-[26rem] shrink-0 flex-col border-l shadow-xl">
+      {trail ? (
+        <CardHeaderTrail onBack={onClose} backLabel="Back to the library">
+          <EntityIcon kind="knowledge_package" size="sm" />
+          <span data-library-package-trail="" className="min-w-0 truncate font-medium">
+            {detail?.package.name ?? knownName ?? 'Package'}
+          </span>
+        </CardHeaderTrail>
+      ) : (
+        <div className="border-border flex shrink-0 items-center justify-between border-b px-4 py-3">
+          <span className="text-muted-foreground text-xs font-semibold tracking-wider uppercase">
+            Package
+          </span>
+          <button
+            onClick={onClose}
+            className="text-muted-foreground hover:bg-muted hover:text-foreground rounded p-1 transition-colors"
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
       {loading || !detail ? (
         <div className="flex flex-1 items-center justify-center">
@@ -777,10 +868,13 @@ function PackagePanel({
         <ScrollArea className="min-h-0 flex-1">
           <div className="space-y-5 p-4">
             <div>
+              {/* In a card the header's breadcrumb names it: only its badge here. */}
               <div className="flex items-start justify-between gap-2">
-                <h3 className="text-foreground text-base font-semibold">
-                  {detail.package.name}
-                </h3>
+                {!trail && (
+                  <h3 className="text-foreground text-base font-semibold">
+                    {detail.package.name}
+                  </h3>
+                )}
                 <VisibilityBadge visibility={detail.package.visibility} />
               </div>
               {detail.package.description && (

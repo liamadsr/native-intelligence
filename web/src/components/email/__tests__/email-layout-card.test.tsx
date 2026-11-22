@@ -68,22 +68,27 @@ vi.mock('@/hooks/use-entity-sync', () => ({ useEntityListSync: () => {} }))
 vi.mock('@/components/views/unified-view-layout', () => ({ useIsWindowFocused: () => true }))
 
 const { EmailLayout } = await import('../email-layout')
+const { CardHeaderSlotsProvider } = await import('@/components/chat-cards/card-header-slot')
 
 const T = (id: string, from = 'Sarah') => ({ provider_thread_id: id, from_name: from, subject: `S ${id}`, is_unread: false })
 
 let container: HTMLDivElement
+/** The card's header, where its Unread, search and New email go (CardHeaderSlot). */
+let cardHeader: HTMLDivElement
 let root: Root
 beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({}) })))
   lists.page = undefined
   lists.card = undefined
   container = document.createElement('div')
-  document.body.appendChild(container)
+  cardHeader = document.createElement('div')
+  document.body.append(cardHeader, container)
   root = createRoot(container)
 })
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  cardHeader.remove()
   vi.unstubAllGlobals()
 })
 
@@ -102,7 +107,7 @@ async function mount(card: ReturnType<typeof cardOf> | null, opts: { page?: bool
     root.render(
       h('div', null,
         opts.page === false ? null : h('div', { 'data-page': '' }, h(EmailLayout)),
-        card ? h('div', { ...frame, 'data-card': '' }, h(EmailLayout, { card })) : null,
+        card ? h('div', { ...frame, 'data-card': '' }, h(CardHeaderSlotsProvider, { value: { left: null, right: cardHeader } }, h(EmailLayout, { card }))) : null,
       ),
     )
   })
@@ -138,7 +143,8 @@ describe('a mail card beside the Mail page', () => {
     expect(lists.card?.extraParams).toEqual({ readable: '1', unread_only: 'true' })
     // The page lists as before.
     expect(lists.page?.extraParams).toEqual({})
-    await act(async () => (container.querySelector('[data-card] [data-unread-toggle]') as HTMLElement).click())
+    // In the card's header.
+    await act(async () => (cardHeader.querySelector('[data-unread-toggle]') as HTMLElement).click())
     expect(lists.card?.extraParams).toEqual({ readable: '1' })
     expect(onStateChange).toHaveBeenLastCalledWith(expect.objectContaining({ unread: false }))
     expect(container.querySelector('[data-page] [data-unread-toggle]')).toBeNull()

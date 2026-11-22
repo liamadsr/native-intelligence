@@ -116,3 +116,46 @@ describe('the Studio’s shell', () => {
     expect(reachable(editor()).length).toBeGreaterThan(0)
   }, SLOW)
 })
+
+/**
+ * In a card (pages/studio-card.tsx; Liam, 11-22: a page's controls live in its card's header, a place inside it is the
+ * header's breadcrumb, no routine Saved): the video's name is the breadcrumb, renamed in place, whose title goes back
+ * to Projects and videos; Undo, Record and Export stand at the header's right, in the Studio's scope; the editor draws
+ * no header of its own.
+ */
+describe('the Studio in a card', () => {
+  let right: HTMLDivElement, trail: HTMLDivElement, back: { go: () => void; label: string } | null
+  beforeEach(() => {
+    back = null
+    right = document.body.appendChild(document.createElement('div'))
+    trail = document.body.appendChild(document.createElement('div'))
+  })
+  afterEach(() => { right.remove(); trail.remove() })
+
+  it('puts the video’s name in the breadcrumb and the editor’s actions at the header’s right; the title goes to Projects and videos', async () => {
+    const { CardHeaderSlotsProvider } = await import('@/components/chat-cards/card-header-slot')
+    await act(async () => root!.render(
+      <CardHeaderSlotsProvider value={{ left: null, right, trail, setBack: next => { back = next } }}>
+        <StudioRoot workspaceId="ws-fernhill" />
+      </CardHeaderSlotsProvider>,
+    ))
+    await vi.waitFor(() => { if (!trail.querySelector('.hdr-title')) throw new Error('not open yet') }, { timeout: 20_000 })
+    for (let i = 0; i < 3; i++) await act(async () => {})
+    expect(trail.querySelector('.hdr-title')!.textContent).toBe('Fernhill spring teaser')
+    expect(back!.label).toBe('Projects and videos')
+    const actions = right.querySelector<HTMLElement>('[data-studio-header-actions]')!
+    expect(actions.closest('.ni-studio')).not.toBeNull()
+    expect(actions.querySelector('button[aria-label="Undo (⌘Z)"]')).not.toBeNull()
+    expect([...actions.querySelectorAll('button')].some(b => b.textContent?.trim() === 'Export')).toBe(true)
+    // No header in the editor, and no routine Saved anywhere.
+    expect(main().querySelector('header.app-header')).toBeNull()
+    expect(right.textContent).not.toContain('Saved')
+    // The title: back to Projects and videos, and the breadcrumb goes with the video.
+    await act(async () => back!.go())
+    for (let i = 0; i < 3; i++) await act(async () => {})
+    expect(page()).not.toBeNull()
+    expect(trail.childElementCount).toBe(0)
+    expect(right.childElementCount).toBe(0)
+  }, SLOW)
+})
+

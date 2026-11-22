@@ -21,6 +21,7 @@ import * as React from 'react'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { makeStore, mountRoot } from './page-card-harness'
+import { seoHeaderHosts } from './seo-header-hosts'
 import { stubAppFetch } from '@/test/app-fetch-stub'
 
 const hoisted = vi.hoisted(() => ({ toast: Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn() }) }))
@@ -839,5 +840,48 @@ describe('SeoLocalCard: Reviews', () => {
     await click('[data-seo-check-again]')
     expect(writes()).toHaveLength(2)
     expect(all('[data-seo-review]')).toHaveLength(3)
+  })
+})
+
+describe('SeoLocalCard: in a card’s header', () => {
+  // Liam, 11-22: the page never repeats its title, its controls are the
+  // header's, and a business is a breadcrumb after the card's title.
+  let hosts: ReturnType<typeof seoHeaderHosts>
+  beforeEach(() => {
+    hosts = seoHeaderHosts()
+  })
+  afterEach(() => hosts.remove())
+  const renderInCard = async () => {
+    await mount.render(hosts.wrap(React.createElement(SeoLocalCard, { toolCallId: 'local-1', spec, store, fullScreen: true })))
+    await settle()
+    await settle()
+  }
+
+  it('the index: no title row of its own; Add business is a pill at the header’s right, beside the spend', async () => {
+    await renderInCard()
+    expect(mount.container.querySelector('[data-seo-index]')).not.toBeNull()
+    expect(mount.container.querySelector('h1')).toBeNull()
+    expect(mount.container.querySelector('[data-seo-add-business]')).toBeNull()
+    expect(hosts.right.querySelector('[data-seo-add-business]')!.className).toContain('rounded-full')
+    expect(hosts.right.querySelector('[data-seo-spend]')!.textContent).toContain('$3.40 of $20 this month')
+  })
+
+  it('a business: its name is the breadcrumb, the spend and the menu the header’s, and the title goes back', async () => {
+    openBusiness()
+    await renderInCard()
+    expect(hosts.trail.textContent).toBe('Fernhill Rug Cleaning')
+    expect(mount.container.querySelector('h1')).toBeNull()
+    expect(mount.container.querySelector('[data-seo-business-menu]')).toBeNull()
+    expect(mount.container.querySelector('[data-seo-business-line]')).not.toBeNull()
+    // In the header the spend line shows at every width (the page's own row hides it when narrow).
+    expect(hosts.right.querySelector('[data-seo-spend]')!.className).not.toContain('hidden')
+    await click(hosts.right.querySelector<HTMLElement>('[data-seo-business-menu]')!)
+    expect(q('[data-seo-remove-business]')).not.toBeNull()
+    expect(hosts.back()!.label).toBe('Back to businesses')
+    await act(async () => hosts.back()!.go())
+    await settle()
+    await settle()
+    expect(store.state('local-1').at).toBeNull()
+    expect(hosts.trail.childElementCount).toBe(0)
   })
 })

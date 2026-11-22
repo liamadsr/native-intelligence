@@ -70,7 +70,10 @@ async function renderToolbar(props: {
   entityType?: ViewEntityType
   teamId?: string
   config?: ViewConfig
+  overrides?: Partial<ViewConfig>
+  onDiscardDraft?: (fields?: readonly (keyof ViewConfig)[]) => void
 }) {
+  const config = props.config ?? makeConfig()
   await act(async () => {
     root.render(
       h(ViewToolbar, {
@@ -83,13 +86,14 @@ async function renderToolbar(props: {
         onUpdateView: vi.fn(),
         onDuplicateView: vi.fn(),
         onDeleteView: vi.fn(),
-        config: props.config ?? makeConfig(),
+        config,
         onConfigChange,
         onScopeReset,
         isDirty: true,
-        overrides: {},
+        // Unsaved filters, unless the test says what differs.
+        overrides: props.overrides ?? { filters: config.filters },
         onSaveDraft: vi.fn(),
-        onDiscardDraft: vi.fn(),
+        onDiscardDraft: props.onDiscardDraft ?? vi.fn(),
       }),
     )
   })
@@ -108,5 +112,27 @@ describe('the unsaved-filters ribbon', () => {
     expect(save.parentElement).not.toBe(ribbon)
     expect(save.parentElement!.className).toContain('ml-auto')
     expect(ribbon!.firstElementChild!.className).toMatch(/min-w-0/)
+  })
+
+  // Liam, 11-22: picking Board brought it up "even if I don't make any changes to the view".
+  it('stays away when only the layout, its grouping or the display differ', async () => {
+    await renderToolbar({
+      config: makeConfig({ layout: 'board', grouping: { field: 'status', direction: 'asc' } }),
+      overrides: { layout: 'board', grouping: { field: 'status', direction: 'asc' }, show_empty_groups: true },
+    })
+    expect(container.querySelector('[data-filter-ribbon]')).toBeNull()
+    expect(container.textContent).not.toContain('Save as new view')
+  })
+
+  it('Cancel takes back the filters alone: a board picked beside them stays', async () => {
+    const onDiscardDraft = vi.fn()
+    await renderToolbar({
+      config: makeConfig({ layout: 'board', filters: [{ id: 'f1', field: 'priority', operator: 'is', value: 1 }] as never }),
+      overrides: { layout: 'board', filters: [{ id: 'f1', field: 'priority', operator: 'is', value: 1 }] as never },
+      onDiscardDraft,
+    })
+    const cancel = [...container.querySelectorAll('[data-filter-ribbon] button')].find((b) => b.textContent === 'Cancel') as HTMLButtonElement
+    await act(async () => cancel.click())
+    expect(onDiscardDraft).toHaveBeenCalledWith(['filters'])
   })
 })

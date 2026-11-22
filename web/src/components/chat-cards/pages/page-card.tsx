@@ -39,9 +39,9 @@ function baselineFor(spec: PageCardSpec, entityType: ViewEntityType): Partial<Vi
   if (spec.kind === 'team_board' && entityType === 'action') {
     return { filters: (spec.filters ?? []).map((f, i) => ({ id: `card-${i}`, ...f })), layout: 'board' }
   }
-  // The knowledge map is WebGL: inline, claims read as a list. Full screen, the
-  // person may switch the layout to the map (see KnowledgePageCard).
-  if (entityType === 'claim') return { layout: 'list' }
+  // Claims open on the graph, their own default (Liam, 11-21: "make it so
+  // that the Graph is the default view"): full screen the map runs, inline the
+  // Knowledge card shows its still with the way to full screen (knowledge-card.tsx).
   return {}
 }
 

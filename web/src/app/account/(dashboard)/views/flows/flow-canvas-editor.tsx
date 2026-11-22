@@ -39,6 +39,8 @@ import { Button } from '@/components/ui/button'
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { Switch } from '@/components/ui/switch'
 import { EntityDetailHeader } from '@/components/views/entity-detail-header'
+import { useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
+import { CARD_HEADER_PILL_BUTTON } from '@/components/chat-cards/card-header-button'
 import { useIsWindowFocused } from '@/components/views/tab-active'
 import { cn } from '@/lib/utils'
 import { emitEntityUpdated, emitEntityDeleted, emitEntityCreated } from '@/lib/entity-events'
@@ -90,6 +92,8 @@ interface FlowCanvasEditorProps {
 }
 
 export function FlowCanvasEditor({ flowId, initialRunId = null, onClose, onSaved }: FlowCanvasEditorProps) {
+  // In a card the header is the canvas's: "Flows › name", Test and Save at its end (Liam, 11-22).
+  const inCard = useCardHeaderSlots() !== null
   const [editor, setEditor] = useState<EditorState | null>(null)
   // The latest editor state, for the listen brief's fallback line.
   const editorRef = useRef(editor)
@@ -611,7 +615,7 @@ export function FlowCanvasEditor({ flowId, initialRunId = null, onClose, onSaved
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-8 gap-1.5"
+                  className={inCard ? cn(CARD_HEADER_PILL_BUTTON, 'shadow-none') : 'h-8 gap-1.5'}
                   onClick={handleTestFire}
                   disabled={firing}
                 >
@@ -623,7 +627,7 @@ export function FlowCanvasEditor({ flowId, initialRunId = null, onClose, onSaved
                   Test
                 </Button>
               )}
-              <Button size="sm" className="h-8 gap-1.5" onClick={handleSave} disabled={saving}>
+              <Button size="sm" className={inCard ? cn(CARD_HEADER_PILL_BUTTON, 'shadow-none') : 'h-8 gap-1.5'} onClick={handleSave} disabled={saving}>
                 {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                 {editor.id ? 'Save' : 'Create'}
               </Button>

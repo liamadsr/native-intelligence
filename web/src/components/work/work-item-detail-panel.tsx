@@ -43,6 +43,12 @@ import { PreferenceActionButton } from '@/components/views/preference-action'
  * the one on screen). `shown` says whether the page shows it now (a narrow
  * page shows its work or its chat): only then is it stamped opened.
  *
+ * In a card whose header names the item (`titleShown`: a work item's own
+ * card, or the item's breadcrumb on its bot's page), the title isn't drawn
+ * again; with `verbsInHeader` (the work item's card) Stop and Open run are
+ * the header's, at its right (Liam, 11-22: a page never repeats its title,
+ * and its controls are its card header's).
+ *
  * A handoff's link ("Delegated by", the rows it handed work to) opens that
  * item where any item opens (useOpenWorkItem): on its own bot's page, else
  * on a card of its own.
@@ -88,6 +94,8 @@ import {
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
+import { CardHeaderSlot, useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
+import { CARD_HEADER_ICON_BUTTON, CARD_HEADER_PILL_BUTTON } from '@/components/chat-cards/card-header-button'
 import { useOpenWorkItem } from '@/hooks/use-open-teammate'
 import { useWorkspaceId } from '@/app/account/workspace-switcher'
 import { openHrefInWorkspace } from '@/app/account/open-href-in-workspace'
@@ -273,6 +281,10 @@ export interface WorkItemDetailPanelProps {
   onItem?: (item: WorkItem | null, failed: boolean) => void
   /** The host draws the item's conversation beside this panel (a bot's page): a local agent's isn't drawn here too. */
   conversationBeside?: boolean
+  /** The title the card's header shows (a card only): the item's title isn't drawn again when it is that. */
+  titleShown?: string
+  /** Embedded in a card of its own (the work item's): Stop and Open run in the card's header, not under the title. */
+  verbsInHeader?: boolean
 }
 
 /** A mounted panel can be in a background browser/desktop window. */
@@ -302,7 +314,9 @@ function useForegroundDocument(): boolean {
   return foreground
 }
 
-export function WorkItemDetailPanel({ itemId, embedded = false, shown = true, onItem, conversationBeside = false }: WorkItemDetailPanelProps) {
+export function WorkItemDetailPanel({ itemId, embedded = false, shown = true, onItem, conversationBeside = false, titleShown, verbsInHeader = false }: WorkItemDetailPanelProps) {
+  const headerSlots = useCardHeaderSlots()
+  const verbsToHeader = embedded && verbsInHeader && headerSlots !== null
   const openWorkItemWhereItOpens = useOpenWorkItem()
   const activeWorkspaceId = useWorkspaceId()
   // On screen: on a bot's page, the part of the page it's in shown.
@@ -808,9 +822,35 @@ export function WorkItemDetailPanel({ itemId, embedded = false, shown = true, on
     </>
   ) : null
 
+  // Embedded in its own card: the same verbs in the card's header.
+  const headerVerbs =
+    verbsToHeader && item && (canStop || canOpenRun) ? (
+      <CardHeaderSlot side="right">
+        <div data-work-item-header-verbs="" className="flex items-center gap-1">
+          {canStop && (
+            <button type="button" className={CARD_HEADER_PILL_BUTTON} onClick={() => void stop()} disabled={busy !== null}>
+              {busy === 'stop' ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <Square className="size-3.5" strokeWidth={1.75} aria-hidden />}
+              Stop
+            </button>
+          )}
+          {canOpenRun && (
+            <button
+              type="button"
+              className={cn('grid size-7 shrink-0 place-items-center', CARD_HEADER_ICON_BUTTON)}
+              onClick={openRun}
+              aria-label={item.agent_run_id ? 'Open run' : 'Run history'}
+              title={item.agent_run_id ? 'Open run' : 'Run history'}
+            >
+              {item.agent_run_id ? <Boxes className="size-3.5" strokeWidth={1.75} /> : <Zap className="size-3.5" strokeWidth={1.75} />}
+            </button>
+          )}
+        </div>
+      </CardHeaderSlot>
+    ) : null
+
   // Embedded (a bot's page): the item's verbs under its title, no toolbar.
   const inlineVerbs =
-    embedded && item && (canStop || canOpenRun) ? (
+    embedded && !verbsToHeader && item && (canStop || canOpenRun) ? (
       <div data-work-item-verbs="" className="flex flex-wrap items-center gap-1.5 pt-1">
         {canStop && (
           <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs" onClick={() => void stop()} disabled={busy !== null}>
@@ -829,6 +869,7 @@ export function WorkItemDetailPanel({ itemId, embedded = false, shown = true, on
 
   return (
     <div className="relative flex h-full flex-col" data-work-item-panel={embedded ? 'embedded' : 'panel'}>
+      {headerVerbs}
       {/* Sub-header toolbar — the item's verbs, at the height every panel shares. Embedded: under the title instead. */}
       {!embedded && (
         <WindowActions className="flex h-10 shrink-0 items-center justify-end gap-1 px-3">
@@ -876,12 +917,16 @@ export function WorkItemDetailPanel({ itemId, embedded = false, shown = true, on
         ) : (
           <div ref={panelBodyRef} className="flex flex-1 min-h-0 justify-center">
             {/* Left: what the run did. Embedded: the whole column. */}
-            <div className={cn('w-full min-w-0', !embedded && 'max-w-[736px] mx-auto')}>
-              <ScrollArea className="h-full">
-                <div className={embedded ? 'px-4 pb-8 space-y-6' : 'px-8 pb-28 space-y-8'}>
+            {/* The whole card's width scrolls, with no bar drawn; the reading
+                column stays centred in it (Liam, 11-21). */}
+            <div className="w-full min-w-0">
+              <ScrollArea scrollbar={false} className="h-full">
+                <div className={embedded ? 'px-4 pb-8 space-y-6' : 'mx-auto w-full max-w-[736px] px-8 pb-28 space-y-8'}>
                   {/* Title + status line. pt-6 lines the title up with the sidebar's group header. */}
                   <div className={cn('space-y-2', embedded ? 'pt-4' : 'pt-6')}>
-                    <h1 className={cn('font-semibold leading-snug', embedded ? 'text-lg' : 'text-2xl')}>{item.title}</h1>
+                    {!(headerSlots && titleShown && titleShown.trim() === (item.title ?? '').trim()) && (
+                      <h1 className={cn('font-semibold leading-snug', embedded ? 'text-lg' : 'text-2xl')}>{item.title}</h1>
+                    )}
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
                       <span className="inline-flex items-center gap-1.5">
                         <StatusIcon status={item.status} paused={paused} className="h-3.5 w-3.5" />

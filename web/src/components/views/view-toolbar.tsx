@@ -38,14 +38,19 @@ interface ViewToolbarProps {
   compact?: boolean
   /**
    * Over a views layout (UnifiedViewLayout's list, board or graph): the view
-   * tabs start on its content line, 40px in (a list's 12px inset plus a row's
-   * gutter, list/entity-row.tsx ROW_GUTTER_PX; a board's first column,
-   * view-board.tsx), whatever the layout, so they never move when a view
-   * with another layout is picked (Liam, 11-20: "where the tables start
+   * tabs stand at one place whatever the layout, so they never move when a
+   * view with another layout is picked (Liam, 11-20: "where the tables start
    * doesn't match"; "when I switch between the views then the views get
-   * indented and move to the right, that shouldn't happen"). The last
-   * button's glyph ends on the card header's close glyph; the ribbon and the
-   * view editor's box line up with a list's row boxes.
+   * indented and move to the right, that shouldn't happen"). Two lines run
+   * down a page: the content line, 40px in (a list's 12px inset plus a row's
+   * gutter, list/entity-row.tsx ROW_GUTTER_PX; a board's first column,
+   * view-board.tsx), where titles and a row's content start; and the leading
+   * line, 18px in, where a row's checkbox and the header island's icon stand.
+   * The pills start on the leading line (Liam, 11-21: "a weird space at the
+   * start", then "the pills should be more to the left"). The last button's
+   * glyph ends where a row's content ends, 28px from the right; 48px tall,
+   * the card's first row now its header is an island above it. The ribbon
+   * and the view editor's box line up with a list's row boxes.
    */
   alignToContent?: boolean
   entityType: ViewEntityType
@@ -103,8 +108,10 @@ interface ViewToolbarProps {
   /** True when the host page supplied a graph body — see UnifiedViewLayout's
    *  `renderGraph`. Gates the Graph option in the layout toggle. */
   graphAvailable?: boolean
-  /** Discard the draft, reverting to the baseline. */
-  onDiscardDraft: () => void
+  /** The layout is picked in the card's header island (view-layout-switcher.tsx), so not in the settings popover too. */
+  layoutInHeader?: boolean
+  /** Discard the draft, reverting to the baseline; given `fields`, only those. */
+  onDiscardDraft: (fields?: readonly (keyof ViewConfig)[]) => void
   /**
    * Share a saved view with the workspace, or make it personal again (a
    * tab's right-click menu). Without it the menu has no such item.
@@ -124,8 +131,14 @@ export function ViewToolbar({
   onLibraryScopeChange,
   prospectStage, prospectStageCounts, onProspectStageChange, actions,
   isDirty, overrides, onSaveDraft, onDiscardDraft,
-  graphAvailable, onSetViewVisibility,
+  graphAvailable, layoutInHeader = false, onSetViewVisibility,
 }: ViewToolbarProps) {
+  // The ribbon and the Filter button's lift follow the filters alone (Liam,
+  // 11-22: picking Board or Roadmap brought the ribbon up "even if I don't
+  // make any changes to the view"). A layout, its board's grouping, the
+  // order and the display options stay as set, without it; a saved view
+  // still offers Update view on its tab's right-click while any differ.
+  const filtersChanged = 'filters' in overrides
   // Prevent Radix popover hydration mismatch — defer popover rendering to client
   const isMounted = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)
   const [toolbarPickerOpen, setToolbarPickerOpen] = useState(false)
@@ -203,7 +216,7 @@ export function ViewToolbar({
 
   // ─── Filter add (both toolbar button and edit-panel button) ───
   // Both paths go through onConfigChange → useViewConfig stores it as an
-  // override → isDirty flips true → the overlay ribbon appears automatically.
+  // filters override → filtersChanged → the overlay ribbon appears automatically.
   const handleToolbarAddFilter = useCallback((field: FilterFieldDefinition, value?: FilterValue) => {
     const newFilter = buildFilter(field, value)
     onConfigChange({ filters: [...configRef.current.filters, newFilter] })
@@ -216,9 +229,9 @@ export function ViewToolbar({
     setPanelPickerOpen(false)
   }, [onConfigChange])
 
-  // ─── Overlay: Discard (revert to baseline) ───
+  // ─── Overlay: Cancel (the filters back to the baseline's; the layout and the rest stay) ───
   const handleOverlayClear = useCallback(() => {
-    onDiscardDraft()
+    onDiscardDraft(['filters'])
   }, [onDiscardDraft])
 
   // ─── Overlay: Update existing view (PATCH all overridden fields) ───
@@ -529,7 +542,11 @@ export function ViewToolbar({
       {/* Row 1: tabs + filter button + settings */}
       <div
         data-view-toolbar-row=""
-        className={cn('flex shrink-0 items-center justify-between', compact ? 'h-8' : 'h-10', alignToContent ? 'pl-10 pr-3.5' : embedded ? 'px-3' : 'px-4')}
+        className={cn(
+          'flex shrink-0 items-center justify-between',
+          compact ? 'h-8' : alignToContent ? 'h-12' : 'h-10',
+          alignToContent ? 'pl-[18px] pr-[17px]' : embedded ? 'px-3' : 'px-4',
+        )}
       >
         {/* In a card the tabs scroll sideways rather than being cut off: an
             inline card is narrower than a window was. */}
@@ -582,7 +599,7 @@ export function ViewToolbar({
                     <PopoverTrigger asChild>
                       <Button
                         variant="ghost" size="icon"
-                        className={cn('h-8 w-8', isDirty && 'bg-muted')}
+                        className={cn('h-8 w-8', filtersChanged && 'bg-muted')}
                       >
                         <ListFilter className="h-4 w-4" />
                       </Button>
@@ -597,21 +614,22 @@ export function ViewToolbar({
             )}
 
             {/* Settings */}
-            {isMounted && <ViewSettingsPopover config={config} entityType={effectiveEntityType} onChange={onConfigChange} lockedScopeFields={lockedScopeFields} graphAvailable={graphAvailable} />}
+            {isMounted && <ViewSettingsPopover config={config} entityType={effectiveEntityType} onChange={onConfigChange} lockedScopeFields={lockedScopeFields} graphAvailable={graphAvailable} hideLayout={layoutInHeader} />}
           </TooltipProvider>
         </div>
       </div>
 
-      {/* Dirty-state ribbon: shown whenever the user's config diverges from
-          the baseline (saved view or default). Persisted in localStorage so
-          drafts survive navigation, reloads, and tab close/open until the
-          user explicitly Saves or Cancels.
+      {/* Unsaved-filters ribbon: shown while the filters differ from the
+          baseline's (saved view or default); other changes (layout, grouping,
+          order, display) don't bring it up (filtersChanged). Drafts persist
+          in localStorage, so they survive navigation, reloads, and tab
+          close/open until the user explicitly Saves or Cancels.
 
           Two visible buttons (per user choice):
             - Update "<view>"  → PATCH the saved view with all overrides
             - Save as new view → opens the create panel pre-filled with overrides
           On the implicit default (no activeView) only Save-as-new is shown. */}
-      {isDirty && !isInEditPanel && (
+      {filtersChanged && !isInEditPanel && (
         <div className={cn('py-1.5', alignToContent ? 'px-3' : 'px-4')}>
           {/* Wraps: on a narrow card (a phone, an inline card) the chips take
               the row and the buttons drop under them, never over them. */}

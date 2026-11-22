@@ -238,7 +238,7 @@ describe('UnifiedViewLayout — the prospect stage tabs through the real toolbar
     const enrich = container.querySelector('[data-testid="enrich"]')
     expect(enrich).toBeTruthy()
     // In the toolbar row, beside the tabs — not somewhere below the list.
-    const row = enrich!.closest('.h-10')
+    const row = enrich!.closest('[data-view-toolbar-row]')
     expect(row).toBeTruthy()
     expect(row!.contains(tab('All')!)).toBe(true)
   })
