@@ -75,6 +75,7 @@ import { IMAGE_MIME, hashBytes, sniffImageType } from './images'
 import { rewriteStructuredRefs, type TableRefMeta } from './table-refs'
 import { CELL_TYPE, bytesToBase64, listSheets, saveWorkbook, usedRange, type SheetInfo } from './workbook'
 import type { ChartCell } from './charts'
+import type { PendingAction, PendingEntry } from './sync'
 
 export type Direction = 'up' | 'down' | 'left' | 'right'
 
@@ -129,6 +130,24 @@ interface HistoryEntry {
   steps: number
   extrasBefore: WorkbookExtras | null
   extrasAfter: WorkbookExtras | null
+  /** A structural change (row/column/sheet), so comment anchors follow it and undo moves them back. */
+  structural?: ExtrasChange
+}
+
+/** The opposite of a structural change, for undo; null when it has no simple inverse (a sheet delete). */
+function invertStructural(change: ExtrasChange): ExtrasChange | null {
+  switch (change.type) {
+    case 'insertRows':
+      return { type: 'deleteRows', sheetId: change.sheetId, at: change.at, count: change.count }
+    case 'deleteRows':
+      return { type: 'insertRows', sheetId: change.sheetId, at: change.at, count: change.count }
+    case 'insertColumns':
+      return { type: 'deleteColumns', sheetId: change.sheetId, at: change.at, count: change.count }
+    case 'deleteColumns':
+      return { type: 'insertColumns', sheetId: change.sheetId, at: change.at, count: change.count }
+    default:
+      return null
+  }
 }
 
 /** What a cell's validation rule lets the grid draw: the choices, a chip, a warning. */
@@ -215,7 +234,8 @@ export function indexAt(starts: Float64Array, offset: number): number {
 }
 
 export class WorkbookController {
-  readonly model: Model
+  /** Not readonly: `adopt` replaces it in place when another editor's workbook is merged in. */
+  model: Model
   readOnly: boolean
 
   /** What the engine does not hold (validation, checkboxes); changed only through `act`, one undo step with the engine. */
@@ -231,6 +251,7 @@ export class WorkbookController {
   editing: EditState | null = null
 
   private listeners = new Set<() => void>()
+  private structuralListeners = new Set<(change: ExtrasChange) => void>()
   private undoStack: HistoryEntry[] = []
   private redoStack: HistoryEntry[] = []
   private steps = 0
@@ -238,6 +259,14 @@ export class WorkbookController {
   private extents = new Map<number, { rows: number; columns: number }>()
   private layouts = new Map<number, { at: number; layout: SheetLayout }>()
   private layoutVersion = 0
+  /**
+   * The engine's own change set for each action since the last successful save,
+   * one entry an action. Another editor's model replays these onto itself with
+   * `applyExternalDiffs` to rebase my unsaved work (sync.ts). Captured by
+   * flushing the engine's send queue after each action; a save that succeeds
+   * drops the ones it carried, a save that fails keeps them.
+   */
+  private pending: PendingEntry[] = []
 
   constructor(model: Model, options: { readOnly?: boolean; extras?: WorkbookExtras } = {}) {
     this.model = model
@@ -252,6 +281,9 @@ export class WorkbookController {
       if (visible) model.setSelectedSheet(visible.index)
     }
     model.evaluate()
+    // Flush once after load so the send queue starts empty: the first edit's
+    // diff then carries only that edit, not whatever loading enqueued.
+    model.flushSendQueue()
   }
 
   // ── Listening ────────────────────────────────────────────────────────────
@@ -268,6 +300,20 @@ export class WorkbookController {
     for (const listener of this.listeners) listener()
   }
 
+  /**
+   * Listen for a structural change (rows, columns or a sheet inserted or
+   * deleted), so comment anchors can follow it. On undo the inverse change is
+   * sent, so the anchors move back; a sheet delete has no inverse here.
+   */
+  onStructural(cb: (change: ExtrasChange) => void): () => void {
+    this.structuralListeners.add(cb)
+    return () => this.structuralListeners.delete(cb)
+  }
+
+  private emitStructural(change: ExtrasChange) {
+    for (const listener of this.structuralListeners) listener(change)
+  }
+
   get dirty(): boolean {
     return this.dataVersion !== this.savedVersion
   }
@@ -277,14 +323,114 @@ export class WorkbookController {
     return this.extras !== this.savedExtras
   }
 
-  /** The workbook and its extras as they are saved, and the version that save will have covered. */
-  snapshot(): { workbook: string; extras: WorkbookExtras; version: number } {
-    return { workbook: saveWorkbook(this.model), extras: this.extras, version: this.dataVersion }
+  /** The extras as of the last save: the base a merge keeps the other editor's untouched kinds from. */
+  get baseExtras(): WorkbookExtras {
+    return this.savedExtras
   }
 
-  markSaved(version: number, extras?: WorkbookExtras) {
+  /**
+   * The workbook and its extras as they are saved, the version that save will
+   * have covered, and how many pending action-diffs it carries (so a save that
+   * succeeds can drop exactly those and keep any edit made since).
+   */
+  snapshot(): { workbook: string; extras: WorkbookExtras; version: number; pending: number } {
+    return { workbook: saveWorkbook(this.model), extras: this.extras, version: this.dataVersion, pending: this.pending.length }
+  }
+
+  markSaved(version: number, extras?: WorkbookExtras, pendingConsumed = 0) {
     this.savedVersion = version
     if (extras) this.savedExtras = extras
+    if (pendingConsumed > 0) this.pending = this.pending.slice(pendingConsumed)
+    this.emit()
+  }
+
+  /** My unsaved work as the engine's change sets, one an action, oldest first. */
+  pendingDiffs(): Uint8Array[] {
+    return this.pending.map((p) => p.diff)
+  }
+
+  /** My unsaved work with what each action is (for a log-aware rebase), oldest first. */
+  pendingActions(): PendingEntry[] {
+    return this.pending.slice()
+  }
+
+  /** After a merge: my unsaved work re-expressed in the merged workbook's addresses (sync.ts). */
+  replacePending(entries: readonly PendingEntry[]) {
+    this.pending = entries.slice()
+  }
+
+  /** Whether any unsaved action-diffs are waiting (what the editor rebases on a conflict). */
+  hasPending(): boolean {
+    return this.pending.length > 0
+  }
+
+  /**
+   * Capture the engine's change set for the action that just ran, if any, with
+   * a description of what the action was so a rebase can re-express it on a
+   * newer layout (sync.ts). Without a description an action is opaque: it can
+   * only be replayed at its absolute address.
+   */
+  private capturePending(action: PendingAction = { kind: 'opaque' }) {
+    const diff = this.model.flushSendQueue()
+    // An empty queue flushes to a one-byte marker; only a real change is longer.
+    if (diff.length > 1) this.pending.push({ diff, action })
+  }
+
+  /**
+   * Replace the open model with `merged` (another editor's workbook with my
+   * pending diffs already replayed onto it, from sync.ts) and its `extras`,
+   * keeping what the person is doing: the active sheet (by its stable id, so a
+   * reorder does not jump them), the selection, and an open cell edit. The
+   * undo history is cleared: its steps counted the old engine model, which is
+   * gone, so it cannot be kept sound (see the plan). Pending is cleared too —
+   * `merged` already contains it.
+   */
+  adopt(merged: Model, extras: WorkbookExtras, saved: WorkbookExtras = extras) {
+    const before = this.selection()
+    const sheetId = this.sheets()[this.sheet]?.id
+    const edit = this.editing
+    const editSheetId = edit ? this.sheets()[edit.sheet]?.id : undefined
+
+    const old = this.model
+    this.model = merged
+    this.model.evaluate()
+    this.model.flushSendQueue()
+    this.extras = extras
+    // `saved` is what the server holds: when `extras` is a merge of mine and
+    // theirs, the next save has to send it.
+    this.savedExtras = saved
+    this.undoStack = []
+    this.redoStack = []
+    // `pending` stays: the merged model contains that work, but it is not saved
+    // until a save says so (markSaved). If the save after a merge is refused
+    // again, the same work has to be replayed onto the next newer workbook.
+    this.extents.clear()
+    this.layouts.clear()
+    this.layoutVersion += 1
+
+    const sheets = this.sheets()
+    const again = sheetId !== undefined ? sheets.find((s) => s.id === sheetId) : undefined
+    const land = again && !again.hidden ? again.index : (sheets.find((s) => !s.hidden)?.index ?? 0)
+    this.model.setSelectedSheet(land)
+    const { rows, columns } = this.extent(land)
+    this.model.setSelectedCell(Math.min(before.row, rows), Math.min(before.column, columns))
+    this.model.setSelectedRange(
+      Math.min(before.range.r1, rows),
+      Math.min(before.range.c1, columns),
+      Math.min(before.range.r2, rows),
+      Math.min(before.range.c2, columns),
+    )
+    // Keep an open cell edit if its sheet is still here; otherwise drop it.
+    if (edit) {
+      const stillThere = editSheetId !== undefined ? sheets.find((s) => s.id === editSheetId) : undefined
+      this.editing = stillThere ? { ...edit, sheet: stillThere.index } : null
+    }
+    try {
+      old.free()
+    } catch {
+      // Already freed, or shared: nothing to do.
+    }
+    this.dataVersion += 1
     this.emit()
   }
 
@@ -343,7 +489,7 @@ export class WorkbookController {
       const stay = Math.min(index, left.length - 1)
       const visible = left[stay] && !left[stay].hidden ? stay : (left.find((s) => !s.hidden)?.index ?? 0)
       this.model.setSelectedSheet(visible)
-    }, { structure: true })
+    }, { structure: true, change: { type: 'deleteSheet', sheetId } })
   }
 
   duplicateSheet(index: number): ActionResult {
@@ -628,17 +774,27 @@ export class WorkbookController {
     // the engine, which knows nothing of tables, sees them; the cell then stores the A1 form.
     const resolved = !plain && input.startsWith('=') ? rewriteStructuredRefs(input, this.tableRefMetas(), this.refContext(sheet, row, column)) : input
     const typed = plain ? `'${input}` : resolved
-    return this.act(() => {
-      this.mut(() => this.model.setUserInput(sheet, row, column, typed))
-      this.growTableIfAdjacent(sheet, row, column)
-    })
+    return this.act(
+      () => {
+        this.mut(() => this.model.setUserInput(sheet, row, column, typed))
+        this.growTableIfAdjacent(sheet, row, column)
+      },
+      // A plain cell edit a rebase can move onto a newer layout: the input is
+      // stored as it was handed to the engine (a typed formula stays as typed).
+      { describe: { kind: 'cells', sheetId: this.sheetIdAt(sheet), cells: [{ row, column, input: typed }] } },
+    )
   }
 
   /** Delete or Backspace: the values go, the formats stay. */
   clearSelection(): ActionResult {
     const { range } = this.selection()
     const sheet = this.sheet
-    return this.act(() => this.mut(() => this.model.rangeClearContents(sheet, range.r1, range.c1, range.r2, range.c2)))
+    // Clearing is a cell edit (each cell to empty) a rebase can move onto a newer layout.
+    const cells: Array<{ row: number; column: number; input: string }> = []
+    for (let r = range.r1; r <= range.r2; r++) for (let c = range.c1; c <= range.c2; c++) cells.push({ row: r, column: c, input: '' })
+    return this.act(() => this.mut(() => this.model.rangeClearContents(sheet, range.r1, range.c1, range.r2, range.c2)), {
+      describe: { kind: 'cells', sheetId: this.sheetIdAt(sheet), cells },
+    })
   }
 
   clearFormatting(): ActionResult {
@@ -661,21 +817,28 @@ export class WorkbookController {
 
   undo(): ActionResult {
     if (!this.canUndo()) return OK
+    this.model.flushSendQueue()
     const entry = this.undoStack.pop() as HistoryEntry
     for (let i = 0; i < entry.steps && this.model.canUndo(); i++) this.model.undo()
     if (entry.extrasBefore) this.extras = entry.extrasBefore
     this.redoStack.push(entry)
     this.afterHistory()
+    if (entry.structural) {
+      const inverse = invertStructural(entry.structural)
+      if (inverse) this.emitStructural(inverse)
+    }
     return OK
   }
 
   redo(): ActionResult {
     if (!this.canRedo()) return OK
+    this.model.flushSendQueue()
     const entry = this.redoStack.pop() as HistoryEntry
     for (let i = 0; i < entry.steps && this.model.canRedo(); i++) this.model.redo()
     if (entry.extrasAfter) this.extras = entry.extrasAfter
     this.undoStack.push(entry)
     this.afterHistory()
+    if (entry.structural) this.emitStructural(entry.structural)
     return OK
   }
 
@@ -688,6 +851,7 @@ export class WorkbookController {
     this.extents.clear()
     this.layoutVersion += 1
     this.dataVersion += 1
+    this.capturePending()
     this.emit()
   }
 
@@ -701,8 +865,11 @@ export class WorkbookController {
    * One action of a person's: everything in `run` is one step of Undo. A
    * failure part-way takes back what was done, so an action is all or nothing.
    */
-  private act(run: () => void, options: { layout?: boolean; structure?: boolean } = {}): ActionResult {
+  private act(run: () => void, options: { layout?: boolean; structure?: boolean; change?: ExtrasChange; describe?: PendingAction } = {}): ActionResult {
     if (this.readOnly) return no('You can view this spreadsheet but not change it.')
+    // Clear anything the engine queued since the last capture (selection and
+    // navigation), so this action's diff carries only this action's changes.
+    this.model.flushSendQueue()
     const outer = this.steps
     this.steps = 0
     const extrasBefore = this.extras
@@ -722,21 +889,35 @@ export class WorkbookController {
     this.steps = outer
     if (failure !== null) {
       this.model.evaluate()
+      // The change and its roll-back both enqueued; drop them so they never replay.
+      this.model.flushSendQueue()
       this.emit()
       return no(failure)
     }
     const extrasChanged = this.extras !== extrasBefore
     if (made > 0 || extrasChanged) {
-      this.undoStack.push({ steps: made, extrasBefore: extrasChanged ? extrasBefore : null, extrasAfter: extrasChanged ? this.extras : null })
+      this.undoStack.push({ steps: made, extrasBefore: extrasChanged ? extrasBefore : null, extrasAfter: extrasChanged ? this.extras : null, structural: made > 0 ? options.change : undefined })
       this.redoStack = []
       this.dataVersion += 1
     }
     this.model.evaluate()
+    if (made > 0) this.capturePending(this.describeAction(options))
+    if (made > 0 && options.change) this.emitStructural(options.change)
     if (options.structure) this.extents.clear()
     // Any edit can change a row's height (wrapped text) or a column's width.
     this.layoutVersion += 1
     this.emit()
     return OK
+  }
+
+  /** What a pending action is, from its `act` options: an explicit description, my own row/column change, else opaque. */
+  private describeAction(options: { change?: ExtrasChange; describe?: PendingAction }): PendingAction {
+    if (options.describe) return options.describe
+    const change = options.change
+    if (change && (change.type === 'insertRows' || change.type === 'deleteRows' || change.type === 'insertColumns' || change.type === 'deleteColumns')) {
+      return { kind: 'structure', change }
+    }
+    return { kind: 'opaque' }
   }
 
   // ── Rows and columns ─────────────────────────────────────────────────────
@@ -750,7 +931,7 @@ export class WorkbookController {
     return this.act(() => {
       this.mut(() => this.model.insertRows(sheet, at, count))
       this.extras = shiftExtras(this.extras, { type: 'insertRows', sheetId, at, count })
-    }, { structure: true })
+    }, { structure: true, change: { type: 'insertRows', sheetId, at, count } })
   }
 
   insertColumns(at: number, count = 1): ActionResult {
@@ -762,7 +943,7 @@ export class WorkbookController {
     return this.act(() => {
       this.mut(() => this.model.insertColumns(sheet, at, count))
       this.extras = shiftExtras(this.extras, { type: 'insertColumns', sheetId, at, count })
-    }, { structure: true })
+    }, { structure: true, change: { type: 'insertColumns', sheetId, at, count } })
   }
 
   deleteRows(at: number, count = 1): ActionResult {
@@ -772,7 +953,7 @@ export class WorkbookController {
     return this.act(() => {
       this.mut(() => this.model.deleteRows(sheet, at, count))
       this.extras = shiftExtras(this.extras, { type: 'deleteRows', sheetId, at, count })
-    }, { structure: true })
+    }, { structure: true, change: { type: 'deleteRows', sheetId, at, count } })
   }
 
   deleteColumns(at: number, count = 1): ActionResult {
@@ -782,7 +963,7 @@ export class WorkbookController {
     return this.act(() => {
       this.mut(() => this.model.deleteColumns(sheet, at, count))
       this.extras = shiftExtras(this.extras, { type: 'deleteColumns', sheetId, at, count })
-    }, { structure: true })
+    }, { structure: true, change: { type: 'deleteColumns', sheetId, at, count } })
   }
 
   setColumnWidth(from: number, to: number, width: number): ActionResult {
@@ -1052,7 +1233,11 @@ export class WorkbookController {
   setStyle(path: string, value: string): ActionResult {
     const { range } = this.selection()
     const sheet = this.sheet
-    return this.act(() => this.mut(() => this.model.updateRangeStyle(area(sheet, range), path, value)), { layout: true })
+    // A style is opaque to the rebase (it carries no cell inputs), but it is on one sheet: note it.
+    return this.act(() => this.mut(() => this.model.updateRangeStyle(area(sheet, range), path, value)), {
+      layout: true,
+      describe: { kind: 'opaque', sheetId: this.sheetIdAt(sheet) },
+    })
   }
 
   /** The format code of the active cell: what the toolbar shows and steps from. */

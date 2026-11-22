@@ -5,7 +5,8 @@
  * caller's own client: its row policy shows the history of what they read.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { getSpreadsheetSummary, saveSpreadsheet, type StoreResult } from './store'
+import { appendStructure, readExtras } from './extras'
+import { getSpreadsheet, saveSpreadsheet, type StoreResult } from './store'
 import type { SpreadsheetSummary } from './types'
 
 export interface RevisionSummary {
@@ -77,16 +78,22 @@ export async function restoreRevision(
   supabase: SupabaseClient,
   input: { workspaceId: string; memberId: string; spreadsheetId: string; revisionId: string; baseRevision: number },
 ): Promise<StoreResult<SpreadsheetSummary>> {
-  if (!(await getSpreadsheetSummary(supabase, input.workspaceId, input.spreadsheetId))) {
-    return { ok: false, reason: 'not_found', message: 'Spreadsheet not found.' }
-  }
+  const current = await getSpreadsheet(supabase, input.workspaceId, input.spreadsheetId)
+  if (!current) return { ok: false, reason: 'not_found', message: 'Spreadsheet not found.' }
   const revision = await getRevision(supabase, input.spreadsheetId, input.revisionId)
   if (!revision || !revision.workbook) return { ok: false, reason: 'not_found', message: 'That version is not there.' }
+  // Restoring an old workbook moves everything: a `reset` entry tells any editor
+  // based on an older revision that its unsaved edits cannot be placed by the log.
+  const extras = readExtras(current.extras)
+  const { structure, structureFloor } = appendStructure(extras.structure, extras.structureFloor, [
+    { base: input.baseRevision, sheetId: 0, type: 'reset' },
+  ])
   return saveSpreadsheet(supabase, input.spreadsheetId, {
     workspaceId: input.workspaceId,
     memberId: input.memberId,
     baseRevision: input.baseRevision,
     workbook: revision.workbook,
+    extras: { ...extras, structure, structureFloor },
     summary: `Restored the version of ${revision.created_at.slice(0, 10)}`,
   })
 }

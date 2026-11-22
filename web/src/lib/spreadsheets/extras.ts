@@ -175,6 +175,32 @@ export interface WorkbookImage {
   height: number
 }
 
+// ── Structure log (the merge guard) ──────────────────────────────────────────
+
+/** The kinds of structural change the log records (a rename moves nothing, so it is not here). */
+export const STRUCTURE_TYPES = ['insertRows', 'deleteRows', 'insertColumns', 'deleteColumns', 'deleteSheet', 'reset'] as const
+export type StructureType = (typeof STRUCTURE_TYPES)[number]
+
+/**
+ * One structural edit, so a late cell edit made against an older revision can
+ * be moved onto the newer layout instead of landing on a different item's row.
+ * `base` is the revision the save that carried this entry was made over, so an
+ * editor whose base revision is M must account for every entry with base >= M.
+ * `at`/`count` are set for the row/column kinds; `deleteSheet` carries only its
+ * `sheetId`; `reset` (a restore or an import over an existing workbook) means
+ * everything may have moved, by an unknown amount.
+ */
+export interface StructureEntry {
+  base: number
+  sheetId: number
+  type: StructureType
+  at?: number
+  count?: number
+}
+
+/** Keep at most this many log entries; older ones are trimmed and the floor is raised past them. */
+export const MAX_STRUCTURE_ENTRIES = 200
+
 /** A versioned bag. New kinds are added as optional arrays so an older reader drops them cleanly. */
 export interface WorkbookExtras {
   v: typeof EXTRAS_VERSION
@@ -185,6 +211,10 @@ export interface WorkbookExtras {
   images: WorkbookImage[]
   /** Image data URLs by content hash, so identical images are stored once. */
   imageBlobs: Record<string, string>
+  /** The structural-edit log (the merge guard); empty on a workbook saved before this existed. */
+  structure: StructureEntry[]
+  /** Entries with `base` below this were trimmed away: an editor based below it cannot trust the log. */
+  structureFloor: number
 }
 
 /** Serialized extras (minus the image blobs) larger than this are trimmed: a guard against runaway validation/table data. */
@@ -195,7 +225,7 @@ export const MAX_WORKBOOK_IMAGE_BYTES = 4_000_000
 const MAX_ENTRIES = 5_000
 
 export function emptyExtras(): WorkbookExtras {
-  return { v: EXTRAS_VERSION, validations: [], checkboxes: [], tables: [], charts: [], images: [], imageBlobs: {} }
+  return { v: EXTRAS_VERSION, validations: [], checkboxes: [], tables: [], charts: [], images: [], imageBlobs: {}, structure: [], structureFloor: 0 }
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -368,6 +398,35 @@ function readImage(value: unknown): WorkbookImage | null {
   return { id: value.id, sheetId, hash: value.hash, anchor, width, height }
 }
 
+/** One structure-log entry, or null when it is malformed (a bad entry is dropped, not trusted). */
+function readStructureEntry(value: unknown): StructureEntry | null {
+  if (!isObject(value)) return null
+  const type = STRUCTURE_TYPES.includes(value.type as StructureType) ? (value.type as StructureType) : null
+  if (!type) return null
+  const base = Number(value.base)
+  if (!Number.isInteger(base) || base < 0) return null
+  if (type === 'reset') return { base, sheetId: 0, type }
+  const sheetId = Number(value.sheetId)
+  if (!Number.isInteger(sheetId)) return null
+  if (type === 'deleteSheet') return { base, sheetId, type }
+  const at = Number(value.at)
+  const count = Number(value.count)
+  if (!Number.isInteger(at) || at < 1 || !Number.isInteger(count) || count < 1) return null
+  return { base, sheetId, type, at, count }
+}
+
+function readStructure(value: unknown): StructureEntry[] {
+  if (!Array.isArray(value)) return []
+  const out: StructureEntry[] = []
+  for (const item of value) {
+    // Read a little past the cap so trimming (not silent loss) governs the size.
+    if (out.length >= MAX_STRUCTURE_ENTRIES * 4) break
+    const entry = readStructureEntry(item)
+    if (entry) out.push(entry)
+  }
+  return out
+}
+
 /** Read whatever is in the column, dropping anything this version does not understand. */
 export function readExtras(value: unknown): WorkbookExtras {
   const base = emptyExtras()
@@ -410,7 +469,10 @@ export function readExtras(value: unknown): WorkbookExtras {
   // Keep only blobs an image still points at.
   const used = new Set(images.map((im) => im.hash))
   for (const hash of Object.keys(imageBlobs)) if (!used.has(hash)) delete imageBlobs[hash]
-  const result: WorkbookExtras = { v: EXTRAS_VERSION, validations, checkboxes, tables, charts, images, imageBlobs }
+  const structure = readStructure(value.structure)
+  const floorRaw = Number((value as Record<string, unknown>).structureFloor)
+  const structureFloor = Number.isInteger(floorRaw) && floorRaw >= 0 ? floorRaw : 0
+  const result: WorkbookExtras = { v: EXTRAS_VERSION, validations, checkboxes, tables, charts, images, imageBlobs, structure, structureFloor }
   // The size guard counts everything but the image blobs (those have their own caps): trim until it fits.
   const weight = () => JSON.stringify({ ...result, imageBlobs: {} }).length
   while (weight() > MAX_EXTRAS_BYTES && (result.validations.length || result.checkboxes.length)) {
@@ -418,6 +480,28 @@ export function readExtras(value: unknown): WorkbookExtras {
     else result.checkboxes.pop()
   }
   return result
+}
+
+/**
+ * Append new structure entries to a log and trim it to the cap, raising the
+ * floor past whatever was dropped. Entries are appended in save order, so the
+ * log stays sorted by `base` ascending and the oldest (a whole base-group at a
+ * time, so the floor is a clean boundary) are dropped first.
+ */
+export function appendStructure(
+  log: readonly StructureEntry[],
+  floor: number,
+  entries: readonly StructureEntry[],
+): { structure: StructureEntry[]; structureFloor: number } {
+  let structure = [...log, ...entries]
+  let structureFloor = floor
+  while (structure.length > MAX_STRUCTURE_ENTRIES) {
+    const dropBase = structure[0].base
+    structure = structure.filter((e) => e.base > dropBase)
+    structureFloor = Math.max(structureFloor, dropBase + 1)
+    if (!structure.length) break
+  }
+  return { structure, structureFloor }
 }
 
 /** True when the extras hold nothing worth saving (so a record can keep `{}`). */
@@ -572,6 +656,26 @@ function shiftTable(table: WorkbookTable, change: ExtrasChange): WorkbookTable |
     if (!columns.length) return null
   }
   return { ...table, range: nextRange, columns, filters }
+}
+
+/**
+ * A comment thread's cell anchor after a structural change, for a thread on
+ * the changed sheet. Unlike the stored ranges above, a comment is never
+ * dropped: when its cells are deleted it survives, clamped to the cut point,
+ * with `removed: true` so the editor can mark it "its cells were deleted". A
+ * sheet delete removes the ground under every thread on that sheet.
+ */
+export function shiftCommentAnchor(range: CellRange, change: ExtrasChange): { range: CellRange; removed: boolean } {
+  if (change.type === 'deleteSheet') return { range, removed: true }
+  if (change.type === 'duplicateSheet') return { range, removed: false }
+  const axis: 'row' | 'column' = change.type === 'insertRows' || change.type === 'deleteRows' ? 'row' : 'column'
+  const kind: 'insert' | 'delete' = change.type.startsWith('insert') ? 'insert' : 'delete'
+  const next = shiftRange(range, axis, { kind, at: change.at, count: change.count })
+  if (next) return { range: next, removed: false }
+  // Wholly inside a deleted band: keep the thread, clamp its anchor to the cut.
+  const at = Math.max(1, change.at)
+  const clamped = axis === 'row' ? { r1: at, c1: range.c1, r2: at, c2: range.c2 } : { r1: range.r1, c1: at, r2: range.r2, c2: at }
+  return { range: clamped, removed: true }
 }
 
 /** Move the stored ranges and objects with a structural change to the sheet. Returns new extras (unchanged object when nothing moved). */

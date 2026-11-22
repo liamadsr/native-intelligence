@@ -34,6 +34,8 @@ export interface GridCommands {
   convertToTable: () => void
   /** Open a table's options panel. */
   tableOptions: (id: string) => void
+  /** Comment on the selected cell(s). */
+  comment: () => void
 }
 
 interface Props {
@@ -148,6 +150,10 @@ export function GridMenu({ workbook, state, onClose, commands, onMessage }: Prop
             ) : (
               <DropdownMenuItem disabled={readOnly} onSelect={commands.convertToTable}>Convert to table</DropdownMenuItem>
             )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem disabled={readOnly} onSelect={commands.comment}>
+              Comment<DropdownMenuShortcut>{MOD}⌥M</DropdownMenuShortcut>
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem disabled={readOnly} onSelect={() => say(workbook.insertRows(range.r1, rows))}>Insert {rowWord} above</DropdownMenuItem>
             <DropdownMenuItem disabled={readOnly} onSelect={() => say(workbook.insertColumns(range.c1, columns))}>Insert {columnWord} left</DropdownMenuItem>

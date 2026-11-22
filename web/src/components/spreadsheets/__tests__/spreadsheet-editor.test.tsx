@@ -2,8 +2,9 @@
 /**
  * One spreadsheet open: it loads the record and its workbook, saves a little
  * after a change against the revision it loaded, moves on to the revision a
- * save answers, stops and says so when someone else got there first, and
- * renames. Fetch is stubbed; the engine is the real one.
+ * save answers, merges another editor's change in on a conflict (nobody's work
+ * lost), polls for others' changes while the tab is visible, and renames.
+ * Fetch is stubbed; the engine is the real one.
  */
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -199,28 +200,76 @@ describe('saving', () => {
     expect(note()).toBe('')
   })
 
-  it('when someone else saved first, it stops saving and offers their version', async () => {
-    patch = () => json({ error: 'Someone else changed this spreadsheet since you opened it.', code: 'SPREADSHEET_REVISION_CONFLICT' }, 409)
+  it('on a conflict it merges: the saved workbook has both people’s cells', async () => {
+    await open()
+    await typeCell('m') // my edit: A1 = 'm'
+    // The newer workbook the conflict points at has a cell of its own, B2.
+    current = record({ revision: 9, workbook: workbookWith([[1, 1, 'Role'], [2, 2, 'Theirs']]) })
+    let first = true
+    const ok = patch
+    patch = (body) => {
+      if (first) {
+        first = false
+        return json({ error: 'Someone else changed this spreadsheet since you opened it.', code: 'SPREADSHEET_REVISION_CONFLICT', details: { current: { ...current, workbook: undefined } } }, 409)
+      }
+      return ok(body)
+    }
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1300)
+    })
+    // The retry saved against the newer revision, carrying both edits.
+    const retry = patches().at(-1)!
+    expect(retry.body?.base_revision).toBe(9)
+    const sent = loadModel(String(retry.body?.workbook))
+    expect(sent.getCellContent(0, 1, 1)).toBe('m')
+    expect(sent.getFormattedCellValue(0, 2, 2)).toBe('Theirs')
+    sent.free()
+    expect(note()).toBe('')
+  })
+
+  it('refused twice in a row, my change is still in the save that lands', async () => {
+    await open()
+    await typeCell('m')
+    current = record({ revision: 9, workbook: workbookWith([[2, 2, 'Theirs']]) })
+    let refusals = 0
+    const ok = patch
+    patch = (body) => {
+      refusals += 1
+      if (refusals === 1) return json({ error: 'conflict', code: 'SPREADSHEET_REVISION_CONFLICT' }, 409)
+      if (refusals === 2) {
+        // A third person saved while the merge was on its way.
+        current = record({ revision: 10, workbook: workbookWith([[2, 2, 'Theirs'], [3, 3, 'Third']]) })
+        return json({ error: 'conflict', code: 'SPREADSHEET_REVISION_CONFLICT' }, 409)
+      }
+      return ok(body)
+    }
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1300)
+    })
+    const landed = patches().at(-1)!
+    expect(landed.body?.base_revision).toBe(10)
+    const sent = loadModel(String(landed.body?.workbook))
+    expect(sent.getCellContent(0, 1, 1)).toBe('m')
+    expect(sent.getFormattedCellValue(0, 2, 2)).toBe('Theirs')
+    expect(sent.getFormattedCellValue(0, 3, 3)).toBe('Third')
+    sent.free()
+    expect(note()).toBe('')
+  })
+
+  it('bounds the merge retries, then says it is not saved', async () => {
+    current = record({ revision: 9, workbook: workbookWith([[2, 2, 'Theirs']]) })
+    patch = () => json({ error: 'conflict', code: 'SPREADSHEET_REVISION_CONFLICT', details: { current: { ...current, workbook: undefined } } }, 409)
     await open()
     await typeCell('m')
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1300)
     })
-    expect(note()).toContain('Someone else changed this spreadsheet')
-    await typeCell('n')
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(3000)
+      await vi.advanceTimersByTimeAsync(50)
     })
-    expect(patches()).toHaveLength(1)
-    // Their version: the record is fetched again and the editor starts over from it.
-    current = record({ revision: 9, workbook: workbookWith([[1, 1, 'Theirs']]) })
-    const reload = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Load their version') as HTMLButtonElement
-    await act(async () => {
-      reload.click()
-      await vi.advanceTimersByTimeAsync(10)
-    })
-    expect(container.querySelector('[data-cell="A1"]')?.textContent).toBe('Theirs')
-    expect(note()).toBe('')
+    expect(note()).toContain('Not saved')
+    expect(patches().length).toBeLessThanOrEqual(4)
+    expect(patches().length).toBeGreaterThan(1)
   })
 
   it('a save that fails says so and can be tried again', async () => {
@@ -239,6 +288,133 @@ describe('saving', () => {
       await vi.advanceTimersByTimeAsync(10)
     })
     expect(note()).toBe('')
+  })
+})
+
+describe('the merge guard (structural changes under my edits)', () => {
+  const extrasWith = (structure: Array<Record<string, unknown>>) => ({
+    v: 1, validations: [], checkboxes: [], tables: [], charts: [], images: [], imageBlobs: {}, structure, structureFloor: 0,
+  })
+
+  it('a 409 whose newer workbook inserted a row above my base moves my edit onto the shifted row', async () => {
+    await open()
+    await typeCell('m') // A1 = 'm', made over revision 4
+    current = record({
+      revision: 9,
+      workbook: workbookWith([[1, 1, 'inserted'], [2, 1, 'Role'], [3, 1, 'Designer']]),
+      extras: extrasWith([{ base: 4, sheetId: 1, type: 'insertRows', at: 1, count: 1 }]),
+    })
+    let first = true
+    const ok = patch
+    patch = (body) => {
+      if (first) {
+        first = false
+        return json({ error: 'conflict', code: 'SPREADSHEET_REVISION_CONFLICT' }, 409)
+      }
+      return ok(body)
+    }
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1300)
+    })
+    const retry = patches().at(-1)!
+    expect(retry.body?.base_revision).toBe(9)
+    const sent = loadModel(String(retry.body?.workbook))
+    expect(sent.getCellContent(0, 2, 1)).toBe('m') // my edit followed its row from 1 to 2
+    sent.free()
+    expect(note()).not.toContain('added or removed')
+  })
+
+  it('stops when the newer workbook changed structure under an edit it cannot move: it shows the notice, saves no more, and Load the latest reloads', async () => {
+    await open()
+    act(() => (container.querySelector('[aria-label="Bold"]') as HTMLButtonElement).click()) // an opaque edit on A1
+    current = record({
+      revision: 9,
+      workbook: workbookWith([[1, 1, 'NEW']]),
+      extras: extrasWith([{ base: 4, sheetId: 1, type: 'insertRows', at: 1, count: 1 }]),
+    })
+    patch = () => json({ error: 'conflict', code: 'SPREADSHEET_REVISION_CONFLICT' }, 409)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1300)
+    })
+    expect(note()).toContain('added or removed rows or columns')
+    const sent = patches().length
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6000)
+    })
+    expect(patches().length).toBe(sent) // no further PATCH after the guard
+    await act(async () => {
+      ;([...container.querySelectorAll('button')].find((b) => b.textContent === 'Load the latest') as HTMLButtonElement).click()
+      await vi.advanceTimersByTimeAsync(20)
+    })
+    expect(container.querySelector('[data-cell="A1"]')?.textContent).toBe('NEW')
+  })
+
+  it('a save carrying my own row insert writes a structure entry stamped with its base revision', async () => {
+    await open()
+    act(() => (container.querySelector('.cursor-cell') as Element).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 46 + 10, clientY: 26 + 5, button: 2 })))
+    const item = [...document.querySelectorAll('[role="menuitem"]')].find((i) => i.textContent?.trim().startsWith('Insert row above')) as HTMLElement
+    act(() => item.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1300)
+    })
+    const body = patches()[0].body as { base_revision?: number; extras?: { structure?: Array<Record<string, unknown>> } }
+    expect(body.base_revision).toBe(4)
+    expect(body.extras?.structure).toEqual([{ base: 4, sheetId: 1, type: 'insertRows', at: 1, count: 1 }])
+  })
+})
+
+describe('polling for others’ changes', () => {
+  let revisionReply: () => Response
+  function withPolling() {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : undefined
+        calls.push({ url, method, body })
+        if (url.endsWith('/revision')) return revisionReply()
+        if (url.endsWith('/comments')) return json({ threads: [] })
+        if (method === 'PATCH') return patch(body ?? {})
+        return json({ spreadsheet: current, member_id: 'm-1' })
+      }),
+    )
+  }
+  const revisionCalls = () => calls.filter((c) => c.url.endsWith('/revision'))
+
+  it('adopts a newer workbook when I have nothing pending, keeping my selection, and says who', async () => {
+    revisionReply = () => json({ revision: 4 })
+    withPolling()
+    await open()
+    key('ArrowDown') // select A2
+    expect(grid().getAttribute('data-active-cell')).toBe('A2')
+    current = record({ revision: 7, last_edited_by: 'm-2', workbook: workbookWith([[1, 1, 'Updated']]) })
+    revisionReply = () => json({ revision: 7, editor_name: 'Priya Chandra' })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4200)
+    })
+    expect(container.querySelector('[data-cell="A1"]')?.textContent).toBe('Updated')
+    expect(grid().getAttribute('data-active-cell')).toBe('A2') // selection kept
+    expect(container.textContent).toContain('Updated by Priya Chandra')
+    expect(patches()).toHaveLength(0) // adopting is not a save
+  })
+
+  it('pauses while the tab is hidden and resumes when it is shown again', async () => {
+    revisionReply = () => json({ revision: 4 })
+    withPolling()
+    await open()
+    let hidden = true
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(9000)
+    })
+    expect(revisionCalls()).toHaveLength(0)
+    hidden = false
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'))
+      await vi.advanceTimersByTimeAsync(10)
+    })
+    expect(revisionCalls().length).toBeGreaterThan(0)
+    delete (document as unknown as Record<string, unknown>).hidden
   })
 })
 
@@ -397,7 +573,7 @@ describe('the full toolbar', () => {
       'Decrease font size', 'Font size', 'Increase font size',
       'Bold', 'Italic', 'Strikethrough', 'Underline',
       'Undo', 'Redo', 'Format as currency', 'Format as percent', 'Decrease decimal places', 'Increase decimal places', 'Wrap text',
-      'Find and replace',
+      'Find and replace', 'Comment',
       'Number format', 'Font', 'Text color', 'Fill color', 'Borders', 'Horizontal alignment', 'Vertical alignment', 'Functions', 'Paste special', 'Insert', 'View options', 'Format and data',
     ])
   })
@@ -540,6 +716,28 @@ describe('phase 4 data', () => {
     })
     const body = patches()[0].body as { extras?: { checkboxes?: unknown[] } }
     expect(body.extras?.checkboxes).toHaveLength(1)
+  })
+
+  it('a checkbox made just before a refused save is in the merged save that lands', async () => {
+    await open()
+    openMenu('Insert')
+    act(() => menuItem('Checkbox').dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    current = record({ revision: 9, workbook: workbookWith([[2, 2, 'Theirs']]) })
+    let first = true
+    const ok = patch
+    patch = (body) => {
+      if (first) {
+        first = false
+        return json({ error: 'conflict', code: 'SPREADSHEET_REVISION_CONFLICT' }, 409)
+      }
+      return ok(body)
+    }
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1300)
+    })
+    const landed = patches().at(-1)!.body as { base_revision?: number; extras?: { checkboxes?: unknown[] } }
+    expect(landed.base_revision).toBe(9)
+    expect(landed.extras?.checkboxes).toHaveLength(1)
   })
 
   it('an ordinary edit does not resend the extras', async () => {
