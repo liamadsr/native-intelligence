@@ -4,6 +4,7 @@ import { requireWorkspaceMember } from '@/lib/api-auth'
 import { forbidden, notFound, serverError } from '@/lib/api-errors'
 import { getServiceClient } from '@/lib/admin'
 import { deleteCompaniesWithContacts } from '@/lib/crm/delete-companies'
+import { parseCompanyCrmFields } from '@/lib/crm/company-stages'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function GET(
@@ -109,6 +110,13 @@ export async function PATCH(
   if (body.state !== undefined) updates.state = body.state
   if (body.country !== undefined) updates.country = body.country
   if (body.tags !== undefined) updates.tags = body.tags
+  // The company's own stage, owner and revenue (migration 679), checked
+  // against this workspace's stages and members.
+  if (body.stage_id !== undefined || body.stage !== undefined || body.owner_member_id !== undefined || body.revenue !== undefined) {
+    const crm = await parseCompanyCrmFields(supabase, workspaceId, body)
+    if (!crm.ok) return NextResponse.json({ error: crm.error }, { status: 400 })
+    Object.assign(updates, crm.updates)
+  }
 
   updates.updated_at = new Date().toISOString()
 

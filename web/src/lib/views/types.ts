@@ -471,6 +471,9 @@ export const FILTERABLE_FIELDS: Record<ViewEntityType, FilterFieldDefinition[]> 
     { field: 'industry', label: 'Industry', type: 'text' },
     { field: 'domain', label: 'Domain', type: 'text' },
     { field: 'employee_count_range', label: 'Employee count', type: 'enum', options: ['1-10', '11-50', '51-200', '201-500', '501-1000', '1000+'] },
+    // The company's own stage and owner (migration 679): the workspace's stages, a member.
+    { field: 'stage_id', label: 'Stage', type: 'enum', options: 'company_stages' },
+    { field: 'owner_member_id', label: 'Owner', type: 'member' },
     { field: 'tags', label: 'Tags', type: 'tag', isArray: true },
     { field: 'prospect_list_ids', label: 'List', type: 'prospect_list', isArray: true },
     { field: 'created_at', label: 'Created', type: 'date' },
@@ -942,6 +945,12 @@ export const DISPLAY_PROPERTIES: Record<ViewEntityType, DisplayPropertyDefinitio
     { field: 'industry', label: 'Industry', editable: { picker: 'text', apiField: 'industry' } },
     { field: 'employee_count_range', label: 'Size', editable: { picker: 'enum', apiField: 'employee_count_range' } },
     { field: 'contact_count', label: 'Contacts' },
+    // 679: stage (its own picker, components/crm/company-crm-cells.tsx), owner, revenue,
+    // and the last interaction with any of its people the reader can see.
+    { field: 'stage', label: 'Stage' },
+    { field: 'owner', label: 'Owner', editable: { picker: 'member', apiField: 'owner_member_id', allowEmpty: true } },
+    { field: 'revenue', label: 'Revenue' },
+    { field: 'last_interaction_at', label: 'Last interaction' },
     { field: 'tags', label: 'Tags' },
     { field: 'created_at', label: 'Created' },
   ],

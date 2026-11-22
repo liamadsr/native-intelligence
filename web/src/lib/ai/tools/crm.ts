@@ -222,6 +222,8 @@ export function createCrmTools(
             ...(ctx.recent_email_threads !== undefined
               ? { recent_email_threads: fenceThreads(ctx.recent_email_threads) }
               : {}),
+            // Teammates' email shared on this company (680): when, who, how many; never a subject or body.
+            ...(ctx.team_email_threads !== undefined ? { team_email_threads: ctx.team_email_threads } : {}),
             decisions: ctx.decisions,
           },
         }

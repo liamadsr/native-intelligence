@@ -1,5 +1,6 @@
 'use client'
 
+import { companyCrmCell } from '@/components/crm/company-crm-fields'
 import { LIST_FOCUS_RING, LIST_ROW_ATTR, PROPERTY_FIELD_ATTR, useIsListFocused } from '../list-keyboard'
 import * as React from 'react'
 import { format, parseISO, startOfDay } from 'date-fns'
@@ -984,6 +985,7 @@ const COLUMN_WIDTHS: Record<string, number> = {
   domain: 100,
   industry: 80,
   owner: 32,
+  revenue: 84,
   from_email: 140,
   is_unread: 24,
   auto_classified: 72,
@@ -2746,6 +2748,11 @@ function PropertyCell({ item, property, entityType, onPatch, pickerContext, canE
   if (entityType === 'eval_run') {
     const runCell = EvalRunCell({ item, property })
     if (runCell !== undefined) return runCell
+  }
+  // A company's own stage and revenue (migration 679).
+  if (entityType === 'company') {
+    const crmCell = companyCrmCell(property, item, onPatch)
+    if (crmCell !== undefined) return crmCell
   }
   // The workspace's own fields (`custom_fields.<key>`), on any kind that takes them.
   if (isCustomFieldPath(property)) {

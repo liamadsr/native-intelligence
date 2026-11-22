@@ -50,6 +50,7 @@ import { useWorkspaceId, useCurrentMemberId } from '@/app/account/workspace-swit
 import { useCaptureVisibilityViewer } from '@/app/account/(dashboard)/components/capture-visibility-control'
 import { onEntityUpdated, onEntityDeleted, emitEntityUpdated, wasRecentlyMutatedLocally } from '@/lib/entity-events'
 import { seedDetailFromListItem } from './detail-prefetch'
+import { CrmCsvActions } from '@/components/crm/crm-csv-actions'
 import type { VisibleItem } from './detail-nav-utils'
 import { celebrate } from '@/components/celebration/celebrate'
 import { patchCompletesItem } from '@/components/celebration/detect-completion'
@@ -1977,6 +1978,8 @@ export function UnifiedViewLayout({
         onProspectStageChange={onProspectStageChange}
         actions={<>
           {!cardOwnList && search}
+          {/* Companies and contacts as CSV, and a companies CSV in (679). */}
+          {!isScopedInstance && <CrmCsvActions entityType={effectiveEntityType} onImported={() => refetchRef.current()} />}
           {toolbarActions}
         </>}
         isDirty={isDirty}

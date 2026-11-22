@@ -54,7 +54,10 @@ import { emitEntityUpdated } from '@/lib/entity-events'
 import { CompanyDeleteDialog } from '@/components/views/bulk-actions/company-delete-dialog'
 import { ShareDialog } from '../components/share-dialog'
 import { LinkedDeals } from '@/components/crm/linked-deals'
-import { useWorkspaces } from '@/app/account/workspace-switcher'
+import { useCurrentMemberId, useWorkspaces } from '@/app/account/workspace-switcher'
+import { CompanyCrmPanelFields } from '@/components/crm/company-crm-fields'
+import { CompanyTeamEmail } from '@/components/crm/company-team-email'
+import { Comments } from '../components/comments'
 
 // ============================================================
 // Types
@@ -77,6 +80,10 @@ interface CompanyDetail {
   state: string | null
   country: string | null
   tags: string[]
+  // The company's own stage, owner and revenue (migration 679).
+  stage_id?: string | null
+  owner_member_id?: string | null
+  revenue?: { amount: number; currency: string } | null
   // Web enrichment (see @/components/views/enrichment). The job writes the
   // structured columns directly; everything without a column — plus the model's
   // summary and its sources — lands in metadata.enrichment.
@@ -167,6 +174,7 @@ export function CompanyDetailPanel({
   const { workspaces, currentId } = useWorkspaces()
   const myRole = workspaces.find((w) => w.id === currentId)?.role
   const canShareCompanies = myRole === 'owner' || myRole === 'admin'
+  const currentMemberId = useCurrentMemberId()
   const [activeTab, setActiveTab] = usePanelSection<CompanySection>(section, onSectionChange, 'overview', COMPANY_SECTIONS)
 
   const nameTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -449,6 +457,15 @@ export function CompanyDetailPanel({
                         </div>
                       )}
                     </div>
+
+                    {/* Email with this company, shared by the team members who agreed (680). */}
+                    <CompanyTeamEmail companyId={companyId} />
+
+                    {/* Discussion (679): the company's own visibility. */}
+                    <div className="space-y-2" data-company-discussion="">
+                      <p className="text-sm font-medium">Discussion</p>
+                      <Comments commentableType="company" commentableId={companyId} currentMemberId={currentMemberId} />
+                    </div>
                   </div>
                 </ScrollArea>
               )}
@@ -484,6 +501,8 @@ export function CompanyDetailPanel({
             {/* Page-level properties inspector. */}
             <WindowProperties key={companyId} title={company.name || 'Company'} fallbackVisible={propertiesOpen}>
                     <div className="p-4 space-y-4">
+                      {/* Stage, owner and revenue: the company's own (679). */}
+                      <CompanyCrmPanelFields company={company} onPatch={patchCompany} />
                       {/* The shared frame (docs/plans/properties-panels.md): the
                           domain is the core row; every other field is a row
                           when it has a value and a chip in the add strip when

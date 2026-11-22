@@ -5,12 +5,31 @@ import { getServiceClient } from '@/lib/admin'
 import { EMPLOYEE_COUNT_RANGES } from '@/lib/crm/enrichment'
 import { companyWriteAccess } from '@/lib/crm/contact-visibility'
 import { COMPANY_WEB_FIELDS, fenceWebFields } from './web-derived'
+import { formatRevenue, NO_STAGE_LABEL, parseCompanyCrmFields } from '@/lib/crm/company-stages'
 import {
   resolveEntityWorkspace,
   resolveCreateWorkspace,
   workspaceEcho,
   type CreateWorkspacePolicy,
 } from './_shared'
+
+/** What a write returns: the basics, and the company's own stage, owner and revenue (679). */
+const COMPANY_RESULT_SELECT =
+  'id, name, domain, industry, stage_id, revenue, owner_member_id, stage:company_stage!stage_id(name), owner:member!owner_member_id(display_name)'
+
+type CrmRow = Record<string, unknown> & { stage?: unknown; owner?: unknown; revenue?: unknown }
+const one = <T,>(v: T | T[] | null | undefined): T | null => (Array.isArray(v) ? (v[0] ?? null) : (v ?? null))
+
+/** A row's stage, owner and revenue as the model reads them: names, and the revenue as text too. */
+function crmLabels(row: CrmRow): Record<string, unknown> {
+  const { stage, owner } = row
+  return {
+    revenue: row.revenue ?? null,
+    stage: (one(stage as { name?: string } | { name?: string }[] | null) as { name?: string } | null)?.name ?? NO_STAGE_LABEL,
+    owner_name: (one(owner as { display_name?: string } | { display_name?: string }[] | null) as { display_name?: string } | null)?.display_name ?? null,
+    revenue_text: formatRevenue(row.revenue) || null,
+  }
+}
 
 /**
  * Companies — the other half of the CRM.
@@ -104,7 +123,26 @@ export function createCompanyTools(
         if (error) return { success: false, error: error.message }
 
         // Industry (and any prose column) can come from web enrichment: fenced (web-derived.ts).
-        const companies = ((data ?? []) as Array<Record<string, unknown>>).map((c) => fenceWebFields(c, COMPANY_WEB_FIELDS))
+        const listed = (data ?? []) as Array<Record<string, unknown>>
+        // The company's own stage, owner and revenue (679), for the ids the fenced RPC returned only.
+        const ids = listed.map((c) => c.id as string).filter(Boolean)
+        const crmById = new Map<string, Record<string, unknown>>()
+        if (ids.length) {
+          try {
+            const { data: crm } = await supabase
+              .from('company')
+              .select('id, revenue, owner_member_id, stage:company_stage!stage_id(name), owner:member!owner_member_id(display_name)')
+              .eq('workspace_id', workspaceId)
+              .in('id', ids)
+            for (const r of (crm ?? []) as CrmRow[]) {
+              crmById.set(r.id as string, crmLabels(r))
+            }
+          } catch (e) {
+            // The list still answers without them.
+            console.warn('[list_companies] stage/owner/revenue read failed:', e instanceof Error ? e.message : e)
+          }
+        }
+        const companies = listed.map((c) => fenceWebFields({ ...c, ...(crmById.get(c.id as string) ?? {}) }, COMPANY_WEB_FIELDS))
         return {
           success: true,
           count: companies.length,
@@ -136,6 +174,17 @@ export function createCompanyTools(
         state: z.string().optional(),
         country: z.string().optional(),
         tags: z.array(z.string()).optional(),
+        stage: z
+          .string()
+          .nullable()
+          .optional()
+          .describe('The company\'s lifecycle stage: one of the workspace\'s company stages by name (default Lead, Demo, Customer, Churned), or null / "No stage" to clear. Never set it unless the person asked.'),
+        owner_member_id: z.string().nullable().optional().describe('The workspace member who owns the account (a member id from list_workspace_members), or null to clear.'),
+        revenue: z
+          .union([z.number(), z.string(), z.object({ amount: z.number(), currency: z.string() })])
+          .nullable()
+          .optional()
+          .describe('The company\'s revenue: an amount (USD), text like "€120,000", or { amount, currency }; null to clear.'),
         workspace_id: z
           .string()
           .optional()
@@ -153,10 +202,14 @@ export function createCompanyTools(
         })
         if (!ws.ok) return ws.error
         const targetWs = ws.workspaceId
+        // The company's own stage, owner and revenue (migration 679), checked against the workspace.
+        const crm = await parseCompanyCrmFields(supabase, targetWs, { stage: input.stage, owner_member_id: input.owner_member_id, revenue: input.revenue })
+        if (!crm.ok) return { success: false, error: crm.error }
 
         const { data, error } = await supabase
           .from('company')
           .insert({
+            ...crm.updates,
             workspace_id: targetWs,
             name: input.name,
             domain: input.domain?.trim().toLowerCase() || null,
@@ -172,13 +225,15 @@ export function createCompanyTools(
             country: input.country || null,
             tags: input.tags || [],
           })
-          .select('id, name, domain, industry')
+          .select(COMPANY_RESULT_SELECT)
           .single()
 
         if (error) return { success: false, error: error.message }
         return {
           success: true,
           company: fenceWebFields(data as Record<string, unknown>, COMPANY_WEB_FIELDS),
+          // Its stage, owner and revenue by name (679).
+          crm: crmLabels(data as CrmRow),
           message: `Created company: "${data.name}"`,
           ...workspaceEcho(targetWs, ws.workspaceName),
         }
@@ -187,7 +242,7 @@ export function createCompanyTools(
 
     update_company: tool({
       description:
-        'Update a company on file — name, domain, industry, size, address, tags. Only the fields you pass are touched. Use list_companies or get_company_overview to find the company_id.',
+        'Update a company on file — name, domain, industry, size, address, tags, its lifecycle stage, owner and revenue. Only the fields you pass are touched. Use list_companies or get_company_overview to find the company_id.',
       inputSchema: z.object({
         company_id: z.string().describe('UUID of the company.'),
         name: z.string().optional(),
@@ -203,8 +258,19 @@ export function createCompanyTools(
         state: z.string().optional(),
         country: z.string().optional(),
         tags: z.array(z.string()).optional(),
+        stage: z
+          .string()
+          .nullable()
+          .optional()
+          .describe('The company\'s lifecycle stage: one of the workspace\'s company stages by name (default Lead, Demo, Customer, Churned), or null / "No stage" to clear. Never set it unless the person asked.'),
+        owner_member_id: z.string().nullable().optional().describe('The workspace member who owns the account (a member id from list_workspace_members), or null to clear.'),
+        revenue: z
+          .union([z.number(), z.string(), z.object({ amount: z.number(), currency: z.string() })])
+          .nullable()
+          .optional()
+          .describe('The company\'s revenue: an amount (USD), text like "€120,000", or { amount, currency }; null to clear.'),
       }),
-      execute: async ({ company_id, ...input }) => {
+      execute: async ({ company_id, stage, owner_member_id, revenue, ...input }) => {
         // A company_id copied from the UI may live in another workspace the
         // user belongs to (e.g. from a cross-workspace search result) — route
         // there instead of scoping blind to the active workspace. Same shape
@@ -240,6 +306,9 @@ export function createCompanyTools(
           }
           updates[key] = value
         }
+        const crm = await parseCompanyCrmFields(supabase, resolved.workspaceId, { stage, owner_member_id, revenue })
+        if (!crm.ok) return { success: false, error: crm.error }
+        Object.assign(updates, crm.updates)
         if (Object.keys(updates).length === 0) {
           return { success: false, error: 'Pass at least one field to change' }
         }
@@ -250,7 +319,7 @@ export function createCompanyTools(
           .update(updates)
           .eq('id', company_id)
           .eq('workspace_id', resolved.workspaceId)
-          .select('id, name, domain, industry')
+          .select(COMPANY_RESULT_SELECT)
           .single()
 
         if (error) return { success: false, error: error.message }
@@ -258,6 +327,8 @@ export function createCompanyTools(
         return {
           success: true,
           company: fenceWebFields(data as Record<string, unknown>, COMPANY_WEB_FIELDS),
+          // Its stage, owner and revenue by name (679).
+          crm: crmLabels(data as CrmRow),
           updated_fields: Object.keys(updates).filter((k) => k !== 'updated_at'),
         }
       },
