@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cellView } from '../cell-view'
+import { cellView, contrastOn } from '../cell-view'
 import { parseTableHtml, sameClipboardText, tableHtml } from '../clipboard'
 import { enclosingFunction, expectsReference, functionPrefix, insertReference, referenceText } from '../formula-edit'
 import { newModel } from '../engine-server'
@@ -27,6 +27,14 @@ describe('how a cell is drawn', () => {
     expect(cellView('a', CELL_TYPE.text, black, resolve).color).toBeNull()
     expect(cellView('a', CELL_TYPE.text, { ...black, fill: { color: '#FFEE00' } }, resolve)).toMatchObject({ color: '#000000', fill: '#FFEE00' })
     expect(cellView('a', CELL_TYPE.text, { ...plain, font: { ...plain.font, color: '#C00000' } }, resolve).color).toBe('#C00000')
+  })
+
+  it('text on a fill with no color of its own is dark on a light fill and white on a dark one, in any theme', () => {
+    expect(cellView('a', CELL_TYPE.text, { ...plain, fill: { color: '#DCEBFD' } }, resolve).color).toBe('#111111')
+    expect(cellView('a', CELL_TYPE.text, { ...plain, fill: { color: '#1A2B4C' } }, resolve).color).toBe('#FFFFFF')
+    expect(cellView('a', CELL_TYPE.text, { ...plain, fill: { color: '#FFEE00' }, font: { ...plain.font, color: '#C00000' } }, resolve).color).toBe('#C00000')
+    expect(contrastOn('not a color')).toBeNull()
+    expect(cellView('a', CELL_TYPE.text, plain, resolve).color).toBeNull()
   })
 
   it('knows a cell with nothing to draw, and one that only has a fill or a border', () => {
