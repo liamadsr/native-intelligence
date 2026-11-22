@@ -436,14 +436,14 @@ own, as 675. It was written to the plan, with these changes:
 - **`entity_activity`**: 513's triggers write a "shared" row for these kinds,
   but its read policy shows no kind it doesn't know (`else false`), so the
   rows stay hidden. Showing them in a record's feed is later work.
-- **The app holds new spreadsheet grants.** A test requires `GRANTABLE_TYPES`
-  (`src/lib/entity-access/model.ts`) to equal the CHECK, so both kinds are
-  in it from Phase 1. `addEntityGrant` refuses kinds in `GRANTING_HELD_TYPES`
-  (`spreadsheet`), so neither the Share API nor an @-mention in a comment can
-  share a spreadsheet before Phase 3's read-only editor. **Canvases are not
-  held**: once Phase 1 is released, @-mentioning your own private canvas in a
-  comment beside a teammate shares it with them, view only. That is the
-  mention rule documents and tables already follow (`comment-mentions.ts`).
+- **The app holds new grants on both kinds.** A test requires
+  `GRANTABLE_TYPES` (`src/lib/entity-access/model.ts`) to equal the CHECK, so
+  both kinds are in it from Phase 1. `addEntityGrant` refuses kinds in
+  `GRANTING_HELD_TYPES` (`spreadsheet` and `canvas`, the managing session's
+  call, 2026-11-22), so neither the Share API nor an @-mention in a comment
+  can share either. Phase 1 therefore changes nothing anyone can do, and can
+  be released on its own. Both are un-held when Phase 3's UI lands, with the
+  owner's answer on decision 12.
 - **The agent's fences** (`entity-fences.ts`) still hold the rule without
   grants until Phase 2, so the agent's graph reads fail closed for a grantee.
   The canvas tools already ask `canvas_visible_to`, so they see a grant from
@@ -465,9 +465,11 @@ Realtime authorises.
 
 ### Decisions to review, added in Phase 1
 
-11. **The hold on spreadsheet grants** lives in the app
-    (`GRANTING_HELD_TYPES`), not in the database. The database already takes
-    them, so Phase 3 removes one line.
-12. **@-mentions share canvases** from the moment Phase 1 is released, view
-    only, as for documents and tables. To hold that back too, add `canvas` to
-    `GRANTING_HELD_TYPES`.
+11. **The hold on new grants** lives in the app (`GRANTING_HELD_TYPES`), not
+    in the database. The database already takes them, so Phase 3 removes the
+    two kinds from it.
+12. **Should an @-mention share a private spreadsheet or canvas?** Today an
+    @-mention of your own private document or table in a comment, beside a
+    teammate, shares it with them, view only (`comment-mentions.ts`). Both
+    new kinds are held from that until the owner decides. If the answer is
+    no, `comment-mentions.ts` skips these kinds when Phase 3 un-holds them.

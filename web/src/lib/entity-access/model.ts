@@ -32,10 +32,13 @@ export function isGrantableType(type: unknown): type is GrantableType {
  * Kinds the database can grant but the app does not make new grants on yet:
  * addEntityGrant refuses them (the Share menu, an @-mention). Reading the
  * grants that exist, changing a level and removing one still work.
- * A spreadsheet waits for its read-only editor (docs/plans/record-sharing.md,
- * Phase 3), so a view grantee never opens an editor that cannot save.
+ * Both wait for their Share UI (docs/plans/record-sharing.md, Phase 3): a
+ * spreadsheet also for its read-only editor, so a view grantee never opens an
+ * editor that cannot save; and whether an @-mention of a private canvas or
+ * spreadsheet shares it is the owner's choice (the plan's decision 12), so a
+ * comment mention must not share one as a side effect until then.
  */
-export const GRANTING_HELD_TYPES: ReadonlySet<GrantableType> = new Set<GrantableType>(['spreadsheet'])
+export const GRANTING_HELD_TYPES: ReadonlySet<GrantableType> = new Set<GrantableType>(['spreadsheet', 'canvas'])
 
 /** Who a grant names. A channel's grantees are whoever can read it. */
 export const GRANTEE_KINDS = ['member', 'team', 'channel'] as const
