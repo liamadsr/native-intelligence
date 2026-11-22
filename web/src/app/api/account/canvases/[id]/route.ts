@@ -6,10 +6,15 @@ import { canvasRefusal } from '@/lib/canvas/responses'
 import { CANVAS_MEDIA_BUCKET, removeCanvasMedia, type MediaBucket } from '@/lib/canvas/media'
 import { getServiceClient } from '@/lib/supabase/service'
 import type { CanvasVisibility } from '@/lib/canvas/types'
+import { loadRecordSharing } from '@/lib/entity-access/store'
 
 type Ctx = { params: Promise<{ id: string }> }
 
-/** GET: one canvas with its items and whether the caller may edit it. */
+/**
+ * GET: one canvas with its items, whether the caller may edit it, and its
+ * sharing (migration 688): whether they may share it, with how many, and
+ * whether it is open to them only because it was shared with them.
+ */
 export async function GET(_request: NextRequest, { params }: Ctx) {
   const auth = await requireWorkspace()
   if (auth instanceof Response) return auth
@@ -18,8 +23,9 @@ export async function GET(_request: NextRequest, { params }: Ctx) {
   try {
     const canvas = await getCanvas(supabase, workspaceId, id, { userId: user.id })
     if (!canvas) return notFound('Canvas not found')
+    const sharing = await loadRecordSharing(supabase, workspaceId, 'canvas', id)
     // `viewer`: who is looking, so the editor keeps unsent edits per person.
-    return NextResponse.json({ ...canvas, viewer: user.id })
+    return NextResponse.json({ ...canvas, viewer: user.id, sharing })
   } catch (e) {
     return serverError(e instanceof Error ? e.message : 'Could not load the canvas')
   }

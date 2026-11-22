@@ -81,4 +81,23 @@ describe('the canvas tools and a shared canvas (688)', () => {
     expect(String(read.error)).toContain('No canvas with that id')
     expect(rpc.mock.calls.map(([name]) => name)).not.toContain('canvas_visible_to')
   })
+
+  it('tells the canvas’s owner who it is shared with, and nobody else', async () => {
+    const { tools, run, tables } = setup({ visible: true, ungranted: true, editable: true })
+    tables.canvas[0].owner_member_id = 'm-ben'
+    ;(tables as Record<string, unknown[]>).member.push({ id: 'm-cy', workspace_id: WS, user_id: 'u-cy', role: 'member', display_name: 'Cy Lane' })
+    ;(tables as Record<string, unknown[]>).team = [{ id: 't-1', workspace_id: WS, name: 'Design' }]
+    ;(tables as Record<string, unknown[]>).entity_access = [
+      { id: 'g-1', workspace_id: WS, entity_type: 'canvas', entity_id: SHARED, grantee_kind: 'member', grantee_member_id: 'm-cy', grantee_team_id: null, grantee_channel_id: null, level: 'edit', source: 'manual', created_at: '2026-11-22T10:00:00Z' },
+      { id: 'g-2', workspace_id: WS, entity_type: 'canvas', entity_id: SHARED, grantee_kind: 'team', grantee_member_id: null, grantee_team_id: 't-1', grantee_channel_id: null, level: 'view', source: 'manual', created_at: '2026-11-22T11:00:00Z' },
+    ]
+    const mine = await run(tools(true, false), 'read_canvas', { canvas_id: SHARED })
+    expect((mine.canvas as { shared_with: unknown }).shared_with).toEqual([
+      { name: 'Cy Lane', kind: 'member', level: 'edit' },
+      { name: 'Design', kind: 'team', level: 'view' },
+    ])
+    tables.canvas[0].owner_member_id = 'm-ana'
+    const theirs = await run(tools(true, false), 'read_canvas', { canvas_id: SHARED })
+    expect(theirs.canvas).not.toHaveProperty('shared_with')
+  })
 })

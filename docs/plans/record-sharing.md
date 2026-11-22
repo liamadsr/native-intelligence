@@ -537,3 +537,30 @@ Phase 3.
 - Both sides had added `canvas` and `spreadsheet` notification targets. The
   merge keeps 687's cases, which open the record's card; `record_shared` uses
   them as they are.
+
+## Phase 3a as built: canvas sharing UI (held)
+
+Canvases and spreadsheets both stay held (`GRANTING_HELD_TYPES`) until the
+owner answers decision 12, so **nothing below shows yet**. Each piece
+appears as soon as `canvas` leaves the set.
+
+- **Share in the ⋯ menu** ("Share with people…"), for whoever may share it
+  (its owner) and only when canvas is not held (`canShareFromMenu`). It opens
+  `RecordShareDialog`, a controlled dialog around `EntityAccessSection` with
+  its picker, Can view / Can edit and Remove. The dialog is rendered outside
+  the canvas surface, so its presses and keys never reach the canvas.
+- **The header's chip** (`SharingChip`): "Shared · N" for the owner, "Shared
+  with you" for a grantee. The canvas GET returns `sharing` (`loadRecordSharing`:
+  `can_share`, `held`, `grant_count`, `shared_with_me`). After the dialog
+  closes, the count is read again from the grants list.
+- **The canvases list**: each row's `sharing` (`listSharingByRecord`: one
+  grants read for the owner's own canvases). The row shows "Shared with you",
+  "Shared · N" or "Private".
+- **The agent**: `read_canvas` returns `canvas.shared_with` (names, kinds,
+  levels) for the canvas's owner only (`sharedWithForOwner`, which checks the
+  owner for the explicit user because the tool may run on a service-role client).
+
+Not done: a read-only "Shared with…" list for people who may not share
+(`EntityAccessSection` shows nothing to them). It wasn't checked in a browser
+either: this checkout has no dev settings, and with canvases held there is
+nothing new on screen.

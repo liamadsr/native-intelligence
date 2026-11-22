@@ -26,6 +26,15 @@ interface CanvasRow {
   title: string
   visibility: 'workspace' | 'private'
   updated_at: string
+  /** Its sharing (migration 688): how many its owner shared it with, or that it was shared with you. */
+  sharing?: { shared_count: number; shared_with_me: boolean }
+}
+
+/** A list row's chip: "Shared with you", "Shared · N" for its owner, or "Private". Null for a workspace canvas no one shared. */
+export function canvasRowChip(row: Pick<CanvasRow, 'visibility' | 'sharing'>): string | null {
+  if (row.sharing?.shared_with_me) return 'Shared with you'
+  if (row.sharing && row.sharing.shared_count > 0) return `Shared · ${row.sharing.shared_count}`
+  return row.visibility === 'private' ? 'Private' : null
 }
 
 export function CanvasesPageCard(props: PageCardProps) {
@@ -140,8 +149,8 @@ function CanvasList({ onOpen, onCount }: { onOpen: (id: string, title?: string) 
                 <button type="button" onClick={() => onOpen(c.id, c.title)} className="flex flex-1 items-center gap-2 text-left">
                   <Shapes className="h-4 w-4 shrink-0 text-muted-foreground" />
                   <span className="truncate text-sm font-medium text-foreground">{c.title}</span>
-                  {c.visibility === 'private' && (
-                    <span className="rounded border border-border/60 px-1 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">Private</span>
+                  {canvasRowChip(c) && (
+                    <span data-canvas-row-chip="" className="rounded border border-border/60 px-1 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">{canvasRowChip(c)}</span>
                   )}
                 </button>
               )}

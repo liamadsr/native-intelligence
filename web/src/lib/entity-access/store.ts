@@ -72,57 +72,7 @@ export async function loadEntityAccess(
   if (restricted === null) return null
   if (grantsRes.error) throw new Error(grantsRes.error.message)
   const rows = (grantsRes.data ?? []) as Row[]
-
-  const memberIds = new Set<string>()
-  const teamIds = new Set<string>()
-  const channelIds = new Set<string>()
-  for (const r of rows) {
-    if (r.grantee_kind === 'member' && typeof r.grantee_member_id === 'string') memberIds.add(r.grantee_member_id)
-    if (r.grantee_kind === 'team' && typeof r.grantee_team_id === 'string') teamIds.add(r.grantee_team_id)
-    if (r.grantee_kind === 'channel' && typeof r.grantee_channel_id === 'string') channelIds.add(r.grantee_channel_id)
-  }
-  const channels = channelIds.size
-    ? (((await supabase.from('team_chat_channel').select('id, kind, name, dm_key').in('id', [...channelIds])).data ?? []) as Row[])
-    : []
-  // A DM's name is its other person's.
-  for (const c of channels) {
-    const other = c.kind === 'dm' ? dmOtherMember(c.dm_key as string | null, memberId) : null
-    if (other) memberIds.add(other)
-  }
-  const [members, teams] = await Promise.all([
-    memberIds.size ? supabase.from('member').select('id, display_name').eq('workspace_id', workspaceId).in('id', [...memberIds]) : null,
-    teamIds.size ? supabase.from('team').select('id, name').eq('workspace_id', workspaceId).in('id', [...teamIds]) : null,
-  ])
-  const memberName = new Map(((members?.data ?? []) as Row[]).map((m) => [m.id as string, (m.display_name as string) || 'Someone']))
-  const teamName = new Map(((teams?.data ?? []) as Row[]).map((t) => [t.id as string, (t.name as string) || 'A team']))
-  const channelName = new Map(
-    channels.map((c) => {
-      if (c.kind === 'dm') {
-        const other = dmOtherMember(c.dm_key as string | null, memberId)
-        return [c.id as string, other && memberName.get(other) ? `${memberName.get(other)} (direct message)` : 'A direct message']
-      }
-      if (c.kind === 'meeting') return [c.id as string, c.name ? `${c.name as string} (meeting)` : 'A meeting']
-      return [c.id as string, c.name ? `#${c.name as string}` : 'A channel']
-    }),
-  )
-
-  const grants: EntityGrant[] = []
-  for (const r of rows) {
-    const kind = r.grantee_kind
-    if (!isGranteeKind(kind)) continue
-    const granteeId = (kind === 'member' ? r.grantee_member_id : kind === 'team' ? r.grantee_team_id : r.grantee_channel_id) as string
-    const name =
-      kind === 'member' ? memberName.get(granteeId) : kind === 'team' ? teamName.get(granteeId) : channelName.get(granteeId)
-    grants.push({
-      id: r.id as string,
-      grantee_kind: kind,
-      grantee_id: granteeId,
-      grantee_name: name ?? (kind === 'channel' ? 'A channel' : kind === 'team' ? 'A team' : 'Someone'),
-      level: isGrantLevel(r.level) ? r.level : 'view',
-      source: ((GRANT_SOURCES as readonly string[]).includes(r.source as string) ? r.source : 'manual') as GrantSource,
-      created_at: r.created_at as string,
-    })
-  }
+  const grants = await nameGrants(supabase, workspaceId, memberId, rows)
   return { can_share: canShare, restricted, grants }
 }
 
@@ -185,4 +135,196 @@ export async function removeEntityGrant(supabase: SupabaseClient, workspaceId: s
   const { data, error } = await supabase.from('entity_access').delete().eq('workspace_id', workspaceId).eq('id', grantId).select('id')
   if (error) throw new Error(error.message)
   return (data ?? []).length > 0
+}
+
+/** What a record's header says about its sharing (docs/plans/record-sharing.md, Phase 3). */
+export interface RecordSharing {
+  /** The viewer may add and remove grants on it (entity_access_can_share: its owner). */
+  can_share: boolean
+  /** The app makes no new grants on this kind yet (GRANTING_HELD_TYPES): no Share item. */
+  held: boolean
+  /** How many people, teams and channels it is shared with: counted for whoever may share only. */
+  grant_count: number
+  /** The viewer sees it only because it was shared with them (494's entity_grant_only). */
+  shared_with_me: boolean
+}
+
+/**
+ * The record's sharing, for its header's Share item and its "Shared" chips.
+ * Under the viewer's RLS. Never throws: a failure reads as not shared and not
+ * shareable, which only hides a chip or the Share item; the database decides
+ * every grant in any case.
+ */
+export async function loadRecordSharing(supabase: SupabaseClient, workspaceId: string, type: GrantableType, id: string): Promise<RecordSharing> {
+  const held = GRANTING_HELD_TYPES.has(type)
+  try {
+    const [canShare, onlyByGrant] = await Promise.all([
+      canShareEntity(supabase, workspaceId, type, id).catch(() => false),
+      Promise.resolve(supabase.rpc('entity_grant_only', { p_type: type, p_id: id }))
+        .then(({ data, error }) => !error && data === true)
+        .catch(() => false),
+    ])
+    let grantCount = 0
+    if (canShare) {
+      const { count, error } = await supabase
+        .from('entity_access')
+        .select('id', { count: 'exact', head: true })
+        .eq('workspace_id', workspaceId)
+        .eq('entity_type', type)
+        .eq('entity_id', id)
+      if (!error) grantCount = count ?? 0
+    }
+    return { can_share: canShare, held, grant_count: grantCount, shared_with_me: !canShare && onlyByGrant }
+  } catch {
+    return { can_share: false, held, grant_count: 0, shared_with_me: false }
+  }
+}
+
+/**
+ * Name a record's grant rows (oldest first, as read): a member's name, a
+ * team's, a channel's "#name", a DM's other person's. `memberId`: who is
+ * looking, so a DM is named by its other person.
+ */
+async function nameGrants(supabase: SupabaseClient, workspaceId: string, memberId: string, rows: Row[]): Promise<EntityGrant[]> {
+
+  const memberIds = new Set<string>()
+  const teamIds = new Set<string>()
+  const channelIds = new Set<string>()
+  for (const r of rows) {
+    if (r.grantee_kind === 'member' && typeof r.grantee_member_id === 'string') memberIds.add(r.grantee_member_id)
+    if (r.grantee_kind === 'team' && typeof r.grantee_team_id === 'string') teamIds.add(r.grantee_team_id)
+    if (r.grantee_kind === 'channel' && typeof r.grantee_channel_id === 'string') channelIds.add(r.grantee_channel_id)
+  }
+  const channels = channelIds.size
+    ? (((await supabase.from('team_chat_channel').select('id, kind, name, dm_key').in('id', [...channelIds])).data ?? []) as Row[])
+    : []
+  // A DM's name is its other person's.
+  for (const c of channels) {
+    const other = c.kind === 'dm' ? dmOtherMember(c.dm_key as string | null, memberId) : null
+    if (other) memberIds.add(other)
+  }
+  const [members, teams] = await Promise.all([
+    memberIds.size ? supabase.from('member').select('id, display_name').eq('workspace_id', workspaceId).in('id', [...memberIds]) : null,
+    teamIds.size ? supabase.from('team').select('id, name').eq('workspace_id', workspaceId).in('id', [...teamIds]) : null,
+  ])
+  const memberName = new Map(((members?.data ?? []) as Row[]).map((m) => [m.id as string, (m.display_name as string) || 'Someone']))
+  const teamName = new Map(((teams?.data ?? []) as Row[]).map((t) => [t.id as string, (t.name as string) || 'A team']))
+  const channelName = new Map(
+    channels.map((c) => {
+      if (c.kind === 'dm') {
+        const other = dmOtherMember(c.dm_key as string | null, memberId)
+        return [c.id as string, other && memberName.get(other) ? `${memberName.get(other)} (direct message)` : 'A direct message']
+      }
+      if (c.kind === 'meeting') return [c.id as string, c.name ? `${c.name as string} (meeting)` : 'A meeting']
+      return [c.id as string, c.name ? `#${c.name as string}` : 'A channel']
+    }),
+  )
+
+  const grants: EntityGrant[] = []
+  for (const r of rows) {
+    const kind = r.grantee_kind
+    if (!isGranteeKind(kind)) continue
+    const granteeId = (kind === 'member' ? r.grantee_member_id : kind === 'team' ? r.grantee_team_id : r.grantee_channel_id) as string
+    const name =
+      kind === 'member' ? memberName.get(granteeId) : kind === 'team' ? teamName.get(granteeId) : channelName.get(granteeId)
+    grants.push({
+      id: r.id as string,
+      grantee_kind: kind,
+      grantee_id: granteeId,
+      grantee_name: name ?? (kind === 'channel' ? 'A channel' : kind === 'team' ? 'A team' : 'Someone'),
+      level: isGrantLevel(r.level) ? r.level : 'view',
+      source: ((GRANT_SOURCES as readonly string[]).includes(r.source as string) ? r.source : 'manual') as GrantSource,
+      created_at: r.created_at as string,
+    })
+  }
+  return grants
+}
+
+/** One line of the agent's "who it is shared with" for a record's owner. */
+export interface SharedWithLine {
+  name: string
+  kind: GranteeKind
+  level: GrantLevel
+}
+
+/**
+ * Who a spreadsheet or canvas is shared with, for its OWNER only (the
+ * agent's read tools, docs/plans/record-sharing.md, Phase 3). These tools may
+ * run on a service-role client, where entity_access_can_share (auth.uid())
+ * cannot answer for the person, so the owner is checked here for the explicit
+ * user: a spreadsheet's maker, a canvas's owner, as 688's can_share arms.
+ * Null for anyone else, and on any failure.
+ */
+export async function sharedWithForOwner(
+  supabase: SupabaseClient,
+  scope: { workspaceId: string; userId: string },
+  type: 'spreadsheet' | 'canvas',
+  id: string,
+): Promise<SharedWithLine[] | null> {
+  try {
+    const ownerColumn = type === 'spreadsheet' ? 'created_by' : 'owner_member_id'
+    const [me, record] = await Promise.all([
+      supabase.from('member').select('id').eq('workspace_id', scope.workspaceId).eq('user_id', scope.userId).maybeSingle(),
+      supabase.from(type).select(`id, ${ownerColumn}`).eq('workspace_id', scope.workspaceId).eq('id', id).maybeSingle(),
+    ])
+    const memberId = (me.data as { id?: string } | null)?.id
+    const owner = (record.data as Record<string, unknown> | null)?.[ownerColumn]
+    if (!memberId || !owner || owner !== memberId) return null
+    const { data, error } = await supabase
+      .from('entity_access')
+      .select('id, grantee_kind, grantee_member_id, grantee_team_id, grantee_channel_id, level, source, created_at')
+      .eq('workspace_id', scope.workspaceId)
+      .eq('entity_type', type)
+      .eq('entity_id', id)
+      .order('created_at', { ascending: true })
+    if (error) return null
+    const grants = await nameGrants(supabase, scope.workspaceId, memberId, (data ?? []) as Row[])
+    return grants.map((g) => ({ name: g.grantee_name, kind: g.grantee_kind, level: g.level }))
+  } catch {
+    return null
+  }
+}
+
+/** A list row's word on sharing: how many it is shared with (its owner's), or that it was shared with the viewer. */
+export interface ListSharing {
+  shared_count: number
+  shared_with_me: boolean
+}
+
+/**
+ * Sharing for a page of records the viewer can read (a list's chips,
+ * docs/plans/record-sharing.md, Phase 3), in ONE grants read under their RLS
+ * (which shows an owner the grants on their records). `owner` is the
+ * record's owner member (a canvas's owner, a spreadsheet's maker). A private
+ * record the viewer reads but does not own reads only through a grant: shared
+ * with them. Never throws: a failure says nothing.
+ */
+export async function listSharingByRecord(
+  supabase: SupabaseClient,
+  scope: { workspaceId: string; memberId: string },
+  type: GrantableType,
+  rows: ReadonlyArray<{ id: string; owner: string | null; visibility: string }>,
+): Promise<Map<string, ListSharing>> {
+  const out = new Map<string, ListSharing>()
+  for (const r of rows) out.set(r.id, { shared_count: 0, shared_with_me: r.visibility === 'private' && r.owner !== scope.memberId })
+  const own = rows.filter((r) => r.owner === scope.memberId).map((r) => r.id)
+  if (own.length === 0) return out
+  try {
+    for (let i = 0; i < own.length; i += 200) {
+      const { data, error } = await supabase
+        .from('entity_access')
+        .select('entity_id')
+        .eq('workspace_id', scope.workspaceId)
+        .eq('entity_type', type)
+        .in('entity_id', own.slice(i, i + 200))
+      if (error) return out
+      for (const g of (data ?? []) as Row[]) {
+        const hit = out.get(g.entity_id as string)
+        if (hit) hit.shared_count += 1
+      }
+    }
+  } catch {
+    /* no chips: a failure only hides them */
+  }
+  return out
 }

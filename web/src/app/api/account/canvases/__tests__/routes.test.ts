@@ -74,6 +74,8 @@ describe('/api/account/canvases/[id]', () => {
     expect(json.canvas.title).toBe('Plan')
     expect(json.items).toHaveLength(1)
     expect(json.can_edit).toBe(true)
+    // Its sharing (688): canvases are held for now, so no Share item whatever else it says.
+    expect((json as unknown as { sharing: { held: boolean } }).sharing).toMatchObject({ held: true })
     expect((await getCanvas(get(`${base}/x`), ctx('55555555-5555-4555-8555-555555555555'))).status).toBe(404)
   })
 

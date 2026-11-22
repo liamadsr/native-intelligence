@@ -6,7 +6,9 @@
  * page card (components/chat-cards/pages/canvases-card.tsx).
  */
 import * as React from 'react'
-import { ArrowLeft, CopyPlus, Download, SlidersHorizontal, Link2, Loader2, Lock, MoreHorizontal, Paperclip, Pencil, Presentation, Trash2, Users } from 'lucide-react'
+import { ArrowLeft, CopyPlus, Download, SlidersHorizontal, Link2, Loader2, Lock, MoreHorizontal, Paperclip, Pencil, Presentation, Share2, Trash2, Users } from 'lucide-react'
+import { RecordShareDialog } from '@/app/account/(dashboard)/components/record-share-dialog'
+import type { RecordSharing } from '@/lib/entity-access/store'
 import { FLOATING_CARD_CLASS } from '@/components/attention/card-skin'
 import {
   DropdownMenu,
@@ -62,6 +64,29 @@ interface Loaded {
   outbox: Outbox | null
   /** Left unsent by an earlier visit: already in `items`, still to be sent. */
   unsent: Unsent | null
+  /** Its sharing (migration 688), from its GET: the Share item and the chips. Null when not told. */
+  sharing: RecordSharing | null
+}
+
+/** Whether the ⋯ menu offers Share: to whoever may share it, once the app shares this kind (GRANTING_HELD_TYPES). */
+export function canShareFromMenu(sharing: RecordSharing | null): boolean {
+  return !!sharing && sharing.can_share && !sharing.held
+}
+
+/**
+ * The header's word on sharing: for its owner, how many it is shared with;
+ * for someone it was shared with, that it was. Nothing otherwise.
+ */
+export function SharingChip({ sharing, compact = false }: { sharing: RecordSharing | null; compact?: boolean }) {
+  if (!sharing) return null
+  const text = sharing.can_share && sharing.grant_count > 0 ? `Shared · ${sharing.grant_count}` : sharing.shared_with_me ? 'Shared with you' : null
+  if (!text) return null
+  const title = sharing.can_share ? 'Who it is shared with: Share… in the menu' : 'Someone shared this canvas with you'
+  return (
+    <span data-canvas-sharing="" title={title} className={cn('flex shrink-0 items-center gap-1 rounded-md text-[11px] text-muted-foreground', compact ? 'px-1' : 'px-1.5')}>
+      <Share2 className="h-3 w-3" /> {text}
+    </span>
+  )
 }
 
 /** The palette as CSS variables, light and dark, scoped to the editor. */
@@ -152,6 +177,8 @@ function Header({
   onCopyLink,
   onDelete,
   peers,
+  sharing,
+  onShare,
 }: {
   canvas: CanvasRecord
   canEdit: boolean
@@ -165,6 +192,9 @@ function Header({
   onCopyLink: () => void
   onDelete: () => void
   peers: React.ReactNode
+  /** Its sharing (migration 688): the Share item, for its owner, and the chips. */
+  sharing: RecordSharing | null
+  onShare: () => void
 }) {
   const save = React.useSyncExternalStore(sync.subscribe, sync.getState, sync.getState)
   const hasArtifacts = useCanvas((s) => Object.values(s.scene.items).some((it) => it.kind === 'artifact'))
@@ -231,6 +261,11 @@ function Header({
             </DropdownMenuItem>
           )
         ) : null}
+        {canShareFromMenu(sharing) ? (
+          <DropdownMenuItem onSelect={onShare}>
+            <Share2 className="mr-2 h-4 w-4" /> Share with people…
+          </DropdownMenuItem>
+        ) : null}
         <DropdownMenuItem onSelect={onCopyLink}>
           <Link2 className="mr-2 h-4 w-4" /> Copy link to this view
         </DropdownMenuItem>
@@ -270,6 +305,7 @@ function Header({
             />
           </span>
           {canvas.visibility === 'private' && <Lock className="size-3 shrink-0 text-muted-foreground" aria-label="Private" />}
+          <SharingChip sharing={sharing} compact />
           </HeaderFence>
         </CardHeaderTrail>
         <CardHeaderSlot side="right">
@@ -300,6 +336,7 @@ function Header({
           <Lock className="h-3 w-3" /> Private
         </span>
       ) : null}
+      <SharingChip sharing={sharing} />
       {peers}
       {note}
       {menu}
@@ -338,7 +375,7 @@ export default function CanvasEditor({ canvasId, onBack, onTitle }: CanvasEditor
     fetch(`/api/account/canvases/${canvasId}`)
       .then(async (r) => {
         if (!r.ok) throw new Error(r.status === 404 || r.status === 403 ? 'This canvas is gone, or it is not shared with you.' : 'This canvas could not be opened.')
-        return (await r.json()) as { canvas: CanvasRecord; items: CanvasItemRow[]; can_edit?: boolean; viewer?: string }
+        return (await r.json()) as { canvas: CanvasRecord; items: CanvasItemRow[]; can_edit?: boolean; viewer?: string; sharing?: RecordSharing }
       })
       .then((j) => {
         if (!live) return
@@ -348,7 +385,7 @@ export default function CanvasEditor({ canvasId, onBack, onTitle }: CanvasEditor
         const outbox = canEdit && j.viewer ? new Outbox(browserStorage(), canvasId, j.viewer) : null
         const unsent = outbox?.read() ?? null
         if (unsent) setNotice('Changes that had not been saved were restored.')
-        setLoaded({ canvas: j.canvas, items: withUnsent(items, unsent), canEdit, outbox, unsent })
+        setLoaded({ canvas: j.canvas, items: withUnsent(items, unsent), canEdit, outbox, unsent, sharing: j.sharing ?? null })
       })
       .catch((e: Error) => live && setError(e.message))
     return () => {
@@ -374,14 +411,35 @@ export default function CanvasEditor({ canvasId, onBack, onTitle }: CanvasEditor
       return
     }
     if (!r.ok) return
-    const j = (await r.json()) as { canvas: CanvasRecord; items: CanvasItemRow[]; can_edit?: boolean; viewer?: string }
+    const j = (await r.json()) as { canvas: CanvasRecord; items: CanvasItemRow[]; can_edit?: boolean; viewer?: string; sharing?: RecordSharing }
     const canEdit = j.can_edit !== false
     const was = loadedRef.current
-    if (!was || was.canEdit === canEdit) return
+    if (!was) return
+    if (was.canEdit === canEdit) {
+      setSharing(j.sharing ?? null)
+      return
+    }
     const items = (j.items ?? []).map(rowToItem).filter((it): it is CanvasItem => !!it)
-    setLoaded({ canvas: j.canvas, items, canEdit, outbox: canEdit && j.viewer ? new Outbox(browserStorage(), canvasId, j.viewer) : null, unsent: null })
+    setLoaded({ canvas: j.canvas, items, canEdit, outbox: canEdit && j.viewer ? new Outbox(browserStorage(), canvasId, j.viewer) : null, unsent: null, sharing: j.sharing ?? null })
     setNotice(canEdit ? 'You can now edit this canvas.' : 'You can still view this canvas, but no longer change it.')
   }
+
+  /**
+   * Its sharing, kept apart from `loaded` so a new count never rebuilds the
+   * canvas's session. The Share dialog is its owner's, from the ⋯ menu; when
+   * it closes, the count is read again from the grants it lists.
+   */
+  const [sharing, setSharing] = React.useState<RecordSharing | null>(null)
+  React.useEffect(() => setSharing(loaded?.sharing ?? null), [loaded])
+  const [shareOpen, setShareOpen] = React.useState(false)
+  const recount = React.useCallback(() => {
+    void fetch(`/api/account/entity-access?type=canvas&id=${canvasId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { grants?: unknown[] } | null) => {
+        if (j && Array.isArray(j.grants)) setSharing((s) => (s ? { ...s, grant_count: j.grants!.length } : s))
+      })
+      .catch(() => {})
+  }, [canvasId])
 
   const onTitleRef = React.useRef(onTitle)
   onTitleRef.current = onTitle
@@ -779,6 +837,8 @@ export default function CanvasEditor({ canvasId, onBack, onTitle }: CanvasEditor
                   onDownload={download}
                   onPresent={() => setPresenting({ from: null })}
                   onCopyLink={copyLink}
+                  sharing={sharing}
+                  onShare={() => setShareOpen(true)}
                   peers={
                     <>
                       <PeerFaces peers={peers} />
@@ -877,6 +937,10 @@ export default function CanvasEditor({ canvasId, onBack, onTitle }: CanvasEditor
             </div>
           </CanvasContextMenu>
         </div>
+        {/* Outside the surface, whose presses draw and whose keys are shortcuts: a portal's events bubble to its React parents. */}
+        {canShareFromMenu(sharing) ? (
+          <RecordShareDialog type="canvas" id={canvasId} title={canvas.title} open={shareOpen} onOpenChange={setShareOpen} onClosed={recount} />
+        ) : null}
       </CanvasContext.Provider>
     </TooltipProvider>
   )
