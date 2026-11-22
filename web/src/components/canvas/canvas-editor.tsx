@@ -34,8 +34,9 @@ import { Interaction } from './interaction'
 import { CanvasStore } from './store'
 import { CanvasSurface, isTyping } from './surface'
 import { CanvasSync, type SaveState } from './sync'
-import { PeerList, PresenceSender, RemoteChanges, peerColor } from './live'
+import { PeerList, PresenceRoom, PresenceSender, RemoteChanges, peerColor, type RoomClient } from './live'
 import { PeerFaces, PresenceLayer, usePeers } from './presence-layer'
+import { CommentPins, CommentsButton, CommentsPanel, useCanvasComments } from './comments-panel'
 import { createClient } from '@/lib/supabase/client'
 import { CanvasToolbar } from './toolbar'
 import { CanvasContext, useCanvas } from './use-canvas'
@@ -307,22 +308,33 @@ export default function CanvasEditor({ canvasId, onBack, onTitle }: CanvasEditor
     const key = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
     const peers = new PeerList(key)
     setPeerList(peers)
-    const room = supabase.channel(`canvas-presence:${canvasId}`, { config: { broadcast: { self: false } } })
-    room.on('broadcast', { event: 'peer' }, (m: { payload?: unknown }) => peers.hear(m.payload, Date.now()))
+    // Who else is here. A private room: the server lets in only whoever may
+    // open this canvas (migration 682). If it refuses, nobody else is shown.
     let sender: PresenceSender | null = null
     let live = true
+    let me: { key: string; userId: string; name: string; color: string } | null = null
+    const room = new PresenceRoom(supabase as unknown as RoomClient, canvasId, {
+      hear: (payload) => peers.hear(payload, Date.now()),
+      open: () => {
+        if (!live || !me || sender) return
+        sender = new PresenceSender(me, (payload) => room.send(payload))
+        presence.current = sender
+        sender.start()
+        sender.update({ selection: [...store.getState().selection] })
+      },
+      closed: () => {
+        sender?.stop()
+        sender = null
+        presence.current = null
+      },
+    })
     void supabase.auth.getUser().then(({ data }) => {
       const user = data.user
       if (!live || !user) return
       const meta = (user.user_metadata ?? {}) as { full_name?: string; name?: string }
       const name = (meta.full_name || meta.name || user.email?.split('@')[0] || 'Someone').slice(0, 60)
-      room.subscribe((status: string) => {
-        if (status !== 'SUBSCRIBED' || !live || sender) return
-        sender = new PresenceSender({ key, userId: user.id, name, color: peerColor(user.id) }, (payload) => void room.send({ type: 'broadcast', event: 'peer', payload }))
-        presence.current = sender
-        sender.start()
-        sender.update({ selection: [...store.getState().selection] })
-      })
+      me = { key, userId: user.id, name, color: peerColor(user.id) }
+      room.start()
     })
     let lastSelection = store.getState().selection
     const offSelection = store.subscribe(() => {
@@ -342,11 +354,14 @@ export default function CanvasEditor({ canvasId, onBack, onTitle }: CanvasEditor
       sender?.stop()
       presence.current = null
       setPeerList(null)
+      room.stop()
       void supabase.removeChannel(rows)
-      void supabase.removeChannel(room)
     }
   }, [session, canvasId])
   const peers = usePeers(peerList)
+  const comments = useCanvasComments(canvasId)
+  const [commentsOpen, setCommentsOpen] = React.useState(false)
+  const [commentFocus, setCommentFocus] = React.useState<string | null>(null)
 
   // Where the view was last time; else everything in view.
   React.useEffect(() => {
@@ -599,7 +614,12 @@ export default function CanvasEditor({ canvasId, onBack, onTitle }: CanvasEditor
                   onVisibility={(visibility) => void patch({ visibility })}
                   onDownload={download}
                   onCopyLink={copyLink}
-                  peers={<PeerFaces peers={peers} />}
+                  peers={
+                    <>
+                      <PeerFaces peers={peers} />
+                      <CommentsButton comments={comments} pressed={commentsOpen} onClick={() => setCommentsOpen((v) => !v)} />
+                    </>
+                  }
                   onDelete={() => {
                     if (!window.confirm(`Delete "${canvas.title}"? It moves to the archive.`)) return
                     void fetch(`/api/account/canvases/${canvasId}`, { method: 'DELETE' }).then((r) => {
@@ -609,7 +629,14 @@ export default function CanvasEditor({ canvasId, onBack, onTitle }: CanvasEditor
                   }}
                 />
                 <PresenceLayer peers={peers} />
-                <CanvasInspector sheet={styleSheet} />
+                <CommentPins
+                  comments={comments}
+                  onOpen={(id) => {
+                    setCommentFocus(id)
+                    setCommentsOpen(true)
+                  }}
+                />
+                {commentsOpen ? <CommentsPanel comments={comments} focus={commentFocus} onFocus={setCommentFocus} onClose={() => setCommentsOpen(false)} /> : <CanvasInspector sheet={styleSheet} />}
                 <SelectionActions styleOpen={styleSheet} onStyle={() => setStyleSheet((v) => !v)} />
                 <ZoomBar />
                 <CanvasToolbar

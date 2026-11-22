@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CanvasItem, CanvasItemRow } from '@/lib/canvas/types'
-import { PeerList, PresenceSender, RemoteChanges, peerColor, rowSignature } from '../live'
+import { PeerList, PresenceRoom, PresenceSender, ROOM, RemoteChanges, peerColor, rowSignature, type RoomChannel, type RoomClient } from '../live'
 
 const row = (id: string, x: number, extra: Partial<CanvasItemRow> = {}): CanvasItemRow => ({ canvas_id: 'c1', id, parent_id: null, sort_key: 'a1', kind: 'rectangle', data: { x, y: 0, w: 10, h: 10, rotation: 0, style: {} }, ...extra })
 
@@ -121,5 +121,131 @@ describe('who else is here', () => {
     const count = sent.length
     vi.advanceTimersByTime(10_000)
     expect(sent).toHaveLength(count)
+  })
+})
+
+describe('the presence room', () => {
+  function client(opts: { auth?: () => Promise<unknown> } = {}) {
+    const log: string[] = []
+    const channels: Array<{ topic: string; config: unknown; status: (s: string) => void; hear: (p: unknown) => void; sent: unknown[]; removed: boolean }> = []
+    const c: RoomClient = {
+      realtime: {
+        setAuth: () => {
+          log.push('auth')
+          return opts.auth ? opts.auth() : Promise.resolve()
+        },
+      },
+      channel(topic, o) {
+        log.push('join')
+        const entry = { topic, config: o.config, status: (_s: string) => {}, hear: (_p: unknown) => {}, sent: [] as unknown[], removed: false }
+        channels.push(entry)
+        const ch: RoomChannel & { entry: typeof entry } = {
+          entry,
+          on(_t, _f, cb) {
+            entry.hear = (p) => cb({ payload: p })
+            return ch
+          },
+          subscribe(cb) {
+            entry.status = cb
+          },
+          send(m) {
+            entry.sent.push(m.payload)
+          },
+        }
+        return ch
+      },
+      removeChannel(ch) {
+        ;(ch as unknown as { entry: { removed: boolean } }).entry.removed = true
+      },
+    }
+    return { c, log, channels }
+  }
+  const hooks = () => {
+    const seen = { heard: [] as unknown[], open: 0, closed: 0 }
+    return { seen, h: { hear: (p: unknown) => void seen.heard.push(p), open: () => void seen.open++, closed: () => void seen.closed++ } }
+  }
+  const ID = '3f2b8c1e-5a4d-4e6f-9a7b-0c1d2e3f4a5b'
+
+  it('attaches the person\'s token, then joins a private channel that does not echo', async () => {
+    const { c, log, channels } = client()
+    const { seen, h } = hooks()
+    const room = new PresenceRoom(c, ID, h)
+    room.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(log).toEqual(['auth', 'join'])
+    expect(channels[0].topic).toBe(`canvas-presence:${ID}`)
+    expect(channels[0].config).toEqual({ private: true, broadcast: { self: false } })
+    room.send({ a: 1 })
+    expect(channels[0].sent).toEqual([])
+    channels[0].status('SUBSCRIBED')
+    expect(seen.open).toBe(1)
+    room.send({ a: 2 })
+    expect(channels[0].sent).toEqual([{ a: 2 }])
+    channels[0].hear({ key: 'k' })
+    expect(seen.heard).toEqual([{ key: 'k' }])
+  })
+
+  it('re-attaches the token before every retry, waits longer each time, and gives up quietly', async () => {
+    const { c, log, channels } = client()
+    const { seen, h } = hooks()
+    const room = new PresenceRoom(c, ID, h)
+    room.start()
+    await vi.advanceTimersByTimeAsync(0)
+    let wait: number = ROOM.firstRetry
+    for (let i = 1; i < ROOM.attempts; i++) {
+      channels[channels.length - 1].status('CHANNEL_ERROR')
+      expect(channels[channels.length - 1].removed).toBe(true)
+      await vi.advanceTimersByTimeAsync(wait - 1)
+      expect(channels).toHaveLength(i)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(channels).toHaveLength(i + 1)
+      wait = Math.min(wait * 2, ROOM.retryCap)
+    }
+    expect(log.filter((l) => l === 'auth')).toHaveLength(ROOM.attempts)
+    channels[channels.length - 1].status('CHANNEL_ERROR')
+    await vi.advanceTimersByTimeAsync(ROOM.retryCap * 4)
+    expect(channels).toHaveLength(ROOM.attempts)
+    expect(room.state).toBe('shut')
+    expect(seen.open).toBe(0)
+    room.send({ a: 1 })
+    expect(channels.every((ch) => ch.sent.length === 0)).toBe(true)
+  })
+
+  it('comes back after a drop, and a replaced channel is not listened to', async () => {
+    const { c, channels } = client()
+    const { seen, h } = hooks()
+    const room = new PresenceRoom(c, ID, h)
+    room.start()
+    await vi.advanceTimersByTimeAsync(0)
+    channels[0].status('SUBSCRIBED')
+    channels[0].status('CLOSED')
+    expect(seen.closed).toBe(1)
+    channels[0].hear({ late: true })
+    channels[0].status('SUBSCRIBED')
+    expect(seen.heard).toEqual([])
+    expect(seen.open).toBe(1)
+    await vi.advanceTimersByTimeAsync(ROOM.firstRetry)
+    channels[1].status('SUBSCRIBED')
+    expect(seen.open).toBe(2)
+    expect(room.state).toBe('open')
+  })
+
+  it('still tries to join when no token can be attached, and joins nothing once stopped', async () => {
+    const { c, channels } = client({ auth: () => Promise.reject(new Error('no session')) })
+    const room = new PresenceRoom(c, ID, hooks().h)
+    room.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(channels).toHaveLength(1)
+    channels[0].status('TIMED_OUT')
+    room.stop()
+    await vi.advanceTimersByTimeAsync(ROOM.retryCap)
+    expect(channels).toHaveLength(1)
+
+    const slow = client({ auth: () => new Promise((r) => setTimeout(r, 50)) })
+    const second = new PresenceRoom(slow.c, ID, hooks().h)
+    second.start()
+    second.stop()
+    await vi.advanceTimersByTimeAsync(100)
+    expect(slow.channels).toHaveLength(0)
   })
 })

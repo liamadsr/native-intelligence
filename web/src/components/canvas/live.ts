@@ -222,3 +222,123 @@ export class PresenceSender {
     this.send({ key: this.me.key, gone: true })
   }
 }
+
+// ── The presence room ───────────────────────────────────────────────────────
+
+/** The Realtime topic of a canvas's presence room. Migration 682's policies read the canvas id back out of it. */
+export function presenceTopic(canvasId: string): string {
+  return `canvas-presence:${canvasId.toLowerCase()}`
+}
+
+/** What the room needs of the Supabase client, small enough to stand in for in a test. */
+export interface RoomChannel {
+  on(type: 'broadcast', filter: { event: string }, cb: (m: { payload?: unknown }) => void): RoomChannel
+  subscribe(cb: (status: string) => void): unknown
+  send(msg: { type: 'broadcast'; event: string; payload: Record<string, unknown> }): unknown
+}
+export interface RoomClient {
+  realtime: { setAuth(): Promise<unknown> }
+  channel(topic: string, opts: { config: { private: boolean; broadcast: { self: boolean } } }): RoomChannel
+  removeChannel(channel: RoomChannel): unknown
+}
+
+export const ROOM = { firstRetry: 1000, retryCap: 30_000, attempts: 6 } as const
+
+/**
+ * This editor's place in a canvas's presence room.
+ *
+ * The room is a PRIVATE channel: the server lets in only whoever may open the
+ * canvas (682's realtime.messages policies), judged from the person's own
+ * token, so the token is attached (`setAuth`) before every join, and again
+ * before every retry, because a drop often comes with an expired one. A join
+ * that is refused or times out is retried with a growing wait, a handful of
+ * times; after that the room stays shut and the editor simply shows nobody
+ * else. Nothing but cursors depends on it: saving and other people's saved
+ * changes travel elsewhere.
+ */
+export class PresenceRoom {
+  private channel: RoomChannel | null = null
+  private timer: ReturnType<typeof setTimeout> | null = null
+  private wait: number = ROOM.firstRetry
+  private failures = 0
+  private stopped = false
+  /** 'joining' until the first answer; 'open' while joined; 'shut' once it gave up. */
+  state: 'joining' | 'open' | 'shut' = 'joining'
+
+  constructor(
+    private client: RoomClient,
+    private canvasId: string,
+    private hooks: { hear: (payload: unknown) => void; open: () => void; closed: () => void },
+  ) {}
+
+  start(): void {
+    void this.join()
+  }
+
+  /** Say something to the room; dropped unless joined. */
+  send(payload: Record<string, unknown>): void {
+    if (this.state !== 'open' || !this.channel) return
+    try {
+      void Promise.resolve(this.channel.send({ type: 'broadcast', event: 'peer', payload })).catch(() => {})
+    } catch {
+      // A socket that closed under us: the status callback will hear of it.
+    }
+  }
+
+  private async join(): Promise<void> {
+    try {
+      await this.client.realtime.setAuth()
+    } catch {
+      // No token to attach: the join below is refused, and counted like any other.
+    }
+    if (this.stopped) return
+    const channel = this.client.channel(presenceTopic(this.canvasId), { config: { private: true, broadcast: { self: false } } })
+    this.channel = channel
+    channel.on('broadcast', { event: 'peer' }, (m) => {
+      if (channel === this.channel) this.hooks.hear(m.payload)
+    })
+    channel.subscribe((status) => {
+      // A replaced channel has nothing more to say.
+      if (channel !== this.channel || this.stopped) return
+      if (status === 'SUBSCRIBED') {
+        this.failures = 0
+        this.wait = ROOM.firstRetry
+        if (this.state !== 'open') {
+          this.state = 'open'
+          this.hooks.open()
+        }
+        return
+      }
+      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') this.lost()
+    })
+  }
+
+  private lost(): void {
+    const dead = this.channel
+    this.channel = null
+    if (this.state === 'open') this.hooks.closed()
+    if (dead) void Promise.resolve(this.client.removeChannel(dead)).catch(() => {})
+    this.failures += 1
+    if (this.failures >= ROOM.attempts) {
+      this.state = 'shut'
+      return
+    }
+    this.state = 'joining'
+    if (this.timer) return
+    const delay = this.wait
+    this.wait = Math.min(this.wait * 2, ROOM.retryCap)
+    this.timer = setTimeout(() => {
+      this.timer = null
+      if (!this.stopped) void this.join()
+    }, delay)
+  }
+
+  stop(): void {
+    this.stopped = true
+    if (this.timer) clearTimeout(this.timer)
+    this.timer = null
+    const c = this.channel
+    this.channel = null
+    if (c) void Promise.resolve(this.client.removeChannel(c)).catch(() => {})
+  }
+}

@@ -2,7 +2,8 @@
 
 Status, 2026-11-22, on `claude/canvas-whiteboards`: phase 1 and most of phases 2,
 3 and 4 are built (see "Where it stands" at the end). Nothing rolled out. Migration
-676 is applied to the dev project only.
+676 is merged and applied to the dev project; migration 682 (comments, private
+presence) is written and rehearsed on a local Postgres only, applied nowhere.
 
 The target is parity with the canvas in Macro (github.com/macro-inc/macro): the
 same tools, interactions, menus, shortcuts and screen layout, drawn in this app's
@@ -196,11 +197,13 @@ visibility. Migration 676 adds, and redefines nothing:
 
 The rule for this work is to add beside what exists and never redefine an
 existing function or policy. Three things a document has need exactly that, so
-they are left for the owner to decide:
+they were left for the owner to decide. Decided 2026-11-22: comments yes, in a
+table of the canvas's own (migration 682, below), so nothing is redefined;
+per-person grants and public share links not now.
 
 | Feature | What would have to change |
 |---|---|
-| Comments on a canvas | A new value in the `commentable_type` enum, and `validate_commentable_exists()` redefined to know the `canvas` table |
+| Comments on a canvas, in the app's shared comment table | A new value in the `commentable_type` enum, and `validate_commentable_exists()` redefined to know the `canvas` table. Not done: 682's `canvas_comment` instead |
 | Per-person grants (share with one person, view or edit) | `entity_access`'s kind CHECK widened, and `entity_access_guard`, `entity_grant_only`, `entity_edit_grant_on` and `entity_edit_grant_only` redefined, as 520 did for tables |
 | Public share links | `share_shareable_type_check` widened, and the share routes taught the kind |
 
@@ -284,6 +287,19 @@ Built and checked in a browser against the dev project (50 scripted checks):
   last write to an item wins), cursors, selections and faces (a broadcast
   channel, nothing stored), a save queue that retries and warns before the page
   closes.
+- **Private presence (migration 682).** The editor joins
+  `canvas-presence:<canvas id>` as a private Realtime channel, attaching the
+  person's token before every join and every retry. Two policies on
+  `realtime.messages` let in only whoever may open the canvas, for broadcast
+  only. Without 682 the join is refused: the editor retries six times, then
+  shows nobody else; saving and other people's saved changes are unaffected.
+- **Comments (migration 682).** Threads about the canvas or about one item,
+  with replies, resolve and reopen, and delete by the author. A button in the
+  header with the count of open threads, a panel, and a pin on each item that
+  has an open thread. Other people's comments arrive live. Without 682 the
+  comment routes answer 503 and the button is not shown.
+- **A canvas deleted for good takes its files** out of storage (archiving,
+  which is what the editor's Delete does, keeps them).
 - **Phase 4:** `read_canvas`, `edit_canvas`, `create_canvas` in the tool
   registry (so over MCP as `ni_read_canvas`, `ni_edit_canvas`,
   `ni_create_canvas`); what an agent writes shows live to whoever has the
@@ -298,15 +314,12 @@ Not built yet:
 - **Ghost cursors for an agent's edits** (the edits themselves arrive live).
 - **Unsent edits kept across a reload** (they are kept and retried while the
   page is open).
-- Comments, per-person grants and public links: the owner's decision, above.
+- Per-person grants and public links: not now (the owner, 2026-11-22).
+- In comments: @-mentions and notifications, editing a comment's words in the
+  panel (the route and the guard allow it), and comments in the agent tools.
 
 Things to know:
 
-- **Presence is not private.** Cursor positions, names and selected item ids go
-  over a Realtime broadcast channel named by the canvas's id. Anyone signed in
-  who knows a canvas's id can listen to that channel, including for a private
-  canvas they cannot open. The canvas's contents are not on it. Closing this
-  needs Realtime's private channels (policies on `realtime.messages`).
 - **A link in canvas text is drawn, not clickable**: clicks on the canvas
   select and drag. And an agent's `set_text` writes plain words, so it takes
   formatting off the text it rewrites.
@@ -317,4 +330,95 @@ Things to know:
   no GPU**, where a 6-item canvas pans at about 22 frames a second. A 2,400-item
   canvas pans about 6 ms a frame slower than that one. It has not been measured
   in a production build on real hardware.
+
+## Migration 682: comments and private presence
+
+`web/supabase/migrations/682_canvas_comments_presence.sql`. New table, three new
+functions, six new policies; nothing existing is redefined.
+
+- `canvas_comment`: a thread's first comment names the canvas and, if it is
+  about one, an item (by id, not a foreign key: a deleted item leaves its
+  thread readable) and the point it was pinned at. A reply names the first
+  comment. Read with the canvas. Written as oneself, on a canvas one can open.
+  Any reader updates a row, because any reader resolves a thread;
+  `canvas_comment_guard` keeps a comment's canvas, author, thread and time, its
+  words to its author, and records a resolver as themself (the shape of 675's
+  `spreadsheet_comment_guard`). Only the author deletes.
+- `canvas_comment_is_thread(parent, canvas)`: what a reply may name. It is a
+  security-definer function because a policy on a table that reads the same
+  table recurses (the first rehearsal failed with 42P17 for exactly that).
+- `canvas_presence_canvas(topic)`: the canvas a topic is for, only when the
+  whole topic is `canvas-presence:<lower-case uuid>`, tested as text before the
+  cast, so a malformed topic is refused and never raises.
+- `canvas_presence_hear` (select) and `canvas_presence_say` (insert) on
+  `realtime.messages`: the topic prefix, `extension = 'broadcast'`, and
+  `canvas_visible_to(<that canvas>, auth.uid())`. The same shape as 559's
+  team-chat typing policies, which production's Realtime already serves.
+
+Rehearsed on a local Postgres 16 with stand-ins for the app's tables, `auth.uid()`
+and the `realtime` schema (`realtime.topic()` read from a setting): the exact
+files 676 and 682 applied twice each without error, then as three people:
+
+| Who, doing what | Result |
+|---|---|
+| A member says and hears on a shared canvas's room | allowed |
+| The same member on another member's private canvas | refused (42501), hears nothing |
+| The owner on their private canvas | allowed |
+| A person from another workspace | refused, hears nothing |
+| `canvas-presence:not-a-uuid`, an id with a tail, another feature's topic | refused, no error |
+| A non-broadcast message on the room | refused |
+| Item rows read by a member / by the outsider | the shared canvas's only / none |
+| Comment as oneself; reply as oneself | allowed |
+| Comment signed as someone else; on a private canvas one cannot open; a reply naming a thread on another canvas; from another workspace | refused |
+| Rewrite another's words; take authorship; move a comment to another canvas; resolve as someone else | refused by the guard |
+| Resolve as oneself; the author edits their own words | allowed |
+| Delete another's comment / one's own thread | 0 rows / deleted, its reply with it |
+
+Not proven anywhere: the policies against a real Realtime server (the rehearsal
+stands in for `realtime.topic()`), and the comments panel in a browser.
+
+## Decisions to review
+
+Made without asking, while working through the night of 2026-11-22.
+
+1. **The dev project was used after the instruction not to.** The instruction
+   ("don't use the Supabase connector or the dev project") was sent at 09:15 UTC
+   and read at 10:15. In between, browser checks of rich text and media ran
+   against the dev project through the app's dev server (reads and writes of
+   test canvases in the test account's workspace), and f0999ca3 and 96bf3f4d
+   were pushed. The connector itself was last used at about 06:40. Nothing has
+   touched the dev project since 10:15.
+2. **So 682's features were not checked in a browser.** Without the dev
+   project there is no database with 682 to run the app against. Private
+   presence and comments are covered by the local Postgres rehearsal above, by
+   unit tests (the room's joins and retries against a stand-in client, the
+   store, the routes) and by a rendered test of the panel. The first time they
+   run for real is after 682 is applied somewhere.
+3. **Comments are a table of the canvas's own**, as asked, and a thread may be
+   about one item. A pin shows on the item; a thread about the whole canvas has
+   no pin. "Comments pinned to a spot on the canvas" (beyond parity) is not
+   built, though the row keeps a point.
+4. **Resolving is open to every reader of the canvas, view-only people
+   included**, as asked for spreadsheets. So is commenting: someone who can
+   open a canvas but not edit it can still comment on it.
+5. **Presence gives up after six refused joins** (about a minute) instead of
+   retrying for ever. A canvas open through a long outage then shows nobody
+   else until it is reopened. Chosen so that a database without 682 is not
+   asked for a join every 30 seconds by every open canvas.
+6. **A `postgres_changes` delete is not filtered by RLS.** Realtime cannot
+   check a deleted row against a policy; with row level security on, it sends
+   every subscriber only the row's key. So when an item or a comment is
+   deleted, any signed-in subscriber to that table's deletes receives a canvas
+   id and an item id (opaque ids, no content). Inserts and updates are filtered
+   per subscriber by the select policy (shown in the rehearsal). Closing it
+   would mean sending deletes over the private room instead.
+7. **Deleting a canvas for good removes its files with the service client**,
+   after the row's own delete has passed the policy. If storage fails the
+   delete still succeeds and a line is logged; nothing retries it. Archiving
+   keeps the files, since an archived canvas can come back.
+8. **The four tiptap packages are declared at exactly 2.27.2**, the versions
+   the lockfile already held; the lockfile gained only those four lines.
+9. **`canvas_comment_is_thread` is security definer.** It answers one yes or
+   no ("is this id the first comment of a thread on this canvas"), and the
+   insert policy calls it only after checking the caller can open that canvas.
 
