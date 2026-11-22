@@ -136,7 +136,24 @@ export class Interaction {
       return
     }
     if (e.button === 2) {
-      // A right-click takes what is under it before its menu opens.
+      this.contextAt(e)
+      return
+    }
+    if (e.button !== 0) return
+    if (state.editing) return
+
+    if (tool === 'select') return this.selectDown(e, world)
+    if (state.readOnly) return
+    return this.toolDown(e, world, tool)
+  }
+
+  /** A right-click or a long press takes what is under it before its menu opens. */
+  contextAt(e: PointerInput): void {
+    const store = this.store
+    const state = store.getState()
+    const world = this.world(e)
+    const tool = state.tool
+    {
       if (!state.editing && tool === 'select') {
         const hit = pick(state.scene, world, this.pickTol(e))
         const target = hit ? store.targetOf(hit.id, e.mod) : null
@@ -146,14 +163,12 @@ export class Interaction {
           if (!frame || grabAt(frame, store.camera, e, { handles: false })?.type !== 'inside') store.select([])
         }
       }
-      return
     }
-    if (e.button !== 0) return
-    if (state.editing) return
+  }
 
-    if (tool === 'select') return this.selectDown(e, world)
-    if (state.readOnly) return
-
+  private toolDown(e: PointerInput, world: Point, tool: ToolId): void {
+    const store = this.store
+    const state = store.getState()
     const step = store.snapStep()
     const snapped = snapPointTo(world, step)
     if (tool === 'rectangle' || tool === 'ellipse') {
@@ -558,9 +573,14 @@ export class Interaction {
   doubleClick(e: PointerInput): void {
     const store = this.store
     const state = store.getState()
-    if (state.readOnly || state.tool !== 'select' || state.editing) return
+    if (state.tool !== 'select' || state.editing) return
     const world = this.world(e)
     const hit = pick(state.scene, world, this.pickTol(e)) ?? pickBox(state.scene, world)
+    if (state.readOnly) {
+      // Looking only: a card still opens its record.
+      if (hit?.kind === 'record') store.openRecord?.(hit.ref)
+      return
+    }
     if (!hit) {
       this.newText(snapPointTo(world, store.snapStep()))
       return
@@ -568,23 +588,28 @@ export class Interaction {
     if (hit.kind === 'text' || hit.kind === 'rectangle' || hit.kind === 'ellipse' || hit.kind === 'connector') {
       store.select([hit.id])
       store.setEditing(hit.id)
+    } else if (hit.kind === 'record') {
+      store.openRecord?.(hit.ref)
     }
   }
 
   /**
-   * Typing is over. `plain` is what the box holds (null: Escape on a new
-   * box). A new box with no words vanishes and leaves no undo step; an old
-   * one emptied is removed; a label emptied is taken off its shape.
+   * Typing is over. `text` is what the box holds: its words, and its
+   * formatting when it has any (null: nothing to save). A new box with no
+   * words vanishes and leaves no undo step; an old one emptied is removed; a
+   * label emptied is taken off its shape.
    */
-  finishEditing(plain: string | null): void {
+  finishEditing(input: string | { plain: string; rich?: unknown } | null): void {
     const store = this.store
     const state = store.getState()
     const id = state.editing
     if (!id) return
     const it = state.scene.items[id]
     const isNew = !state.base.items[id]
-    const words = (plain ?? '').replace(/ /g, ' ')
+    const given = typeof input === 'string' ? { plain: input } : input
+    const words = (given?.plain ?? '').replace(/\u00a0/g, ' ')
     const empty = !words.trim()
+    const text = { plain: words, ...(given?.rich && !empty ? { rich: given.rich } : {}) }
     if (!it) {
       store.setEditing(null)
       return
@@ -598,20 +623,21 @@ export class Interaction {
         } else store.apply((s) => deleteItems(s, [id]), { editing: null, selection: [] })
         return
       }
-      const next = { ...it, content: { plain: words } }
+      const next = { ...it, content: text }
       store.commit(patchScene(state.scene, [next]), { editing: null })
       if (isNew) store.toolDone([id])
       return
     }
     if (it.kind === 'rectangle' || it.kind === 'ellipse' || it.kind === 'connector') {
-      const had = it.label?.plain ?? ''
-      if (words === had || (empty && !had)) {
+      const had = it.label
+      const same = (had?.plain ?? '') === words && JSON.stringify(had?.rich ?? null) === JSON.stringify(text.rich ?? null)
+      if (same || (empty && !had?.plain)) {
         store.setEditing(null)
         return
       }
       const next = { ...it } as typeof it
       if (empty) delete next.label
-      else next.label = { plain: words }
+      else next.label = text
       store.commit(patchScene(state.base, [next as CanvasItem]), { editing: null })
       return
     }
@@ -680,6 +706,11 @@ export class Interaction {
       return false
     }
 
+    if (!e.alt && key === 'i' && !state.readOnly) {
+      const at = this.last ? { x: this.last.x, y: this.last.y } : { x: store.viewport.w / 2, y: store.viewport.h / 2 }
+      store.openInsert?.(at)
+      return true
+    }
     const tools: Record<string, ToolId> = { v: 'select', h: 'hand', r: 'rectangle', o: 'ellipse', a: 'arrow', l: 'line', p: 'pencil', e: 'eraser', t: 'text' }
     if (!e.alt && tools[key]) {
       store.setTool(tools[key])
@@ -737,7 +768,8 @@ export class Interaction {
   }
 
   /** The pointer moved with nothing pressed: show where a connector would tie. */
-  hover(e: { x: number; y: number }): void {
+  hover(e: PointerInput): void {
+    this.last = e
     const store = this.store
     const state = store.getState()
     const tool = state.tool

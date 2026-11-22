@@ -22,11 +22,21 @@ export class CanvasSync {
   private listeners = new Set<(state: SaveState) => void>()
   state: SaveState = 'saved'
 
+  /** Told what was written, once it has been (so its echo can be recognised). */
+  onSent: ((rows: CanvasItemRow[], removed: string[]) => void) | null = null
+  setOnSent(fn: ((rows: CanvasItemRow[], removed: string[]) => void) | null): void {
+    this.onSent = fn
+  }
+  private flying = new Set<string>()
+
   constructor(
     private canvasId: string,
     private send: Send,
     private delay = 500,
   ) {}
+
+  /** Does this item have a change waiting to go, or on its way? */
+  isPending = (id: string): boolean => this.upserts.has(id) || this.removes.has(id) || this.flying.has(id)
 
   subscribe = (fn: (state: SaveState) => void): (() => void) => {
     this.listeners.add(fn)
@@ -80,11 +90,16 @@ export class CanvasSync {
     for (const it of items) this.upserts.delete(it.id)
     for (const id of remove) this.removes.delete(id)
     let ok = false
+    const rows = items.map((it) => itemToRow(this.canvasId, it))
+    this.flying = new Set([...items.map((it) => it.id), ...remove])
+    // Said before it is sent: the echo can come back before the request does.
+    this.onSent?.(rows, remove)
     try {
-      ok = await this.send({ upsert: items.map((it) => itemToRow(this.canvasId, it)), remove }, { keepalive })
+      ok = await this.send({ upsert: rows, remove }, { keepalive })
     } catch {
       ok = false
     }
+    this.flying = new Set()
     this.inFlight = false
     if (!ok) {
       // Put the batch back, under anything newer.

@@ -3,6 +3,8 @@ import { requireWorkspace } from '@/lib/api-auth'
 import { badRequest, notFound, serverError } from '@/lib/api-errors'
 import { deleteCanvas, getCanvas, updateCanvas } from '@/lib/canvas/store'
 import { canvasRefusal } from '@/lib/canvas/responses'
+import { CANVAS_MEDIA_BUCKET, removeCanvasMedia, type MediaBucket } from '@/lib/canvas/media'
+import { getServiceClient } from '@/lib/supabase/service'
 import type { CanvasVisibility } from '@/lib/canvas/types'
 
 type Ctx = { params: Promise<{ id: string }> }
@@ -58,8 +60,19 @@ export async function DELETE(request: NextRequest, { params }: Ctx) {
   const { supabase, user, workspaceId } = auth
   const { id } = await params
   try {
-    const result = await deleteCanvas(supabase, workspaceId, id, { userId: user.id }, { permanent: request.nextUrl.searchParams.get('permanent') === '1' })
+    const permanent = request.nextUrl.searchParams.get('permanent') === '1'
+    const result = await deleteCanvas(supabase, workspaceId, id, { userId: user.id }, { permanent })
     if (!result.ok) return canvasRefusal(result)
+    // Gone for good: its images and video go too. Only after the row's own
+    // delete passed the policy; a file that will not go is logged, not a failure.
+    if (permanent) {
+      try {
+        const cleared = await removeCanvasMedia(getServiceClient().storage.from(CANVAS_MEDIA_BUCKET) as unknown as MediaBucket, workspaceId, id)
+        if (cleared.error) console.warn('[canvas] files left behind after a delete:', cleared.error)
+      } catch (e) {
+        console.warn('[canvas] files left behind after a delete:', e instanceof Error ? e.message : e)
+      }
+    }
     return NextResponse.json({ ok: true })
   } catch (e) {
     return serverError(e instanceof Error ? e.message : 'Could not delete the canvas')

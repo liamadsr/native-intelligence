@@ -293,10 +293,12 @@ function Select<T extends string>({ label, value, options, onChange }: { label: 
   )
 }
 
-export function CanvasInspector() {
+export function CanvasInspector({ sheet = false }: { /** On a narrow screen: open as a sheet over the lower half. */ sheet?: boolean }) {
   const store = useCanvasStore()
-  const scene = useCanvas((s) => s.scene)
-  const selection = useCanvas((s) => s.selection)
+  // The panel follows the canvas a beat behind when the canvas is busy (a marquee over hundreds of items, a drag):
+  // the drawing comes first.
+  const scene = React.useDeferredValue(useCanvas((s) => s.scene))
+  const selection = React.useDeferredValue(useCanvas((s) => s.selection))
   const defaults = useCanvas((s) => s.defaults)
   const readOnly = useCanvas((s) => s.readOnly)
 
@@ -329,7 +331,13 @@ export function CanvasInspector() {
       data-canvas-chrome
       data-canvas-inspector
       aria-label="Inspector"
-      className={cn(FLOATING_CARD_CLASS, 'absolute bottom-16 right-4 top-4 z-20 hidden w-64 flex-col overflow-y-auto md:flex')}
+      data-canvas-sheet={sheet ? 'open' : undefined}
+      className={cn(
+        FLOATING_CARD_CLASS,
+        'absolute z-20 flex-col overflow-y-auto md:bottom-16 md:left-auto md:right-4 md:top-4 md:flex md:max-h-none md:w-64',
+        // Narrow: hidden until asked for, then a sheet over the lower half so the shape stays in view.
+        sheet ? 'inset-x-2 bottom-[10.25rem] flex max-h-[45%]' : 'hidden',
+      )}
       onPointerDown={(e) => e.stopPropagation()}
     >
       {none ? <div className="border-b border-border/50 px-3 py-2.5 text-xs text-muted-foreground">Nothing selected. These are the next shape&rsquo;s colors.</div> : null}
