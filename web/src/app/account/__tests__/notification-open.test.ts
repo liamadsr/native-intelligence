@@ -49,4 +49,12 @@ describe('openNotificationTarget', () => {
   it('a work item: its target (the inbox card draws it)', () => {
     expect(notificationCardTarget({ type: 'work_item', id: 'wi-1', title: 'Draft' })).toEqual({ type: 'work_item', id: 'wi-1', title: 'Draft' })
   })
+
+  it('a comment on a canvas or a spreadsheet: that record\'s own card', () => {
+    openNotificationTarget({ type: 'canvas', id: 'cv-1', title: '' }, { foreignWorkspaceId: null })
+    expect(opened[0].spec).toMatchObject({ kind: 'canvases', target: { type: 'canvas', id: 'cv-1' } })
+    openNotificationTarget({ type: 'spreadsheet', id: 'ss-1', title: '' }, { foreignWorkspaceId: 'ws-2' })
+    expect(opened[1]).toMatchObject({ workspaceId: 'ws-2', spec: { kind: 'spreadsheets', target: { type: 'spreadsheet', id: 'ss-1' } } })
+    expect(notificationCardTarget({ type: 'canvas', id: 'cv-1', title: '' })).toEqual({ type: 'canvas', id: 'cv-1', title: null })
+  })
 })

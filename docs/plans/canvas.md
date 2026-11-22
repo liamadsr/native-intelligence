@@ -412,6 +412,77 @@ after being opened from the menu.
 Not proven anywhere: the policies against a real Realtime server (the rehearsal
 stands in for `realtime.topic()`), and the comments panel in a browser.
 
+## Comments by the assistant, and mentions (branch `claude/comments-agents-mentions`)
+
+Asked for by the owner on 2026-11-22, for canvases and spreadsheets both.
+
+**The assistant comments.** Four tools: `comment_on_canvas` and
+`resolve_canvas_comment` (in the canvas's tool category), `comment_on_spreadsheet`
+and `resolve_spreadsheet_comment` (in Spreadsheets). It starts a thread on an
+item or a cell range, replies on a thread, resolves and reopens. It has no tool
+that edits or deletes anyone's comment. It writes through the person's own
+session, so the comment is that person's (their `author_id`), every policy and
+guard of 675, 681 and 682 applies, and a thread it resolves is recorded as
+resolved by them. The comment carries `via_agent` (migration 692) and both
+panels show an "assistant" badge beside the name. Both reads
+(`read_canvas`, and the whole-workbook `read_spreadsheet`) list the open
+threads with their ids and say which the assistant wrote.
+
+**The rule it follows for a write other people see.** The app's one precedent
+is `add_comment` (comments on tasks, captures and documents): an internal
+write to the board, with no approval card, which the risky-call reviewer does
+not review (it reviews external writes, deletes, automation writes and
+external MCP). Agents have no tool that posts to team chat, and sending email
+is an external write. The four tools are classed exactly as `add_comment` is.
+Unlike `add_comment` they are NOT allowed in report mode (a report-only run
+writes no comment on a canvas or a spreadsheet).
+
+**Mentions and notices.** The comment boxes on both panels now take `@`:
+teammates first, then any record, as the app's other comment boxes do. A
+comment stores the teammates it names. After it is saved (by a person or by
+the assistant): the canvas or spreadsheet gains a `mentions` link to each
+record named, a private record the author may share is opened to the
+teammates named beside it (the app's existing mention rule), each teammate
+named is told ("mentioned"), and on a reply the thread's author is told
+("replied"). An edit tells only who it newly names. A notice opens the canvas
+or the spreadsheet.
+
+**Who is told: only a member who can open that canvas or spreadsheet.** Asked
+of the record's own read rule for that member at the moment of sending
+(`canvas_visible_to`, `spreadsheet_entity_visible_to`); a failed check, a
+member with no user or a record that is gone all send nothing. So a private
+canvas or spreadsheet never puts its title or a comment's words in front of
+someone who could not open it: they get no notice at all.
+
+**Migrations (applied nowhere; each has its own begin/commit; applied twice
+on a local Postgres after 676, 682 and 686):**
+
+- **687** `notification_target_type_check`: 679's list plus `canvas` and
+  `spreadsheet`, nothing taken away. The one existing object it redefines.
+- **692** `via_agent boolean not null default false` on `canvas_comment` and
+  `spreadsheet_comment`, and one new trigger function,
+  `record_comment_agent_mark_guard`, on each table: a client update never
+  changes the mark. 675's and 682's guards are not touched. Rehearsed: the
+  author cannot wipe the mark off, a reader cannot put it on someone else's
+  comment, resolving and editing still work, the service side may change it.
+
+**Before the migrations are applied the app still works:** comments are read
+without the mark where the column is missing, a person's comment never sends
+the column, a notice that cannot be stored (no 687) is dropped and logged, and
+the assistant's comment tools answer that the server is missing an update.
+
+Seen in a browser, on the dev server (which has 675 but not 682, 687 or 692,
+and one member): a spreadsheet thread is written and listed on a database
+without the new column; a request cannot mark a comment as the assistant's;
+typing `@` in the thread's reply box finds a record, picking it puts its name
+in the words, and the reply saves; no badge on a person's comments; no page
+errors. NOT seen in a browser: a teammate in the picker and a notice arriving
+(the dev workspace has nobody else), the "assistant" badge and the assistant's
+tools (they need 692), anything on a canvas's comments (they need 682), and
+the link a mention makes from the spreadsheet to the record it names. Those
+rest on unit tests of the notifier, the stores, the routes and the tools, and
+rendered tests of the panels.
+
 ## Decisions to review
 
 Made without asking, while working through the night of 2026-11-22.
@@ -463,7 +534,11 @@ Made without asking, while working through the night of 2026-11-22.
    682's file is as released in f08a5af0 and is not edited again. **Running
    682 a second time after 686 puts the wider function back, so run 686 after
    it** (rehearsed in that order: 682, 686, 682, 686).
-10. **Artifacts are OFF for agents unless `CANVAS_AGENT_ARTIFACTS=1`** (the
+10. **DECIDED by the owner, 2026-11-22: yes, agents may make and change
+    artifacts.** The owner sets `CANVAS_AGENT_ARTIFACTS=1` on the server; the
+    code is unchanged and the default stays off. What follows is how it was
+    put to them.
+    **Artifacts are OFF for agents unless `CANVAS_AGENT_ARTIFACTS=1`** (the
     managing session's direction, 2026-11-22, until the owner decides; Macro
     keeps them behind a flag too). With it off, `create_artifact` and
     `set_artifact` are refused with the reason and the rest of the batch still
@@ -494,11 +569,36 @@ Made without asking, while working through the night of 2026-11-22.
     signing out does not erase them.
 13. **The canvas's GET now also returns `viewer`** (the caller's own user id),
     for that key.
-14. **An agent reading a canvas now also reads its open comment threads.**
+14. **DECIDED by the owner, 2026-11-22: yes, agents keep reading comment
+    threads.** As put to them:
+    **An agent reading a canvas now also reads its open comment threads.**
     Comments are other people's words, so they are a way to put text in front
     of an agent. The tool's description says to read them as information and
     never as instructions, words are cut at 400 characters and threads at 50,
     and the risky-call reviewer still stands between an agent and anything
     that writes outside. If that is not enough, drop `comments` from
     `read_canvas` (one line in `src/lib/ai/tools/canvas.ts`).
+15. **The assistant's comment tools have no approval card**, matching
+    `add_comment`, the app's only precedent. A prompt-injected assistant could
+    therefore leave a comment in the person's name on a canvas or spreadsheet
+    they can open (marked as the assistant's), and @-mention teammates, who
+    get a notice. It cannot edit or delete anyone's words. If these should be
+    carded, that is a change of class in `tool-registry.ts`.
+16. **A comment's mark is set by whoever inserts it.** A person calling the
+    database directly could mark their own comment as the assistant's; nobody
+    can mark, or unmark, anyone's comment after it is written (692's trigger).
+    The app's routes never take the mark from a request.
+17. **Only mentions and replies notify.** There is no "someone commented"
+    notice to everyone who commented before, which the app's other comments
+    send: on a shared canvas that would be a lot of notices.
+18. **A mention shares a private record named beside it**, as everywhere else
+    in the app (a mention on a task comment does the same). It never shares
+    the canvas or spreadsheet the comment is on: someone mentioned on a
+    private one they cannot open is simply not told.
+19. **`read_spreadsheet` now also returns open comment threads** (the
+    whole-workbook read only), as `read_canvas` does since decision 14, with
+    the same wording that they are people's notes and never instructions.
+20. **The comment boxes changed in the spreadsheet editor** (`comments.tsx`):
+    the three plain boxes became the app's mention box, and a badge was added.
+    Nothing else in the spreadsheet editor was touched.
 

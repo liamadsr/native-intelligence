@@ -16,6 +16,8 @@ const S = '33333333-3333-4333-8333-333333333333'
 const C1 = 'cccccccc-1111-4111-8111-111111111111'
 
 const hoisted = vi.hoisted(() => ({ requireWorkspaceMember: vi.fn() }))
+const after = vi.hoisted(() => ({ list: [] as Array<Record<string, unknown>> }))
+vi.mock('@/lib/record-comments/notify', () => ({ sendRecordCommentNotifications: vi.fn(async (n: Record<string, unknown>) => (after.list.push(n), 0)) }))
 vi.mock('@/lib/api-auth', () => ({ requireWorkspaceMember: hoisted.requireWorkspaceMember }))
 
 const { GET: list, POST: post } = await import('@/app/api/account/spreadsheets/[id]/comments/route')
@@ -114,5 +116,49 @@ describe('PATCH and DELETE a comment', () => {
   it('deletes it', async () => {
     expect((await remove(get(`${base}/${C1}`), cctx(C1))).status).toBe(200)
     expect(tables.spreadsheet_comment).toHaveLength(0)
+  })
+})
+
+describe('mentions and notices', () => {
+  const PRIYA = '77777777-7777-4777-8777-777777777772'
+  const OUTSIDER = '77777777-7777-4777-8777-77777777777f'
+  beforeEach(() => {
+    after.list = []
+    tables.member.push({ id: PRIYA, workspace_id: WS, display_name: 'Priya Chandra' }, { id: OUTSIDER, workspace_id: 'ws-2', display_name: 'Someone Else' })
+  })
+  const settled = () => vi.waitFor(() => expect(after.list.length).toBeGreaterThan(0))
+
+  it('stores only the workspace\'s members named in the words, and tells them', async () => {
+    const res = await post(send(base, 'POST', { sheet_id: 1, anchor: 'A1', body: 'Is this right, @Priya Chandra?', mentions: [PRIYA, OUTSIDER, 'not-an-id'] }), ctx())
+    expect(res.status).toBe(201)
+    expect(tables.spreadsheet_comment[0].mentions).toEqual([PRIYA])
+    await settled()
+    expect(after.list[0]).toMatchObject({ kind: 'spreadsheet', recordId: S, workspaceId: WS, authorMemberId: ME, commentId: tables.spreadsheet_comment[0].id, parentId: null, mentionedMemberIds: [PRIYA] })
+    expect(after.list[0].viaAgent).toBeUndefined()
+  })
+
+  it('names nobody when the words hold no @, and never takes the assistant\'s mark from a request', async () => {
+    await post(send(base, 'POST', { sheet_id: 1, anchor: 'A1', body: 'No names', mentions: [PRIYA], via_agent: true }), ctx())
+    expect(tables.spreadsheet_comment[0].mentions).toEqual([])
+    expect('via_agent' in tables.spreadsheet_comment[0]).toBe(false)
+  })
+
+  it('a reply tells its thread; an edit tells only who is newly named', async () => {
+    await post(send(base, 'POST', { sheet_id: 1, anchor: 'A1', body: 'First' }), ctx())
+    const thread = tables.spreadsheet_comment[0].id as string
+    await settled()
+    after.list = []
+    await post(send(base, 'POST', { parent_id: thread, body: 'A reply' }), ctx())
+    await settled()
+    expect(after.list[0]).toMatchObject({ parentId: thread, mentionedMemberIds: [] })
+    after.list = []
+    await patch(send(`${base}/${thread}`, 'PATCH', { body: 'First, @Priya Chandra', mentions: [PRIYA] }), cctx(thread))
+    await settled()
+    expect(tables.spreadsheet_comment[0].mentions).toEqual([PRIYA])
+    expect(after.list[0]).toMatchObject({ parentId: null, mentionedMemberIds: [PRIYA] })
+    after.list = []
+    await patch(send(`${base}/${thread}`, 'PATCH', { body: 'First again, @Priya Chandra', mentions: [PRIYA] }), cctx(thread))
+    await settled()
+    expect(after.list[0]).toMatchObject({ mentionedMemberIds: [] })
   })
 })

@@ -150,6 +150,12 @@ export async function resolveNotificationDetailPanel(
     // A conversation (572: someone waiting in a meeting's lobby): team chat on it.
     case 'team_chat_channel':
       return { type: 'team_chat_channel', id: targetId, title: notification.title || title }
+    // A comment on a canvas or a spreadsheet (687): the record itself. No title
+    // rides along (the notice's body is the comment's words): the card names itself.
+    case 'canvas':
+      return { type: 'canvas', id: targetId, title: '' }
+    case 'spreadsheet':
+      return { type: 'spreadsheet', id: targetId, title: '' }
     // A sprint that started: its team's board (the team rides in the row's
     // metadata; an older row without it opens nothing particular).
     case 'cycle': {

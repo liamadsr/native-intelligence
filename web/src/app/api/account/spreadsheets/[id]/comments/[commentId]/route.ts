@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { requireWorkspaceMember } from '@/lib/api-auth'
 import { badRequest, notFound, serverError } from '@/lib/api-errors'
-import { deleteComment, editComment, moveAnchor, setResolved } from '@/lib/spreadsheets/comments'
+import { deleteComment, editComment, getComment, moveAnchor, setResolved } from '@/lib/spreadsheets/comments'
+import { afterRecordComment, fenceRecordCommentMentions } from '@/lib/record-comments/mentions'
 import { spreadsheetRefusal } from '@/lib/spreadsheets/responses'
 import { getSpreadsheetSummary } from '@/lib/spreadsheets/store'
 
@@ -17,7 +18,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 export async function PATCH(request: NextRequest, { params }: Params) {
   const auth = await requireWorkspaceMember()
   if (auth instanceof Response) return auth
-  const { supabase, workspaceId, member } = auth
+  const { supabase, user, workspaceId, member } = auth
   const { id, commentId } = await params
   if (!UUID.test(id) || !UUID.test(commentId)) return notFound('Comment not found.')
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
@@ -35,8 +36,14 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       return NextResponse.json({ comment: result.value })
     }
     if (body.body !== undefined) {
-      const result = await editComment(supabase, { spreadsheetId: id, commentId, body: body.body, mentions: body.mentions })
+      const words = typeof body.body === 'string' ? body.body.trim() : ''
+      // Who it named before the edit, copied now: the edit below changes the row.
+      const already = [...((await getComment(supabase, commentId))?.mentions ?? [])]
+      const mentions = await fenceRecordCommentMentions(supabase, { workspaceId, userId: user.id }, { mentions: body.mentions, records: body.records }, words)
+      const result = await editComment(supabase, { spreadsheetId: id, commentId, body: body.body, mentions: mentions.memberIds })
       if (!result.ok) return spreadsheetRefusal(result)
+      // Whoever the edit newly names is told; nobody hears twice.
+      void afterRecordComment(supabase, { kind: 'spreadsheet', recordId: id, workspaceId, userId: user.id, memberId: member.id, commentId, body: words, mentions, alreadyMentioned: already })
       return NextResponse.json({ comment: result.value })
     }
     return badRequest('A change edits the body, resolves the thread, or moves the anchor.')

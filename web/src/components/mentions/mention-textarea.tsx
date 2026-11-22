@@ -17,7 +17,7 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { CommandMenu, type CommandMenuHandle } from '@/app/account/(dashboard)/chat/command-menu'
 import type { SkillCommand } from '@/app/account/(dashboard)/chat/chat-panel'
-import { findTriggerToken, replaceToken } from '@/app/account/(dashboard)/chat/command-menu-model'
+import { findTriggerToken, replaceToken, type ComposerMentionList, type ComposerMentionOption } from '@/app/account/(dashboard)/chat/command-menu-model'
 import { MENTION_PICKER_KINDS, menuRowMention, type MenuSearchRow } from '@/lib/search/menu-search'
 import type { LabeledMentionRef } from '@/lib/entity-links/mentionable'
 
@@ -37,11 +37,17 @@ export type MentionTextareaProps = Omit<React.ComponentPropsWithoutRef<'textarea
   value: string
   /** A record picked from `@`: its chip's words are already in the text; the host keeps the ref if it stores mentions. */
   onMention?: (ref: LabeledMentionRef) => void
+  /**
+   * Teammates `@` offers ahead of the records (a comment box: canvas, spreadsheet). A pick
+   * puts `@Name` in the words and is handed to `onMemberMention`; the host sends their ids.
+   */
+  members?: readonly ComposerMentionOption[]
+  onMemberMention?: (member: ComposerMentionOption) => void
   /** Forwarded to the underlying textarea. */
   ref?: React.Ref<HTMLTextAreaElement>
 }
 
-export function MentionTextarea({ value, onChange, onKeyDown, onSelect, onBlur, onFocus, onMention, ref: forwardedRef, ...rest }: MentionTextareaProps) {
+export function MentionTextarea({ value, onChange, onKeyDown, onSelect, onBlur, onFocus, onMention, members, onMemberMention, ref: forwardedRef, ...rest }: MentionTextareaProps) {
   const innerRef = useRef<HTMLTextAreaElement | null>(null)
   const menuRef = useRef<CommandMenuHandle>(null)
   const [caret, setCaret] = useState(-1)
@@ -97,16 +103,16 @@ export function MentionTextarea({ value, onChange, onKeyDown, onSelect, onBlur, 
     onKeyDown?.(e)
   }
 
-  const pick = (row: MenuSearchRow) => {
-    const mention = menuRowMention(row)
+  /** Put `@label` where the `@word` being typed is. False when there is nowhere to put it. */
+  const insert = (label: string, picked: () => void): boolean => {
     const ta = innerRef.current
-    if (!mention || !ta) return
+    if (!ta) return false
     const current = findTriggerToken(value, caret)
-    if (!current || current.trigger !== '@') return
-    const next = replaceToken(value, current, `@${mention.label}`)
+    if (!current || current.trigger !== '@') return false
+    const next = replaceToken(value, current, `@${label}`)
     nativeSetValue(ta, next.value)
-    onMention?.(mention)
-    setPickedLabels((prev) => (prev.includes(mention.label) ? prev : [...prev, mention.label]))
+    picked()
+    setPickedLabels((prev) => (prev.includes(label) ? prev : [...prev, label]))
     setDismissedAt(null)
     requestAnimationFrame(() => {
       const el = innerRef.current
@@ -115,7 +121,18 @@ export function MentionTextarea({ value, onChange, onKeyDown, onSelect, onBlur, 
       if (el.value === next.value) el.setSelectionRange(next.caret, next.caret)
       setCaret(next.caret)
     })
+    return true
   }
+
+  const pick = (row: MenuSearchRow) => {
+    const mention = menuRowMention(row)
+    if (mention) insert(mention.label, () => onMention?.(mention))
+  }
+  const pickMember = (member: ComposerMentionOption) => {
+    insert(member.label, () => onMemberMention?.(member))
+  }
+  // With teammates: the host's own list leads, and the records are found under it (as in team chat).
+  const mentionList: ComposerMentionList | undefined = members ? { options: members, onPick: pickMember, records: { kinds: MENTION_PICKER_KINDS, onPick: pick } } : undefined
 
   return (
     <>
@@ -144,6 +161,7 @@ export function MentionTextarea({ value, onChange, onKeyDown, onSelect, onBlur, 
         skills={NO_SKILLS}
         onSelectSkill={noop}
         onMentionRecord={pick}
+        mentionList={mentionList}
         mentionKinds={MENTION_PICKER_KINDS}
         onDismiss={() => token && setDismissedAt(token.start)}
         anchorRef={innerRef}

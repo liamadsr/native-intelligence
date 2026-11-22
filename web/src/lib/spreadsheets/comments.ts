@@ -37,9 +37,12 @@ export interface SpreadsheetCommentRow {
   resolved_by: string | null
   created_at: string
   updated_at: string
+  /** The assistant wrote it for its author (migration 692). Absent on a database without the column yet. */
+  via_agent?: boolean
 }
 
 export interface SpreadsheetComment extends SpreadsheetCommentRow {
+  via_agent: boolean
   /** The author's display name, when the member can be read. */
   author_name: string | null
 }
@@ -58,6 +61,11 @@ export interface CommentThread {
 }
 
 const ROW = 'id, spreadsheet_id, workspace_id, parent_id, sheet_id, anchor, body, mentions, author_id, resolved_at, resolved_by, created_at, updated_at'
+
+/** The via_agent column is not there: migration 692 has not been applied to this database yet. */
+export function markMissing(error: { code?: string; message: string } | null | undefined): boolean {
+  return !!error && (error.code === '42703' || error.code === 'PGRST204') && /via_agent/.test(error.message)
+}
 
 const refuse = (reason: 'invalid' | 'not_found' | 'conflict' | 'failed', message: string): StoreResult<never> =>
   ({ ok: false as const, reason, message })
@@ -105,6 +113,7 @@ function withName(row: SpreadsheetCommentRow, names: Map<string, string>): Sprea
     ...row,
     mentions: Array.isArray(row.mentions) ? row.mentions : [],
     author_name: row.author_id ? (names.get(row.author_id) ?? null) : null,
+    via_agent: row.via_agent === true,
   }
 }
 
@@ -115,11 +124,10 @@ function withName(row: SpreadsheetCommentRow, names: Map<string, string>): Sprea
  * read gives nothing.
  */
 export async function listThreads(supabase: SupabaseClient, spreadsheetId: string): Promise<CommentThread[]> {
-  const { data, error } = await supabase
-    .from('spreadsheet_comment')
-    .select(ROW)
-    .eq('spreadsheet_id', spreadsheetId)
-    .order('created_at', { ascending: true })
+  // Asked with the assistant's mark (692), and again without it where the column is not there yet.
+  const ask = (select: string) => supabase.from('spreadsheet_comment').select(select).eq('spreadsheet_id', spreadsheetId).order('created_at', { ascending: true })
+  let { data, error } = await ask(`${ROW}, via_agent`)
+  if (error && markMissing(error)) ({ data, error } = await ask(ROW))
   if (error) throw new Error(error.message)
   const rows = (data ?? []) as unknown as SpreadsheetCommentRow[]
   const names = await memberNames(
@@ -157,6 +165,9 @@ export async function listThreads(supabase: SupabaseClient, spreadsheetId: strin
   })
 }
 
+/** One comment the caller can read, or null. */
+export const getComment = (supabase: SupabaseClient, commentId: string): Promise<SpreadsheetCommentRow | null> => readOne(supabase, commentId)
+
 async function readOne(supabase: SupabaseClient, commentId: string): Promise<SpreadsheetCommentRow | null> {
   const { data, error } = await supabase.from('spreadsheet_comment').select(ROW).eq('id', commentId).maybeSingle()
   if (error) throw new Error(error.message)
@@ -176,6 +187,8 @@ export interface NewThreadInput {
   anchor: unknown
   body: unknown
   mentions?: unknown
+  /** The assistant is writing it for this member (needs migration 692). */
+  viaAgent?: boolean
 }
 
 /** A thread's first comment, anchored to a cell range. */
@@ -196,11 +209,14 @@ export async function createThread(supabase: SupabaseClient, input: NewThreadInp
       body,
       mentions: cleanMentions(input.mentions),
       author_id: input.memberId,
+      // Only ever sent when true: a person's comment saves on a database that has no such column yet.
+      ...(input.viaAgent ? { via_agent: true } : {}),
     })
     .select(ROW)
     .single()
+  if (error && markMissing(error)) return refuse('failed', 'The assistant cannot comment here yet: this server is missing an update.')
   if (error || !data) return refuse('failed', error?.message ?? 'Could not add the comment.')
-  return { ok: true, value: await returnOne(supabase, data as unknown as SpreadsheetCommentRow) }
+  return { ok: true, value: await returnOne(supabase, { ...(data as unknown as SpreadsheetCommentRow), via_agent: !!input.viaAgent }) }
 }
 
 export interface NewReplyInput {
@@ -210,6 +226,7 @@ export interface NewReplyInput {
   parentId: string
   body: unknown
   mentions?: unknown
+  viaAgent?: boolean
 }
 
 /** A reply to a thread. Its parent must be that thread's first comment, on the same spreadsheet. */
@@ -230,11 +247,14 @@ export async function createReply(supabase: SupabaseClient, input: NewReplyInput
       body,
       mentions: cleanMentions(input.mentions),
       author_id: input.memberId,
+      // Only ever sent when true: a person's comment saves on a database that has no such column yet.
+      ...(input.viaAgent ? { via_agent: true } : {}),
     })
     .select(ROW)
     .single()
+  if (error && markMissing(error)) return refuse('failed', 'The assistant cannot comment here yet: this server is missing an update.')
   if (error || !data) return refuse('failed', error?.message ?? 'Could not add the reply.')
-  return { ok: true, value: await returnOne(supabase, data as unknown as SpreadsheetCommentRow) }
+  return { ok: true, value: await returnOne(supabase, { ...(data as unknown as SpreadsheetCommentRow), via_agent: !!input.viaAgent }) }
 }
 
 /** Edit one's own comment's words (and the members it mentions). */
