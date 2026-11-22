@@ -10,9 +10,15 @@
  *   Channel         POST /api/account/team-chat/channels {name, topic?, teamId?} → Team chat, on it
  *   Knowledge pkg   POST /api/account/knowledge-packages {name}           → Knowledge, on it
  *   Studio project  POST /api/account/studio/campaigns {title}            → the Studio, on it
+ *   Folder          POST /api/account/folders {name, parent_id?}          → Folders, on it
+ *
+ * Made in a folder (create-context.ts), a doc, table, spreadsheet or canvas
+ * is then filed there: POST /api/account/folders/<id>/items {type, id}. A
+ * filing that fails leaves the record made, unfiled, and says so.
  */
 import { openCard, openTarget } from '@/lib/chat-cards/open-card'
 import type { CreateQuickTypeId } from '@/lib/create/create-types'
+import type { FolderItemType } from '@/lib/drive/folders'
 
 export interface QuickCreateInput {
   name: string
@@ -23,6 +29,11 @@ export interface QuickCreateInput {
   projectId?: string | null
   /** A channel's team (made from a team's channel list). */
   teamId?: string | null
+  /**
+   * The folder it was made in (Drive folders, migration 690): a doc, table,
+   * spreadsheet or canvas is filed there once made; a folder is made inside it.
+   */
+  folderId?: string | null
 }
 
 export interface QuickCreated {
@@ -30,6 +41,8 @@ export interface QuickCreated {
   title: string
   /** The thing, the way the app opens it. */
   open: () => void
+  /** Made, but something after it didn't land (it couldn't be filed in its folder). */
+  warning?: string
 }
 
 export interface QuickCreateDef {
@@ -58,7 +71,7 @@ function record(data: Record<string, unknown>, key: string): { id: string; [k: s
 
 const str = (v: unknown, fallback: string) => (typeof v === 'string' && v ? v : fallback)
 
-export const QUICK_CREATE: Record<CreateQuickTypeId, QuickCreateDef> = {
+const BASE: Record<CreateQuickTypeId, QuickCreateDef> = {
   company: {
     namePlaceholder: 'Company name',
     secondaryPlaceholder: 'Domain (example.com)',
@@ -121,6 +134,15 @@ export const QUICK_CREATE: Record<CreateQuickTypeId, QuickCreateDef> = {
       return { id: pkg.id, title, open: () => void openTarget({ type: 'package', id: pkg.id, title }, { from: FROM }) }
     },
   },
+  folder: {
+    namePlaceholder: 'Folder name',
+    run: async ({ name, folderId }, fetcher = fetch) => {
+      const folder = record(await post(fetcher, '/api/account/folders', { name, ...(folderId ? { parent_id: folderId } : {}) }), 'folder')
+      const title = str(folder.name, name)
+      // The Folders page's own card, open on it (folders-card.tsx).
+      return { id: folder.id, title, open: () => void openCard({ kind: 'folders', title: 'Folders', target: { type: 'drive_folder', id: folder.id, label: title } }, { from: FROM }) }
+    },
+  },
   studio_project: {
     namePlaceholder: 'Studio project title',
     run: async ({ name }, fetcher = fetch) => {
@@ -130,3 +152,35 @@ export const QUICK_CREATE: Record<CreateQuickTypeId, QuickCreateDef> = {
     },
   },
 }
+
+/** The quick types a folder holds, as drive_folder_item names them (lib/drive/folders.ts). */
+const FILED_AS: Partial<Record<CreateQuickTypeId, FolderItemType>> = {
+  document: 'document',
+  table: 'data_table',
+  spreadsheet: 'spreadsheet',
+  canvas: 'canvas',
+}
+
+/** Made in a folder: filed there once made. A refusal leaves it made, unfiled, with a warning. */
+function filedInFolder(type: CreateQuickTypeId, def: QuickCreateDef): QuickCreateDef {
+  const as = FILED_AS[type]
+  if (!as) return def
+  return {
+    ...def,
+    run: async (input, fetcher = fetch) => {
+      const made = await def.run(input, fetcher)
+      if (!input.folderId) return made
+      try {
+        await post(fetcher, `/api/account/folders/${input.folderId}/items`, { type: as, id: made.id })
+        return made
+      } catch (e) {
+        return { ...made, warning: `Made, but not put in the folder: ${e instanceof Error ? e.message : 'it was refused'}` }
+      }
+    },
+  }
+}
+
+export const QUICK_CREATE: Record<CreateQuickTypeId, QuickCreateDef> = Object.fromEntries(
+  (Object.keys(BASE) as CreateQuickTypeId[]).map((type) => [type, filedInFolder(type, BASE[type])]),
+) as Record<CreateQuickTypeId, QuickCreateDef>
+

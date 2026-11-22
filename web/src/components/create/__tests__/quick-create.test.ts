@@ -83,3 +83,58 @@ describe('quick create: each feature’s own route, then the thing opened', () =
     await expect(QUICK_CREATE.channel.run({ name: 'x', secondary: '' }, f)).rejects.toThrow('Give the channel a name')
   })
 })
+
+describe('Drive folders (migration 690)', () => {
+  /** A fetcher answering each URL in turn: the record's route, then the folder's items route. */
+  function routes(map: Record<string, { body: unknown; status?: number }>) {
+    return vi.fn(async (url: string) => {
+      const hit = map[url]
+      return new Response(JSON.stringify(hit?.body ?? {}), { status: hit?.status ?? 200 })
+    }) as unknown as typeof fetch & ReturnType<typeof vi.fn>
+  }
+  const calls = (f: ReturnType<typeof vi.fn>) => f.mock.calls.map(([url, init]) => ({ url, body: JSON.parse(String((init as RequestInit).body)) }))
+
+  it('a folder, inside the one it was made in, opens the Folders page on it', async () => {
+    const f = routes({ '/api/account/folders': { body: { folder: { id: 'f2', name: 'Acme' } }, status: 201 } })
+    ;(await QUICK_CREATE.folder.run({ name: 'Acme', secondary: '', folderId: 'f1' }, f)).open()
+    expect(calls(f)).toEqual([{ url: '/api/account/folders', body: { name: 'Acme', parent_id: 'f1' } }])
+    expect(openCard).toHaveBeenCalledWith({ kind: 'folders', title: 'Folders', target: { type: 'drive_folder', id: 'f2', label: 'Acme' } }, { from: 'create' })
+  })
+
+  it('a doc, table, spreadsheet or canvas made in a folder is filed there once made', async () => {
+    const made = {
+      document: ['/api/account/documents', { document: { id: 'd1', title: 'x' } }, 'document'],
+      table: ['/api/account/tables', { table: { id: 't1', name: 'x' } }, 'data_table'],
+      spreadsheet: ['/api/account/spreadsheets', { spreadsheet: { id: 's1', title: 'x' } }, 'spreadsheet'],
+      canvas: ['/api/account/canvases', { canvas: { id: 'n1', title: 'x' } }, 'canvas'],
+    } as const
+    for (const [type, [url, body, as]] of Object.entries(made)) {
+      const f = routes({ [url]: { body, status: 201 }, '/api/account/folders/f1/items': { body: { ok: true } } })
+      const result = await QUICK_CREATE[type as keyof typeof made].run({ name: 'x', secondary: '', folderId: 'f1' }, f)
+      expect(calls(f)[1], type).toEqual({ url: '/api/account/folders/f1/items', body: { type: as, id: (Object.values(body)[0] as { id: string }).id } })
+      expect(result.warning).toBeUndefined()
+    }
+  })
+
+  it('made with no folder: no filing', async () => {
+    const f = routes({ '/api/account/documents': { body: { document: { id: 'd1', title: 'x' } }, status: 201 } })
+    await QUICK_CREATE.document.run({ name: 'x', secondary: '' }, f)
+    expect(f).toHaveBeenCalledTimes(1)
+  })
+
+  it('a filing refused leaves the record made, with a warning', async () => {
+    const f = routes({
+      '/api/account/documents': { body: { document: { id: 'd1', title: 'x' } }, status: 201 },
+      '/api/account/folders/f1/items': { body: { error: 'Only a record one can open is filed' }, status: 403 },
+    })
+    const result = await QUICK_CREATE.document.run({ name: 'x', secondary: '', folderId: 'f1' }, f)
+    expect(result.id).toBe('d1')
+    expect(result.warning).toMatch(/not put in the folder/)
+  })
+
+  it('a kind a folder doesn’t hold is never filed', async () => {
+    const f = routes({ '/api/account/companies': { body: { company: { id: 'c1', name: 'x' } }, status: 201 } })
+    await QUICK_CREATE.company.run({ name: 'x', secondary: '', folderId: 'f1' }, f)
+    expect(f).toHaveBeenCalledTimes(1)
+  })
+})
