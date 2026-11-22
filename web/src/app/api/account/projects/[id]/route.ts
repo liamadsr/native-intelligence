@@ -1,4 +1,5 @@
 import { requireWorkspace, requireWorkspaceMember } from '@/lib/api-auth'
+import { parseProjectPriority } from '@/lib/projects/priority'
 import { badRequest, forbidden, notFound, serverError } from '@/lib/api-errors'
 import { createNotification, getMemberByUserId } from '@/lib/notifications'
 import { inngest } from '@/lib/inngest/client'
@@ -33,7 +34,7 @@ export async function GET(
       .from('projects')
       .select(`
         id, name, description, icon, color, is_pinned, is_archived, sort_order, created_at, updated_at,
-        initiative_id, status, start_date, target_date, github_repo, environment_id,
+        initiative_id, status, priority, start_date, target_date, github_repo, environment_id,
         lead:member!lead_id(id, display_name, avatar_url),
         initiative:initiative!initiative_id(id, name),
         environment:environment!${PROJECT_ENVIRONMENT_FK}(id, name, network_access)
@@ -105,6 +106,7 @@ export async function GET(
       lead_name: leadData?.display_name || null,
       lead_avatar: leadData?.avatar_url || null,
       status: data.status,
+      priority: (data as { priority?: string | null }).priority ?? null,
       start_date: data.start_date,
       target_date: data.target_date,
       team_id: (teamRows?.[0] as { team_id?: string | null } | undefined)?.team_id ?? null,
@@ -175,7 +177,10 @@ export async function PATCH(
   if (body.initiative_id !== undefined) updates.initiative_id = body.initiative_id || null
   if (body.lead_id !== undefined) updates.lead_id = body.lead_id || null
   if (body.status !== undefined) updates.status = body.status
-  if (body.priority !== undefined) updates.priority = body.priority
+  // Only one of the five values, or null (migration 691 holds the same rule).
+  const priority = parseProjectPriority(body.priority)
+  if (priority === 'invalid') return badRequest('Invalid priority')
+  if (priority !== undefined) updates.priority = priority
   if (body.health !== undefined) updates.health = body.health
   if (body.start_date !== undefined) updates.start_date = body.start_date
   if (body.target_date !== undefined) updates.target_date = body.target_date
@@ -217,7 +222,7 @@ export async function PATCH(
       .update(updates)
       .eq('id', id)
       .eq('workspace_id', workspaceId)
-      .select(`id, name, description, icon, color, is_pinned, sort_order, initiative_id, status, start_date, target_date, github_repo, environment_id, created_at, updated_at, environment:environment!${PROJECT_ENVIRONMENT_FK}(id, name, network_access)`)
+      .select(`id, name, description, icon, color, is_pinned, sort_order, initiative_id, status, priority, start_date, target_date, github_repo, environment_id, created_at, updated_at, environment:environment!${PROJECT_ENVIRONMENT_FK}(id, name, network_access)`)
       .single()
 
     if (result.error) {
@@ -228,7 +233,7 @@ export async function PATCH(
     // No project column changes — just fetch current state
     const result = await supabase
       .from('projects')
-      .select(`id, name, description, icon, color, is_pinned, sort_order, initiative_id, status, start_date, target_date, github_repo, environment_id, created_at, updated_at, environment:environment!${PROJECT_ENVIRONMENT_FK}(id, name, network_access)`)
+      .select(`id, name, description, icon, color, is_pinned, sort_order, initiative_id, status, priority, start_date, target_date, github_repo, environment_id, created_at, updated_at, environment:environment!${PROJECT_ENVIRONMENT_FK}(id, name, network_access)`)
       .eq('id', id)
       .eq('workspace_id', workspaceId)
       .single()

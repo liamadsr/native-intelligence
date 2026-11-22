@@ -1,4 +1,5 @@
 import { requireWorkspace } from '@/lib/api-auth'
+import { parseProjectPriority } from '@/lib/projects/priority'
 import { toIlikeSearchTerm } from '@/lib/crm/ilike-search-term'
 import { trackServerEvent } from '@/lib/posthog'
 import { NextResponse, type NextRequest } from 'next/server'
@@ -509,11 +510,15 @@ export async function POST(request: NextRequest) {
   if (body.status) insertData.status = body.status
   if (body.start_date) insertData.start_date = body.start_date
   if (body.target_date) insertData.target_date = body.target_date
+  // Only one of the five values (migration 691 holds the same rule).
+  const priority = parseProjectPriority(body.priority)
+  if (priority === 'invalid') return NextResponse.json({ error: 'Invalid priority' }, { status: 400 })
+  if (priority) insertData.priority = priority
 
   const { data, error } = await supabase
     .from('projects')
     .insert(insertData)
-    .select('id, name, description, icon, color, is_pinned, sort_order, initiative_id, status, start_date, target_date, created_at')
+    .select('id, name, description, icon, color, is_pinned, sort_order, initiative_id, status, priority, start_date, target_date, created_at')
     .single()
 
   if (error) {
