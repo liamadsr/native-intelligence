@@ -260,7 +260,7 @@ describe('buildMenu', () => {
 
   it('a tab picked with nothing typed asks for its own kinds only', () => {
     const offered = offeredKinds('@', MAIN)
-    expect(serverSearch('@', 'docs', '', offered)).toEqual({ kinds: ['document', 'spreadsheet'], limit: 25 })
+    expect(serverSearch('@', 'docs', '', offered)).toEqual({ kinds: ['document', 'canvas', 'spreadsheet'], limit: 25 })
     expect(serverSearch('@', 'work', '', offered)).toEqual({ kinds: ['action', 'project', 'initiative'], limit: 25 })
     // A bare `@` on All still reads only the recent people (the recents come from the feed).
     expect(serverSearch('@', 'all', '', offered)).toEqual({ kinds: ['contact'], limit: 8 })

@@ -21,7 +21,7 @@
  */
 
 export type CreateFormTypeId = 'action' | 'project' | 'initiative' | 'contact' | 'email' | 'event'
-export type CreateQuickTypeId = 'company' | 'document' | 'table' | 'spreadsheet' | 'channel' | 'package' | 'studio_project'
+export type CreateQuickTypeId = 'company' | 'document' | 'table' | 'spreadsheet' | 'canvas' | 'channel' | 'package' | 'studio_project'
 export type CreatePageTypeId = 'deal' | 'flow' | 'agent' | 'skill' | 'sequence' | 'prospect_list' | 'campaign' | 'booking_link' | 'studio_video'
 export type CreateTypeId = CreateFormTypeId | CreateQuickTypeId | CreatePageTypeId
 
@@ -56,6 +56,7 @@ export const CREATE_TYPES: ReadonlyArray<CreateTypeDef> = [
   { id: 'document', label: 'Doc', group: 'work', mode: 'quick', page: 'docs', keywords: ['document', 'page', 'note'] },
   { id: 'table', label: 'Table', group: 'work', mode: 'quick', page: 'tables', keywords: ['database', 'list'] },
   { id: 'spreadsheet', label: 'Spreadsheet', group: 'work', mode: 'quick', page: 'spreadsheets', keywords: ['sheet', 'excel', 'workbook', 'formulas'] },
+  { id: 'canvas', label: 'Canvas', group: 'work', mode: 'quick', page: 'canvases', keywords: ['whiteboard', 'draw', 'diagram', 'board'] },
   { id: 'event', label: 'Event', group: 'work', mode: 'form', keywords: ['meeting', 'calendar'] },
   { id: 'booking_link', label: 'Booking link', group: 'work', mode: 'page', page: 'availability', opensPage: true, keywords: ['scheduling', 'availability', 'calendar'] },
   { id: 'package', label: 'Knowledge package', group: 'work', mode: 'quick', page: 'knowledge', keywords: ['context', 'knowledge'] },

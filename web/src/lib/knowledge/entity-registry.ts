@@ -593,6 +593,28 @@ export const ENTITY_REGISTRY = [
     sourceable: false,
   },
 
+  // ── Canvas (migration 676): a whiteboard record, workspace or private, its
+  // items in canvas_item. Private-capable, so it is a PRIVATE graph kind:
+  // src/lib/knowledge/entity-fences.ts restates the read rule (a member of the
+  // canvas's workspace; a private one its owner's), and 676's
+  // canvas_entity_visible_to with its restrictive entity_link policies does in
+  // SQL (the shared entity_visible_to is left alone, as 624/673 left it).
+  // Linkable and mentionable; realtime (the table is published, one event per
+  // write batch). Deliberately NOT in scope here: the activity log (no triggers
+  // on canvas), custom fields, claims citing a canvas, per-record grants.
+  {
+    id: 'canvas',
+    table: 'canvas',
+    workspaceScoped: { kind: 'column', table: 'canvas' },
+    label: { table: 'canvas', columns: 'title', render: (r) => str(r.title) || 'Untitled canvas' },
+    realtime: true,
+    linkable: true,
+    activity: false,
+    customFields: false,
+    citable: false,
+    sourceable: false,
+  },
+
   // ── Kinds outside the knowledge graph: registered so every other vocabulary
   // (the entity event bus, realtime, menus) derives from this one list.
   {

@@ -1,0 +1,67 @@
+import { NextResponse, type NextRequest } from 'next/server'
+import { requireWorkspace } from '@/lib/api-auth'
+import { badRequest, notFound, serverError } from '@/lib/api-errors'
+import { deleteCanvas, getCanvas, updateCanvas } from '@/lib/canvas/store'
+import { canvasRefusal } from '@/lib/canvas/responses'
+import type { CanvasVisibility } from '@/lib/canvas/types'
+
+type Ctx = { params: Promise<{ id: string }> }
+
+/** GET: one canvas with its items and whether the caller may edit it. */
+export async function GET(_request: NextRequest, { params }: Ctx) {
+  const auth = await requireWorkspace()
+  if (auth instanceof Response) return auth
+  const { supabase, user, workspaceId } = auth
+  const { id } = await params
+  try {
+    const canvas = await getCanvas(supabase, workspaceId, id, { userId: user.id })
+    if (!canvas) return notFound('Canvas not found')
+    return NextResponse.json(canvas)
+  } catch (e) {
+    return serverError(e instanceof Error ? e.message : 'Could not load the canvas')
+  }
+}
+
+/** PATCH { title?, visibility?, project_id?, settings?, archived? }: the canvas's own fields. */
+export async function PATCH(request: NextRequest, { params }: Ctx) {
+  const auth = await requireWorkspace()
+  if (auth instanceof Response) return auth
+  const { supabase, user, workspaceId } = auth
+  const { id } = await params
+  const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
+  if (!body || typeof body !== 'object') return badRequest('Nothing to change.')
+  try {
+    const result = await updateCanvas(
+      supabase,
+      workspaceId,
+      id,
+      {
+        ...(body.title !== undefined ? { title: typeof body.title === 'string' ? body.title : '' } : {}),
+        ...(body.visibility !== undefined ? { visibility: body.visibility as CanvasVisibility } : {}),
+        ...(body.project_id !== undefined ? { project_id: typeof body.project_id === 'string' ? body.project_id : null } : {}),
+        ...(body.settings !== undefined ? { settings: body.settings as Record<string, unknown> } : {}),
+        ...(body.archived !== undefined ? { archived: body.archived === true } : {}),
+      },
+      { userId: user.id },
+    )
+    if (!result.ok) return canvasRefusal(result)
+    return NextResponse.json({ canvas: result.value })
+  } catch (e) {
+    return serverError(e instanceof Error ? e.message : 'Could not change the canvas')
+  }
+}
+
+/** DELETE: archive the canvas; ?permanent=1 deletes it for good. */
+export async function DELETE(request: NextRequest, { params }: Ctx) {
+  const auth = await requireWorkspace()
+  if (auth instanceof Response) return auth
+  const { supabase, user, workspaceId } = auth
+  const { id } = await params
+  try {
+    const result = await deleteCanvas(supabase, workspaceId, id, { userId: user.id }, { permanent: request.nextUrl.searchParams.get('permanent') === '1' })
+    if (!result.ok) return canvasRefusal(result)
+    return NextResponse.json({ ok: true })
+  } catch (e) {
+    return serverError(e instanceof Error ? e.message : 'Could not delete the canvas')
+  }
+}
