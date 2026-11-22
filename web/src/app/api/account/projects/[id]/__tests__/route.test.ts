@@ -337,6 +337,40 @@ describe('PATCH /api/account/projects/[id]', () => {
   })
 })
 
+/** A project's priority (migration 691): the actions' five values, or null; nothing else. */
+describe('PATCH /api/account/projects/[id] — priority', () => {
+  function projectsUpdate() {
+    const patches: Record<string, unknown>[] = []
+    const chain: Record<string, unknown> = {
+      update: (p: Record<string, unknown>) => (patches.push(p), chain),
+      select: () => chain,
+      eq: () => chain,
+      maybeSingle: async () => ({ data: null, error: null }),
+      single: async () => ({ data: { ...projectRow, priority: 'high' }, error: null }),
+    }
+    hoisted.fromHandlers.set('projects', chain)
+    return patches
+  }
+
+  it('sets one of the five values, and clears with null', async () => {
+    happyAuth()
+    const patches = projectsUpdate()
+    expect((await PATCH(patchReq({ priority: 'high' }), makeParams())).status).toBe(200)
+    expect((await PATCH(patchReq({ priority: null }), makeParams())).status).toBe(200)
+    expect(patches).toEqual([{ priority: 'high' }, { priority: null }])
+  })
+
+  it('refuses anything else with a 400, writing nothing', async () => {
+    happyAuth()
+    const patches = projectsUpdate()
+    for (const priority of ['p1', 'HIGH', 3, { status: 'completed' }]) {
+      const res = await PATCH(patchReq({ priority }), makeParams())
+      expect(res.status).toBe(400)
+    }
+    expect(patches).toEqual([])
+  })
+})
+
 /**
  * The project's environment (migration 420): projects.environment_id, a
  * shared, live cloud environment of this workspace.

@@ -903,6 +903,8 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
     const body: Record<string, unknown> = {
       name: title.trim(),
       status: projectStatus,
+      // The action's chip and values (lib/projects/priority.ts, migration 691).
+      priority: priority !== 'none' ? priority : undefined,
       lead_id: leadId || undefined,
       initiative_id: initiativeId || undefined,
       start_date: startDate || undefined,
@@ -1816,6 +1818,29 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
                               <Circle className="mr-2 h-3 w-3" />
                               {opt.label}
                               {projectStatus === opt.value && <span className="ml-auto text-xs text-primary">✓</span>}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  )}
+                </PropertyPill>
+
+                {/* Priority: the action's pill, on the project (migration 691). */}
+                <PropertyPill
+                  icon={<Flag className={cn('h-3 w-3', currentPriority.color)} />}
+                  label={priority === 'none' ? 'Priority' : currentPriority.label}
+                  muted={priority === 'none'}
+                >
+                  {(close) => (
+                    <Command>
+                      <CommandInput placeholder="Set priority..." />
+                      <CommandList>
+                        <CommandGroup>
+                          {PRIORITY_OPTIONS.map((opt) => (
+                            <CommandItem key={opt.value} value={opt.label} onSelect={() => { setPriority(opt.value); close() }}>
+                              <Flag className={cn('mr-2 h-3 w-3', opt.color)} />
+                              {opt.label}
                             </CommandItem>
                           ))}
                         </CommandGroup>
