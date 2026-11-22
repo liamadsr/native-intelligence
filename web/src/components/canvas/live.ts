@@ -14,6 +14,9 @@
  */
 import { rowToItem, type CanvasItem, type CanvasItemRow } from '@/lib/canvas/types'
 import type { Point } from '@/lib/canvas/engine/geometry'
+import { ACCESS_CHANGED_EVENT, presenceTopic } from '@/lib/canvas/presence'
+
+export { ACCESS_CHANGED_EVENT, presenceTopic }
 
 type Row = Partial<CanvasItemRow> & { canvas_id?: string; id?: string }
 
@@ -225,11 +228,6 @@ export class PresenceSender {
 
 // ── The presence room ───────────────────────────────────────────────────────
 
-/** The Realtime topic of a canvas's presence room. Migration 682's policies read the canvas id back out of it. */
-export function presenceTopic(canvasId: string): string {
-  return `canvas-presence:${canvasId.toLowerCase()}`
-}
-
 /** What the room needs of the Supabase client, small enough to stand in for in a test. */
 export interface RoomChannel {
   on(type: 'broadcast', filter: { event: string }, cb: (m: { payload?: unknown }) => void): RoomChannel
@@ -268,7 +266,13 @@ export class PresenceRoom {
   constructor(
     private client: RoomClient,
     private canvasId: string,
-    private hooks: { hear: (payload: unknown) => void; open: () => void; closed: () => void },
+    private hooks: {
+      hear: (payload: unknown) => void
+      open: () => void
+      closed: () => void
+      /** The server said the canvas's sharing changed (lib/canvas/access-notice.ts): ask again whether this person may still open it. */
+      accessChanged?: () => void
+    },
   ) {}
 
   start(): void {
@@ -296,6 +300,9 @@ export class PresenceRoom {
     this.channel = channel
     channel.on('broadcast', { event: 'peer' }, (m) => {
       if (channel === this.channel) this.hooks.hear(m.payload)
+    })
+    channel.on('broadcast', { event: ACCESS_CHANGED_EVENT }, () => {
+      if (channel === this.channel && !this.stopped) this.hooks.accessChanged?.()
     })
     channel.subscribe((status) => {
       // A replaced channel has nothing more to say.

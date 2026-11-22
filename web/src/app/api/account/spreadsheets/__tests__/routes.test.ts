@@ -29,6 +29,12 @@ const { GET: engine } = await import('@/app/api/account/spreadsheets/engine/rout
 type Row = Record<string, unknown>
 let rows: Row[]
 let tables: { spreadsheet: Row[] }
+/** 688's spreadsheet_editable_by, as the database would answer it for the caller. */
+let editable: boolean
+const rpc = vi.fn(async (name: string, args: Record<string, unknown>) => {
+  if (name !== 'spreadsheet_editable_by') return { data: null, error: { message: `no rpc ${name}` } }
+  return { data: args.p_user_id === 'u-1' && args.p_spreadsheet_id === S ? editable : false, error: null }
+})
 
 function seed(extra: Row = {}) {
   rows = [
@@ -39,8 +45,9 @@ function seed(extra: Row = {}) {
     },
   ]
   tables = { spreadsheet: rows }
+  editable = true
   hoisted.requireWorkspaceMember.mockResolvedValue({
-    supabase: memoryDb(tables),
+    supabase: Object.assign(memoryDb(tables), { rpc }),
     user: { id: 'u-1' },
     workspaceId: WS,
     member: { id: ME },
@@ -97,6 +104,17 @@ describe('/api/account/spreadsheets/[id]', () => {
     expect(json.member_id).toBe(ME)
     expect((await read(get(`${base}/x`), ctx('44444444-4444-4444-8444-444444444444'))).status).toBe(404)
     expect((await read(get(`${base}/x`), ctx('not-an-id'))).status).toBe(404)
+  })
+
+  it('says whether the person may change it: spreadsheet_editable_by, for them (688)', async () => {
+    const mine = await readJson<{ can_edit: boolean }>(await read(get(`${base}/${S}`), ctx()))
+    expect(mine.can_edit).toBe(true)
+    expect(rpc).toHaveBeenLastCalledWith('spreadsheet_editable_by', { p_spreadsheet_id: S, p_user_id: 'u-1' })
+    // Shared with them to view: they read it, and the editor is read-only.
+    editable = false
+    const viewing = await readJson<{ spreadsheet: Row; can_edit: boolean }>(await read(get(`${base}/${S}`), ctx()))
+    expect(viewing.spreadsheet.title).toBe('Hiring plan')
+    expect(viewing.can_edit).toBe(false)
   })
 
   it('saves a workbook against the revision it was loaded at, with its sheet names and words', async () => {

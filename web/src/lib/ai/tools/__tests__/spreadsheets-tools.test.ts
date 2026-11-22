@@ -292,3 +292,50 @@ describe('create_spreadsheet', () => {
     m.free()
   })
 })
+
+describe('a private spreadsheet shared with the person (migration 688)', () => {
+  const grant = (level: 'view' | 'edit') => ({
+    id: 'g-1', workspace_id: WS, entity_type: 'spreadsheet', entity_id: SECRET,
+    grantee_kind: 'member', grantee_member_id: M1, grantee_team_id: null, grantee_channel_id: null, level,
+  })
+  const toolsWith = (editGrants: boolean, omitGrants: boolean) =>
+    createSpreadsheetTools(ME, memoryDb(tables), WS, false, 'session', editGrants, omitGrants) as Record<string, unknown>
+  const run = async (t: Record<string, unknown>, name: string, input: Record<string, unknown>) =>
+    (await (t[name] as { execute: (i: unknown, o: unknown) => Promise<Record<string, unknown>> }).execute(input, {})) as Record<string, unknown>
+  const edit = { id: SECRET, expected_revision: 1, operations: [{ op: 'set_cells', start: 'A1', rows: [['x']] }] }
+
+  it('a view grant reads and calculates it, and never edits it', async () => {
+    tables.entity_access = [grant('view')]
+    const t = toolsWith(true, false)
+    expect((await run(t, 'read_spreadsheet', { id: SECRET })).success).toBe(true)
+    expect((await run(t, 'calculate_spreadsheet', { id: SECRET, formulas: ['=1+1'] })).success).toBe(true)
+    const res = await run(t, 'edit_spreadsheet', edit)
+    expect(res.success).toBe(false)
+    expect(String(res.error)).toContain('view that spreadsheet but not change it')
+    expect(rows[1].workbook).toBe(blankWorkbook())
+    expect(rows[1].edit_source).toBeUndefined()
+  })
+
+  it('an edit grant edits it, but only on a turn that may use one', async () => {
+    tables.entity_access = [grant('edit')]
+    const held = await run(toolsWith(false, false), 'edit_spreadsheet', edit)
+    expect(held.success).toBe(false)
+    expect(String(held.error)).toContain('not change it')
+    expect(rows[1].edit_source).toBeUndefined()
+    const res = await run(toolsWith(true, false), 'edit_spreadsheet', edit)
+    expect(res.success, JSON.stringify(res)).toBe(true)
+    expect(rows[1].workbook).not.toBe(blankWorkbook())
+    expect(rows[1].edit_source).toBe('agent')
+    expect(rows[1].last_edited_by).toBe(M1)
+  })
+
+  it('a guest’s or a linked agent’s turn finds nothing a grant opens (519)', async () => {
+    tables.entity_access = [grant('edit')]
+    const t = toolsWith(false, true)
+    expect(String((await run(t, 'read_spreadsheet', { id: SECRET })).error)).toContain('No spreadsheet')
+    const listed = await run(t, 'find_spreadsheets', {})
+    expect((listed.spreadsheets as Row[]).map((s) => s.id)).toEqual([PLAN])
+    const withGrants = await run(toolsWith(true, false), 'find_spreadsheets', {})
+    expect((withGrants.spreadsheets as Row[]).map((s) => s.id).sort()).toEqual([PLAN, SECRET].sort())
+  })
+})

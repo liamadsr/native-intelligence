@@ -473,3 +473,50 @@ Realtime authorises.
     teammate, shares it with them, view only (`comment-mentions.ts`). Both
     new kinds are held from that until the owner decides. If the answer is
     no, `comment-mentions.ts` skips these kinds when Phase 3 un-holds them.
+
+## Phase 2 as built
+
+Server code only. It adds no migration and no UI, and every new grant on the
+two kinds is still held (`GRANTING_HELD_TYPES`), so nobody can do anything
+new yet. When Phase 3 un-holds them, the paths below are already in place.
+
+- **The agent's graph fences** (`src/lib/knowledge/entity-fences.ts`,
+  `spreadsheetFence`, `canvasFence`): the kind's own rule as before, then a
+  grant arm for the rows that rule hides, through `grants.ts`'s mirror of
+  `has_entity_grant` (the decision fence's pattern, kept in TypeScript so the
+  in-memory test database answers it). There is no grant arm on a guest's or a
+  linked agent's turn (`grants: false`, 519).
+- **The agent's spreadsheet tools** take `editGrants` and `omitGrants` from
+  `index.ts`, as the table tools do. A read follows the fence. `edit_spreadsheet` has
+  its own gate, because these tools may run on a service-role client: 675's
+  rule, or an edit grant when the turn may use one (not on a guest's, a linked
+  agent's or an unattended turn). A view grant reads and calculates and never
+  edits.
+- **The agent's canvas tools** take the same two flags. On a turn that reads
+  no grant they ask `canvas_visible_ungranted`, and the granted rule is never
+  asked. A turn that may not use an edit grant edits only what the person's
+  own rule allows: `canvas_editable_by` true and `canvas_visible_ungranted`
+  true. Without this, 688 would have let a guest's turn through `canvas_visible_to`.
+- **The spreadsheet GET** returns `can_edit` from `spreadsheet_editable_by`.
+  The editor will use it in Phase 3. The canvas GET already returned it, from
+  `canvas_editable_by`.
+- **The notification** (`src/lib/entity-access/notify.ts`, `record_shared`):
+  POST `/api/account/entity-access` sends it when a member is given a
+  spreadsheet or canvas, at its level ("Ana shared “Q3 plan” with you · Can
+  edit"), and PATCH sends it when a member is raised from view to edit ("…gave
+  you edit access to…"). Nothing is sent for team or channel grants, to the
+  sharer, on removal, or for the kinds that already shared quietly. It is in-app
+  only and never fails the share. A click opens the record's card
+  (`notification-panel.tsx`, `notification-open.ts`).
+- **Revoke and live cursors** (`src/lib/canvas/access-notice.ts`,
+  `src/lib/canvas/presence.ts`): when a canvas grant is removed, or lowered
+  from edit to view, the server says `access_changed` in the canvas's
+  presence room (service role, private, naming nobody). Each open editor
+  there asks again with its canvas GET, under its own RLS. A refusal closes the
+  canvas ("This canvas is no longer shared with you"), and the room with it. A
+  new `can_edit` reopens it read-only, or editable. Spreadsheet presence (689)
+  gets the same in Phase 3, with the read-only editor.
+
+**Not done in Phase 2:** the `shared_with` summary in `read_spreadsheet` and
+`read_canvas`. It only matters once sharing is un-held, so it moves to
+Phase 3.

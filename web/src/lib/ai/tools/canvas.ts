@@ -48,11 +48,22 @@ export function createCanvasTools(
   workspaceId: string,
   strictWorkspace = false,
   createWorkspacePolicy: CreateWorkspacePolicy = 'session',
+  /**
+   * May an EDIT grant (migration 688) let this turn change a canvas shared
+   * with the person? False on a guest's or a linked agent's turn and on an
+   * unattended run (CreateToolsOptions: index.ts's editGrants, as tables').
+   */
+  editGrants = false,
+  /** A guest's or a linked agent's turn: no grant opens a canvas at all (519's rule; 688's canvas_visible_ungranted). */
+  omitGrants = false,
 ) {
   /** The canvas, if this person may open it (and, for a write, change it). Fenced by the database's own rule. */
   async function open(canvasId: string, write: boolean): Promise<{ ok: true; canvas: { id: string; workspace_id: string; title: string; visibility: string }; canEdit: boolean } | { ok: false; error: string }> {
     if (!UUID.test(canvasId)) return { ok: false, error: 'canvas_id is the id of a canvas (find one with search).' }
-    const visible = await supabase.rpc('canvas_visible_to', { p_canvas_id: canvasId, p_user_id: userId })
+    // Its own rule (workspace-wide or theirs), and the one that also reads grants.
+    const ungranted = await supabase.rpc('canvas_visible_ungranted', { p_canvas_id: canvasId, p_user_id: userId })
+    if (ungranted.error) return { ok: false, error: ungranted.error.message }
+    const visible = omitGrants ? ungranted : await supabase.rpc('canvas_visible_to', { p_canvas_id: canvasId, p_user_id: userId })
     if (visible.error) return { ok: false, error: visible.error.message }
     if (visible.data !== true) return { ok: false, error: 'No canvas with that id that this person can open.' }
     const { data, error } = await supabase.from('canvas').select('id, workspace_id, title, visibility, archived_at').eq('id', canvasId).maybeSingle()
@@ -62,7 +73,9 @@ export function createCanvasTools(
     // A turn held to one workspace reads nothing from another.
     if (strictWorkspace && row.workspace_id !== workspaceId) return { ok: false, error: 'That canvas is in another workspace.' }
     const editable = await supabase.rpc('canvas_editable_by', { p_canvas_id: canvasId, p_user_id: userId })
-    const canEdit = !editable.error && editable.data === true && !row.archived_at
+    // Editable and seen by its own rule: its own rule edits it (canvas_editable_by without the grant,
+    // since editable already means not a guest). Otherwise only an edit grant does, which this turn may not use.
+    const canEdit = !editable.error && editable.data === true && !row.archived_at && (editGrants || ungranted.data === true)
     if (write && !canEdit) return { ok: false, error: row.archived_at ? 'That canvas is archived.' : 'This person can view that canvas but not change it.' }
     return { ok: true, canvas: { id: row.id, workspace_id: row.workspace_id, title: row.title, visibility: row.visibility }, canEdit }
   }

@@ -464,9 +464,9 @@ export function createTools(
     ...createTableTools(userId, supabase, workspaceId, strict, createPolicy, editGrants, omitGrants, options?.timeZone),
     // Spreadsheets (phase 3): the workspace's own workbooks of cells and formulas. Read, calculate, create
     // and edit through the same engine the editor runs; every edit saves against the revision read (CAS). See ./spreadsheets.ts.
-    ...createSpreadsheetTools(userId, supabase, workspaceId, strict, createPolicy),
+    ...createSpreadsheetTools(userId, supabase, workspaceId, strict, createPolicy, editGrants, omitGrants),
     // Canvases (whiteboards): read one as data, add to it or rearrange it. See ./canvas.ts.
-    ...createCanvasTools(userId, supabase, workspaceId, strict, createPolicy),
+    ...createCanvasTools(userId, supabase, workspaceId, strict, createPolicy, editGrants, omitGrants),
     // Campaigns — Marketing's anchor entity. Read + create + update; no delete
     // (a campaign is something claims point at).
     // launch_campaign raises the person's card and sends on their yes (roadmap D2).

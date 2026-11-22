@@ -2,24 +2,28 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { requireWorkspaceMember } from '@/lib/api-auth'
 import { badRequest, notFound, serverError } from '@/lib/api-errors'
 import { spreadsheetRefusal } from '@/lib/spreadsheets/responses'
-import { deleteSpreadsheet, getSpreadsheet, saveSpreadsheet, updateSpreadsheetMeta } from '@/lib/spreadsheets/store'
+import { deleteSpreadsheet, getSpreadsheet, saveSpreadsheet, spreadsheetEditableBy, updateSpreadsheetMeta } from '@/lib/spreadsheets/store'
 import type { SpreadsheetExtras } from '@/lib/spreadsheets/types'
 
 type Params = { params: Promise<{ id: string }> }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-/** GET: one spreadsheet with its workbook. */
+/**
+ * GET: one spreadsheet with its workbook, and whether the person may change it
+ * (`can_edit`: false for someone it is shared with to view, migration 688).
+ */
 export async function GET(_request: NextRequest, { params }: Params) {
   const auth = await requireWorkspaceMember()
   if (auth instanceof Response) return auth
-  const { supabase, workspaceId, member } = auth
+  const { supabase, workspaceId, member, user } = auth
   const { id } = await params
   if (!UUID.test(id)) return notFound('Spreadsheet not found.')
   try {
     const spreadsheet = await getSpreadsheet(supabase, workspaceId, id)
     if (!spreadsheet) return notFound('Spreadsheet not found.')
-    return NextResponse.json({ spreadsheet, member_id: member.id })
+    const canEdit = await spreadsheetEditableBy(supabase, id, user.id)
+    return NextResponse.json({ spreadsheet, member_id: member.id, can_edit: canEdit })
   } catch (e) {
     return serverError(e instanceof Error ? e.message : 'Could not load the spreadsheet')
   }

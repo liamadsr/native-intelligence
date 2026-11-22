@@ -41,6 +41,10 @@ export function notificationCardTarget(target: NotificationTarget): OpenTarget |
     case 'contact':
     case 'company':
       return { type: target.type, id: target.id, title: target.title }
+    // A record shared with the person (record_shared, migration 688): its page's card.
+    case 'spreadsheet':
+    case 'canvas':
+      return { type: target.type, id: target.id, title: target.title }
     default:
       return null
   }

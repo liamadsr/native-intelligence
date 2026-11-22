@@ -121,6 +121,11 @@ export async function resolveNotificationDetailPanel(
       return { type: 'contact', id: targetId, title }
     case 'company':
       return { type: 'company', id: targetId, title }
+    // A record shared with the person (record_shared, migration 688).
+    case 'spreadsheet':
+      return { type: 'spreadsheet', id: targetId, title }
+    case 'canvas':
+      return { type: 'canvas', id: targetId, title }
     // A failed-run notice ("<flow> couldn't run") targets the flow itself.
     case 'flow':
       return { type: 'flow', id: targetId, title }

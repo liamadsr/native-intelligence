@@ -127,7 +127,7 @@ describe('who else is here', () => {
 describe('the presence room', () => {
   function client(opts: { auth?: () => Promise<unknown> } = {}) {
     const log: string[] = []
-    const channels: Array<{ topic: string; config: unknown; status: (s: string) => void; hear: (p: unknown) => void; sent: unknown[]; removed: boolean }> = []
+    const channels: Array<{ topic: string; config: unknown; status: (s: string) => void; hear: (p: unknown) => void; on: Record<string, (m: { payload?: unknown }) => void>; sent: unknown[]; removed: boolean }> = []
     const c: RoomClient = {
       realtime: {
         setAuth: () => {
@@ -137,12 +137,13 @@ describe('the presence room', () => {
       },
       channel(topic, o) {
         log.push('join')
-        const entry = { topic, config: o.config, status: (_s: string) => {}, hear: (_p: unknown) => {}, sent: [] as unknown[], removed: false }
+        const on: Record<string, (m: { payload?: unknown }) => void> = {}
+        const entry = { topic, config: o.config, status: (_s: string) => {}, hear: (p: unknown) => on.peer?.({ payload: p }), on, sent: [] as unknown[], removed: false }
         channels.push(entry)
         const ch: RoomChannel & { entry: typeof entry } = {
           entry,
-          on(_t, _f, cb) {
-            entry.hear = (p) => cb({ payload: p })
+          on(_t, f, cb) {
+            on[f.event] = cb
             return ch
           },
           subscribe(cb) {
@@ -165,6 +166,22 @@ describe('the presence room', () => {
     return { seen, h: { hear: (p: unknown) => void seen.heard.push(p), open: () => void seen.open++, closed: () => void seen.closed++ } }
   }
   const ID = '3f2b8c1e-5a4d-4e6f-9a7b-0c1d2e3f4a5b'
+
+  it('passes on the server\'s word that the sharing changed (688), from the channel it is on only', async () => {
+    const { c, channels } = client()
+    let asked = 0
+    const room = new PresenceRoom(c, ID, { ...hooks().h, accessChanged: () => void asked++ })
+    room.start()
+    await vi.advanceTimersByTimeAsync(0)
+    channels[0].status('SUBSCRIBED')
+    channels[0].on.access_changed({ payload: {} })
+    expect(asked).toBe(1)
+    // A replaced channel, or a stopped room, has nothing more to say.
+    channels[0].status('CHANNEL_ERROR')
+    channels[0].on.access_changed({ payload: {} })
+    expect(asked).toBe(1)
+    room.stop()
+  })
 
   it('attaches the person\'s token, then joins a private channel that does not echo', async () => {
     const { c, log, channels } = client()
