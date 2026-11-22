@@ -325,7 +325,9 @@ export const ENTITY_ACTIONS: Readonly<Record<EntityType, EntityActionsDescriptor
   // one mentioned in a channel would open for nobody else.
   spreadsheet: {
     open: 'spreadsheet',
-    link: false,
+    // `/account?spreadsheet=<id>` opens the Spreadsheets card on it, as a
+    // canvas's link does (it had none: the link opened nothing; 11-22).
+    link: true,
     rename: { route: 'spreadsheets', field: 'title' },
     archive: { kind: 'status', route: 'spreadsheets', via: 'patch', archived: 'archived', restore: 'active', restorePrevious: false },
     share: false,
