@@ -222,13 +222,13 @@ export function CommentOverlay({ workbook, sheet, layout, comments, memberId, op
       ))}
 
       {open && openRange && (
-        <div className="absolute z-30" style={cardAt(openRange.r1, openRange.c1 + (openRange.c2 - openRange.c1) + 1)} onPointerDown={(e) => e.stopPropagation()}>
+        <div className="absolute z-30 max-[480px]:!fixed max-[480px]:!inset-x-2 max-[480px]:!bottom-2 max-[480px]:!top-auto max-[480px]:!z-50" style={cardAt(openRange.r1, openRange.c1 + (openRange.c2 - openRange.c1) + 1)} onPointerDown={(e) => e.stopPropagation()}>
           <ThreadCard thread={open} comments={comments} memberId={memberId} orphaned={comments.orphaned.has(open.id)} onClose={() => onOpenThread(null)} />
         </div>
       )}
 
       {composeRange && !openThreadId && (
-        <div className="absolute z-30" style={cardAt(composeRange.r1, composeRange.c2 + 1)} onPointerDown={(e) => e.stopPropagation()}>
+        <div className="absolute z-30 max-[480px]:!fixed max-[480px]:!inset-x-2 max-[480px]:!bottom-2 max-[480px]:!top-auto max-[480px]:!z-50" style={cardAt(composeRange.r1, composeRange.c2 + 1)} onPointerDown={(e) => e.stopPropagation()}>
           <Composer
             anchorLabel={composingAnchor ?? ''}
             onCancel={onCloseComposer}
@@ -249,7 +249,7 @@ function ThreadCard({ thread, comments, memberId, orphaned, onClose }: { thread:
   const resolved = !!thread.resolved_at
   const all = [thread.root, ...thread.replies]
   return (
-    <div className={cn(FLOATING_CARD_CLASS, 'flex w-72 flex-col gap-2 p-3 shadow-lg')} data-comment-thread={thread.id}>
+    <div className={cn(FLOATING_CARD_CLASS, 'flex w-72 max-[480px]:w-auto flex-col gap-2 p-3 shadow-lg')} data-comment-thread={thread.id}>
       <div className="flex items-center justify-between">
         <span className="font-mono text-xs text-muted-foreground">{thread.anchor}{orphaned ? ' · its cells were deleted' : ''}</span>
         <div className="flex items-center gap-1">
@@ -389,7 +389,7 @@ function ReplyBox({ value, onChange, onSend }: { value: string; onChange: (v: st
 function Composer({ anchorLabel, onCancel, onSubmit }: { anchorLabel: string; onCancel: () => void; onSubmit: (body: string) => void }) {
   const [body, setBody] = useState('')
   return (
-    <div className={cn(FLOATING_CARD_CLASS, 'flex w-72 flex-col gap-2 p-3 shadow-lg')} data-comment-composer>
+    <div className={cn(FLOATING_CARD_CLASS, 'flex w-72 max-[480px]:w-auto flex-col gap-2 p-3 shadow-lg')} data-comment-composer>
       <span className="font-mono text-xs text-muted-foreground">{anchorLabel}</span>
       <textarea
         autoFocus
@@ -439,7 +439,7 @@ export function CommentsPanel({ workbook, comments, onClose, onGoTo }: PanelProp
   }
 
   return (
-    <aside aria-label="Comments" className={cn(FLOATING_CARD_CLASS, 'absolute bottom-3 right-3 top-3 z-40 flex w-[320px] max-w-[calc(100%-1.5rem)] flex-col shadow-lg')}>
+    <aside aria-label="Comments" className={cn(FLOATING_CARD_CLASS, 'absolute bottom-3 right-3 top-3 z-40 flex w-[320px] max-w-[calc(100%-1.5rem)] max-[480px]:!w-[calc(100%-1.5rem)] flex-col shadow-lg')}>
       <div className="flex items-center justify-between border-b border-border/60 px-3 py-2">
         <h2 className="text-sm font-semibold text-foreground">Comments</h2>
         <button type="button" aria-label="Close comments" className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground" onClick={onClose}>

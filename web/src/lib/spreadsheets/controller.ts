@@ -1124,6 +1124,64 @@ export class WorkbookController {
   }
 
   /**
+   * Move the selected range by (dRow, dColumn): a drag of the selection's
+   * border (phase 6). Cut and paste under the hood — the engine has no
+   * rectangle move — so values, formats, notes and the references inside the
+   * range follow, references that point AT the moved cells are rewritten, and
+   * the cells it left are cleared. One undo step. Nothing moves off the sheet.
+   * Extras (validations, checkboxes, tables, charts, images) are NOT carried,
+   * the same as a cut and paste: `shiftExtras` only knows row/column inserts
+   * and deletes, not a rectangle translation.
+   */
+  moveSelection(dRow: number, dColumn: number): ActionResult {
+    if (dRow === 0 && dColumn === 0) return OK
+    const sheet = this.sheet
+    const { range } = this.selection()
+    const r1 = range.r1 + dRow
+    const c1 = range.c1 + dColumn
+    const r2 = range.r2 + dRow
+    const c2 = range.c2 + dColumn
+    if (r1 < 1 || c1 < 1) return no('That does not fit: it runs past the top-left corner of the sheet.')
+    if (r2 > MAX_ROWS || c2 > MAX_COLUMNS) return no('That does not fit: it runs past the edge of the sheet.')
+    this.reach(sheet, r2, c2)
+    return this.act(() => {
+      // Copy the source (the current selection), then paste it at the target as
+      // a cut, so the source cells are emptied in the same step.
+      const clip = this.model.copyToClipboard()
+      this.model.setSelectedCell(r1, c1)
+      this.mut(() => this.model.pasteFromClipboard(sheet, [range.r1, range.c1, range.r2, range.c2], clip.data, true))
+      const refusal = this.rangeValueRefusal(sheet, { r1, c1, r2, c2 })
+      if (refusal) throw new Error(refusal)
+      this.model.setSelectedCell(r1, c1)
+      this.model.setSelectedRange(r1, c1, r2, c2)
+    }, { layout: true })
+  }
+
+  /**
+   * Would moving the selection by (dRow, dColumn) drop onto cells that already
+   * hold something (outside the range being vacated)? The border drag asks
+   * first when it would. Cells inside the source are cleared by the move, so
+   * they never count as an overwrite.
+   */
+  moveWouldOverwrite(dRow: number, dColumn: number): boolean {
+    if (dRow === 0 && dColumn === 0) return false
+    const sheet = this.sheet
+    const { range } = this.selection()
+    const r1 = range.r1 + dRow
+    const c1 = range.c1 + dColumn
+    const r2 = range.r2 + dRow
+    const c2 = range.c2 + dColumn
+    if (r1 < 1 || c1 < 1 || r2 > MAX_ROWS || c2 > MAX_COLUMNS) return false
+    for (let r = r1; r <= r2; r++) {
+      for (let c = c1; c <= c2; c++) {
+        if (r >= range.r1 && r <= range.r2 && c >= range.c1 && c <= range.c2) continue
+        if (this.model.getCellContent(sheet, r, c) !== '') return true
+      }
+    }
+    return false
+  }
+
+  /**
    * Paste rows of plain values at the active cell (from another app, or
    * "Paste values only"). One row or one cell pasted over a larger selection
    * repeats to fill it, as spreadsheets do.
