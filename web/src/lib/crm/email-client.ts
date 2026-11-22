@@ -34,6 +34,8 @@ export interface FullEmailMessage {
   to: EmailAddress[]
   cc: EmailAddress[]
   bcc: EmailAddress[]
+  /** The message's Reply-To, when it names one (a reply goes there, not to the sender). */
+  replyTo?: EmailAddress[]
   subject: string
   date: string
   bodyHtml: string | null
@@ -50,8 +52,18 @@ export interface FullEmailMessage {
   invite?: CalendarInvite
 }
 
+/** A message's Reply-To as the thread carries it: only when it names an address. */
+function replyToOf(list: EmailAddress[]): { replyTo?: EmailAddress[] } {
+  const named = list.filter((a) => a.email.includes('@'))
+  return named.length ? { replyTo: named } : {}
+}
+
 export interface FullEmailThread {
   threadId: string
+  /** The mailbox the thread is in (its index row's account), so a reply goes out from it. */
+  accountId?: string | null
+  /** That mailbox's own address: the composer's From. */
+  mailboxEmail?: string | null
   /** The thread's `email_thread_index` row (the id its agent activity is keyed on), when indexed. */
   indexId: string | null
   subject: string
@@ -243,6 +255,8 @@ export async function fetchFullEmailThreadForClient(
 
   return {
     threadId: providerThreadId,
+    accountId: (threadIndex?.account_id as string | undefined) ?? namedAccount,
+    mailboxEmail: token.email ?? null,
     indexId: (threadIndex?.id as string | undefined) ?? null,
     subject: messages[0]?.subject || '',
     messages,
@@ -284,6 +298,8 @@ async function fetchGmailThreadFull(
       to: parseEmailAddresses(getH('To')),
       cc: parseEmailAddresses(getH('Cc')),
       bcc: parseEmailAddresses(getH('Bcc')),
+      // Where a reply goes when it is not the sender (the composer's Reply).
+      ...replyToOf(parseEmailAddresses(getH('Reply-To'))),
       subject: getH('Subject'),
       date: msg.internalDate
         ? new Date(parseInt(msg.internalDate as string)).toISOString()
@@ -361,7 +377,7 @@ async function fetchOutlookThreadFull(
 ): Promise<FullEmailMessage[]> {
   const [res, deletedItems] = await Promise.all([
     fetch(
-      `https://graph.microsoft.com/v1.0/me/messages?$filter=conversationId eq '${conversationId}'&$select=id,conversationId,from,toRecipients,ccRecipients,bccRecipients,subject,receivedDateTime,body,isRead,isDraft,parentFolderId,flag,hasAttachments,attachments&$orderby=receivedDateTime asc&$top=50`,
+      `https://graph.microsoft.com/v1.0/me/messages?$filter=conversationId eq '${conversationId}'&$select=id,conversationId,from,replyTo,toRecipients,ccRecipients,bccRecipients,subject,receivedDateTime,body,isRead,isDraft,parentFolderId,flag,hasAttachments,attachments&$orderby=receivedDateTime asc&$top=50`,
       { headers: { Authorization: `Bearer ${accessToken}` } },
     ),
     outlookDeletedItemsId(accessToken),
@@ -415,6 +431,12 @@ async function fetchOutlookThreadFull(
         name: r.emailAddress?.name || null,
         email: r.emailAddress?.address || '',
       })),
+      ...replyToOf(
+        ((msg.replyTo as Array<{ emailAddress?: { name?: string; address?: string } }> | undefined) ?? []).map((r) => ({
+          name: r.emailAddress?.name || null,
+          email: r.emailAddress?.address || '',
+        })),
+      ),
       subject: (msg.subject as string) || '',
       date: (msg.receivedDateTime as string) || '',
       bodyHtml: body?.contentType === 'html' ? body?.content || null : null,

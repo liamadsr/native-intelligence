@@ -269,6 +269,11 @@ describe('the mouse', () => {
     expect(workbook.selection().range).toEqual({ r1: 1, c1: 1, r2: 2, c2: 2 })
   })
 
+  it('dragging over cells does not select their text as a page does', () => {
+    mount([[1, 1, 'Paper']])
+    expect((container.querySelector('.cursor-cell') as HTMLElement).className).toContain('select-none')
+  })
+
   it('a double-click edits the cell in place', () => {
     mount([[2, 2, 'hello']])
     pointer('pointerdown', 2, 2)
