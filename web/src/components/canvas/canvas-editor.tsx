@@ -41,6 +41,7 @@ import { PeerList, PresenceRoom, PresenceSender, RemoteChanges, peerColor, type 
 import { PeerFaces, PresenceLayer, usePeers } from './presence-layer'
 import { CommentPins, CommentsButton, CommentsPanel, useCanvasComments } from './comments-panel'
 import { ArtifactEditor, PresentArtifacts } from './artifact-view'
+import { browserStorage, Outbox, withUnsent, type Unsent } from './outbox'
 import { artifactTitle, isArtifact, presentOrder } from '@/lib/canvas/engine/artifact'
 import { patchScene } from '@/lib/canvas/engine/scene'
 import { createClient } from '@/lib/supabase/client'
@@ -58,6 +59,9 @@ interface Loaded {
   canvas: CanvasRecord
   items: CanvasItem[]
   canEdit: boolean
+  outbox: Outbox | null
+  /** Left unsent by an earlier visit: already in `items`, still to be sent. */
+  unsent: Unsent | null
 }
 
 /** The palette as CSS variables, light and dark, scoped to the editor. */
@@ -334,12 +338,17 @@ export default function CanvasEditor({ canvasId, onBack, onTitle }: CanvasEditor
     fetch(`/api/account/canvases/${canvasId}`)
       .then(async (r) => {
         if (!r.ok) throw new Error(r.status === 404 || r.status === 403 ? 'This canvas is gone, or it is not shared with you.' : 'This canvas could not be opened.')
-        return (await r.json()) as { canvas: CanvasRecord; items: CanvasItemRow[]; can_edit?: boolean }
+        return (await r.json()) as { canvas: CanvasRecord; items: CanvasItemRow[]; can_edit?: boolean; viewer?: string }
       })
       .then((j) => {
         if (!live) return
         const items = (j.items ?? []).map(rowToItem).filter((it): it is CanvasItem => !!it)
-        setLoaded({ canvas: j.canvas, items, canEdit: j.can_edit !== false })
+        const canEdit = j.can_edit !== false
+        // What an earlier visit could not send is put back over what the server has, and sent again.
+        const outbox = canEdit && j.viewer ? new Outbox(browserStorage(), canvasId, j.viewer) : null
+        const unsent = outbox?.read() ?? null
+        if (unsent) setNotice('Changes that had not been saved were restored.')
+        setLoaded({ canvas: j.canvas, items: withUnsent(items, unsent), canEdit, outbox, unsent })
       })
       .catch((e: Error) => live && setError(e.message))
     return () => {
@@ -366,7 +375,8 @@ export default function CanvasEditor({ canvasId, onBack, onTitle }: CanvasEditor
         keepalive: keepalive && JSON.stringify(body).length < 60_000,
       })
       return r.ok
-    })
+    }, 500, loaded.outbox)
+    if (loaded.unsent) sync.restore(loaded.unsent)
     return { store, interaction, sync }
     // A reload of the same canvas makes a new session on purpose.
   }, [canvasId, loaded])

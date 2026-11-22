@@ -64,7 +64,8 @@ describe('GET and POST /api/account/canvases', () => {
 describe('/api/account/canvases/[id]', () => {
   it('reads a canvas with its items and can_edit, 404s a hidden one', async () => {
     const res = await getCanvas(get(`${base}/${C}`), ctx())
-    const json = await readJson<{ canvas: { title: string }; items: unknown[]; can_edit: boolean }>(res)
+    const json = await readJson<{ canvas: { title: string }; items: unknown[]; can_edit: boolean; viewer: string }>(res)
+    expect(json.viewer).toBe(USER)
     expect(json.canvas.title).toBe('Plan')
     expect(json.items).toHaveLength(1)
     expect(json.can_edit).toBe(true)
