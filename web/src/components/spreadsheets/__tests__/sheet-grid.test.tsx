@@ -51,7 +51,7 @@ function mount(cells: Array<[number, number, string]> = [], options: { readOnly?
   act(() => {
     root.render(
       <div style={{ width: 1046, height: 526 }}>
-        <SheetGrid workbook={workbook} caret={caret} ariaLabel="Budget: Sheet1" showFormulas={options.showFormulas} onMessage={(m) => messages.push(m)} onContextMenu={(t) => menus.push(t)} />
+        <SheetGrid workbook={workbook} caret={caret} ariaLabel="Budget: Sheet1" showFormulas={options.showFormulas} onMessage={(m) => messages.push(m)} onContextMenu={(t) => menus.push(t)} onTableColumnMenu={() => {}} onEditChart={() => {}} />
       </div>,
     )
   })
@@ -406,5 +406,92 @@ describe('the clipboard', () => {
     clip('paste', cut)
     expect(cell('A1')).toBeNull()
     expect(cell('C3')?.textContent).toBe('move me')
+  })
+})
+
+describe('checkboxes', () => {
+  it('draws a checkbox, toggles it on click and on Space, as a boolean', () => {
+    mount()
+    act(() => workbook.insertCheckboxes({ r1: 1, c1: 1, r2: 1, c2: 1 }))
+    const box = container.querySelector('[data-checkbox="A1"]') as HTMLButtonElement
+    expect(box).not.toBeNull()
+    expect(box.getAttribute('aria-checked')).toBe('false')
+    act(() => box.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    expect((container.querySelector('[data-checkbox="A1"]') as HTMLElement).getAttribute('aria-checked')).toBe('true')
+    // Space on the active cell toggles it back.
+    act(() => workbook.select(1, 1))
+    key(' ')
+    expect((container.querySelector('[data-checkbox="A1"]') as HTMLElement).getAttribute('aria-checked')).toBe('false')
+  })
+})
+
+describe('dropdowns and validation', () => {
+  it('draws an arrow, opens a list and writes a chosen value', () => {
+    mount()
+    act(() => workbook.setListValidation({ range: { r1: 1, c1: 1, r2: 1, c2: 1 }, choices: [{ value: 'Open' }, { value: 'Done' }], reject: true }))
+    const arrow = container.querySelector('[data-dropdown-arrow="A1"]') as HTMLButtonElement
+    expect(arrow).not.toBeNull()
+    act(() => arrow.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    const options = [...container.querySelectorAll('[role="option"]')].map((o) => o.textContent)
+    expect(options).toEqual(['Open', 'Done'])
+    act(() => (container.querySelectorAll('[role="option"]')[1] as HTMLElement).dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    expect(cell('A1')?.textContent).toBe('Done')
+  })
+
+  it('Alt+Down opens the list on the active cell', () => {
+    mount()
+    act(() => workbook.setListValidation({ range: { r1: 1, c1: 1, r2: 1, c2: 1 }, choices: [{ value: 'Yes' }], reject: true }))
+    act(() => workbook.select(1, 1))
+    key('ArrowDown', { altKey: true })
+    expect(container.querySelector('[role="listbox"]')).not.toBeNull()
+  })
+
+  it('marks a non-rejecting value with a warning', () => {
+    mount([[1, 1, 'Nope']])
+    act(() => workbook.setListValidation({ range: { r1: 1, c1: 1, r2: 1, c2: 1 }, choices: [{ value: 'Yes' }], reject: false }))
+    expect(container.querySelector('[data-validation-warning="A1"]')).not.toBeNull()
+  })
+})
+
+describe('conditional formatting marks', () => {
+  it('draws a data bar behind a value', () => {
+    mount([[1, 1, '10'], [2, 1, '50']])
+    act(() =>
+      workbook.addConditionalRule(
+        { r1: 1, c1: 1, r2: 2, c2: 1 },
+        { type: 'DataBar', min: null, max: null, positive_color: '#638EC6', negative_color: '#FF0000', is_gradient: true, show_value: true },
+      ),
+    )
+    expect(container.querySelectorAll('[data-data-bar]').length).toBeGreaterThan(0)
+  })
+
+  it('draws an icon from an icon-set rule', () => {
+    mount([[1, 1, '10'], [2, 1, '90']])
+    act(() =>
+      workbook.addConditionalRule(
+        { r1: 1, c1: 1, r2: 2, c2: 1 },
+        { type: 'IconSet', thresholds: [{ icon: 'Circle', cfvo: 'Min', color: '#FF0000', is_strict: false }, { icon: 'Circle', cfvo: { Percent: 50 }, color: '#00FF00', is_strict: false }], show_value: true },
+      ),
+    )
+    expect(container.querySelectorAll('[data-cf-icon]').length).toBeGreaterThan(0)
+  })
+
+  it('draws a table header bar with a column menu arrow after convert to table', () => {
+    mount([[1, 1, 'Region'], [1, 2, 'Amount'], [2, 1, 'North'], [2, 2, '10'], [3, 1, 'South'], [3, 2, '20']])
+    act(() => {
+      workbook.selectRange({ r1: 1, c1: 1, r2: 3, c2: 2 })
+      workbook.convertToTable()
+    })
+    expect(container.querySelectorAll('[data-table-column-menu]').length).toBe(2)
+  })
+
+  it('draws a chart as a floating object once one is inserted', () => {
+    mount([[1, 1, 'Jan'], [1, 2, '10'], [2, 1, 'Feb'], [2, 2, '20']])
+    act(() => {
+      workbook.selectRange({ r1: 1, c1: 1, r2: 2, c2: 2 })
+      workbook.insertChart('column')
+    })
+    expect(container.querySelector('[data-floating-object]')).not.toBeNull()
+    expect(container.querySelector('[data-floating-object] svg')).not.toBeNull()
   })
 })

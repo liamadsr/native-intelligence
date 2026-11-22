@@ -298,6 +298,22 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       { name: 'create_form_invites', sideEffect: 'internal-write', writeTarget: 'board', label: 'Create Form Invites', description: 'Make personal links to an invited form, each storing one submission; the links are shown once and sent separately' },
     ],
   },
+  // Spreadsheets (phase 3, src/lib/ai/tools/spreadsheets.ts): the workspace's own workbooks of cells and
+  // formulas, read and edited through the same IronCalc engine the editor runs. Every edit is one batch
+  // saved against the revision it was read at. Gated with Docs (the Documents feature), where the page lives.
+  {
+    id: 'spreadsheets',
+    label: 'Spreadsheets',
+    description: 'Workbooks of cells and formulas',
+    icon: '📈',
+    tools: [
+      { name: 'find_spreadsheets', sideEffect: 'read', label: 'Find Spreadsheets', description: "Find the workspace's spreadsheets: id, title, sheet names, when it changed and who can see it" },
+      { name: 'read_spreadsheet', sideEffect: 'read', label: 'Read Spreadsheet', description: "Read a spreadsheet: a whole-workbook summary, or given A1 ranges cell by cell (input, shown text, kind, optional styles); returns the revision an edit needs" },
+      { name: 'calculate_spreadsheet', sideEffect: 'read', label: 'Calculate', description: 'Evaluate up to 20 formulas against a spreadsheet on a throwaway copy (a what-if), with optional cell overrides; writes nothing' },
+      { name: 'create_spreadsheet', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Create Spreadsheet', description: 'Make a workbook of cells and formulas, optionally filled with sheets of values on creation' },
+      { name: 'edit_spreadsheet', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Edit Spreadsheet', description: 'Edit a spreadsheet in one all-or-nothing batch against the revision read: set, clear, format, border, fill cells, append rows, resize columns, insert/delete rows and columns, and add/rename/duplicate/delete sheets' },
+    ],
+  },
   {
     id: 'decisions',
     label: 'Decisions',
@@ -1655,6 +1671,9 @@ export function isReadShapedToolName(name: string): boolean {
     name === 'show' ||
     // Reads a table's rows (Tables, phase 5); `query_` is no read prefix.
     name === 'query_rows' ||
+    // Evaluates formulas against a spreadsheet on a throwaway copy (Spreadsheets, phase 3): writes
+    // nothing. `calculate_` is no read prefix.
+    name === 'calculate_spreadsheet' ||
     // Content C0: check a post (pure), and review one (a reviewer call that
     // writes nothing but its usage row, like web research). Neither posts.
     name === 'lint_post' ||
