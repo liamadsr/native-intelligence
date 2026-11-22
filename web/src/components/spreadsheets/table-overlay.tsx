@@ -88,7 +88,7 @@ export function TableHeaders({
           <div
             key={`th${t.id}-${c}`}
             aria-hidden
-            className="pointer-events-none absolute flex items-center overflow-hidden px-1.5 text-[12px] font-semibold text-white"
+            className="pointer-events-none absolute z-[2] flex items-center overflow-hidden px-1.5 text-[12px] font-semibold text-white"
             style={{ ...box, backgroundColor: t.style.color }}
           >
             <span className="min-w-0 flex-1 truncate">{t.columns[offset]?.name ?? ''}</span>
@@ -100,7 +100,7 @@ export function TableHeaders({
             type="button"
             aria-label={`Column options for ${t.columns[offset]?.name ?? ''}`}
             data-table-column-menu={`${t.id}:${offset}`}
-            className="absolute flex items-center justify-center rounded-sm text-white/90 hover:bg-black/15"
+            className="absolute z-[3] flex items-center justify-center rounded-sm text-white/90 hover:bg-black/15"
             style={{ left: box.left + box.width - 17, top: box.top + 2, width: 15, height: box.height - 4 }}
             onPointerDown={(event) => event.stopPropagation()}
             onClick={(event) => {

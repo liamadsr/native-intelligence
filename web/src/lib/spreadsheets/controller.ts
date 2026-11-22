@@ -1947,7 +1947,11 @@ export class WorkbookController {
     const { range } = this.selection()
     const sheet = this.sheet
     const id = this.newId('cht')
-    const anchor = { row: range.r1, column: Math.min(MAX_COLUMNS, range.c2 + 1), dx: 12, dy: 0 }
+    // Beside the data, not over it: past the sheet's last used column when the
+    // selection sits inside the data.
+    const used = usedRange(this.model, sheet)
+    const beside = used && range.c2 <= used.c2 ? used.c2 : range.c2
+    const anchor = { row: range.r1, column: Math.min(MAX_COLUMNS, beside + 1), dx: 12, dy: 0 }
     const chart: WorkbookChart = { id, sheetId: this.sheetIdAt(sheet), type, title: '', legend: true, source: { ...range }, anchor, width: 440, height: 300 }
     const result = this.act(() => {
       this.extras = addChart(this.extras, chart)
