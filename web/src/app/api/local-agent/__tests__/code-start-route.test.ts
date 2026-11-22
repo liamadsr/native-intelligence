@@ -29,7 +29,7 @@ vi.mock('@/lib/api-auth', async (orig) => {
   }
 })
 vi.mock('@/lib/supabase/service', () => ({ getServiceClient: () => m.db }))
-const ledger = vi.hoisted(() => ({ startTurnRow: vi.fn(async () => 'job-1'), moveTurn: vi.fn(async (_svc: unknown, s: unknown) => s) }))
+const ledger = vi.hoisted(() => ({ startTurnRow: vi.fn(async () => 'job-1'), moveTurn: vi.fn(async (_svc: unknown, s: unknown, _move?: unknown) => s) }))
 // The chat's stored history (eve-message-writer's upsert on (conversation, message id), ignoring duplicates).
 const history = vi.hoisted(() => ({ rows: [] as Array<{ conversationId: string; role?: string; messageId: string; parts: unknown; metadata?: Record<string, unknown> }> }))
 vi.mock('@/lib/chat/eve-message-writer', () => ({

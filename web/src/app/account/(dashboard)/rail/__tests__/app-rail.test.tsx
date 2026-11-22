@@ -676,7 +676,7 @@ describe('page groups (Liam, 11-11: "Contacts: Companies, Contacts, Deals · Out
     row.dispatchEvent(new Event('pointerdown', { bubbles: true }))
     await act(async () => {
       releasePage()
-      releases.push(holdFrontCard({ id: 'r1', spec: { kind: 'record', title: 'Fernhill renewal', record: { type: 'deal', id: 'd1' } }, close: () => {} }))
+      releases.push(holdFrontCard({ id: 'r1', spec: { kind: 'record', title: 'Fernhill', record: { type: 'company', id: 'co1' } }, close: () => {} }))
     })
     expect(lit()).toEqual(['contacts'])
     layer.remove()
@@ -688,10 +688,10 @@ describe('page groups (Liam, 11-11: "Contacts: Companies, Contacts, Deals · Out
     expect(lit()).toEqual(['calendar'])
   })
 
-  it('a deal opened from home keeps Home lit', async () => {
+  it('a record of a Contacts page (a company) opened from home keeps Home lit', async () => {
     await render()
     await act(async () => {
-      releases.push(holdFrontCard({ id: 'r1', spec: { kind: 'record', title: 'Fernhill renewal', record: { type: 'deal', id: 'd1' } }, close: () => {} }))
+      releases.push(holdFrontCard({ id: 'r1', spec: { kind: 'record', title: 'Fernhill', record: { type: 'company', id: 'co1' } }, close: () => {} }))
     })
     expect(lit()).toEqual(['home'])
   })

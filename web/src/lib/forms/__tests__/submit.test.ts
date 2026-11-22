@@ -507,7 +507,7 @@ describe("the post's own fields", () => {
     )
     const res = await handleFormSubmit(post({ ...GOOD, _redirect: 'https://brightweave.example/thanks' }, { origin: 'https://brightweave.example' }), KEY, d)
     expect(res.status).toBe(303)
-    expect(d.writeRow.mock.calls[0][1].values).not.toHaveProperty('redirect_to')
+    expect(vi.mocked(d.writeRow).mock.calls[0][1].values).not.toHaveProperty('redirect_to')
   })
 })
 
@@ -532,7 +532,7 @@ describe('the contact, held back until the row is stored', () => {
     })
     expect((await handleFormSubmit(post(GOOD), KEY, d)).status).toBe(201)
     expect(order).toEqual(['row', 'marked stored', 'contact settled', 'table loops'])
-    expect(d.writeRow.mock.calls[0][1].values.customer).toEqual(['contact-1'])
+    expect(vi.mocked(d.writeRow).mock.calls[0][1].values.customer).toEqual(['contact-1'])
   })
 
   it('a row that is not stored settles nothing: the found contact stays as it was, and no contact loop starts', async () => {

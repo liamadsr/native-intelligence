@@ -18,7 +18,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { createFakeSupabase, eqValue, meetingFixture, FIX, type FakeQuery } from '@/lib/live-agent/__tests__/helpers/live-turn-fixture'
+import { createFakeSupabase, isSettled, eqValue, meetingFixture, FIX, type FakeQuery } from '@/lib/live-agent/__tests__/helpers/live-turn-fixture'
 import { fakeTaskResponse, quietTurn } from '@/lib/live-agent/__tests__/helpers/fake-eve-turn'
 
 const h = vi.hoisted(() => ({
@@ -122,7 +122,7 @@ function seedDb(call: boolean) {
     if (q.table === 'team_call' && eqValue(q, 'capture_id') === FIX.captureId) return { data: call && h.callLive ? { id: 'call-1' } : null, error: null }
     if (q.table === 'captures' && q.columns.includes('is_transcript_locked')) return { data: { ended_at: null, is_transcript_locked: false }, error: null }
     const r = base(q)
-    if (call && q.table === 'captures' && r.data && !Array.isArray(r.data)) {
+    if (call && q.table === 'captures' && isSettled(r) && r.data && !Array.isArray(r.data)) {
       return { ...r, data: { ...(r.data as Record<string, unknown>), notes_channel_id: 'chan-call-1' } }
     }
     return r

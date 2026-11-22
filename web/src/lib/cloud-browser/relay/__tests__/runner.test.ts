@@ -407,7 +407,7 @@ describe('watch_read (a page watch\'s read)', () => {
   const TEXT = 'Orders\nOrder 1041 | Packed'
   /** A tab that loads the address it is sent to and reports it with its text. */
   function watchBrowser(options: { landsOn?: string; text?: string; notice?: string } = {}) {
-    const opened: Array<ReturnType<typeof stubPage> & { getText: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> }> = []
+    const opened: Array<Omit<ReturnType<typeof stubPage>, 'onNotice'> & { onNotice: (l: (notice: { kind: string; site: string }) => void) => () => void; getText: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> }> = []
     const browser = {
       list: () => pages,
       openPage: vi.fn(async () => {

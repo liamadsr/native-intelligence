@@ -11,7 +11,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { createFakeSupabase, eqValue, meetingFixture, FIX, type FakeQuery } from '@/lib/live-agent/__tests__/helpers/live-turn-fixture'
+import { createFakeSupabase, isSettled, eqValue, meetingFixture, FIX, type FakeQuery } from '@/lib/live-agent/__tests__/helpers/live-turn-fixture'
 import { LIVE_AGENT_SECRET_HEADER, LIVE_AGENT_TOKEN_HEADER, mintLiveAgentRunToken, type LiveAgentTokenClaims } from '@/lib/live-agent/live-agent-run-token'
 
 const h = vi.hoisted(() => ({
@@ -41,7 +41,7 @@ function seed() {
     }
     const r = base(q)
     // A call's capture (its notes channel set).
-    if (q.table === 'captures' && r.data && !Array.isArray(r.data)) {
+    if (q.table === 'captures' && isSettled(r) && r.data && !Array.isArray(r.data)) {
       return { ...r, data: { ...(r.data as Record<string, unknown>), notes_channel_id: 'chan-call-1' } }
     }
     return r

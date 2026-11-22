@@ -19,7 +19,7 @@
     "postinstall": "patch-package",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
-    "typecheck": "NODE_OPTIONS=--max-old-space-size=8192 tsc --noEmit",
+    "typecheck": "node scripts/typecheck.mjs && tsc -p packages/ui/tsconfig.json --noEmit",
     "typegen": "sanity schema extract --path=src/sanity/extract.json && sanity typegen generate && rm ./src/sanity/extract.json",
     "invite": "npx tsx scripts/send-invites.ts",
     "test": "vitest run",

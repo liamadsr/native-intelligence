@@ -1,7 +1,7 @@
 import { deflateRawSync } from 'node:zlib'
 
 /** A tiny stored (uncompressed) zip with these entry names, for the type checks' tests. Each entry is empty. */
-export function zipOf(names: readonly string[], opts: { encrypted?: boolean } = {}): Uint8Array {
+export function zipOf(names: readonly string[], opts: { encrypted?: boolean } = {}): Uint8Array<ArrayBuffer> {
   const enc = new TextEncoder()
   const locals: Uint8Array[] = []
   const centrals: Uint8Array[] = []
@@ -45,7 +45,7 @@ export function zipOf(names: readonly string[], opts: { encrypted?: boolean } = 
   return out
 }
 
-export const bytesOf = (...parts: Array<string | number[]>): Uint8Array => {
+export const bytesOf = (...parts: Array<string | number[]>): Uint8Array<ArrayBuffer> => {
   const enc = new TextEncoder()
   const chunks = parts.map((p) => (typeof p === 'string' ? enc.encode(p) : Uint8Array.from(p)))
   const out = new Uint8Array(chunks.reduce((s, c) => s + c.length, 0))

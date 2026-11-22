@@ -217,7 +217,7 @@ describe('a value read and written back', () => {
     const read = (id: string) => editItems(project, [id]).items[0] as Obj & { style: Obj; defaulted: string[] }
     const setStyle = (l: Obj & { style: Obj; defaulted: string[] }) => Object.fromEntries(Object.entries(l.style).filter(([k]) => !l.defaulted.includes(k)))
     const box = read('box-1'), arrow = read('arrow-1'), chips = read('chips-1'), image = read('image-1'), ring = read('ring-1')
-    const clip2 = read('clip-2'), beat = read('beat-2'), automation = read('automation') as Obj & { lanes: { param: string; points: [number, number, string?][] }[] }
+    const clip2 = read('clip-2'), beat = read('beat-2'), automation = editItems(project, ['automation']).items[0] as Obj & { lanes: { param: string; points: [number, number, string?][] }[] }
     const writes: OpCall[] = [
       ...[box, arrow, chips, image, ring].map((l) => ({ op: 'update_layer', args: { id: l.id, start: l.start, end: l.end, x: l.x, y: l.y, width: l.width, height: l.height, opacity: l.opacity, rotate: l.rotate, style: setStyle(l), enter: l.enter, exit: l.exit } }) as OpCall),
       { op: 'set_transition', args: { at: clip2.start, ...(clip2.transitionIn as Obj) } },
