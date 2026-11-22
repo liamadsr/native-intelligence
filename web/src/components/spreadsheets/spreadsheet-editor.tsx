@@ -657,6 +657,14 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
         </div>
       )}
 
+      {guard && (
+        <div role="alert" className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-border/60 bg-amber-500/10 px-3 py-1.5 text-xs text-foreground">
+          <span className="min-w-0 flex-1">
+            {guard.name ?? 'Someone'} added or removed rows or columns while you were editing. Your unsaved changes are still here: copy what you need, then load the latest.
+          </span>
+          <Button size="sm" variant="outline" className="h-6 shrink-0 px-2 text-xs" onClick={onReload}>Load the latest</Button>
+        </div>
+      )}
       <Toolbar
         workbook={workbook}
         view={view}
@@ -916,14 +924,8 @@ function CommentsButton({ count, open, onClick, standalone }: { count: number; o
 }
 
 function SaveNote({ state, readOnly, onRetry, guard, onReload }: { state: SaveState; readOnly: boolean; onRetry: () => void; guard: { name: string | null } | null; onReload: () => void }) {
-  if (guard) {
-    return (
-      <span role="alert" className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
-        {guard.name ?? 'Someone'} added or removed rows or columns while you were editing. Your unsaved changes are still here: copy what you need, then load the latest.
-        <Button size="sm" variant="outline" className="h-6 shrink-0 px-2 text-xs" onClick={onReload}>Load the latest</Button>
-      </span>
-    )
-  }
+  // The full notice, with its button, is a banner over the grid: the header has no room for it.
+  if (guard) return <span className="shrink-0 text-xs text-destructive">Not saved</span>
   if (readOnly) return <span className="shrink-0 text-xs text-muted-foreground">Archived: view only</span>
   if (state === 'failed') {
     return (

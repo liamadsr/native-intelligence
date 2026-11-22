@@ -677,6 +677,13 @@ Made without asking, while the owner was away. Each can be changed.
     nothing, so its row/column inserts and deletes are invisible to the guard (its sheet
     adds/deletes/moves are still caught by the map compare). The proper fix for every kind of late
     edit — not only plain cell inputs — is the open item below.
+    Checked in two browser windows on the dev server after the fix: the sequence that had put
+    555 on Paper now puts it on Clips, the row it was typed on; a stale window that made a cell
+    bold on a sheet where the other had inserted a row got the notice (a banner over the toolbar),
+    wrote nothing to the server, and "Load the latest" loaded the newer workbook. After a merge the
+    pending work is kept at its new addresses, so a save refused a second time does not fall back
+    to the old row numbers. The notice says "Someone" when the refusal came from a save rather
+    than a poll (the save's answer does not carry the other person's name).
 
 ## Open items
 
