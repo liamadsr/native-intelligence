@@ -21,6 +21,7 @@ vi.mock('@/lib/spreadsheets/engine-client', async () => {
 // A fake Supabase client the editor's createClient() returns; records the rooms it opens.
 const sb = vi.hoisted(() => {
   interface Ch { topic: string; config: unknown; status: (s: string) => void; hear: (p: unknown) => void; sent: Array<Record<string, unknown>>; removed: boolean }
+  interface FakeChan { entry: Ch; on(t: unknown, f: unknown, cb: (m: { payload?: unknown }) => void): FakeChan; subscribe(cb: (s: string) => void): void; send(m: { payload: Record<string, unknown> }): void }
   const channels: Ch[] = []
   return {
     channels,
@@ -30,16 +31,16 @@ const sb = vi.hoisted(() => {
       channel(topic: string, o: { config: unknown }) {
         const entry: Ch = { topic, config: o.config, status: () => {}, hear: () => {}, sent: [], removed: false }
         channels.push(entry)
-        const ch: { entry: Ch; on: (...a: unknown[]) => unknown; subscribe: (cb: (s: string) => void) => void; send: (m: { payload: Record<string, unknown> }) => void } = {
+        const ch: FakeChan = {
           entry,
-          on(_t: unknown, _f: unknown, cb: (m: { payload?: unknown }) => void) {
+          on(_t, _f, cb) {
             entry.hear = (p) => cb({ payload: p })
             return ch
           },
-          subscribe(cb: (s: string) => void) {
+          subscribe(cb) {
             entry.status = cb
           },
-          send(m: { payload: Record<string, unknown> }) {
+          send(m) {
             entry.sent.push(m.payload)
           },
         }
