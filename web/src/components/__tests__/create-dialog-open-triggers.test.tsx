@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 /**
  * What opens the create dialog. The rail's + and the app-wide `c` (Liam,
- * 11-20: back after 10-20's removal) fire `open-create`, on Action unless a
- * type is named. `c` is skipped while typing and while another dialog or menu
+ * 11-20: back after 10-20's removal) open the Create menu (owner, 11-22:
+ * Macro's one menu); `open-create` naming a type opens its composer. `c` is skipped while typing and while another dialog or menu
  * has the focus, and is never prevented, so Mail's own `c` (New email,
  * `open-create-email`) still sees it and lands on Email. The old top bar's
  * `open-create-action` stays retired.
@@ -27,6 +27,9 @@ let container: HTMLDivElement
 let root: Root | null = null
 
 beforeEach(() => {
+  // The Create menu's list (cmdk) scrolls its active item into view.
+  globalThis.ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver
+  Element.prototype.scrollIntoView ??= function () {}
   vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 200 })))
   container = document.createElement('div')
   document.body.appendChild(container)
@@ -53,10 +56,16 @@ const press = (target: EventTarget = document.body, init: KeyboardEventInit = {}
 const typeLabel = () => document.body.querySelector('[data-create-type-trigger]')?.textContent ?? ''
 
 describe('CreateDialog open triggers', () => {
-  it('opens on a bare `c` anywhere in the app, on Action', async () => {
+  it('opens the Create menu on a bare `c` anywhere in the app (every type, type to filter)', async () => {
     await act(async () => void press())
     expect(dialog()).not.toBeNull()
-    expect(typeLabel()).toContain('New action')
+    expect(document.body.querySelector('[data-create-menu]')).not.toBeNull()
+    expect(document.body.querySelector('[data-create-menu-type="action"]')).not.toBeNull()
+  })
+
+  it('opens the Create menu on `open-create` with no type (the rail’s +)', async () => {
+    await act(async () => void document.dispatchEvent(new CustomEvent('open-create')))
+    expect(document.body.querySelector('[data-create-menu]')).not.toBeNull()
   })
 
   it('leaves the `c` unprevented, so Mail’s own `c` (New email) still sees it', async () => {

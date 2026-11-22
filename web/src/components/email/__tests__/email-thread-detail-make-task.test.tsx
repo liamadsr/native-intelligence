@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 /**
- * "Make a task" in the thread pane's header: a task titled "Follow up:
- * <subject>" (else the sender), linked 'about' the thread's index row through
- * the one task path (POST /api/account/actions with `about`). A thread that
+ * "Make a task" in the thread pane's header: the action composer, titled
+ * "Follow up: <subject>" (else the sender), the task linked 'about' the
+ * thread's index row when it is made (POST /api/account/actions with `about`). A thread that
  * isn't indexed has nothing to link to, so no button. The REAL pane is
  * mounted; fetch is stubbed. Made-up people and companies.
  */
@@ -60,6 +60,8 @@ let container: HTMLDivElement
 let root: Root
 let thread: Record<string, unknown>
 let posts: Array<{ url: string; body: unknown }>
+let asked: unknown[]
+const onAsk = (e: Event) => asked.push((e as CustomEvent).detail)
 const flush = () => act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))))
 async function render() {
   await act(async () => root.render(h(EmailThreadDetail, { threadId: 'thr-1' } as never)))
@@ -71,6 +73,8 @@ const makeTaskButton = () => container.querySelector<HTMLButtonElement>('button[
 beforeEach(() => {
   cards.opened = []
   posts = []
+  asked = []
+  document.addEventListener('open-create', onAsk)
   thread = threadWith({})
   vi.stubGlobal(
     'fetch',
@@ -87,6 +91,7 @@ beforeEach(() => {
   root = createRoot(container)
 })
 afterEach(async () => {
+  document.removeEventListener('open-create', onAsk)
   await act(async () => root.unmount())
   container.remove()
   vi.unstubAllGlobals()
@@ -94,18 +99,14 @@ afterEach(async () => {
 })
 
 describe('EmailThreadDetail — make a task', () => {
-  it('makes "Follow up: <subject>", linked about the thread, and opens it at once (the subject is in its title), with Undo', async () => {
+  it('opens the action composer titled "Follow up: <subject>", to be linked about the thread; nothing is made yet', async () => {
     await render()
     await act(async () => makeTaskButton()!.click())
     await flush()
-    expect(posts).toEqual([
-      { url: '/api/account/actions', body: { title: 'Follow up: Contract redlines', about: { type: 'email_thread', id: INDEX_ID } } },
+    expect(asked).toEqual([
+      { type: 'action', context: { source: { type: 'email_thread', id: INDEX_ID, title: 'Follow up: Contract redlines' } } },
     ])
-    expect(cards.opened).toEqual([{ type: 'action', id: 'a-1', title: 'Follow up: Contract redlines' }])
-    expect(toasts.success).toHaveBeenCalledWith(
-      'Task made',
-      expect.objectContaining({ description: 'Follow up: Contract redlines', action: expect.objectContaining({ label: 'Undo' }) }),
-    )
+    expect(posts).toEqual([])
   })
 
   it('falls back to the sender when the thread has no subject', async () => {
@@ -113,7 +114,7 @@ describe('EmailThreadDetail — make a task', () => {
     await render()
     await act(async () => makeTaskButton()!.click())
     await flush()
-    expect(posts[0].body).toMatchObject({ title: 'Follow up: Dana Whitfield' })
+    expect(asked[0]).toMatchObject({ context: { source: { title: 'Follow up: Dana Whitfield' } } })
   })
 
   it('offers nothing on a thread the index does not hold (nothing to link to)', async () => {

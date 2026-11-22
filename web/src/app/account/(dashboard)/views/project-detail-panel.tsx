@@ -74,6 +74,7 @@ import { PRIORITY_OPTIONS } from '@/lib/views/property-options'
 import { EntityTitleInput } from '@/components/views/entity-title-input'
 import { usePropertiesVisible } from '@/components/views/use-properties-visible'
 import { WindowProperties, WindowActions } from '@/components/views/window-properties'
+import { CreateHereButton } from '@/components/create/create-here-button'
 import { ProjectEnvironmentField } from '@/components/environments/project-environment-field'
 import { UnifiedViewLayout, useIsWindowFocused } from '@/components/views/unified-view-layout'
 import { PropertyGroup } from '@/components/views/property-group'
@@ -641,6 +642,8 @@ export function ProjectDetailPanel({
               <AlarmClock className="h-3.5 w-3.5" />
             </PreferenceActionButton>
           </ReminderPickerPopover>
+          {/* New action or doc in this project: the Create composer, "Create in <project>". */}
+          {project && <CreateHereButton container={{ kind: 'project', id: projectId, name: project.name }} types={['action', 'document']} />}
           {/* More, last (docs/plans/properties-panels.md): the kind's menu, then
                     Move to workspace (same post-move handling as delete: the
                     project leaves this workspace's lists either way) and Delete. */}

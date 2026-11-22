@@ -79,4 +79,19 @@ describe('the shortcut registry', () => {
     expect(keysText('shift+h', true)).toBe('⇧H')
     expect(normalizeKeys('Shift+Mod+K')).toBe('mod+shift+k')
   })
+
+  it('reads C then a letter in the menu C opens, and nowhere else', async () => {
+    const { CREATE_SHORTCUTS, findShortcutConflicts: find } = await import('../shortcuts')
+    const letters = CREATE_SHORTCUTS.filter((s) => s.createType)
+    expect(letters.length).toBeGreaterThan(8)
+    for (const s of letters) {
+      expect(s.keys[0]).toMatch(/^c [a-z]$/)
+      expect(s.continues).toBe('create')
+    }
+    // Without `continues`, C then A would be a bare C that starts a sequence.
+    const create: ShortcutDef = { id: 'create', keys: ['c'], label: 'Create', section: 'General', scope: 'global' }
+    const loose: ShortcutDef = { id: 'loose', keys: ['c a'], label: 'Loose', section: 'Create', scope: 'create-menu' }
+    expect(find([create, loose], [])).toHaveLength(1)
+    expect(find([create, { ...loose, continues: 'create' }], [])).toEqual([])
+  })
 })

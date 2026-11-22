@@ -28,6 +28,7 @@ import { EntityActionsMenu, PANEL_OMIT } from '@/components/entities/entity-acti
 import { EntityTitleInput } from '@/components/views/entity-title-input'
 import { usePropertiesVisible } from '@/components/views/use-properties-visible'
 import { WindowProperties, WindowActions } from '@/components/views/window-properties'
+import { CreateHereButton } from '@/components/create/create-here-button'
 import { UnifiedViewLayout } from '@/components/views/unified-view-layout'
 import { PropertyGroup } from '@/components/views/property-group'
 import { OptionalProperty, PropertyRow, PropertyRows } from '@/components/views/property-layout'
@@ -345,6 +346,8 @@ export function CompanyDetailPanel({
           {/* Share with people, teams and channels (migrations 492, 512): only
                     an owner or admin may share a company, so no one else sees it. */}
           {company && canShareCompanies && <ShareDialog shareableType="company" shareableId={companyId} />}
+          {/* New action about this company, or a contact who works here: the Create composer, "Create in <company>". */}
+          {company && <CreateHereButton container={{ kind: 'company', id: companyId, name: company.name }} types={['action', 'contact']} />}
           {/* More, last (docs/plans/properties-panels.md): the kind's menu, then
                     Delete, which cascades to every person at the company, so the
                     dialog dry-runs the delete and shows the exact people count first. */}

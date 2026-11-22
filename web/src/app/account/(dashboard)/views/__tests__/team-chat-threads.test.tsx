@@ -268,10 +268,16 @@ describe('make a task from a message', () => {
     expect(button).not.toBeNull()
     // The toolbar's own look: the same classes as Reply in thread beside it.
     expect(button.className).toBe(row('root-1').querySelector<HTMLButtonElement>('button[aria-label="Reply in thread"]')!.className)
+    // The action composer, prefilled, the task linked back to the message when it is made.
+    const asked: unknown[] = []
+    const onAsk = (e: Event) => asked.push((e as CustomEvent).detail)
+    document.addEventListener('open-create', onAsk)
     await act(async () => button.click())
     await settle()
-    expect(requests.filter((r) => r.url === '/api/account/actions')).toEqual([
-      { url: '/api/account/actions', method: 'POST', body: { title: 'Follow up: Shall we ship on Friday?', about: { type: 'team_chat_message', id: 'root-1' } } },
+    document.removeEventListener('open-create', onAsk)
+    expect(asked).toEqual([
+      { type: 'action', context: { source: { type: 'team_chat_message', id: 'root-1', title: 'Follow up: Shall we ship on Friday?' } } },
     ])
+    expect(requests.filter((r) => r.url === '/api/account/actions')).toEqual([])
   })
 })
