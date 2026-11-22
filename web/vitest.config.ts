@@ -34,6 +34,9 @@ export default defineConfig({
     // otherwise collect stale duplicate copies of every test. Extend the
     // defaults rather than replace them.
     exclude: [...configDefaults.exclude, '**/.eve/**'],
+    // Apply web/patches to node_modules first: an `npm ci --ignore-scripts`
+    // install skips the postinstall that does it, and production runs patched.
+    globalSetup: ['./src/test/global-setup.ts'],
     setupFiles: ['./src/test/setup.ts'],
     // Force React's development build during the test run. `react/index.js`
     // only exports `act` from the dev build; under NODE_ENV=production (which a
