@@ -496,7 +496,7 @@ save path. Presence is **not** built (see below).
 | Comments — anchors follow cells | Done. Inserting or deleting rows or columns in this editor shifts the anchors of that sheet's threads (reusing `shiftCommentAnchor` over the extras range-shift helpers) and saves the changed ones; undo of the structural edit moves them back (the controller emits the inverse change). A thread whose cells were deleted keeps living, shown as "its cells were deleted". A sheet delete marks its threads the same way (its undo does not restore them — decision 27). Comments are otherwise not part of undo history. |
 | Editing together — merge on a conflict | Done, replacing the old lose-your-work answer (decision 7, 26). A save refused with 409 loads the newer workbook, replays this editor's unsaved actions onto it with the engine's change sets (`lib/spreadsheets/sync.ts` + the controller's `pendingDiffs()`/`adopt()`), adopts the merged workbook keeping the active sheet (by id), the selection and any open cell edit, and saves again against the new revision (bounded retries, then the existing "Not saved / Try again"). `WorkbookExtras` merge per top-level kind: theirs for kinds I did not touch, mine for the kinds I did. |
 | Editing together — polling | Done. Every ~4 s while the tab is visible (paused when hidden, resumed at once on `visibilitychange`) the editor asks a new cheap route `GET /api/account/spreadsheets/[id]/revision` (`{ revision, last_edited_by, updated_at, editor_name }`). When it is ahead of mine: with nothing pending I fetch and adopt their workbook (selection, sheet and any open draft kept); with pending work I rebase and save. A quiet "Updated by <name>" shows for a few seconds. |
-| Presence (who else has it open) | **NOT built, on purpose** (decision 24). The only presence the app has is global app-presence (`lib/presence`, `user_presence`: "is this person at a Native Intelligence app at all"), not per-record, and it needs its own table and route. No existing code uses Supabase Realtime channel presence for any record kind in an authorised way, and 675 adds no realtime publication for a spreadsheet. Building per-record presence would mean a channel carrying the spreadsheet id and a name in its payload, with no authorised precedent — the lead ruled it out tonight. So no "who else is here" is shown. |
+| Presence (who else has it open) | Built later, in phase 7 below (decision 33). What phase 5 said: **NOT built, on purpose** (decision 24). The only presence the app has is global app-presence (`lib/presence`, `user_presence`: "is this person at a Native Intelligence app at all"), not per-record, and it needs its own table and route. No existing code uses Supabase Realtime channel presence for any record kind in an authorised way, and 675 adds no realtime publication for a spreadsheet. Building per-record presence would mean a channel carrying the spreadsheet id and a name in its payload, with no authorised precedent — the lead ruled it out tonight. So no "who else is here" is shown. |
 
 What the engine's change sets carry, checked against the real runtime with a scratch
 script before any of this was written (and pinned in `sync.test.ts`): cell inputs,
@@ -528,6 +528,38 @@ dependency, no in-process model call.
 | Selection summary (sum, average, count) | Not built, by the plan: the inventory marks it **No** for Macro, so it is skipped here too. |
 | Stale plan lines | Fixed. The `entity-identity` registry is on `main` and carries the spreadsheet entry (the "Where it shows up" table and the phase-1 note said it was not); copy link, the links panel, the border move and the phone handles are no longer listed as missing where a later phase made them real. |
 
+### Phase 7: who is here (presence and live selection)
+
+The owner's request of 2026-11-22, after phases 1 to 6 were live. It copies canvas's
+approach (migration 682 and `components/canvas/live.ts`) and adds migration 689.
+
+| Piece | What it does |
+| --- | --- |
+| The room | A Realtime broadcast channel per spreadsheet, `spreadsheet-presence:<id>`, joined as a PRIVATE channel with the person's own token attached (`realtime.setAuth()`) before every join and every retry. Nothing is stored. `components/spreadsheets/presence.ts`. |
+| Who may join | Migration 689: two policies on `realtime.messages`, hear (select) and say (insert), for signed-in people, broadcast only. The spreadsheet's id is read out of the topic by a text match anchored at both ends before any cast, and access is 675's own read rule, `spreadsheet_entity_visible_to(id, null, auth.uid())`: a member of the spreadsheet's workspace, and for a private one only its maker. No new definer function. When migration 688 gives that rule a per-person grant, presence follows it with no change here. |
+| What is said | `{ key, userId, name, color, sheetId, range, active }`: one key per open editor, the engine's stable sheet id (so a renamed or reordered sheet still matches), the selected range and the active cell. `{ key, gone: true }` on leaving. Sent at most every 60 ms and at least every 3 s; someone not heard from for 10 s is dropped. What is heard is checked field by field and anything malformed is ignored. |
+| On screen | Faces in the header before the Comments button (initials on the person's colour, one per person however many tabs, four then "+N"); on the grid, for each person on the sheet being looked at, their range outlined and faintly tinted in their colour, their active cell outlined more strongly, and their name on a tag at the range's corner. Under the local selection, above the cells, never in the way of the pointer. |
+| A hidden tab | Says `gone`, leaves the room and stops its heartbeat; on showing it rejoins from scratch (fresh token, fresh join, retry count reset) and says where it is. |
+| With the rest | Independent of saving, the 4-second poll and the merge: none of that code changed. It also runs for a view-only (archived) spreadsheet. |
+| Without 689 | The private join is refused; after six tries with a growing wait the room stays shut, silently: no toast, no error of ours, nobody shown. This is the dev database today. |
+
+Rehearsed on a local Postgres 16 with 675's real `spreadsheet_entity_visible_to`, stand-ins
+for `realtime.messages`, `realtime.topic()` and `auth.uid()`, a workspace sheet and a private
+sheet made by one member, a colleague in the same workspace and a stranger in another: the
+exact committed file applied twice (the second run changes nothing), then, as role
+`authenticated`: the maker and the colleague hear and say on the workspace sheet; on the
+private sheet only its maker; refused for the stranger, for no user id, for a spreadsheet
+that is gone, for a topic that is not a uuid, for an id followed by anything else, for an
+upper-case id (the editor lower-cases it), for a `canvas-presence:` topic carrying the
+sheet's id, and for the `presence` extension. `anon` hears nothing, cannot say, and cannot
+call the topic parser.
+
+**Not proven:** two people seeing each other through a real Realtime server. The dev database
+has no 689, so the browser check there shows only the shut-and-silent half; the other half
+rests on unit tests against a stand-in channel and on the rehearsal above. The first real
+proof is production after 689 is applied, with two people on one spreadsheet, one of them
+kept off a private one.
+
 ## What is still not built
 
 Everything left against the inventory and the surroundings, said plainly. None of it was
@@ -544,9 +576,9 @@ nobody has assigned), and nothing here is faked.
   opens for nobody else, and its menu offers no Share.
 - **Copy link to a cell or range.** Only the workbook has a deep link; a cell or range would
   need new seed plumbing (above).
-- **Presence and live cursors.** No "who else is here", no keystroke-live editing, no live
-  cursors (decision 24). Changes travel through the save path and a ~4-second poll, not a
-  Realtime channel; per-record presence needs its own table, route and policies.
+- **Keystroke-live editing.** Who is here and where their selection is are shown (phase 7),
+  but what people type still travels through the save path and a ~4-second poll, not a live
+  channel; a cell someone else is typing in shows their selection, not their keystrokes.
 - **Mentions in spreadsheet comments do not notify.** The `mentions` column stores the
   member ids, but the app's comment-mention machinery is written for the `comment` table's
   kinds (`CommentableType` has no `spreadsheet`) and its sharing grants per-person access,
@@ -773,6 +805,17 @@ Made without asking, while the owner was away. Each can be changed.
     sheet, and the side panels go full-width; desktop is untouched. The footer still does not
     follow the on-screen keyboard, and none of it was tried on a real phone — a device pass and
     the keyboard-aware footer are the remaining phone work.
+33. **Presence copies canvas, and leans on 675's read rule rather than a new one** (phase 7,
+    migration 689). The room is a private broadcast channel and the two policies ask
+    `spreadsheet_entity_visible_to` with no workspace named, so there is one definition of "may
+    read this spreadsheet" and a later change to it (688's per-person grants) carries over.
+    Choices made here: a person's name in the room is the one on their sign-in (as canvas),
+    not their workspace display name; faces are initials on a colour, not photos (the room
+    carries no photo, and no header avatar in the app is keyed on a sign-in id); a person with
+    two tabs is one face but two selections; a hidden tab leaves rather than idling, so "here"
+    means "looking at it"; after six refused joins the room stays shut until the tab is hidden
+    and shown again or the spreadsheet is reopened (canvas's rule). The colour is derived from
+    the person's id, the same on every screen, from canvas's eight.
 
 ## Open items
 
