@@ -16,7 +16,8 @@ interface EventInteractionLayerProps {
   gridColsClass: string;
 }
 
-type InteractionMode = "move" | "resize";
+/** "resize" moves the end (the bottom handle), "resize-start" the start (the top one). */
+type InteractionMode = "move" | "resize" | "resize-start";
 
 interface DragState {
   event: IEvent;
@@ -39,6 +40,12 @@ const AUTO_SCROLL_SPEED = 12; // px per frame
 
 function snapMinute(m: number) {
   return Math.round(m / SNAP) * SNAP;
+}
+
+/** The top handle: the start follows the pointer, the end stays, at least 15 minutes between them. */
+export function resizeStart<T extends { originalEndMinute: number; previewStartMinute: number; previewEndMinute: number; durationMinutes: number }>(d: T, mouseMin: number, firstHour: number): T {
+  const newStart = Math.min(d.originalEndMinute - SNAP, Math.max(firstHour * 60, snapMinute(mouseMin)));
+  return { ...d, previewStartMinute: newStart, previewEndMinute: d.originalEndMinute, durationMinutes: d.originalEndMinute - newStart };
 }
 
 /** Walk up from the grid to find the nearest scrollable ancestor (Radix ScrollArea or native) */
@@ -137,6 +144,10 @@ export function EventInteractionLayer({ days, firstHour, hoursCount, gridRef, gr
               const next: DragState = { ...d, previewEndMinute: newEnd, durationMinutes: newEnd - d.originalStartMinute };
               setDrag(next);
               dragRef.current = next;
+            } else if (d.mode === "resize-start") {
+              const next = resizeStart(d, mouseMin, firstHour);
+              setDrag(next);
+              dragRef.current = next;
             } else {
               const minBound = firstHour * 60;
               const maxBound = (firstHour + hoursCount) * 60;
@@ -194,7 +205,8 @@ export function EventInteractionLayer({ days, firstHour, hoursCount, gridRef, gr
       if (e.button !== 0) return;
       const target = e.target as HTMLElement;
 
-      const isResize = !!target.closest("[data-resize-handle]");
+      const handle = target.closest<HTMLElement>("[data-resize-handle]");
+      const isResize = !!handle;
       const eventEl = target.closest("[data-event-id]") as HTMLElement | null;
       if (!eventEl) return;
 
@@ -216,7 +228,7 @@ export function EventInteractionLayer({ days, firstHour, hoursCount, gridRef, gr
 
       pendingRef.current = {
         event,
-        mode: isResize ? "resize" : "move",
+        mode: !handle ? "move" : handle.dataset.resizeHandle === "start" ? "resize-start" : "resize",
         dayIndex: col.dayIndex,
         columnEl: col.columnEl,
         eventEl,
@@ -296,6 +308,10 @@ export function EventInteractionLayer({ days, firstHour, hoursCount, gridRef, gr
           previewStartMinute: newStart,
           previewEndMinute: newStart + d.durationMinutes,
         };
+        setDrag(next);
+        dragRef.current = next;
+      } else if (d.mode === "resize-start") {
+        const next = resizeStart(d, mouseMin, firstHour);
         setDrag(next);
         dragRef.current = next;
       } else {
@@ -420,6 +436,11 @@ export function EventInteractionLayer({ days, firstHour, hoursCount, gridRef, gr
                   <div className="px-2 text-[10px] text-primary/70">
                     {fmtTime(drag.previewStartMinute)} – {fmtTime(drag.previewEndMinute)}
                   </div>
+                  {drag.mode === "resize-start" && (
+                    <div className="absolute inset-x-0 top-0 flex h-3 items-start justify-center">
+                      <div className="h-1 w-8 rounded-full bg-primary/40" />
+                    </div>
+                  )}
                   {drag.mode === "resize" && (
                     <div className="absolute inset-x-0 bottom-0 flex h-3 items-end justify-center">
                       <div className="h-1 w-8 rounded-full bg-primary/40" />
@@ -432,7 +453,7 @@ export function EventInteractionLayer({ days, firstHour, hoursCount, gridRef, gr
         </div>
       </div>
 
-      <style>{`body { user-select: none !important; cursor: ${drag.mode === "resize" ? "ns-resize" : "grabbing"} !important; }`}</style>
+      <style>{`body { user-select: none !important; cursor: ${drag.mode === "move" ? "grabbing" : "ns-resize"} !important; }`}</style>
     </>
   );
 }

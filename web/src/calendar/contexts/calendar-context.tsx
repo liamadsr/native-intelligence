@@ -16,6 +16,13 @@ export interface EventDraft {
   location: string;
 }
 
+/** The event card open on the grid: which event, and the block it sits beside. */
+export interface OpenEventDetails {
+  eventId: string;
+  /** The block (or row) that was clicked. */
+  anchorEl: HTMLElement | null;
+}
+
 export interface DraftPopover {
   /** The draft event form state */
   draft: EventDraft;
@@ -29,6 +36,8 @@ export interface DraftPopover {
 //   settings — badge variant + hour config, effectively static
 //   data     — events / selected date / selected action: real data changes
 //   draft    — quick-add popover state, changes per keystroke (2 consumers)
+//   details  — the event card that is open, changes on a click (the card and
+//              each event's click wrapper, which marks its block selected)
 // useCalendar() composes mutators+settings+data; the draft context is
 // deliberately excluded so only useCalendarDraft() subscribers pay for typing.
 
@@ -39,7 +48,18 @@ interface ICalendarMutators {
   setVisibleHours: Dispatch<SetStateAction<TVisibleHours>>;
   setLocalEvents: Dispatch<SetStateAction<IEvent[]>>;
   setSelectedActionId: (id: string | null) => void;
-  selectEvent: (event: IEvent) => void;
+  /**
+   * An event was clicked. A task on the calendar opens its action; a calendar
+   * event opens its card beside `anchorEl` (the block clicked). With no anchor
+   * it opens the full event panel, as before, when the host has one.
+   */
+  selectEvent: (event: IEvent, anchorEl?: HTMLElement | null) => void;
+  /** Close the event card. */
+  closeEventDetails: () => void;
+  /** The host's full event panel (previous sessions, linked captures, the Listen brief), when it has one. */
+  openFullEvent: ((event: IEvent) => void) | null;
+  /** Open a capture (the host's capture card), when the host can. */
+  openCapture: ((captureId: string, title: string) => void) | null;
   /** Open the quick-add popover near an anchor element. If a draft already exists with content, the time is updated but title/description/location are preserved. */
   openEventPopover: (anchorEl: HTMLElement | null, start: Date, end: Date) => void;
   /** Close the popover and discard the draft */
@@ -67,6 +87,7 @@ const SettingsContext = createContext<ICalendarSettings | null>(null);
 const DataContext = createContext<ICalendarData | null>(null);
 // `null` is a valid value (popover closed), so "no provider" is `undefined`.
 const DraftContext = createContext<DraftPopover | null | undefined>(undefined);
+const DetailsContext = createContext<OpenEventDetails | null | undefined>(undefined);
 
 const WORKING_HOURS = {
   0: { from: 0, to: 0 },
@@ -85,13 +106,17 @@ export function CalendarProvider({
   events,
   onSelectAction,
   onSelectEvent,
+  onOpenCapture,
   initialDate,
   onSelectedDateChange,
 }: {
   children: React.ReactNode;
   events: IEvent[];
   onSelectAction?: (actionId: string) => void;
+  /** The full event panel. A click on the grid opens the event's card instead; the card links here. */
   onSelectEvent?: (event: IEvent) => void;
+  /** Open a capture (the event card's "Open capture"). */
+  onOpenCapture?: (captureId: string, title: string) => void;
   /** Where the grid opens (a chat card's own date); today when absent. Read at mount. */
   initialDate?: Date;
   /** The person moved the date (a chat card keeps it). */
@@ -106,6 +131,7 @@ export function CalendarProvider({
   const [localEvents, setLocalEvents] = useState<IEvent[]>(events);
   const [selectedActionId, setSelectedActionIdRaw] = useState<string | null>(null);
   const [draftPopover, setDraftPopover] = useState<DraftPopover | null>(null);
+  const [eventDetails, setEventDetails] = useState<OpenEventDetails | null>(null);
 
   // Resync local events when a fresh fetch supersedes them. `localEvents` is
   // seeded once and then mutated in place by optimistic helpers (useUpdateEvent);
@@ -131,6 +157,8 @@ export function CalendarProvider({
 
   const openEventPopover = useCallback((anchorEl: HTMLElement | null, start: Date, end: Date) => {
     if (suppressOpenRef.current) return;
+    // One card at a time: making an event closes the one being read.
+    setEventDetails(null);
     setDraftPopover((prev) => {
       const hasDirtyContent = prev && (prev.draft.title.trim() || prev.draft.description.trim() || prev.draft.location.trim());
       if (hasDirtyContent) {
@@ -164,13 +192,38 @@ export function CalendarProvider({
     }
   }, []);
 
-  const selectEvent = useCallback((event: IEvent) => {
+  const selectEvent = useCallback((event: IEvent, anchorEl?: HTMLElement | null) => {
     if (event.isAction && event.actionId) {
       setSelectedActionId(event.actionId);
+    } else if (anchorEl) {
+      setDraftPopover(null);
+      setEventDetails({ eventId: event.id, anchorEl });
     } else if (onSelectEventRef.current) {
       onSelectEventRef.current(event);
     }
   }, [setSelectedActionId]);
+
+  const closeEventDetails = useCallback(() => setEventDetails(null), []);
+
+  // Present or not decides whether the card offers the link; the call goes through the ref.
+  const hasFullEvent = !!onSelectEvent;
+  const openFullEvent = useMemo(
+    () => (hasFullEvent ? (event: IEvent) => {
+      setEventDetails(null);
+      onSelectEventRef.current?.(event);
+    } : null),
+    [hasFullEvent],
+  );
+  const onOpenCaptureRef = useRef(onOpenCapture);
+  onOpenCaptureRef.current = onOpenCapture;
+  const hasOpenCapture = !!onOpenCapture;
+  const openCapture = useMemo(
+    () => (hasOpenCapture ? (captureId: string, title: string) => {
+      setEventDetails(null);
+      onOpenCaptureRef.current?.(captureId, title);
+    } : null),
+    [hasOpenCapture],
+  );
 
   const onSelectedDateChangeRef = useRef(onSelectedDateChange);
   onSelectedDateChangeRef.current = onSelectedDateChange;
@@ -189,11 +242,14 @@ export function CalendarProvider({
       setLocalEvents,
       setSelectedActionId,
       selectEvent,
+      closeEventDetails,
+      openFullEvent,
+      openCapture,
       openEventPopover,
       closeEventPopover,
       setDraftPopover,
     }),
-    [handleSelectDate, setSelectedActionId, selectEvent, openEventPopover, closeEventPopover],
+    [handleSelectDate, setSelectedActionId, selectEvent, closeEventDetails, openFullEvent, openCapture, openEventPopover, closeEventPopover],
   );
 
   const settings = useMemo<ICalendarSettings>(
@@ -210,7 +266,9 @@ export function CalendarProvider({
     <MutatorsContext.Provider value={mutators}>
       <SettingsContext.Provider value={settings}>
         <DataContext.Provider value={data}>
-          <DraftContext.Provider value={draftPopover}>{children}</DraftContext.Provider>
+          <DraftContext.Provider value={draftPopover}>
+            <DetailsContext.Provider value={eventDetails}>{children}</DetailsContext.Provider>
+          </DraftContext.Provider>
         </DataContext.Provider>
       </SettingsContext.Provider>
     </MutatorsContext.Provider>
@@ -235,6 +293,25 @@ export function useCalendarSettings(): ICalendarSettings {
 export function useCalendarDraft(): DraftPopover | null {
   const context = useContext(DraftContext);
   if (context === undefined) throw new Error("useCalendarDraft must be used within a CalendarProvider.");
+  return context;
+}
+
+/** The event card that is open on the grid, or null. Changes on a click. */
+export function useCalendarEventDetails(): OpenEventDetails | null {
+  const context = useContext(DetailsContext);
+  if (context === undefined) throw new Error("useCalendarEventDetails must be used within a CalendarProvider.");
+  return context;
+}
+
+/** For the click wrapper around every event: null outside a provider (a block drawn on its own). */
+export function useOptionalCalendarEventDetails(): OpenEventDetails | null {
+  return useContext(DetailsContext) ?? null;
+}
+
+/** The calendar's events and date (the event card reads the open event from them, so an edit shows at once). */
+export function useCalendarData(): ICalendarData {
+  const context = useContext(DataContext);
+  if (!context) throw new Error("useCalendarData must be used within a CalendarProvider.");
   return context;
 }
 

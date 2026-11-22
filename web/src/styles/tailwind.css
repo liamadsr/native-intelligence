@@ -1290,3 +1290,16 @@ body:has([data-marketing-sky]) #nd-sidebar[data-collapsed='false'] {
   --entity-purple: oklch(0.75 0.16 305);
   --entity-pink: oklch(0.76 0.15 352);
 }
+
+/* The event whose card is open (event-details-popover.tsx): a little deeper fill and a ring in its own
+   hue, on the block, badge or agenda card inside the click wrapper (event-details-dialog.tsx). */
+[data-event-selected] > [role='button'] {
+  outline: 2px solid oklch(0.6 calc(0.13 * var(--cal-k, 1)) var(--cal-h, 252));
+  outline-offset: 1px;
+}
+[data-event-selected] > .cal-fill {
+  filter: brightness(0.95);
+}
+.dark [data-event-selected] > .cal-fill {
+  filter: brightness(1.08);
+}
