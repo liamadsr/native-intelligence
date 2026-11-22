@@ -851,7 +851,8 @@ export function EmailLayout({ onReplyRequest, card }: EmailLayoutProps) {
           if (selectedThread && canGoPrev) handlePrevThread()
           break
         // With a thread open (docs/plans/keyboard-shortcuts.md): E archive,
-        // R reply, A reply all (the chat drafts it), U mark unread.
+        // R reply, A reply all, F forward (each opens the thread's own
+        // composer), U mark unread.
         case 'e':
           if (selectedThread) threadKeyActionsRef.current?.archive()
           break
@@ -860,6 +861,9 @@ export function EmailLayout({ onReplyRequest, card }: EmailLayoutProps) {
           break
         case 'a':
           if (selectedThread) threadKeyActionsRef.current?.replyAll()
+          break
+        case 'f':
+          if (selectedThread) threadKeyActionsRef.current?.forward()
           break
         case 'u':
           if (selectedThread) markOpenThreadUnread()
