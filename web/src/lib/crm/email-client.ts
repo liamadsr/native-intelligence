@@ -1,3 +1,4 @@
+import { attachmentMimePart, graphFileAttachment, type ComposeAttachment } from '@/lib/email/compose-attachments'
 import { parseCalendarInvite, type CalendarInvite } from '@/lib/email/calendar-invite'
 import { getValidToken, getValidTokenForAccount } from '@/lib/oauth/token-manager'
 import { isDemoWorkspace } from '@/lib/demo/demo-mode'
@@ -105,6 +106,8 @@ interface SendEmailParams {
   account_id?: string
   /** Skip the contact_interaction insert — for callers that keep their own ledger. */
   skip_interaction_log?: boolean
+  /** Files to attach (Mail's composer), already checked by parseComposeAttachments. */
+  attachments?: readonly ComposeAttachment[]
   /**
    * Caller-supplied RFC 2822 Message-ID (bare, no angle brackets) to stamp on
    * the outgoing message instead of self-generating one. Callers that persist
@@ -641,6 +644,7 @@ export async function sendEmail(
         // missing one still threads via References.
         inReplyTo: parentRfcId,
         references: params.references,
+        attachments: params.attachments,
       })
 
       const encoded = Buffer.from(rawEmail)
@@ -734,6 +738,7 @@ export async function sendEmail(
         )
         if (!patchRes.ok) throw new Error(`Outlook reply patch error: ${patchRes.status}`)
         const patched = await patchRes.json()
+        await attachToGraphDraft(token.token, draft.id, params.attachments)
 
         const sendRes = await fetch(
           `https://graph.microsoft.com/v1.0/me/messages/${draft.id}/send`,
@@ -778,6 +783,7 @@ export async function sendEmail(
         })
         if (!createRes.ok) throw new Error(`Outlook draft create error: ${createRes.status}`)
         const draft = await createRes.json()
+        await attachToGraphDraft(token.token, draft.id, params.attachments)
 
         const sendRes = await fetch(
           `https://graph.microsoft.com/v1.0/me/messages/${draft.id}/send`,
@@ -963,6 +969,38 @@ export async function findSentMessageByRfcId(
   }
 }
 
+/**
+ * Each file onto an Outlook draft before it is sent (one request a file: a
+ * file of up to 3 MB goes in one, the composer's limit). A file that does not
+ * go stops the send: a message is never sent without what it says it carries.
+ */
+async function attachToGraphDraft(accessToken: string, draftId: string, files: readonly ComposeAttachment[] | undefined) {
+  for (const file of files ?? []) {
+    const res = await fetch(`https://graph.microsoft.com/v1.0/me/messages/${draftId}/attachments`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(graphFileAttachment(file)),
+    })
+    if (!res.ok) throw new Error(`Outlook attachment error: ${res.status}`)
+  }
+}
+
+/** A Gmail message's own RFC 2822 Message-ID (bare), for a reply's In-Reply-To; null when it can't be read. */
+async function gmailRfcMessageId(accessToken: string, messageId: string): Promise<string | null> {
+  try {
+    const res = await fetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}?format=metadata&metadataHeaders=Message-Id`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    )
+    if (!res.ok) return null
+    const data = await res.json()
+    const header = (data.payload?.headers || []).find((h: { name: string; value: string }) => h.name.toLowerCase() === 'message-id')
+    return header?.value ? String(header.value).replace(/^<|>$/g, '') : null
+  } catch {
+    return null
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Save draft to provider
 // ---------------------------------------------------------------------------
@@ -978,6 +1016,14 @@ export async function saveDraftToProvider(
     body_html: string
     /** The picked From mailbox; pins the draft to it, as sendEmail's account_id does. */
     account_id?: string | null
+    /**
+     * The message a reply draft answers (its provider id, on `thread_id`): the
+     * draft carries In-Reply-To / References at Gmail, and is made with
+     * createReply at Outlook, so it sends threaded.
+     */
+    in_reply_to_message_id?: string | null
+    /** Files to attach (Mail's composer), already checked by parseComposeAttachments. */
+    attachments?: readonly ComposeAttachment[]
   },
 ): Promise<{ draft_id: string; thread_id: string | null }> {
   // The picked From account wins (as on send); otherwise a reply draft belongs
@@ -992,6 +1038,7 @@ export async function saveDraftToProvider(
   let threadId: string | null = null
 
   if (token.provider === 'google') {
+    const parentRfcId = params.thread_id && params.in_reply_to_message_id ? await gmailRfcMessageId(token.token, params.in_reply_to_message_id) : null
     const rawEmail = buildRawEmail({
       from: token.email || '',
       to: params.to,
@@ -999,6 +1046,8 @@ export async function saveDraftToProvider(
       bcc: params.bcc,
       subject: params.subject,
       bodyHtml: params.body_html,
+      ...(parentRfcId ? { inReplyTo: parentRfcId } : {}),
+      attachments: params.attachments,
     })
 
     const encoded = Buffer.from(rawEmail)
@@ -1025,28 +1074,34 @@ export async function saveDraftToProvider(
     draftId = data.id
     threadId = typeof data.message?.threadId === 'string' ? data.message.threadId : null
   } else {
-    const res = await fetch(
-      'https://graph.microsoft.com/v1.0/me/messages',
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token.token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          subject: params.subject,
-          body: { contentType: 'html', content: params.body_html },
-          toRecipients: params.to.map((e) => ({ emailAddress: { address: e } })),
-          ccRecipients: params.cc?.map((e) => ({ emailAddress: { address: e } })),
-          // Kept as Gmail's draft keeps it (a scheduled send goes out as saved).
-          ...(params.bcc?.length ? { bccRecipients: params.bcc.map((e) => ({ emailAddress: { address: e } })) } : {}),
-        }),
-      },
-    )
-    if (!res.ok) throw new Error(`Outlook draft error: ${res.status}`)
-    const data = await res.json()
-    draftId = data.id
+    const fields = {
+      subject: params.subject,
+      body: { contentType: 'html', content: params.body_html },
+      toRecipients: params.to.map((e) => ({ emailAddress: { address: e } })),
+      ccRecipients: params.cc?.map((e) => ({ emailAddress: { address: e } })),
+      // Kept as Gmail's draft keeps it (a scheduled send goes out as saved).
+      ...(params.bcc?.length ? { bccRecipients: params.bcc.map((e) => ({ emailAddress: { address: e } })) } : {}),
+    }
+    const headers = { Authorization: `Bearer ${token.token}`, 'Content-Type': 'application/json' }
+    let data: Record<string, unknown>
+    if (params.in_reply_to_message_id) {
+      // A reply draft: made from the message it answers (Graph threads it),
+      // then given the person's recipients, subject and words (createReply's
+      // own quote is replaced, as sendEmail's reply does).
+      const created = await fetch(`https://graph.microsoft.com/v1.0/me/messages/${params.in_reply_to_message_id}/createReply`, { method: 'POST', headers })
+      if (!created.ok) throw new Error(`Outlook draft error: ${created.status}`)
+      const draft = await created.json()
+      const patched = await fetch(`https://graph.microsoft.com/v1.0/me/messages/${draft.id}`, { method: 'PATCH', headers, body: JSON.stringify(fields) })
+      if (!patched.ok) throw new Error(`Outlook draft error: ${patched.status}`)
+      data = { ...draft, ...(await patched.json()) }
+    } else {
+      const res = await fetch('https://graph.microsoft.com/v1.0/me/messages', { method: 'POST', headers, body: JSON.stringify(fields) })
+      if (!res.ok) throw new Error(`Outlook draft error: ${res.status}`)
+      data = await res.json()
+    }
+    draftId = data.id as string
     threadId = typeof data.conversationId === 'string' ? data.conversationId : null
+    await attachToGraphDraft(token.token, draftId, params.attachments)
   }
 
   return { draft_id: draftId, thread_id: threadId }
@@ -1325,8 +1380,12 @@ export function buildRawEmail(params: {
   inReplyTo?: string
   /** Full References chain (bare ids, oldest first); falls back to inReplyTo alone */
   references?: string[]
+  /** Files to attach (the composer's, checked by parseComposeAttachments): the message becomes multipart/mixed. */
+  attachments?: readonly ComposeAttachment[]
 }): string {
   const boundary = `----=_Part_${Date.now()}`
+  const mixedBoundary = `----=_Mixed_${Date.now()}`
+  const files = params.attachments ?? []
   // Header-injection defense: a CR/LF (or any control char) in the subject
   // would terminate the Subject header and let the remainder be parsed as
   // additional headers (Bcc exfiltration, spoofed Reply-To). Neutralize here
@@ -1354,7 +1413,9 @@ export function buildRawEmail(params: {
     params.messageId ? `Message-ID: <${oneLine(params.messageId)}>` : '',
     params.inReplyTo ? `In-Reply-To: <${oneLine(params.inReplyTo)}>` : '',
     referenceIds.length ? `References: ${referenceIds.map((r) => `<${oneLine(r)}>`).join(' ')}` : '',
-    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+    files.length
+      ? `Content-Type: multipart/mixed; boundary="${mixedBoundary}"`
+      : `Content-Type: multipart/alternative; boundary="${boundary}"`,
   ].filter(Boolean).join('\r\n')
 
   const plainText = params.bodyText || htmlToPlainText(params.bodyHtml)
@@ -1368,7 +1429,17 @@ export function buildRawEmail(params: {
     `Content-Transfer-Encoding: quoted-printable\r\n\r\n` +
     `${encodeQuotedPrintable(content)}\r\n`
 
-  return `${headers}\r\n\r\n` + part('text/plain', plainText) + part('text/html', params.bodyHtml) + `--${boundary}--`
+  const alternative = part('text/plain', plainText) + part('text/html', params.bodyHtml) + `--${boundary}--`
+  if (!files.length) return `${headers}\r\n\r\n` + alternative
+  // The words as one multipart/alternative part, then a part per file.
+  return (
+    `${headers}\r\n\r\n` +
+    `--${mixedBoundary}\r\n` +
+    `Content-Type: multipart/alternative; boundary="${boundary}"\r\n\r\n` +
+    `${alternative}\r\n` +
+    files.map((file) => attachmentMimePart(mixedBoundary, file)).join('') +
+    `--${mixedBoundary}--`
+  )
 }
 
 /**

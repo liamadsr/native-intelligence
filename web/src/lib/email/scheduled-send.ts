@@ -43,6 +43,7 @@
  *
  * Server only (service-role writes; the routes check the row is the caller's).
  */
+import type { ComposeAttachment } from './compose-attachments'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getServiceClient } from '@/lib/admin'
 import { inngest } from '@/lib/inngest/client'
@@ -238,6 +239,13 @@ export async function scheduleNewMessage(
     subject: string
     bodyHtml: string
     sendAt: Date
+    /**
+     * A reply written in Mail's composer: its thread and the message it
+     * answers (provider ids), so the draft it waits as is a threaded reply.
+     */
+    reply?: { threadId: string; inReplyTo: string } | null
+    /** Files from Mail's composer, checked by parseComposeAttachments: saved on the draft. */
+    attachments?: readonly ComposeAttachment[]
   },
   deps: ScheduledSendDeps = defaultScheduledSendDeps,
 ): Promise<ScheduleResult> {
@@ -254,6 +262,8 @@ export async function scheduleNewMessage(
       subject: input.subject,
       body_html: input.bodyHtml,
       account_id: input.accountId,
+      ...(input.reply ? { thread_id: input.reply.threadId, in_reply_to_message_id: input.reply.inReplyTo } : {}),
+      ...(input.attachments?.length ? { attachments: input.attachments } : {}),
     })
   } catch (err) {
     console.error('[scheduled-send] draft not saved:', err instanceof Error ? err.message : err)

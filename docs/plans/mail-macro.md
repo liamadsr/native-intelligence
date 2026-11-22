@@ -79,6 +79,37 @@ Branch `claude/mail-macro`. Merged is not live: see "How production works" in `C
   govern the automatic drafts only; nothing in them is loosened, and the composer reuses the
   no-reply test to warn.
 
+### Writing (phase 2: files, drafts, send later, undo, AI)
+
+- **Files:** a paperclip (or a drop onto the composer) attaches files, shown as chips with
+  their size and an ×. 3 MB a file, 10 files, 6 MB in all
+  (`src/lib/email/compose-attachments.ts`, checked in the composer and again by each route):
+  Outlook takes a file of up to 3 MB in one request, and `/api/account/*` passes the app's
+  proxy, which reads at most 10 MB of a body (base64 adds a third). `sendEmail` and
+  `saveDraftToProvider` carry them: Gmail as `multipart/mixed` parts (RFC 2231 names for
+  non-ASCII), Outlook as a `fileAttachment` each on the draft before `/send`; a refused file
+  stops the send.
+- **Save draft** puts it in the mailbox (`save-draft`), threaded for a reply: Gmail gets
+  In-Reply-To/References from the answered message's Message-ID; Outlook makes it with
+  `createReply`. Before, a reply draft saved there was not threaded at Outlook and had no
+  In-Reply-To at Gmail. The thread then shows the draft as a card, with its own Send, Send
+  later, Edit and Discard (unchanged).
+- **Send later** beside Send (the existing picker): the scheduled route's new-message form now
+  takes `reply_thread_id` + `in_reply_to_message_id` (and files), so a scheduled reply waits
+  as a threaded draft.
+- **Undo send:** Send closes the composer at once and shows "Sending… Undo" for 5 seconds
+  (`src/lib/email/undo-send.ts`); Undo opens the composer again as it was, and nothing is
+  sent. The wait lives outside the composer, so closing the thread doesn't drop it; while a
+  send waits, leaving the page asks first. A failed send says why, with "Open" to bring the
+  composer back; what was written is kept until the send has gone.
+- **Draft with AI** (inside the composer, not on forwards): with an AI draft on the thread
+  (an `email_draft` row an agent or the chat wrote), "Use AI draft" fills the composer
+  (recipients, subject, words) and says so; the person reads it over and sends it, and the send
+  replaces that draft (`provider_draft_id`, deleted and released as the chat card's send
+  does). With none, it asks the chat (`requestEmailReply`, as Reply did) and shows "Drafting in
+  chat…"; when the draft lands on the thread it fills in, or, if the person has started
+  writing, offers "Use it". Nothing is sent without the person pressing Send.
+
 ## Decisions to review
 
 1. **Forward starts a thread of its own** (no `thread_id`): Gmail threads a send only with
@@ -96,6 +127,15 @@ Branch `claude/mail-macro`. Merged is not live: see "How production works" in `C
 7. **A no-reply recipient is warned about, not removed.**
 8. **The composer's local copy lives in `localStorage`** (per person, per browser, a week):
    it is a convenience. Save draft (phase 2) is what puts a draft in the mailbox.
+9. **Undo is a client-side wait of 5 seconds** before the request is made (the same for
+   Gmail and Outlook). A tab closed in those seconds asks first; if the person leaves anyway,
+   the email is not sent (it is still in the composer's local copy).
+10. **Files: 3 MB each, 6 MB in all.** Bigger needs Outlook's upload sessions and a larger
+    proxy body limit (a deploy setting): left out.
+11. **"Use AI draft" only offers drafts an agent wrote** (the thread's `email_draft` rows),
+    not a draft the person saved themselves (that one is its own card with Edit).
+12. **Save draft after filling from the AI draft** saves the new one and discards the AI one,
+    so the thread keeps one draft.
 
 ## Left out, and why
 

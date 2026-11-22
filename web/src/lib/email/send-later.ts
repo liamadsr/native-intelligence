@@ -119,7 +119,18 @@ export interface ScheduledSendView {
 
 /** What scheduling sends: a new message, or a draft on a thread; the time is added. */
 export type ScheduleRequest =
-  | { account_id: string; to: string[]; cc?: string[]; bcc?: string[]; subject: string; body_html: string }
+  | {
+      account_id: string
+      to: string[]
+      cc?: string[]
+      bcc?: string[]
+      subject: string
+      body_html: string
+      /** A reply from Mail's composer: its thread and the message it answers. */
+      reply_thread_id?: string
+      in_reply_to_message_id?: string
+      attachments?: Array<{ name: string; mime_type: string; content_base64: string }>
+    }
   | { thread_id: string; draft_id: string; edits?: unknown; shown?: { to: string[]; subject: string } }
 
 interface ToastOptions {
