@@ -76,6 +76,14 @@ export const EventBlock = memo(function EventBlock({ event, className, readOnly 
       role="button"
       tabIndex={0}
       className={cn(calendarWeekEventCardClasses, "relative h-full overflow-hidden")}
+      {...(!clickStarts && {
+        // The keyboard's click: the wrapper around the block opens its card.
+        onKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => {
+          if (e.key !== "Enter" && e.key !== " ") return;
+          e.preventDefault();
+          e.currentTarget.click();
+        },
+      })}
       {...(clickStarts && {
         title: isRecording ? "A capture is already in progress" : "Start a capture for this meeting",
         "aria-busy": starting,
@@ -144,12 +152,21 @@ export const EventBlock = memo(function EventBlock({ event, className, readOnly 
         </button>
       )}
 
-      {/* Resize handle — sits at the bottom edge of the card. Hidden in
-          read-only mode (the Capture button's calendar), which has no resize machinery. */}
+      {/* Resize handles: the top edge moves the start, the bottom edge the end. They show on hover,
+          and while the event's card is open (the block is selected). Hidden in read-only mode (the
+          Capture button's calendar), which has no resize machinery. A short block keeps the bottom one only. */}
+      {!readOnly && !short && (
+        <div
+          data-resize-handle="start"
+          className="absolute inset-x-0 top-0 z-10 flex h-2 cursor-ns-resize items-center justify-center rounded-t-md opacity-0 transition-opacity group-hover/event:opacity-100 in-data-[event-selected]:opacity-100"
+        >
+          <div className="h-[3px] w-8 rounded-full bg-current opacity-50" />
+        </div>
+      )}
       {!readOnly && (
         <div
-          data-resize-handle
-          className="absolute inset-x-0 bottom-0 z-20 flex h-3 cursor-ns-resize items-center justify-center rounded-b-md opacity-0 transition-opacity group-hover/event:opacity-100"
+          data-resize-handle="end"
+          className="absolute inset-x-0 bottom-0 z-20 flex h-3 cursor-ns-resize items-center justify-center rounded-b-md opacity-0 transition-opacity group-hover/event:opacity-100 in-data-[event-selected]:opacity-100"
         >
           <div className="h-[3px] w-8 rounded-full bg-current opacity-50" />
         </div>

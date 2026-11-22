@@ -52,8 +52,9 @@
  * Flat cost: no fetch, no realtime, no timer of its own. The conversations
  * are the card's own list, kept current by the card's realtime.
  */
+import { EntityIcon } from '@/components/entities/entity-icon'
 import { useLayoutEffect, useMemo, useRef, type KeyboardEvent, type ReactNode } from 'react'
-import { ArrowUpDown, BellOff, Hash, Lock, Plus, Star, Video } from 'lucide-react'
+import { ArrowUpDown, BellOff, Lock, Plus, Star, Video } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu'
@@ -339,7 +340,9 @@ function Glyph({ conversation }: { conversation: TeamChatPanelConversation }): R
       </Avatar>
     )
   }
-  const Icon = channel.kind === 'meeting' ? Video : privateTeam ? Lock : Hash
+  // A channel wears the channel kind's identity; a meeting's room and a private team's lock say what they are.
+  if (channel.kind !== 'meeting' && !privateTeam) return <EntityIcon kind="team_chat_channel" />
+  const Icon = channel.kind === 'meeting' ? Video : Lock
   return <Icon className="size-4" strokeWidth={1.75} />
 }
 

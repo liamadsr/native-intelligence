@@ -59,8 +59,11 @@ export type LibraryScope = 'all' | 'mine' | 'workspace' | 'discover'
  * only meaningful for `claim`. It is a LAYOUT rather than a separate page mode
  * so that one saved view ("open questions, last 30 days") can be read as a
  * canvas, a list or a board without rebuilding its filters. See migration 275.
+ * `roadmap` draws rows on a time axis (components/views/view-roadmap.tsx) and is
+ * offered only for kinds with dates (lib/views/roadmap.ts, ROADMAP_DATE_FIELDS);
+ * migration 678 adds it to the enum.
  */
-export type ViewLayout = 'list' | 'board' | 'graph' | 'grid' | 'calendar' | 'gallery'
+export type ViewLayout = 'list' | 'board' | 'graph' | 'grid' | 'calendar' | 'gallery' | 'roadmap'
 /**
  * The layouts a table's rows (data_row, migration 529) take: the cell grid,
  * a board by a select or person column, a calendar by a date column and a

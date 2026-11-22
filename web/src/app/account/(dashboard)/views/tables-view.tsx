@@ -11,8 +11,9 @@
  * only (a pipeline is a table whose rows are deals), and New pipeline makes
  * one with its stages and system columns (/api/account/pipelines).
  */
+import { EntityIcon } from '@/components/entities/entity-icon'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Building2, ClipboardList, HandCoins, UserRound, KanbanSquare, ListChecks, Lock, Package, Plus, Table2, Users, Wrench, type LucideIcon } from 'lucide-react'
+import { ClipboardList, HandCoins, KanbanSquare, ListChecks, Lock, Package, Plus, Table2, Users, Wrench, type LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { TableDetail } from '@/components/tables/table-detail'
@@ -134,14 +135,13 @@ export function TablesView({ onCount, card, pipelines = false }: { onCount?: (co
             {tables.map((t) => (
               <li key={t.id}>
                 <button type="button" onClick={() => setOpenId(t.id)} className="flex w-full items-center gap-3 py-2.5 text-left hover:bg-muted/40">
-                  {t.kind === 'pipeline' && t.record_kind === 'company' ? (
-                    <Building2 className="h-4 w-4 shrink-0 text-muted-foreground" aria-label="Pipeline of companies" />
-                  ) : t.kind === 'pipeline' && t.record_kind === 'contact' ? (
-                    <UserRound className="h-4 w-4 shrink-0 text-muted-foreground" aria-label="Pipeline of contacts" />
-                  ) : t.kind === 'pipeline' ? (
-                    <HandCoins className="h-4 w-4 shrink-0 text-muted-foreground" aria-label="Pipeline" />
+                  {t.kind === 'pipeline' ? (
+                    // A pipeline of companies or contacts (679) wears its record's icon.
+                    <span role="img" aria-label={t.record_kind === 'company' ? 'Pipeline of companies' : t.record_kind === 'contact' ? 'Pipeline of contacts' : 'Pipeline'} className="flex shrink-0">
+                      <EntityIcon kind={t.record_kind ?? 'deal'} />
+                    </span>
                   ) : (
-                    <Table2 className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                    <EntityIcon kind="data_table" />
                   )}
                   <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{t.name}</span>
                   {t.is_default && <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">Default</span>}

@@ -10,6 +10,7 @@
  *
  * The same pill as the to-do closer's (../email/action-done-chip.tsx).
  */
+import { EntityIcon } from '@/components/entities/entity-icon'
 import { useCallback, useState } from 'react'
 import { CircleCheck, RefreshCw, Undo2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -71,7 +72,7 @@ export function KeptChip({ data }: { data: KeptPartData }) {
   return (
     <div data-testid="kept-chip" className="my-1 flex max-w-full flex-col gap-1 self-start">
       <div className="inline-flex max-w-full items-center gap-2 self-start rounded-full border border-border/60 bg-background/60 px-3 py-1.5 text-sm">
-        {data.record_type === 'action' ? <CircleCheck className="h-3.5 w-3.5 shrink-0" /> : <RefreshCw className="h-3.5 w-3.5 shrink-0" />}
+        {data.record_type === 'action' ? <EntityIcon kind="action" size="sm" /> : <RefreshCw className="h-3.5 w-3.5 shrink-0" />}
         <span className="shrink-0">Updated from {keptSourceWords(data.source)}</span>
         {record}
         {change}

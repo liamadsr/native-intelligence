@@ -1,6 +1,8 @@
 'use client'
 
 import { companyCrmCell } from '@/components/crm/company-crm-fields'
+import { ENTITY_IDENTITIES } from '@/lib/entities/entity-identity'
+import { EntityIcon } from '@/components/entities/entity-icon'
 import { LIST_FOCUS_RING, LIST_ROW_ATTR, PROPERTY_FIELD_ATTR, useIsListFocused } from '../list-keyboard'
 import * as React from 'react'
 import { format, parseISO, startOfDay } from 'date-fns'
@@ -8,7 +10,7 @@ import { ThinkingOrb } from 'thinking-orbs'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { AlarmClock, Building2, Check, ChevronRight, ExternalLink, EyeOff, FileText, FlaskConical, Linkedin, Loader2, Play, Send, Target, Telescope, Users, X, Zap } from 'lucide-react'
+import { AlarmClock, Check, ChevronRight, ExternalLink, EyeOff, FlaskConical, Loader2, Play, Send, Telescope, Users, X, Zap } from 'lucide-react'
 import { ProjectIcon, isEmoji } from '@/components/ui/emoji-icon-picker'
 import {
   ContextMenu,
@@ -699,6 +701,10 @@ function getInitials(name: string): string {
   return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
 }
 
+/** The kinds whose leading glyph carries a state tint: the kind's own glyph, the row's tint. */
+const FlowGlyph = ENTITY_IDENTITIES.flow.icon
+const SequenceGlyph = ENTITY_IDENTITIES.sequence.icon
+
 function EntityLeading({
   entityType,
   item,
@@ -767,23 +773,25 @@ function EntityLeading({
         </Avatar>
       )
     case 'company':
-      return <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
+      return <EntityIcon kind="company" />
     case 'capture':
-      return <span className="text-sm shrink-0">📹</span>
+      return <EntityIcon kind="capture" />
     case 'document':
-      return <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+      return <EntityIcon kind="document" />
     case 'project':
       return <ProjectIcon icon={item.icon as string | null} size="sm" />
     case 'initiative': {
       const icon = item.icon as string | null
       if (icon && isEmoji(icon)) return <span className="text-sm shrink-0">{icon}</span>
-      return <Target className="h-4 w-4 text-muted-foreground shrink-0" />
+      return <EntityIcon kind="initiative" />
     }
     case 'flow': {
-      // A loop's lightning glyph, tinted by enabled state.
+      // The flow's own glyph (entity-identity.ts), tinted by enabled state.
       const enabled = item.enabled !== false
       return (
-        <Zap
+        <FlowGlyph
+          aria-hidden
+          data-entity-icon="flow"
           className={cn('h-4 w-4 shrink-0', enabled ? 'text-amber-500' : 'text-muted-foreground/50')}
         />
       )
@@ -867,11 +875,13 @@ function EntityLeading({
       )
     }
     case 'sequence': {
-      // Send glyph tinted by lifecycle state (mirrors the flow Zap): green =
+      // The sequence's own glyph (entity-identity.ts) tinted by lifecycle state (mirrors the flow Zap): green =
       // actively sending, amber = paused, muted = draft/archived.
       const status = item.status as string | undefined
       return (
-        <Send
+        <SequenceGlyph
+          aria-hidden
+          data-entity-icon="sequence"
           className={cn(
             'h-4 w-4 shrink-0',
             status === 'active'

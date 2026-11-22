@@ -11,11 +11,12 @@
  * rollups, and for a table they can't open, a locked placeholder with no
  * name. It reads once when it is drawn: nothing polls, nothing animates.
  */
+import { EntityIcon } from '@/components/entities/entity-icon'
 import { Node, mergeAttributes } from '@tiptap/core'
 import { NodeSelection, Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
 import { NodeViewWrapper, ReactNodeViewRenderer, type ReactNodeViewProps } from '@tiptap/react'
 import { useEffect, useRef, useState } from 'react'
-import { ArrowUpRight, Lock, Table2, Trash2 } from 'lucide-react'
+import { ArrowUpRight, Lock, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { CellDisplay } from '@/components/tables/cells'
 import { ComputedCell, readColumn } from '@/components/tables/computed-cells'
@@ -73,7 +74,7 @@ export function TableEmbedGrid({ data, onOpen }: { data: EmbedData; onOpen?: () 
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-background" data-table-embed-grid="">
       <div className="flex items-center gap-2 border-b border-border px-3 py-2">
-        <Table2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+        <EntityIcon kind="data_table" size="sm" />
         <span className="min-w-0 truncate text-[13px] font-medium text-foreground">{data.table.name}</span>
         {data.view && <span className="min-w-0 truncate text-xs text-muted-foreground">· {data.view.name}</span>}
         {data.table.visibility === 'private' && <Lock className="h-3 w-3 shrink-0 text-muted-foreground" aria-label="Private" />}
@@ -193,7 +194,7 @@ function EmbedPicker({ onPick }: { onPick: (tableId: string, viewId: string | nu
           <div className="max-h-56 overflow-y-auto">
             {tables.map((t) => (
               <button key={t.id} type="button" className={item} onMouseDown={(e) => e.preventDefault()} onClick={() => setTable(t)}>
-                <Table2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <EntityIcon kind="data_table" size="sm" />
                 <span className="truncate">{t.name}</span>
               </button>
             ))}

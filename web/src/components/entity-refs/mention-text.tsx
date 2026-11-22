@@ -17,26 +17,18 @@
  * Inside a public share (`EntityRefsProvider enabled={false}`) no resolve runs:
  * the chip is drawn static, with the stored words.
  */
-import { AtSign, Building2, Lock, Mail, MessagesSquare, User, type LucideIcon } from 'lucide-react'
+import { AtSign, Lock } from 'lucide-react'
 import { Linkify } from '@/components/ui/linkify'
 import { mentionOpens, openMention } from '@/lib/entity-links/open-mention'
 import type { LabeledMentionRef } from '@/lib/entity-links/mentionable'
 import { mentionSegments } from '@/lib/team-chat/compose'
-import { RECORD_ICONS } from '@/app/account/(dashboard)/chat/feed-icons'
+import { EntityIcon } from '@/components/entities/entity-icon'
 import { useEntityRefsEnabled } from './entity-refs-context'
 import { useMention } from './use-mention'
 
 const CHIP = 'rounded bg-primary/10 px-0.5 font-medium text-primary'
 const ICON = 'mr-0.5 inline size-3 align-[-0.12em]'
 
-/** The kind's glyph: the shared record icons, plus a face for a person and a building for a company. */
-const MENTION_ICONS: Record<string, LucideIcon> = {
-  contact: User,
-  company: Building2,
-  email_thread: Mail,
-  conversation: MessagesSquare,
-  ...(RECORD_ICONS as Record<string, LucideIcon>),
-}
 
 /** `in_progress` → "In progress". */
 function statusWord(status: string): string {
@@ -88,7 +80,6 @@ function RecordChip({ record, from, stored }: { record: LabeledMentionRef; from:
   const enabled = useEntityRefsEnabled()
   const state = useMention(record.type, record.id, enabled)
   const live = state.status === 'found' ? state.data : null
-  const Icon = MENTION_ICONS[record.type] ?? AtSign
 
   // The reader may not see it: a dimmed, non-clickable chip with a lock and the stored words.
   if (state.status === 'hidden') {
@@ -107,7 +98,8 @@ function RecordChip({ record, from, stored }: { record: LabeledMentionRef; from:
 
   const body = (
     <>
-      <Icon className={ICON} aria-hidden />
+      {/* The kind's own glyph and colour (entity-identity.ts); the words keep the chip's ink. */}
+      <EntityIcon kind={record.type} fallback={AtSign} strokeWidth={2} className={ICON} />
       {live ? `@${live.label}` : stored}
       {live?.status ? (
         <span data-mention-status="" className="ml-1 text-[0.85em] font-normal opacity-70">

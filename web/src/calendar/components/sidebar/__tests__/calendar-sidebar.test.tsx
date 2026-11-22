@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createRoot, type Root } from 'react-dom/client'
 import { act, createElement as h, useState } from 'react'
 import type { IEvent } from '@/calendar/interfaces'
-import { CalendarProvider, useCalendar } from '@/calendar/contexts/calendar-context'
+import { CalendarProvider, useCalendar, useCalendarEventDetails } from '@/calendar/contexts/calendar-context'
 import { listCalendars, withoutHiddenCalendars } from '@/calendar/sidebar/calendar-visibility'
 import { CalendarSidebar } from '../calendar-sidebar'
 
@@ -38,11 +38,13 @@ const EVENTS: IEvent[] = [
 let container: HTMLDivElement
 let root: Root
 let selected: Date
+let card: ReturnType<typeof useCalendarEventDetails> = null
 const opened = vi.fn()
 const closed = vi.fn()
 
 function Probe() {
   selected = useCalendar().selectedDate
+  card = useCalendarEventDetails()
   return null
 }
 
@@ -105,7 +107,9 @@ describe('CalendarSidebar', () => {
     await render()
     expect(upcoming()).toEqual(['StandupNow', 'Design review2:00 PM', 'DentistTomorrow · 9:00 AM', 'OffsiteDec 3 · 9:00 AM'])
     act(() => container.querySelector<HTMLButtonElement>('[data-upcoming-event="dentist"]')!.click())
-    expect(opened).toHaveBeenCalledWith(expect.objectContaining({ id: 'dentist' }))
+    // Its card, beside the row (not the full panel).
+    expect(card).toEqual({ eventId: 'dentist', anchorEl: container.querySelector('[data-upcoming-event="dentist"]') })
+    expect(opened).not.toHaveBeenCalled()
     expect(selected).toEqual(at(2026, 11, 24, 9))
   })
 

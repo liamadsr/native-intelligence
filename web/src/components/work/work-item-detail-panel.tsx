@@ -1,5 +1,6 @@
 'use client'
 
+import { EntityIcon } from '@/components/entities/entity-icon'
 import { PreferenceActionButton } from '@/components/views/preference-action'
 
 /**
@@ -69,7 +70,6 @@ import {
   CircleSlash,
   Clock,
   CornerDownRight,
-  Disc,
   ExternalLink,
   Laptop,
   Loader2,
@@ -170,12 +170,6 @@ const CARD_ICONS: Record<string, LucideIcon> = {
   draft_email: Mail,
   question: MessageCircleQuestion,
   work_proposal: Boxes,
-}
-
-const REF_ICONS: Record<WorkOutputRef['type'], LucideIcon> = {
-  capture: Disc,
-  flow: Zap,
-  action: SquareCheckBig,
 }
 
 const DELIVERABLE_TAGS: Record<string, string> = {
@@ -791,7 +785,6 @@ export function WorkItemDetailPanel({ itemId, embedded = false, shown = true, on
       {output && output.context.length > 0 && (
         <PropertyGroup title="Source">
           {output.context.map((ref) => {
-            const Icon = REF_ICONS[ref.type]
             return (
               <button
                 key={`${ref.type}-${ref.id}`}
@@ -800,7 +793,7 @@ export function WorkItemDetailPanel({ itemId, embedded = false, shown = true, on
                 className="flex h-8 w-full items-center gap-2 rounded-md px-3 text-left text-sm transition-colors hover:bg-muted/50"
                 title={ref.label}
               >
-                <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <EntityIcon kind={ref.type} size="md" />
                 <span className="min-w-0 flex-1 truncate">
                   {ref.type === 'action' && ref.identifier ? (
                     <span className="mr-1.5 text-muted-foreground">{ref.identifier}</span>

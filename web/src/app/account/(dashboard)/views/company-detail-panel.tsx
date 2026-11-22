@@ -1,6 +1,7 @@
 'use client'
 
 
+import { EntityIcon } from '@/components/entities/entity-icon'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import dynamic from 'next/dynamic'
@@ -14,7 +15,6 @@ import {
   Link as LinkIcon,
   Mail,
   MapPin,
-  Mic,
   Phone,
   Trash2,
   Users,
@@ -445,9 +445,7 @@ export function CompanyDetailPanel({
                               onClick={(e) => onOpenCapture?.(capture.id, capture.title, e)}
                               className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted/50"
                             >
-                              <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted">
-                                <Mic className="h-3 w-3 text-muted-foreground" />
-                              </div>
+                              <EntityIcon kind="capture" size="sm" />
                               <span className="min-w-0 flex-1 truncate">{capture.title}</span>
                               <span className="shrink-0 text-[10px] text-muted-foreground">
                                 {capture.started_at ? relativeTime(capture.started_at) : ''}
