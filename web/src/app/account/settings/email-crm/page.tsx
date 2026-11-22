@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
+import { CompanyStagesSettings } from '@/components/crm/company-stages-settings'
 
 /**
  * Settings → Email & CRM: sync your mail threads and contacts, and see the
@@ -136,6 +137,8 @@ export default function EmailCrmSettingsPage() {
           </Button>
         </CardContent>
       </Card>
+
+      <CompanyStagesSettings />
     </div>
   )
 }

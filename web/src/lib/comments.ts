@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { tidyLabeledMentionRefs, type LabeledMentionRef } from '@/lib/entity-links/mentionable'
 
-export type CommentableType = 'action' | 'capture' | 'document' | 'project' | 'contact'
+export type CommentableType = 'action' | 'capture' | 'document' | 'project' | 'contact' | 'company'
 
 const COMMENT_SELECT = `
   id, body, author_id, author_user_id, author_name, author_avatar_url,

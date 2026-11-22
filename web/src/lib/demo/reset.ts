@@ -74,6 +74,8 @@ export const COMMENTABLE: Readonly<Record<string, string>> = {
   document: 'document',
   project: 'projects',
   contact: 'contact',
+  // A company's discussion (migration 679).
+  company: 'company',
 }
 
 /**

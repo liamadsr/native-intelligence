@@ -35,7 +35,7 @@ import { useVoiceAvailability } from '@/hooks/use-voice-availability'
 import { useOptionalRecordingStable } from '@/hooks/recording-context'
 import { memberName, type Member } from '../views/team-chat-message-parts'
 
-type CommentableType = 'action' | 'capture' | 'document' | 'project' | 'contact'
+type CommentableType = 'action' | 'capture' | 'document' | 'project' | 'contact' | 'company'
 
 interface Comment {
   id: string
@@ -82,6 +82,7 @@ const ROUTE_MAP: Record<CommentableType, string> = {
   document: 'documents',
   project: 'projects',
   contact: 'contacts',
+  company: 'companies',
 }
 
 function getInitials(name: string | null) {

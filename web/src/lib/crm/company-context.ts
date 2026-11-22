@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { wrapUntrusted } from '@/lib/email/untrusted'
+import { formatCurrency } from '@/lib/crm/custom-field-types'
 import { withLiveHeaders, type HeaderRow } from '@/lib/email/thread-headers'
 import {
   applyCaptureVisibility,
@@ -55,6 +56,13 @@ export interface CompanyContextCompany {
   tags: string[] | null
   created_at: string | null
   updated_at: string | null
+  /** The company's own lifecycle stage (679): its name, or null (No stage). */
+  stage: string | null
+  /** The member who owns the account (679). */
+  owner_member_id: string | null
+  owner_name: string | null
+  /** Revenue as { amount, currency } (679), or null. */
+  revenue: { amount: number; currency: string } | null
 }
 
 export interface CompanyPerson {
@@ -111,6 +119,20 @@ export interface CompanyEmailThread {
   message_count: number | null
 }
 
+/**
+ * A thread a teammate shared with the team on this company (680), as the
+ * agent may know it: when, who shared it, who on the team was on it. Never a
+ * subject or a body: shared mail opens for people, in the app.
+ */
+export interface CompanyTeamEmailThread {
+  thread_id: string
+  last_message_at: string | null
+  shared_by: string | null
+  team: string[]
+  message_count: number | null
+  has_attachments: boolean
+}
+
 export interface CompanyDecision {
   id: string
   content: string
@@ -134,6 +156,11 @@ export interface CompanyContext {
   recent_captures: CompanyRecentCapture[]
   /** Undefined (not empty) when there is no requester — the section is omitted. */
   recent_email_threads?: CompanyEmailThread[]
+  /**
+   * Undefined when there is no requester, or sharing is off. The database's
+   * fence (company_team_email_threads, 680) picks them for the requester.
+   */
+  team_email_threads?: CompanyTeamEmailThread[]
   decisions: CompanyDecision[]
 }
 
@@ -170,7 +197,7 @@ function settled<T>(name: string, r: PromiseSettledResult<unknown> | undefined):
 }
 
 const COMPANY_SELECT =
-  'id, workspace_id, name, domain, website, industry, description, employee_count_range, annual_revenue_range, city, state, country, tags, created_at, updated_at'
+  'id, workspace_id, name, domain, website, industry, description, employee_count_range, annual_revenue_range, city, state, country, tags, created_at, updated_at, stage_id, owner_member_id, revenue, share_email_with_team, stage:company_stage!stage_id(name), owner:member!owner_member_id(display_name)'
 
 const PEOPLE_SELECT =
   'id, full_name, email, secondary_emails, job_title, relationship_strength, interaction_count, last_interaction_at, member_id'
@@ -200,7 +227,11 @@ export async function gatherCompanyContext(
     return null
   }
   if (!companyRow) return null
-  const c = companyRow as unknown as CompanyContextCompany
+  const c = companyRow as unknown as CompanyContextCompany & {
+    stage: { name?: string } | { name?: string }[] | string | null
+    owner: { display_name?: string } | { display_name?: string }[] | null
+    share_email_with_team?: boolean | null
+  }
 
   // 2. Company visibility — explicit-user twin of the 059 SELECT policy,
   //    because auth.uid() is NULL under service role. Anything but `true` is
@@ -230,7 +261,17 @@ export async function gatherCompanyContext(
     tags: c.tags ?? null,
     created_at: c.created_at ?? null,
     updated_at: c.updated_at ?? null,
+    stage: typeof c.stage === 'string' ? c.stage : (one(c.stage as { name?: string } | { name?: string }[] | null)?.name ?? null),
+    owner_member_id: c.owner_member_id ?? null,
+    owner_name: one(c.owner)?.display_name ?? null,
+    revenue: c.revenue && typeof c.revenue.amount === 'number' ? { amount: c.revenue.amount, currency: c.revenue.currency } : null,
   }
+
+  // The team's shared email (680): metadata only, through the database's fence.
+  const teamEmail: Promise<CompanyTeamEmailThread[] | undefined> =
+    requester !== null && userId && c.share_email_with_team === true
+      ? readTeamEmailThreads(supabase, company.id, workspaceId, userId, grants)
+      : Promise.resolve(undefined)
 
   // 3. First wave: contacts on record (fenced per-row below) + done-state ids.
   const wave1 = await Promise.allSettled([
@@ -329,6 +370,7 @@ export async function gatherCompanyContext(
       pending_commitments: [],
       recent_captures: [],
       ...(requester !== null ? { recent_email_threads: [] } : {}),
+      ...withTeamEmail(await teamEmail),
       decisions: [],
     }
   }
@@ -541,7 +583,61 @@ export async function gatherCompanyContext(
     pending_commitments: pendingCommitments,
     recent_captures: recentCaptures,
     ...(emailThreads !== undefined ? { recent_email_threads: emailThreads } : {}),
+    ...withTeamEmail(await teamEmail),
     decisions,
+  }
+}
+
+const withTeamEmail = (t: CompanyTeamEmailThread[] | undefined) => (t !== undefined ? { team_email_threads: t } : {})
+
+/**
+ * The threads teammates shared on this company that the requester may see
+ * (company_team_email_threads decides: the switch, each owner's consent,
+ * private threads, the requester's view of the company). No mailbox is read.
+ */
+async function readTeamEmailThreads(
+  supabase: SupabaseClient,
+  companyId: string,
+  workspaceId: string,
+  userId: string,
+  grants: boolean | undefined,
+): Promise<CompanyTeamEmailThread[]> {
+  try {
+    const { data, error } = await supabase.rpc('company_team_email_threads', {
+      p_company_id: companyId,
+      p_user_id: userId,
+      p_grants: grants !== false,
+      p_limit: 10,
+    })
+    if (error) {
+      console.warn('[company-context] team email failed:', error.message)
+      return []
+    }
+    const rows = (data ?? []) as Array<{
+      thread_index_id: string
+      owner_member_id: string
+      last_message_at: string | null
+      message_count: number | null
+      has_attachments: boolean | null
+      team_member_ids: string[] | null
+    }>
+    const ids = [...new Set(rows.flatMap((r) => [r.owner_member_id, ...(r.team_member_ids ?? [])]))]
+    const names = new Map<string, string>()
+    if (ids.length) {
+      const { data: members } = await supabase.from('member').select('id, display_name').eq('workspace_id', workspaceId).in('id', ids)
+      for (const m of (members ?? []) as Array<{ id: string; display_name: string | null }>) names.set(m.id, m.display_name || 'a teammate')
+    }
+    return rows.map((r) => ({
+      thread_id: r.thread_index_id,
+      last_message_at: r.last_message_at,
+      shared_by: names.get(r.owner_member_id) ?? null,
+      team: (r.team_member_ids ?? []).map((id) => names.get(id) ?? 'a teammate'),
+      message_count: r.message_count,
+      has_attachments: r.has_attachments === true,
+    }))
+  } catch (e) {
+    console.warn('[company-context] team email threw:', e)
+    return []
   }
 }
 
@@ -581,6 +677,9 @@ export function renderCompanyContextBlock(
   const statParts = [
     `${ctx.people_on_record} ${ctx.people_on_record === 1 ? 'person' : 'people'} on record`,
     `${ctx.people_visible} visible to you`,
+    c.stage ? `stage: ${c.stage}` : null,
+    c.owner_name ? `owner: ${c.owner_name}` : null,
+    c.revenue ? `revenue ${formatCurrency(c.revenue)}` : null,
     c.employee_count_range ? `${c.employee_count_range} employees` : null,
     [c.city, c.country].filter(Boolean).join(', ') || null,
     ctx.last_interaction_at ? `last interaction ${ymd(ctx.last_interaction_at)}` : 'no interactions on record',
@@ -658,6 +757,16 @@ export function renderCompanyContextBlock(
         ...ctx.recent_email_threads.map((t) =>
           // The subject is read live and a sender wrote it: marked as data. No subject, no quote.
           `- ${[clip(t.subject, 120) ? wrapUntrusted(clip(t.subject, 120)) : 'Email', t.from_email ? `from ${t.from_email}` : null, ymd(t.last_message_at), t.needs_reply ? 'needs reply' : null, `thread_id: ${t.id}`].filter(Boolean).join(' · ')}`,
+        ),
+      ].join('\n'),
+    )
+  }
+  if (ctx.team_email_threads && ctx.team_email_threads.length) {
+    optional.push(
+      [
+        `Email the team shared on this account (${ctx.team_email_threads.length}; subjects and bodies open only for people, in the app):`,
+        ...ctx.team_email_threads.map((t) =>
+          `- ${[ymd(t.last_message_at), t.shared_by ? `shared by ${t.shared_by}` : null, t.team.length ? `team on it: ${t.team.join(', ')}` : null, t.message_count ? `${t.message_count} messages` : null, t.has_attachments ? 'attachments' : null].filter(Boolean).join(' · ')}`,
         ),
       ].join('\n'),
     )
