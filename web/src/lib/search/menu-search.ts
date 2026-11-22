@@ -235,6 +235,7 @@ export type MenuNamedKind =
   | 'sequence'
   | 'prospect_list'
   | 'data_table'
+  | 'spreadsheet'
   | 'data_row'
   | 'team_chat_channel'
   | 'decision'
@@ -348,6 +349,7 @@ export function menuRowTarget(row: MenuSearchRow): OpenTarget {
     case 'prospect_list':
     case 'team':
     case 'package':
+    case 'spreadsheet':
       return { type: row.kind, id: row.id, title: row.title }
     default:
       return { type: row.kind, id: row.id, title: row.title }

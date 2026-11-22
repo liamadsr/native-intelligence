@@ -141,7 +141,9 @@ describe('registry self-consistency', () => {
     // Mentions everywhere made teams, sequences, prospect lists and knowledge
     // packages graph endpoints last (registry order: last in the tuple).
     const newest = ['team', 'sequence', 'prospect_list', 'knowledge_package']
-    expect(LINKABLE_ENTITY_TYPES.slice(-(added.length + later.length + newest.length))).toEqual([...added, ...later, ...newest])
+    // Spreadsheets (675) came last of all.
+    const last = ['spreadsheet']
+    expect(LINKABLE_ENTITY_TYPES.slice(-(added.length + later.length + newest.length + last.length))).toEqual([...added, ...later, ...newest, ...last])
     // None is citable: the claim_source CHECK (264) does not list them.
     for (const id of added) expect(entityDescriptor(id)!.citable, id).toBe(false)
   })
@@ -150,7 +152,7 @@ describe('registry self-consistency', () => {
     // Private to a person or a channel, or without a workspace_id: the graph's
     // workspace_id fence alone would leak them (see the registry comment), so
     // every linkable private kind must be one entity-fences.ts fences.
-    for (const id of ['calendar_event', 'team_chat_channel', 'team_chat_message', 'decision', 'data_table', 'data_row']) {
+    for (const id of ['calendar_event', 'team_chat_channel', 'team_chat_message', 'decision', 'data_table', 'data_row', 'spreadsheet']) {
       expect(LINKABLE_ENTITY_TYPES as readonly string[], id).toContain(id)
       expect(PRIVATE_GRAPH_KINDS as readonly string[], id).toContain(id)
     }

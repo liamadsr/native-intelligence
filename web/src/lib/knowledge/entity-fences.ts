@@ -44,7 +44,7 @@ import { canonicalEntityType, type LinkableEntityType } from './entity-registry'
  * guest's, and their tables have no member policies at all, so the same
  * fence shape holds them: see studioFence below.
  */
-export const PRIVATE_GRAPH_KINDS = ['calendar_event', 'team_chat_channel', 'team_chat_message', 'decision', 'data_table', 'data_row', 'studio_video', 'studio_project', 'team', 'knowledge_package'] as const
+export const PRIVATE_GRAPH_KINDS = ['calendar_event', 'team_chat_channel', 'team_chat_message', 'decision', 'data_table', 'data_row', 'studio_video', 'studio_project', 'team', 'knowledge_package', 'spreadsheet'] as const
 export type PrivateGraphKind = (typeof PRIVATE_GRAPH_KINDS)[number]
 
 export function isPrivateGraphKind(type: string): type is PrivateGraphKind {
@@ -405,6 +405,32 @@ const packageFence: Fence = async (supabase, userId, ids, workspaceId) => {
   return open
 }
 
+/**
+ * A spreadsheet (675): spreadsheet_select's rule for an explicit user. A
+ * member of its workspace reads a workspace one, and their own private one.
+ * No grants (675 has none for the kind).
+ */
+const spreadsheetFence: Fence = async (supabase, userId, ids, workspaceId) => {
+  const wanted = uniq(ids)
+  if (!userId || wanted.length === 0) return new Set()
+  const rows = await rowsByIds(wanted, (c) => {
+    let q = supabase.from('spreadsheet').select('id, workspace_id, visibility, created_by').in('id', c)
+    if (workspaceId) q = q.eq('workspace_id', workspaceId)
+    return q
+  })
+  if (!rows || rows.length === 0) return new Set()
+  const members = await memberIdsByWorkspace(supabase, userId, rows.map((r) => r.workspace_id as string))
+  if (!members) return new Set()
+  return new Set(
+    rows
+      .filter((r) => {
+        const me = members.get(r.workspace_id as string)
+        return !!me && (r.visibility === 'workspace' || r.created_by === me)
+      })
+      .map((r) => r.id as string),
+  )
+}
+
 const FENCES: Record<PrivateGraphKind, Fence> = {
   calendar_event: calendarEventFence,
   team_chat_channel: teamChatChannelFence,
@@ -416,6 +442,7 @@ const FENCES: Record<PrivateGraphKind, Fence> = {
   studio_project: studioFence('studio_project'),
   team: teamFence,
   knowledge_package: packageFence,
+  spreadsheet: spreadsheetFence,
 }
 
 /**
@@ -481,6 +508,7 @@ export const PRIVATE_KIND_LABEL: Record<PrivateGraphKind, string> = {
   studio_project: 'Studio project',
   team: 'Team (private)',
   knowledge_package: 'Package (private)',
+  spreadsheet: 'Spreadsheet (private)',
 }
 
 /**
@@ -518,6 +546,10 @@ export const LINK_FENCED_KINDS = [
   // they are private kinds, so hiddenGraphRefs asks teamFence / packageFence.
   'team',
   'knowledge_package',
+  // Spreadsheets (675): fenced the same way again, by 675's own restrictive
+  // entity_link policies (spreadsheet_entity_visible_to); here a private
+  // kind, so hiddenGraphRefs asks spreadsheetFence.
+  'spreadsheet',
 ] as const satisfies readonly LinkableEntityType[]
 export type LinkFencedKind = (typeof LINK_FENCED_KINDS)[number]
 

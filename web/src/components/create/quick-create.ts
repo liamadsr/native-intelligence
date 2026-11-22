@@ -77,6 +77,14 @@ export const QUICK_CREATE: Record<CreateQuickTypeId, QuickCreateDef> = {
       return { id: table.id, title, open: () => void openCard({ kind: 'tables', title: 'Tables', target: { type: 'data_table', id: table.id, label: title } }, { from: FROM }) }
     },
   },
+  spreadsheet: {
+    namePlaceholder: 'Spreadsheet name',
+    run: async ({ name }, fetcher = fetch) => {
+      const sheet = record(await post(fetcher, '/api/account/spreadsheets', { title: name }), 'spreadsheet')
+      const title = str(sheet.title, name)
+      return { id: sheet.id, title, open: () => void openCard({ kind: 'spreadsheets', title: 'Spreadsheets', target: { type: 'spreadsheet', id: sheet.id, label: title } }, { from: FROM }) }
+    },
+  },
   channel: {
     namePlaceholder: 'Channel name',
     secondaryPlaceholder: 'Topic (optional)',

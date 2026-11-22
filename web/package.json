@@ -46,6 +46,7 @@
     "@heroicons/react": "^2.1.4",
     "@huggingface/transformers": "^3.8.1",
     "@icons-pack/react-simple-icons": "^13.11.1",
+    "@ironcalc/wasm": "0.9.1",
     "@modelcontextprotocol/sdk": "^1.28.0",
     "@novnc/novnc": "1.4.0",
     "@radix-ui/react-accordion": "^1.2.12",
