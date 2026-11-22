@@ -1,20 +1,16 @@
 // @vitest-environment jsdom
 /**
- * The new-email composer's Send later, beside Send: a preset picked schedules
- * the message from the picked mailbox (POST /api/account/email/scheduled with
- * its time), the composer closes, and the toast says when, with Undo. With no
- * connected mailbox there is nothing to schedule from. Made-up people.
+ * New email in the Create dialog is Mail's own composer (email-composer.tsx,
+ * the one Reply and Forward use), From the mailbox the dialog's picker names.
+ * Its Send later, beside Send: a preset picked schedules the message from
+ * that mailbox (POST /api/account/email/scheduled with its time), the dialog
+ * closes, and the toast says when, with Undo. With no connected mailbox there
+ * is nothing to schedule from. Send goes through the composer's Undo wait.
  *
- * The composer puts focus in its title 100 ms after it opens (create-dialog's
- * "Focus title on open"). A popover open at that moment loses focus to the
- * title, and Radix closes a popover whose focus moves outside it. A person
- * never reaches Send later that fast, but a test can: its click landed ~105 ms
- * after the open, on either side of the timer, so the case passed or failed
- * by how quick the run was (in any zone, at any hour). Each case therefore
- * lets that timer run first and checks the title has focus. The clock is fake
- * (it still moves with real time, for the fetches and React) and pinned, and
- * the case also runs at fixed instants in several zones, which is where a
- * preset's day or hour would go wrong.
+ * The clock is fake (it still moves with real time, for the fetches and
+ * React) and pinned, and the Send later case also runs at fixed instants in
+ * several zones, which is where a preset's day or hour would go wrong.
+ * Made-up people.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createRoot, type Root } from 'react-dom/client'
@@ -29,15 +25,48 @@ vi.mock('@/lib/labels/use-scoped-labels', () => ({ useScopedLabels: () => ({ lab
 vi.mock('@/lib/chat-cards/open-card', () => ({ openTarget: vi.fn() }))
 vi.mock('@/calendar/hooks/use-calendar-events', () => ({ patchCalendarEventsCache: vi.fn() }))
 vi.mock('@/calendar/adapters', () => ({ calendarEventToIEvent: vi.fn() }))
-// The To field fills itself with one made-up address (the others stay empty).
-vi.mock('@/components/email/email-recipient-input', () => ({
-  EmailRecipientInput: ({ values, onChange, placeholder }: { values: string[]; onChange: (v: string[]) => void; placeholder?: string }) => {
-    useEffect(() => {
-      if (placeholder?.startsWith('Type email') && values.length === 0) onChange(['dana@harborline.example'])
-    }, [values, onChange, placeholder])
-    return null
-  },
-}))
+// The composer's To (the first recipient field drawn) fills itself with one made-up address; Cc and Bcc stay empty.
+const recipients = vi.hoisted(() => ({ claimed: false }))
+vi.mock('@/components/email/email-recipient-input', async () => {
+  const { useState } = await import('react')
+  return {
+    EmailRecipientInput: ({ values, onChange }: { values: string[]; onChange: (v: string[]) => void }) => {
+      const [mine] = useState(() => {
+        if (recipients.claimed) return false
+        recipients.claimed = true
+        return true
+      })
+      useEffect(() => {
+        if (mine && values.length === 0) onChange(['dana@harborline.example'])
+      }, [mine, values, onChange])
+      return null
+    },
+  }
+})
+// The rich-text field is a textarea here (compose-editor has its own test).
+vi.mock('@/components/email/compose-editor', async () => {
+  const { forwardRef, useImperativeHandle, useRef } = await import('react')
+  return {
+    safeLinkHref: (v: string) => v,
+    sanitizeComposeHtml: (v: string) => v,
+    ComposeEditor: forwardRef(function FakeEditor(props: { onChange?: (html: string) => void }, ref) {
+      const el = useRef<HTMLTextAreaElement>(null)
+      useImperativeHandle(ref, () => ({
+        getHTML: () => (el.current?.value ? `<p>${el.current.value}</p>` : '<p></p>'),
+        setHTML: () => {},
+        focus: () => {},
+        toggleBold: () => {},
+        toggleItalic: () => {},
+        toggleBulletList: () => {},
+        toggleOrderedList: () => {},
+        setLink: () => {},
+        isActive: () => false,
+        currentLink: () => '',
+      }))
+      return h('textarea', { ref: el, 'data-fake-editor': '', onChange: (e: { target: { value: string } }) => props.onChange?.(`<p>${e.target.value}</p>`) })
+    }),
+  }
+})
 vi.mock('@/components/ui/datetime-picker', () => ({ DateTimePicker: () => null }))
 
 import { CreateDialog } from '../create-dialog'
@@ -54,6 +83,8 @@ let accounts: unknown[]
 const flush = () => act(async () => void (await new Promise((r) => setTimeout(r, 0))))
 
 beforeEach(() => {
+  recipients.claimed = false
+  window.localStorage.clear()
   posts = []
   accounts = [{ id: 'acct-work', account_email: 'me@fernhill.example', provider: 'google', capability: 'email', is_enabled: true, is_primary: true }]
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
@@ -61,6 +92,10 @@ beforeEach(() => {
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
       if (url === '/api/oauth/status') return new Response(JSON.stringify({ accounts }))
+      if (url === '/api/account/email/send') {
+        posts.push({ url, body: JSON.parse(String(init?.body)) })
+        return new Response(JSON.stringify({ message_id: 'sent-1', thread_id: 'thr-new' }))
+      }
       if (url === '/api/account/email/scheduled') {
         const body = JSON.parse(String(init?.body))
         posts.push({ url, body })
@@ -103,7 +138,8 @@ function mount({ at = REPORTED, zone }: { at?: string; zone?: string } = {}) {
 }
 
 const dialog = () => document.body.querySelector('[role="dialog"]')
-const subject = () => document.body.querySelector<HTMLInputElement>('input[placeholder="Subject"]')
+const subject = () => document.body.querySelector<HTMLInputElement>('[data-email-composer="new"] input[aria-label="Subject"]')
+const editor = () => document.body.querySelector<HTMLTextAreaElement>('[data-fake-editor]')
 const sendLater = () => document.body.querySelector<HTMLButtonElement>('[data-send-later]')
 const preset = (id: string) => document.body.querySelector<HTMLButtonElement>(`[data-send-later-preset="${id}"]`)
 
@@ -116,10 +152,14 @@ async function openCompose(text: string) {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(subj, text)
     subj.dispatchEvent(new Event('input', { bubbles: true }))
   })
-  // The composer's focus-on-open timer (100 ms) has run, as it has long before
-  // any person reaches Send later: the title has focus.
+  const area = editor()!
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(area, 'Hi Dana, the renewal terms are below.')
+    area.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  // The dialog's focus-on-open timer (100 ms) has run, as it has long before
+  // any person reaches Send later.
   await act(async () => void (await vi.advanceTimersByTimeAsync(150)))
-  expect(document.activeElement).toBe(subj)
 }
 
 /** Open Send later and pick "Tomorrow, 8:00 AM". */
@@ -133,12 +173,40 @@ async function scheduleTomorrow() {
   await flush()
 }
 
+describe('CreateDialog — New email is Mail’s composer', () => {
+  it('opens the composer, From the picked mailbox; Send goes after the Undo wait, and the dialog closes at once', async () => {
+    mount()
+    await openCompose('Q4 renewal')
+    expect(document.body.querySelector('[data-email-composer="new"]')).not.toBeNull()
+    // The dialog's own Create footer is hidden for email: the composer has its own Send.
+    const create = [...document.body.querySelectorAll('button')].find((b) => /^Create email$/.test(b.textContent ?? ''))
+    expect(!create || !!create.closest('.hidden')).toBe(true)
+    await act(async () => document.body.querySelector<HTMLButtonElement>('[data-compose-send]')!.click())
+    expect(dialog()).toBeNull()
+    expect(toasts.fn).toHaveBeenCalledWith('Sending…', expect.objectContaining({ action: expect.objectContaining({ label: 'Undo' }) }))
+    expect(posts).toHaveLength(0)
+    await act(async () => void (await vi.advanceTimersByTimeAsync(5100)))
+    await flush()
+    expect(posts).toHaveLength(1)
+    expect(posts[0].body).toMatchObject({ account_id: 'acct-work', to: ['dana@harborline.example'], subject: 'Q4 renewal' })
+    expect(posts[0].body.thread_id).toBeUndefined()
+    expect(String(posts[0].body.body_html)).toContain('the renewal terms are below.')
+  })
+
+  it('a new email needs a subject', async () => {
+    mount()
+    await openCompose('')
+    expect(document.body.querySelector<HTMLButtonElement>('[data-compose-send]')!.disabled).toBe(true)
+  })
+})
+
 describe('CreateDialog — Send later', () => {
   it('schedules from the picked mailbox, closes the composer, and toasts when with Undo', async () => {
     mount()
     await scheduleTomorrow()
     expect(posts).toHaveLength(1)
     expect(posts[0].body).toMatchObject({ account_id: 'acct-work', to: ['dana@harborline.example'], subject: 'Q4 renewal' })
+    expect(posts[0].body.reply_thread_id).toBeUndefined()
     const at = new Date(String(posts[0].body.send_at))
     expect(at.getHours()).toBe(8)
     expect(at.getTime()).toBeGreaterThan(Date.now())

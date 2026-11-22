@@ -697,7 +697,8 @@ export function EmailComposer({
           <Send className="h-3.5 w-3.5" />
           Send
         </Button>
-        <SendLaterButton disabled={!!busy || !!problem} onSchedule={scheduleAt} className="h-8" />
+        {/* Scheduling names the mailbox it goes from: none known, none offered. */}
+        <SendLaterButton disabled={!!busy || !!problem || !accountId} onSchedule={scheduleAt} className="h-8" />
         <span className="mx-1 h-4 w-px bg-border" aria-hidden />
         <button type="button" className={toolButton(!!editorRef.current?.isActive('bold'))} onClick={() => editorRef.current?.toggleBold()} aria-label="Bold" title="Bold (⌘B)">
           <Bold className="h-3.5 w-3.5" />
