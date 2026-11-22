@@ -8,6 +8,8 @@ import { ViewToolbar } from './view-toolbar'
 import { ENTITY_PLURAL } from './view-tabs'
 import { ViewList } from './view-list'
 import { ViewBoard } from './view-board'
+import { ViewRoadmap } from './view-roadmap'
+import { supportsRoadmap } from '@/lib/views/roadmap'
 import { CardHeaderSlot } from '@/components/chat-cards/card-header-slot'
 import { isLazyGroup } from '@/lib/views/lazy-done-groups'
 import { defaultConfig, spansWorkspaces, useView, useViewConfig, useViewResults, type CardConfigSource, type ViewConfig } from './hooks/use-view'
@@ -391,7 +393,9 @@ export interface CardLayoutState {
  * configured one — including whether the row query runs. A gate written against
  * `config.layout` instead would leave that fallback list permanently empty.
  */
-export function resolveEffectiveLayout(layout: ViewLayout, hasGraph: boolean): ViewLayout {
+export function resolveEffectiveLayout(layout: ViewLayout, hasGraph: boolean, entityType?: ViewEntityType): ViewLayout {
+  // A roadmap needs dates: a kind without them (lib/views/roadmap.ts) lists.
+  if (layout === 'roadmap' && entityType && !supportsRoadmap(entityType)) return 'list'
   return layout === 'graph' && !hasGraph ? 'list' : layout
 }
 
@@ -666,7 +670,7 @@ export function UnifiedViewLayout({
     [scopeFilters, extraFilters],
   )
 
-  const effectiveLayout = resolveEffectiveLayout(config.layout, Boolean(renderGraph))
+  const effectiveLayout = resolveEffectiveLayout(config.layout, Boolean(renderGraph), effectiveEntityType)
 
   const isGraph = effectiveLayout === 'graph'
 
@@ -2135,6 +2139,22 @@ export function UnifiedViewLayout({
         <ListFocusProvider value={liveFocusedId}>
         {isGraph ? (
           renderGraph?.({ filters: graphFilters, search: activeSearch ?? '' })
+        ) : effectiveLayout === 'roadmap' ? (
+          <ViewRoadmap
+            entityType={effectiveEntityType}
+            data={data}
+            loading={loading}
+            loadingMore={loadingMore}
+            hasMore={hasMore}
+            onLoadMore={loadMore}
+            config={config}
+            selectedItemId={selectedItemId}
+            onItemSelect={handleItemSelect}
+            onPatch={patchItem}
+            canEdit={canEditCell}
+            onLoadGroup={loadGroup}
+            groupLoadState={lazyGroupState}
+          />
         ) : effectiveLayout === 'list' ? (
           <ViewList
             entityType={effectiveEntityType}
