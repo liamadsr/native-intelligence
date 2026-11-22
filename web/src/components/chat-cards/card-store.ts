@@ -44,7 +44,7 @@ import { isPageCard, type CardSpec } from '@/lib/chat-cards/kinds'
 import { pageBaseQuery } from '@/lib/chat-cards/pages'
 import { browserTimeZone } from '@/lib/chat-cards/calendar'
 import { readCardState, sweepCardStates, writeCardState, type StoredCardState } from './card-storage'
-import { CardHistory } from './card-history'
+import { CardHistory, type CardHop, type CardHopPlace, type CardHopper } from './card-history'
 
 /** How many of the newest cards stay live, and how many opened pages stay mounted (keptPages). */
 export const LIVE_CARDS = 3
@@ -287,10 +287,91 @@ export class ChatCardStore {
     let h = this.histories.get(id)
     if (!h) {
       h = new CardHistory()
+      h.setHopper(this.hopper)
       this.histories.set(id, h)
     }
     return h
   }
+
+  // ── Back and Forward across cards (card-history.tsx, "Across cards") ────
+
+  /** Where a card stands now, to bring it back there after a hop. */
+  private placeOf(id: string): CardHopPlace {
+    if (this.dockedId === id && !(this.fullScreenId === id)) return 'dock'
+    return this.fullScreenId === id ? 'full' : 'inline'
+  }
+
+  /** What a hop's tooltip calls a card: the record open over its page (its ref and title), else its title. */
+  private hopLabel(id: string): string {
+    const card = this.byId.get(id)
+    const history = this.histories.get(id)
+    const open = history?.read<{ label?: string; ref?: string } | null>('open', () => this.state(id).open ?? null) ?? this.state(id).open ?? null
+    const label = open?.label ? [open.ref, open.label].filter(Boolean).join(' ') : (card?.spec.title ?? '')
+    const text = label.replace(/\s+/g, ' ').trim() || 'the card you came from'
+    return text.length > 60 ? `${text.slice(0, 59)}…` : text
+  }
+
+  /**
+   * A card was opened (or brought back) from a link inside another: its Back,
+   * past its first step, brings that card back where the person left it.
+   * Called before the new card goes full screen, so the origin's place is the
+   * one the person saw. `unavailable` (the link crossed into another
+   * workspace, where that card isn't): Back stays disabled and says why. Not
+   * a card of this chat, or the card itself: nothing to go back to.
+   */
+  linkOrigin(id: string, originId: string, opts: { unavailable?: string } = {}): void {
+    if (id === originId) return
+    if (opts.unavailable) {
+      this.history(id).setOrigin({ cardId: originId, label: 'the card you came from', place: 'inline', unavailable: opts.unavailable })
+      return
+    }
+    if (!this.byId.has(originId)) return
+    const origin = this.history(originId)
+    // A new hop forward from the origin: its old onward (a card Back left) gives way.
+    origin.setOnward(null)
+    this.history(id).setOrigin({ cardId: originId, label: this.hopLabel(originId), place: this.placeOf(originId), entry: origin.currentEntry() })
+  }
+
+  /** The other card of a hop is still in this chat, and not closed by the person (an inline card's X). */
+  private hopUsable = (hop: CardHop): boolean => {
+    const card = this.byId.get(hop.cardId)
+    if (!card) return false
+    return !!card.opened || !this.state(hop.cardId).collapsed
+  }
+
+  /** Bring a card back where it stood: full screen, in the thread (scrolled to), or its dock's notepad. */
+  private bringBack(id: string, place: CardHopPlace): void {
+    if (place === 'full' || (place === 'inline' && this.byId.get(id)?.opened)) {
+      this.enterFullScreen(id)
+      return
+    }
+    if (place === 'dock') this.setDockAway(false)
+    this.exitFullScreen()
+    if (place === 'inline' && typeof window !== 'undefined') {
+      window.requestAnimationFrame(() => {
+        const el = [...document.querySelectorAll<HTMLElement>('[data-chat-card]')].find((node) => node.dataset.chatCard === id)
+        el?.scrollIntoView?.({ block: 'nearest' })
+        el?.focus({ preventScroll: true })
+      })
+    }
+  }
+
+  private followHop = (from: CardHistory, hop: CardHop, direction: 'back' | 'forward'): boolean => {
+    if (!this.hopUsable(hop)) return false
+    const fromId = [...this.histories].find(([, h]) => h === from)?.[0]
+    if (!fromId) return false
+    const to = this.history(hop.cardId)
+    if (direction === 'back') {
+      // Forward on the card gone back to reopens this one, where it is now.
+      to.setOnward({ cardId: fromId, label: this.hopLabel(fromId), place: this.placeOf(fromId), entry: from.currentEntry() })
+    }
+    // Its step when the person left it, if it still has it.
+    if (hop.entry) to.goToEntry(hop.entry)
+    this.bringBack(hop.cardId, hop.place)
+    return true
+  }
+
+  private hopper: CardHopper = { usable: this.hopUsable, follow: this.followHop }
 
   /** Among the newest LIVE_CARDS, or reopened by the person. */
   isLive(id: string): boolean {

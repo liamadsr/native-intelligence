@@ -24,6 +24,10 @@ export function entityOpenTarget(type: string, id: string, title?: string | null
       return { type: 'prospect_list', id, title: t }
     case 'eval_suite':
       return { type: 'eval_suite', id, title: t }
+    case 'team':
+      return { type: 'team', id, title: t }
+    case 'package':
+      return { type: 'package', id, title: t }
     case 'table-row':
       return { type: 'data_row', id, title: t }
     case 'team-chat':

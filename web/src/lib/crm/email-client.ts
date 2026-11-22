@@ -302,7 +302,8 @@ async function fetchGmailThreadFull(
 /**
  * The invitation a Gmail message carries inline (its `text/calendar` part,
  * which the thread read already holds): parsed for the card, nothing more
- * fetched. One that only comes as an attached file is left to its chip.
+ * fetched here. One that only comes as an attached file is read when the
+ * message is opened (threads/[threadId]/invite, EmailAttachedInvite).
  */
 function gmailInvite(payload: Record<string, unknown>): { invite?: CalendarInvite } {
   const invite = parseCalendarInvite(extractGmailBody(payload, 'text/calendar') ?? extractGmailBody(payload, 'application/ics'))

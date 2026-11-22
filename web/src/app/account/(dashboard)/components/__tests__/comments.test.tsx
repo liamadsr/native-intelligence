@@ -70,6 +70,7 @@ vi.mock('@/components/ui/alert-dialog', () => ({
 }))
 
 import { Comments } from '../comments'
+import { toast } from 'sonner'
 
 const COMMENTS = [
   {
@@ -88,17 +89,23 @@ const COMMENTS = [
 let fetchCalls: string[] = []
 let posts: Array<{ body: string; parent_id?: string; mentions?: string[] }> = []
 let patches: Array<{ url: string; body: Record<string, unknown> }> = []
+/** How the next POSTs fail, in order (a refused save, a dropped connection); empty: they post. */
+let postFailures: Array<'refused' | 'offline'> = []
 
 function installFetch() {
   fetchCalls = []
   posts = []
   patches = []
+  postFailures = []
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: string, init?: RequestInit) => {
       const url = String(input)
       fetchCalls.push(url)
       if (url === '/api/account/actions/act-1/comments' && init?.method === 'POST') {
+        const failure = postFailures.shift()
+        if (failure === 'offline') throw new TypeError('Failed to fetch')
+        if (failure === 'refused') return { ok: false, status: 500, json: async () => ({ error: 'column comment.mentions does not exist' }) }
         posts.push(JSON.parse(String(init.body)))
         return { ok: true, status: 200, json: async () => ({}) }
       }
@@ -246,6 +253,30 @@ describe('Comments — the box is the shared composer', () => {
     press('Enter')
     await settle()
     expect(posts).toEqual([{ body: 'First line' }])
+    expect(box().value).toBe('')
+  })
+
+  it('a comment the server refuses, or a dropped connection, says so and keeps its words; the next send still posts', async () => {
+    const toastError = vi.spyOn(toast, 'error').mockImplementation(() => '')
+    await mount({ currentMemberId: 'm-1' })
+    postFailures = ['refused', 'offline']
+
+    type('Ship it')
+    press('Enter')
+    await settle()
+    expect(posts).toEqual([])
+    expect(toastError).toHaveBeenCalledWith('Your comment wasn’t posted. Try again.')
+    expect(box().value).toBe('Ship it')
+
+    // A dropped connection used to leave the box stuck: every later send was ignored.
+    press('Enter')
+    await settle()
+    expect(toastError).toHaveBeenCalledTimes(2)
+    expect(box().value).toBe('Ship it')
+
+    press('Enter')
+    await settle()
+    expect(posts).toEqual([{ body: 'Ship it' }])
     expect(box().value).toBe('')
   })
 

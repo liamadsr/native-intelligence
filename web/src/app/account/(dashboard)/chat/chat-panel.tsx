@@ -16,6 +16,7 @@ import { pagesFor, personalToolsFor, type OfferedPage } from '@/lib/chat-cards/p
 import { isOpenedCardMessage, nextCardNumber, openedCardFromPart, openedCardMessage } from '@/lib/chat-cards/opened-card'
 import { FOLD_CARDS_EVENT, cardForTarget, cardMatches, sameCardPlace, type CardMatch, type OpenCardRequest } from '@/lib/chat-cards/open-card'
 import { menuRowTarget, type MenuSearchRow } from '@/lib/search/menu-search'
+import { openConversation } from '@/lib/chat/open-conversation'
 import { seedCardState } from '@/components/chat-cards/card-storage'
 import { nestedPageOpen } from '../rail/rail-pages'
 import { useIsWorkspaceGuest, useWorkspaceEdition } from '../../workspace-switcher'
@@ -1824,9 +1825,19 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
         : (cardStore.newestWhere((spec, card) => (!!request.reuse || !!card.opened) && samePlace(spec)) ??
           pendingOpenedRef.current.map((m) => openedCardFromPart(m.parts[0])).find((c) => c && samePlace(c.spec))?.id ??
           null)
+      // Opened from a link inside another card of this chat: its Back, past
+      // its first step, brings that card back where the person left it
+      // (card-history.tsx "Across cards"). Before it goes full screen, so the
+      // origin's place is the one they saw.
+      const linkOrigin = (id: string) => {
+        const origin = request.origin
+        if (!origin) return
+        cardStore.linkOrigin(id, origin.cardId, origin.elsewhere ? { unavailable: 'the card you came from is in another workspace' } : {})
+      }
       if (held) {
         // Where it was asked to open (a bot's page on one of its items) wins.
         if (request.seed) cardStore.update(held, seedCardState(request.seed), { touch: true })
+        linkOrigin(held)
         cardStore.enterFullScreen(held)
         return held
       }
@@ -1837,6 +1848,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
       // picked at once) still counts among the pages visited last.
       cardStore.update(id, { ...(request.seed ? seedCardState(request.seed) : {}), visitedAt: Date.now() }, { touch: !!request.seed })
       const message = openedCardMessage({ id, spec: request.spec, number, page: request.from })
+      linkOrigin(id)
       // Docked, it is the dock's from the start (before it is one of the store's cards).
       if (docking) cardStore.setDocked(id)
       else fullScreenAskRef.current = id
@@ -1900,6 +1912,12 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
   // A record from `/` (or ⌘↵ under `@`): its card, here, at once (docs/plans/slash-search.md).
   const handleOpenRecord = useCallback(
     (row: MenuSearchRow) => {
+      // A past agent chat has no card: it opens the read-only viewer (own, or
+      // one shared with the caller by a mention) — docs/plans/mentions-everywhere.md JOB 2.
+      if (row.kind === 'conversation') {
+        openConversation(row.id, row.title)
+        return
+      }
       const card = cardForTarget(menuRowTarget(row))
       if (card) openCardHere({ spec: card.spec, ...(card.seed ? { seed: card.seed } : {}), from: 'menu' })
     },

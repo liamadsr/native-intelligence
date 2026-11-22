@@ -18,6 +18,18 @@
  *     starts) and its left edge stay visible.
  *  3. Inside a side group an event widens to the right over lanes nothing in
  *     its group occupies during its time.
+ *  2b. Layering must never bury an event. A later event that is also the
+ *     LONGER one is only laid over an earlier one when the earlier keeps at
+ *     least half of its own height clear above it. When it would swallow
+ *     more than that (a 5:30-7:00 meeting and a 6:00-14:00 block), the two
+ *     go side by side instead, as rule 1's do. A later event that is the
+ *     shorter one (a meeting inside a long block) is always laid on top.
+ *  2c. Paint order (`order`) is by time alone, whatever the groups: later
+ *     start on top, and of two that start together (side by side, so they
+ *     don't cover each other) the shorter is the later. The views draw the
+ *     blocks in this order, so a later-starting event is never under an
+ *     earlier one, and a shorter one is never under a longer one that it
+ *     shares most of its time with.
  *  4. A very short event counts as `MIN_VISUAL_MINUTES` long, the height it is
  *     drawn at, so two back-to-back five-minute events don't draw over each
  *     other.
@@ -51,8 +63,10 @@ export interface LayoutBox {
   /** Its lane in its side group, and how many lanes that group has. */
   lane: number
   lanes: number
-  /** Paint order: higher is on top. */
+  /** Its layer's paint order (depth + 1): higher is on top. */
   zIndex: number
+  /** Its place in the column's paint order, 0 at the bottom: later start higher; same start, the shorter higher. */
+  order: number
 }
 
 interface Item extends LayoutInput {
@@ -82,6 +96,25 @@ export function layoutDayEvents(inputs: readonly LayoutInput[]): Map<string, Lay
       // Sorted by start: nothing after this one is close enough either.
       if (items[j].start - items[i].start >= SIDE_BY_SIDE_MINUTES) break
       if (overlaps(items[i], items[j])) parent[find(j)] = find(i)
+    }
+  }
+  // Rule 2b: a later, LONGER event that would cover more than half of an earlier one.
+  for (let i = 0; i < items.length; i++) {
+    for (let j = i + 1; j < items.length; j++) {
+      const earlier = items[i]
+      const later = items[j]
+      if (later.start >= earlier.visualEnd) break
+      if (find(i) === find(j)) continue
+      const clear = later.start - earlier.start
+      const covered = earlier.visualEnd - later.start
+      const longer = later.visualEnd - later.start > earlier.visualEnd - earlier.start
+      if (longer && covered > clear) {
+        // The union keeps the smaller index as the root (groups are ordered by their first event).
+        const a = find(i)
+        const b = find(j)
+        if (a < b) parent[b] = a
+        else parent[a] = b
+      }
     }
   }
 
@@ -141,8 +174,15 @@ export function layoutDayEvents(inputs: readonly LayoutInput[]): Map<string, Lay
         lane: item.lane,
         lanes,
         zIndex: depths[g] + 1,
+        order: 0,
       })
     }
+  })
+  // Rule 2c: one paint order for the whole column. Later start on top; same start, the shorter on top.
+  const byPaint = [...items].sort((a, b) => a.start - b.start || b.visualEnd - a.visualEnd || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+  byPaint.forEach((item, i) => {
+    const box = boxes.get(item.id)
+    if (box) box.order = i
   })
   return boxes
 }

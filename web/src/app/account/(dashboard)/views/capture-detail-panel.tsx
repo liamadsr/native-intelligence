@@ -3329,6 +3329,9 @@ export function CaptureDetailPanel({
                         aiWritingLabel={toolLabel(streaming.activeTool)}
                         extraExtensions={proposalExtensions}
                         proposalRefs={proposalRefs}
+                        // `@` in the notes: the one picker, as in a document or a
+                        // description; the save records them (PATCH ai_summary).
+                        recordMentions
                       />
                     </ProposalNodeProvider>
 

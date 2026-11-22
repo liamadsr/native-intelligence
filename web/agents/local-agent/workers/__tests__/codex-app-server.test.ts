@@ -14,6 +14,21 @@ afterEach(async () => {
   for (const c of cleanups.splice(0)) await c()
 })
 
+/**
+ * The stand-in Codex is its own process and logs each message as it reads it.
+ * `initialized` is a notification the link sends without waiting for an answer,
+ * so `initialize()` can resolve before the other process has logged it: wait
+ * for the log to catch up rather than read it at once (it lost that race on a
+ * loaded machine).
+ */
+async function until(test: () => boolean, ms = 5000) {
+  const end = Date.now() + ms
+  while (!test()) {
+    if (Date.now() > end) throw new Error('timed out waiting for the stand-in Codex')
+    await new Promise((r) => setTimeout(r, 10))
+  }
+}
+
 async function setup(opts: Record<string, unknown> = {}) {
   const h = await linkHarness('fake-codex.mjs', opts)
   cleanups.push(h.close)
@@ -25,6 +40,7 @@ describe('codex-app-server', () => {
   it('starts `codex app-server`, initializes, and reads the version from its user agent', async () => {
     const t = await setup()
     expect(await t.link.initialize()).toEqual({ version: '9.9.9' })
+    await until(() => t.requests().length >= 2)
     const log = t.requests()
     expect(log.map((r) => r.method)).toEqual(['initialize', 'initialized'])
     expect(log[0].params).toEqual({ clientInfo: { name: 'native-intelligence', title: 'Native Intelligence', version: '1' }, capabilities: null })

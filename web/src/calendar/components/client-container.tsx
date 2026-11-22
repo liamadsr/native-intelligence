@@ -12,7 +12,11 @@ import { CalendarAgendaView } from "@/calendar/components/agenda-view/calendar-a
 import { CalendarDayView } from "@/calendar/components/week-and-day-view/calendar-day-view";
 import { CalendarWeekView } from "@/calendar/components/week-and-day-view/calendar-week-view";
 import { AddEventPopover } from "@/calendar/components/dialogs/add-event-dialog";
+import { CalendarSidebar } from "@/calendar/components/sidebar/calendar-sidebar";
 
+import type { SidebarAccount } from "@/calendar/sidebar/calendar-visibility";
+
+import type { IEvent } from "@/calendar/interfaces";
 import type { TCalendarView } from "@/calendar/types";
 
 interface IProps {
@@ -22,7 +26,20 @@ interface IProps {
   onFilterChange?: (accountIds: string[] | null) => void;
   /** A chat card: no window title row, only the views it offers, slimmer inline. */
   card?: { compact: boolean; views: readonly TCalendarView[] };
+  /** The sidebar of the Calendar page and window (never the slim card inline in a chat): its calendars, the hidden ones, and whether the person has it open. */
+  sidebar?: {
+    accounts: SidebarAccount[];
+    /** The events the upcoming list reads, when they are not the grid's own (a window's grid holds only its range). */
+    upcoming?: IEvent[];
+    hidden: ReadonlySet<string>;
+    onHiddenChange: (hidden: Set<string>) => void;
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+  };
 }
+
+/** Below this width the sidebar would squeeze the grid (it takes 15rem): it is left out, and so is its toggle. */
+export const SIDEBAR_MIN_WIDTH = 900;
 
 /**
  * Below this width the week's seven columns don't fit (the week view itself
@@ -48,7 +65,7 @@ function useWidth(ref: RefObject<HTMLElement | null>): number | null {
   return width;
 }
 
-export function ClientContainer({ view: chosenView, onViewChange, filterAccountIds, onFilterChange, card }: IProps) {
+export function ClientContainer({ view: chosenView, onViewChange, filterAccountIds, onFilterChange, card, sidebar }: IProps) {
   const { selectedDate, events } = useCalendar();
 
   // Too narrow for a week (a phone, a thin window): show the day instead
@@ -57,7 +74,11 @@ export function ClientContainer({ view: chosenView, onViewChange, filterAccountI
   const rootRef = useRef<HTMLDivElement>(null);
   const width = useWidth(rootRef);
   // 0 = not laid out (hidden, or a test's jsdom): no reason to give up the week.
-  const weekFits = !width || width >= WEEK_MIN_WIDTH;
+  const sidebarFits = !!sidebar && !card?.compact && (!width || width >= SIDEBAR_MIN_WIDTH);
+  const sidebarShown = sidebarFits && sidebar.open;
+  // The grid's own width: the sidebar's 15rem is not the week's to use.
+  const gridWidth = width && sidebarShown ? width - 240 : width;
+  const weekFits = !gridWidth || gridWidth >= WEEK_MIN_WIDTH;
   const view: TCalendarView = chosenView === "week" && !weekFits ? "day" : chosenView;
 
   const filteredEvents = useMemo(() => {
@@ -115,23 +136,37 @@ export function ClientContainer({ view: chosenView, onViewChange, filterAccountI
   }, [filteredEvents]);
 
   return (
-    <div ref={rootRef} className="flex h-full flex-col overflow-hidden">
-      <CalendarHeader
-        view={view}
-        events={filteredEvents}
-        onViewChange={onViewChange}
-        filterAccountIds={filterAccountIds}
-        onFilterChange={onFilterChange}
-        card={card}
-        unavailableViews={weekFits ? undefined : NARROW_UNAVAILABLE}
-      />
+    <div ref={rootRef} className="flex h-full overflow-hidden">
+      {sidebarShown && (
+        <CalendarSidebar
+          view={view}
+          accounts={sidebar.accounts}
+          upcomingFrom={sidebar.upcoming}
+          hidden={sidebar.hidden}
+          onHiddenChange={sidebar.onHiddenChange}
+          onClose={() => sidebar.onOpenChange(false)}
+        />
+      )}
 
-      <div className="flex min-h-0 flex-1 flex-col">
-        {view === "day" && <CalendarDayView singleDayEvents={singleDayEvents} multiDayEvents={multiDayEvents} />}
-        {view === "month" && <CalendarMonthView singleDayEvents={singleDayEvents} multiDayEvents={multiDayEvents} />}
-        {view === "week" && <CalendarWeekView singleDayEvents={singleDayEvents} multiDayEvents={multiDayEvents} />}
-        {view === "year" && <CalendarYearView allEvents={eventStartDates} />}
-        {view === "agenda" && <CalendarAgendaView singleDayEvents={singleDayEvents} multiDayEvents={multiDayEvents} />}
+      <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
+        <CalendarHeader
+          view={view}
+          events={filteredEvents}
+          onViewChange={onViewChange}
+          filterAccountIds={filterAccountIds}
+          onFilterChange={onFilterChange}
+          card={card}
+          unavailableViews={weekFits ? undefined : NARROW_UNAVAILABLE}
+          onOpenSidebar={sidebarFits && !sidebar.open ? () => sidebar.onOpenChange(true) : undefined}
+        />
+
+        <div className="flex min-h-0 flex-1 flex-col">
+          {view === "day" && <CalendarDayView singleDayEvents={singleDayEvents} multiDayEvents={multiDayEvents} />}
+          {view === "month" && <CalendarMonthView singleDayEvents={singleDayEvents} multiDayEvents={multiDayEvents} />}
+          {view === "week" && <CalendarWeekView singleDayEvents={singleDayEvents} multiDayEvents={multiDayEvents} />}
+          {view === "year" && <CalendarYearView allEvents={eventStartDates} />}
+          {view === "agenda" && <CalendarAgendaView singleDayEvents={singleDayEvents} multiDayEvents={multiDayEvents} />}
+        </div>
       </div>
 
       <AddEventPopover />

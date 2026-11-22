@@ -1,6 +1,6 @@
 import { PageTitle } from '@/components/views/page-title'
 import { useRef } from "react";
-import { Columns, Grid3x3, List, Grid2x2, CalendarRange, Plus, ChevronLeft, ChevronRight } from "lucide-react";
+import { Columns, Grid3x3, List, Grid2x2, CalendarRange, Plus, ChevronLeft, ChevronRight, PanelLeftOpen } from "lucide-react";
 import { formatDate } from "date-fns";
 
 import { cn } from "@/lib/utils";
@@ -29,6 +29,8 @@ interface IProps {
   card?: { compact: boolean; views: readonly TCalendarView[] };
   /** Views the calendar can't show at its current size (the week, when narrow): left out of the switcher. */
   unavailableViews?: readonly TCalendarView[];
+  /** The page's sidebar is closed and there is room for it: a button to bring it back. */
+  onOpenSidebar?: () => void;
 }
 
 const VIEW_BUTTONS: { view: TCalendarView; icon: typeof List; label: string }[] = [
@@ -39,7 +41,7 @@ const VIEW_BUTTONS: { view: TCalendarView; icon: typeof List; label: string }[] 
   { view: "agenda", icon: CalendarRange, label: "Agenda" },
 ];
 
-export function CalendarHeader({ view, events, onViewChange, filterAccountIds, onFilterChange, card, unavailableViews }: IProps) {
+export function CalendarHeader({ view, events, onViewChange, filterAccountIds, onFilterChange, card, unavailableViews, onOpenSidebar }: IProps) {
   const { selectedDate, setSelectedDate } = useCalendar();
   // In a floating content window, the title row carries the window's close button.
   const titleRowRef = useRef<HTMLDivElement>(null);
@@ -61,6 +63,11 @@ export function CalendarHeader({ view, events, onViewChange, filterAccountIds, o
       {/* Row 1: Main header — title + new event (a card's own header stands in) */}
       {!card && <>
         <div ref={titleRowRef} className={cn("relative flex h-12 shrink-0 items-center gap-2 px-5")}>
+          {onOpenSidebar && (
+            <Button variant="ghost" size="sm" className="-ml-2 h-7 w-7 shrink-0 rounded-full p-0 text-muted-foreground" onClick={onOpenSidebar} aria-label="Show the sidebar" title="Show the sidebar">
+              <PanelLeftOpen className="h-4 w-4" />
+            </Button>
+          )}
           <PageTitle label="Events" as="h2" />
           {onFilterChange && (
             <div className="ml-3">
@@ -99,6 +106,11 @@ export function CalendarHeader({ view, events, onViewChange, filterAccountIds, o
         <div className="flex h-full min-w-0 items-center gap-2">
           {/* Left: today + prev/next + date label */}
           <div className="flex min-w-0 items-center gap-0.5 @[24rem]/calbar:gap-1">
+            {card && onOpenSidebar && (
+              <Button variant="ghost" size="sm" className="h-7 w-7 shrink-0 rounded-full p-0 text-muted-foreground" onClick={onOpenSidebar} aria-label="Show the sidebar" title="Show the sidebar">
+                <PanelLeftOpen className="h-3.5 w-3.5" />
+              </Button>
+            )}
             <Button variant="ghost" size="sm" className="hidden h-7 shrink-0 rounded-full px-2.5 text-xs @[20rem]/calbar:inline-flex" onClick={handleToday}>
               Today
             </Button>
