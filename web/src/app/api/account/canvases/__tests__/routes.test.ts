@@ -14,6 +14,11 @@ const MEMBER = 'm-1'
 const C = '33333333-3333-4333-8333-333333333333'
 
 const hoisted = vi.hoisted(() => ({ requireWorkspace: vi.fn(), requireWorkspaceMember: vi.fn(), bucket: { list: vi.fn(), remove: vi.fn() } }))
+const after = vi.hoisted(() => ({ list: [] as Array<Record<string, unknown>> }))
+vi.mock('@/lib/record-comments/mentions', () => ({
+  fenceRecordCommentMentions: vi.fn(async (_s: unknown, _scope: unknown, raw: { mentions?: unknown }, body: string) => ({ memberIds: body.includes('@') && Array.isArray(raw.mentions) ? (raw.mentions as string[]) : [], records: [] })),
+  afterRecordComment: vi.fn(async (_s: unknown, saved: Record<string, unknown>) => void after.list.push(saved)),
+}))
 vi.mock('@/lib/supabase/service', () => ({ getServiceClient: () => ({ storage: { from: () => hoisted.bucket } }) }))
 vi.mock('@/lib/api-auth', () => ({ requireWorkspace: hoisted.requireWorkspace, requireWorkspaceMember: hoisted.requireWorkspaceMember }))
 
@@ -173,5 +178,45 @@ describe('/api/account/canvases/[id]/comments', () => {
     expect(res.status).toBe(503)
     expect((await readJson<{ code: string }>(res)).code).toBe('COMMENTS_UNAVAILABLE')
     expect((await postComment(send(`${base}/${C}/comments`, 'POST', { body: 'Hi' }), ctx())).status).toBe(503)
+  })
+})
+
+describe('canvas comments: mentions, notices and the assistant\'s mark', () => {
+  const B = 'm-ben'
+  beforeEach(() => {
+    after.list = []
+  })
+
+  it('stores who a comment names and hands the saved comment on to be told', async () => {
+    const res = await postComment(send(`${base}/${C}/comments`, 'POST', { body: 'Look, @Ben', mentions: [B], records: [] }), ctx())
+    expect(res.status).toBe(201)
+    const row = f.rows.canvas_comment[0]
+    expect(row.mentions).toEqual([B])
+    expect(after.list[0]).toMatchObject({ kind: 'canvas', recordId: C, workspaceId: WS, userId: USER, memberId: MEMBER, commentId: row.id, parentId: null, body: 'Look, @Ben', mentions: { memberIds: [B] } })
+    expect(after.list[0].alreadyMentioned).toBeUndefined()
+    expect(after.list[0].viaAgent).toBeUndefined()
+  })
+
+  it('never takes the assistant\'s mark from a request', async () => {
+    await postComment(send(`${base}/${C}/comments`, 'POST', { body: 'I am a person', via_agent: true, viaAgent: true }), ctx())
+    expect('via_agent' in f.rows.canvas_comment[0]).toBe(false)
+  })
+
+  it('on an edit, hands on who was already named so only new names are told; a resolve tells nobody', async () => {
+    await postComment(send(`${base}/${C}/comments`, 'POST', { body: 'Look, @Ben', mentions: [B] }), ctx())
+    const id = f.rows.canvas_comment[0].id as string
+    after.list = []
+    const cctx = { params: Promise.resolve({ id: C, commentId: id }) }
+    await patchComment(send(`${base}/${C}/comments/${id}`, 'PATCH', { body: 'Look, @Ben and @Cal', mentions: [B, 'm-cal'] }), cctx)
+    expect(f.rows.canvas_comment[0].mentions).toEqual([B, 'm-cal'])
+    expect(after.list[0]).toMatchObject({ commentId: id, alreadyMentioned: [B], mentions: { memberIds: [B, 'm-cal'] } })
+    after.list = []
+    await patchComment(send(`${base}/${C}/comments/${id}`, 'PATCH', { resolved: true }), cctx)
+    expect(after.list).toEqual([])
+  })
+
+  it('tells nobody about a comment that was refused', async () => {
+    await postComment(send(`${base}/${C}/comments`, 'POST', { body: ' ', mentions: [B] }), ctx())
+    expect(after.list).toEqual([])
   })
 })
