@@ -440,6 +440,15 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
     if (d.initiativeId) setInitiativeId(d.initiativeId)
     if (d.companyId) setCompanyId(d.companyId)
     if (type === 'channel' && d.teamId) setChannelTeamId(d.teamId)
+    // A list group's + (group-create.ts): the action starts in that group.
+    if (type === 'action' && ctx.preset) {
+      const p = ctx.preset
+      if (p.teamId) setTeamId(p.teamId)
+      if (p.statusId) setStatusId(p.statusId)
+      if (p.priority) setPriority(p.priority)
+      if (p.projectId) setProjectId(p.projectId)
+      if (p.assigneeId) setAssigneeIds([p.assigneeId])
+    }
     const prefill = ctx.title ?? ctx.source?.title
     if (prefill) {
       setTitle(prefill)

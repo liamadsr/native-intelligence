@@ -7,6 +7,10 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ChevronRight, Plus } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { openCreateDialog } from '@/lib/create/open-create'
+import { actionPresetForGroup, groupCreateRequest } from '@/lib/create/group-create'
+import { isCreateTypeId } from '@/lib/create/create-types'
+import type { ActionPreset } from '@/lib/create/create-context'
 import { EntityRow, getTitle, type PatchItemFn } from './list/entity-row'
 import type { ViewEntityType, GroupedResults } from '@/lib/views/types'
 import type { ViewConfig } from './hooks/use-view'
@@ -123,6 +127,8 @@ export function ViewList({
             flows={showFlowIndicators ? flowsForGroup(group, flowStatusIds) : undefined}
             onLoadGroup={onLoadGroup}
             loadState={groupLoadState?.[group.key]}
+            groupField={config.grouping?.field ?? null}
+            subGroupField={config.sub_grouping?.field ?? null}
           />
         ))}
         {(data as GroupedResults[]).length === 0 && <EmptyState />}
@@ -455,6 +461,7 @@ function GroupSection({
   selectionActive, checkedIds, onToggleCheck,
   onPatch, pickerContext, canEdit, onComposeChange, flows,
   onLoadGroup, loadState,
+  groupField = null, subGroupField = null, parentPreset,
 }: {
   group: GroupedResults
   entityType: ViewEntityType
@@ -477,6 +484,11 @@ function GroupSection({
   flows?: FlowRef[]
   onLoadGroup?: (groupKey: string) => void
   loadState?: GroupLoadState
+  /** The field this level is grouped by, and the one under it: the + presets the composer to the group (group-create.ts). */
+  groupField?: string | null
+  subGroupField?: string | null
+  /** An outer group's preset, kept by its subgroups' +. */
+  parentPreset?: ActionPreset
 }) {
   // A finished group whose rows are not loaded starts collapsed, with its
   // count: opening it is what loads it (lib/views/lazy-done-groups.ts).
@@ -489,6 +501,12 @@ function GroupSection({
   React.useEffect(() => {
     if (needsLoad) onLoadGroup!(group.key)
   }, [needsLoad, onLoadGroup, group.key])
+  // The +: a new one of the list's kind, in this group (its status, priority,
+  // project or assignee), through the one Create composer.
+  const preset: ActionPreset = { ...parentPreset, ...actionPresetForGroup(groupField, group) }
+  const startCreate = isCreateTypeId(entityType)
+    ? () => openCreateDialog(groupCreateRequest(entityType, preset))
+    : null
 
   return (
     <div>
@@ -510,7 +528,18 @@ function GroupSection({
           </span>
         </button>
         {flows && flows.length > 0 && <FlowIndicator flows={flows} className="ml-2" />}
-        <Plus className="h-3.5 w-3.5 text-muted-foreground ml-auto opacity-0 group-hover:opacity-100 transition-opacity" />
+        {startCreate && (
+          <button
+            type="button"
+            onClick={startCreate}
+            aria-label={`New in ${group.label}`}
+            title={`New in ${group.label}`}
+            data-group-create={group.key}
+            className="ml-auto flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+        )}
       </div>
 
       {!collapsed && (
@@ -531,6 +560,8 @@ function GroupSection({
                 pickerContext={pickerContext}
                 canEdit={canEdit}
                 onComposeChange={onComposeChange}
+                groupField={subGroupField}
+                parentPreset={preset}
               />
             ))
           ) : (
