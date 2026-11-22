@@ -34,6 +34,11 @@ export type FakeResult = { data: unknown; error: { message: string } | null }
  */
 export type FakeResolver = (q: FakeQuery) => FakeResult | Promise<FakeResult> | undefined
 
+/** A resolver's answer when it is already settled (not held open, not unanswered). */
+export function isSettled(r: FakeResult | Promise<FakeResult> | undefined): r is FakeResult {
+  return r !== undefined && !(r instanceof Promise)
+}
+
 const WRITE_OPS = new Set(['insert', 'update', 'delete', 'upsert'])
 
 /** The value a `.eq(column, value)` filter was called with, if any. */

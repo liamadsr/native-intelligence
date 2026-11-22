@@ -501,7 +501,7 @@ describe('uniqueColumnEntries', () => {
 })
 
 describe('a coding agent’s work: the Code view’s For you, never the agent’s (Liam, 11-20)', () => {
-  const roster = [{ id: 'writer', name: 'Writer', bot_character: 'writer', reachable: true }]
+  const roster = [{ id: 'writer', name: 'Writer', bot_character: 'writer' as const, reachable: true }]
   const entriesOf = (rows: Array<WorkItem | LightWorkRow>) => forYouColumnEntries({ roster, counts: countByOwner(rows, []), rows, cards: [] })
 
   it('a review of a job on the Mac (local_agent) or the cloud coding agent’s run (coding_run) is coding work; any other review, card or draft is not', () => {

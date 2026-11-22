@@ -15,7 +15,7 @@ import { __resetComputerForTests, computerSummary, getComputer, type ComputerSta
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const computer = (over: Partial<ComputerState> = {}): ComputerState => ({ exists: true, status: 'running', driver: 'agent', busy: false,
-  liveView: true, thumbnail: null, viewOpen: false, viewEpoch: 0, macConnected: false, mac: null, ...over })
+  liveView: true, thumbnail: null, viewOpen: false, viewEpoch: 0, handBacks: 0, signInSite: null, macConnected: false, mac: null, ...over })
 
 let root: Root
 let host: HTMLElement

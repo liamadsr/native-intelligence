@@ -91,7 +91,7 @@ afterEach(() => {
 async function render(props: Record<string, unknown> = {}, covered = false) {
   await act(async () => {
     root.render(
-      h(CardHeaderSlotsProvider, { value: { left: null, right, trail, setBack } }, h(CardCovered, { covered }, h(KnowledgeLibrary, props))),
+      h(CardHeaderSlotsProvider, { value: { left: null, right, trail, setBack } }, h(CardCovered, { covered, children: h(KnowledgeLibrary, props) })),
     )
   })
   for (let i = 0; i < 3; i++) await act(async () => {})

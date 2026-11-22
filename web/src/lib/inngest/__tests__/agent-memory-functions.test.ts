@@ -16,7 +16,7 @@ const hoisted = vi.hoisted(() => ({
   db: null as unknown,
   runUtilityTask: vi.fn(),
   logUsage: vi.fn(async () => undefined),
-  guard: vi.fn(async (): Promise<{ chatgptPlan: boolean }> => ({ chatgptPlan: false })),
+  guard: vi.fn(async (_userId: string): Promise<{ chatgptPlan: boolean }> => ({ chatgptPlan: false })),
 }))
 
 vi.mock('@/lib/inngest/client', () => ({

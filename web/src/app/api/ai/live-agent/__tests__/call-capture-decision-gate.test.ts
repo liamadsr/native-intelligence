@@ -13,7 +13,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { createFakeSupabase, eqValue, meetingFixture, FIX, type FakeQuery } from '@/lib/live-agent/__tests__/helpers/live-turn-fixture'
+import { createFakeSupabase, isSettled, eqValue, meetingFixture, FIX, type FakeQuery } from '@/lib/live-agent/__tests__/helpers/live-turn-fixture'
 import { fakeTaskResponse, quietTurn } from '@/lib/live-agent/__tests__/helpers/fake-eve-turn'
 
 const h = vi.hoisted(() => ({ client: null as unknown as SupabaseClient, applied: [] as string[], allowExternal: false }))
@@ -79,7 +79,7 @@ function seedDb(callRoster: boolean, opts: { callCaptureRow?: boolean; withDraft
     if (q.table === 'rpc:capture_feed_quote_speakers') return { data: callRoster ? speakers[(q.payload as { p_quote: string }).p_quote] ?? [] : [], error: null }
     const r = base(q)
     // A call's capture (its notes channel set), here from before the roster.
-    if (opts.callCaptureRow && q.table === 'captures' && r.data && !Array.isArray(r.data)) {
+    if (opts.callCaptureRow && q.table === 'captures' && isSettled(r) && r.data && !Array.isArray(r.data)) {
       return { ...r, data: { ...(r.data as Record<string, unknown>), notes_channel_id: 'chan-call-1' } }
     }
     return r
