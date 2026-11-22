@@ -75,9 +75,9 @@ export async function POST(request: NextRequest) {
     return badRequest('Send the file as multipart form data in a field named "file".')
   }
   const file = form.get('file')
-  if (!(file instanceof File) && !(file instanceof Blob)) return badRequest('Attach the file in a field named "file".')
+  if (!file || typeof file === 'string') return badRequest('Attach the file in a field named "file".')
   const titleField = form.get('title')
-  const fileName = file instanceof File ? file.name : ''
+  const fileName = file.name ?? ''
   const title = typeof titleField === 'string' && titleField.trim() ? titleField : stem(fileName || 'Imported spreadsheet')
 
   const bytes = new Uint8Array(await file.arrayBuffer())
@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
 
   // Decide xlsx vs csv by extension, then by the zip signature (an .xlsx is a zip starting "PK").
   const lower = fileName.toLowerCase()
-  const type = (file instanceof File ? file.type : '') || ''
+  const type = file.type || ''
   const looksZip = bytes[0] === 0x50 && bytes[1] === 0x4b
   const isXlsx = lower.endsWith('.xlsx') || type.includes('spreadsheetml') || (!lower.endsWith('.csv') && !lower.endsWith('.tsv') && !lower.endsWith('.txt') && looksZip)
 

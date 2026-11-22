@@ -139,6 +139,20 @@ describe('xlsx round trip: values, formulas and their cached values', () => {
     back.free()
   })
 
+  it('writes a blank cell that only carries a format as a blank, not as 0', async () => {
+    const m = newModel()
+    m.setUserInput(0, 1, 1, 'Total')
+    m.updateRangeStyle({ sheet: 0, row: 1, column: 1, width: 3, height: 1 }, 'font.b', 'true')
+    const { bytes, back } = await roundTrip(m)
+    const xml = await partText(bytes, 'xl/worksheets/sheet1.xml')
+    expect(xml).toMatch(/<c r="B1" s="\d+"\/>/)
+    expect(xml).not.toMatch(/<c r="B1"[^>]*><v>/)
+    expect(back.getCellContent(0, 1, 2)).toBe('')
+    expect(back.getCellStyle(0, 1, 2).style.font.b).toBe(true)
+    m.free()
+    back.free()
+  })
+
   it('round-trips a date typed as a date through its serial', async () => {
     const m = newModel()
     m.setUserInput(0, 1, 1, '2026-03-09')

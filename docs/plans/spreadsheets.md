@@ -402,6 +402,21 @@ Not in phase 2, said plainly:
 - **A layout of its own for phones.** The editor works at any width (the toolbar scrolls sideways), and touch scrolls and taps select, but there are no drag handles on the selection and the footer does not follow the on-screen keyboard. Not tried on a phone.
 - **The Insert and Comment controls** of Macro's toolbar come with what they insert: phases 4 and 5.
 
+### Phase 3: done
+
+| Item | State |
+| --- | --- |
+| Export .xlsx | Done, from the footer's Import and export button (in the browser, on the open workbook) and from `GET /api/account/spreadsheets/[id]/export?format=xlsx`. Every sheet with its name, hidden state and tab color; numbers, text, booleans, errors; formulas with their last calculated value beside them; fonts, fills, borders, alignment, wrap, number formats; column widths, row heights, hidden rows and columns, merges, frozen panes, gridlines, defined names. A file it wrote was opened with openpyxl and with LibreOffice: both read the values, formulas, formats and layout. Not opened in Excel itself. |
+| Import .xlsx | Done: a new spreadsheet from a file (`POST /api/account/spreadsheets/import`). Reads all of the above back, shared formulas (expanded to each cell), the 1904 date system and theme colors. What it cannot carry is listed as warnings after the import, never a failure: charts, images, pivot tables, conditional formatting, data validation, notes, tables (a formula using `Table[Column]` shows `#NAME?`), external links, macros. Limits: 50 MB a file, 400 MB unpacked, 300 sheets, 100,000 rows, 16,384 columns (more is cut, with a warning). |
+| Export .csv | Done: the sheet in view, the values it shows, quoted by RFC 4180. |
+| Import .csv | Done: pasted at the active cell as one undo step, as Macro does; commas, semicolons or tabs; quoted fields with line breaks. |
+| Agents | Done, five tools in a Spreadsheets category (so also `ni_*` over MCP): `find_spreadsheets`, `read_spreadsheet` (a summary, or exact ranges up to 500 cells, with the revision), `calculate_spreadsheet` (up to 20 formulas with what-if inputs on a throwaway copy; nothing is written), `create_spreadsheet`, `edit_spreadsheet` (one batch, all or nothing, refused when the revision is stale; 25 operations and 2,000 cells at most; cells it wrote that show an error come back as warnings). A private spreadsheet of someone else is "not found" to a tool. Writes are kept out of team chat, as Tables' are. A mention of a spreadsheet now tells the agent to read it. No model call was added: the tools run through the existing registry and eve's tool proxy. Not yet tried with a live agent turn. |
+| Version history | Done: a History button in the title bar lists who changed it and when (an agent's change is marked), and restores a version as an ordinary save, so nothing is lost. One person's run of saves within ten minutes is one entry. |
+| Entity links | A spreadsheet is linkable in the entity registry since phase 1, and private ones are fenced. The side panel that shows a record's links is not on the spreadsheet's card yet. |
+
+Not done: comments (phase 5, with the threads on cells), sharing with one person (decision 5),
+the activity log and copy link (they need database triggers and deep-link handling).
+
 ## Decisions to review
 
 Made without asking, while the owner was away. Each can be changed.
@@ -447,4 +462,4 @@ Made without asking, while the owner was away. Each can be changed.
 | --- | --- | --- |
 | `@ironcalc/wasm` 0.9.1 | MIT or Apache-2.0 | The engine. Its notices file lists no copyleft dependency. |
 
-More are named here as they are added (a reader and writer for .xlsx in phase 3).
+The .xlsx reader and writer are this repository's own code over `jszip` (MIT), which the app already had; nothing was added for them.

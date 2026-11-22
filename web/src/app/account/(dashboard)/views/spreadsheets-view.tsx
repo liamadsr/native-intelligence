@@ -87,6 +87,10 @@ export function SpreadsheetsView({ onCount, card }: { onCount?: (count: number) 
           setOpenId(null)
           void load()
         }}
+        onOpen={(id, name) => {
+          void load()
+          setOpenId(id, name)
+        }}
       />
     )
   }

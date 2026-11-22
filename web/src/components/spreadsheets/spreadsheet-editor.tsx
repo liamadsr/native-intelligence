@@ -11,7 +11,7 @@
  * save is refused, and that person is told and offered the newer version.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, Loader2, Lock } from 'lucide-react'
+import { ArrowLeft, History, Loader2, Lock } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { WorkbookController } from '@/lib/spreadsheets/controller'
@@ -21,6 +21,8 @@ import { FindReplace } from './find-replace'
 import { FormulaBar } from './formula-bar'
 import { FormulaSuggest, type FormulaSuggestHandle } from './formula-suggest'
 import { GridMenu, type GridCommands, type GridMenuState } from './grid-menu'
+import { ImportExport } from './import-export'
+import { VersionHistory } from './version-history'
 import { SheetGrid, pasteInto, type CaretState } from './sheet-grid'
 import { SheetTabs } from './sheet-tabs'
 import { Toolbar, type ViewOptions } from './toolbar'
@@ -39,9 +41,11 @@ interface Loaded {
 export interface SpreadsheetEditorProps {
   spreadsheetId: string
   onBack?: () => void
+  /** Open another spreadsheet by id (an .xlsx just imported). */
+  onOpen?: (id: string, title: string) => void
 }
 
-export function SpreadsheetEditor({ spreadsheetId, onBack }: SpreadsheetEditorProps) {
+export function SpreadsheetEditor({ spreadsheetId, onBack, onOpen }: SpreadsheetEditorProps) {
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
@@ -87,7 +91,7 @@ export function SpreadsheetEditor({ spreadsheetId, onBack }: SpreadsheetEditorPr
     )
   }
   if (!loaded) return <GridSkeleton onBack={onBack} />
-  return <OpenSpreadsheet key={`${loaded.record.id}:${attempt}`} loaded={loaded} onBack={onBack} onReload={() => setAttempt((n) => n + 1)} />
+  return <OpenSpreadsheet key={`${loaded.record.id}:${attempt}`} loaded={loaded} onBack={onBack} onOpen={onOpen} onReload={() => setAttempt((n) => n + 1)} />
 }
 
 /** The grid's outline while the workbook loads. */
@@ -116,7 +120,7 @@ function GridSkeleton({ onBack }: { onBack?: () => void }) {
   )
 }
 
-function OpenSpreadsheet({ loaded, onBack, onReload }: { loaded: Loaded; onBack?: () => void; onReload: () => void }) {
+function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded; onBack?: () => void; onOpen?: (id: string, title: string) => void; onReload: () => void }) {
   const { workbook } = loaded
   useWorkbook(workbook)
   const [record, setRecord] = useState<SpreadsheetSummary>(loaded.record)
@@ -125,6 +129,7 @@ function OpenSpreadsheet({ loaded, onBack, onReload }: { loaded: Loaded; onBack?
   const [caretTick, setCaretTick] = useState(0)
   const [view, setView] = useState<ViewOptions>({ formulaBar: true, formulas: false })
   const [finding, setFinding] = useState(false)
+  const [history, setHistory] = useState(false)
   const [resizing, setResizing] = useState<{ axis: 'row' | 'column'; from: number; to: number; value: string } | null>(null)
   const caret = useRef<CaretState>({ start: 0, end: 0, pointed: null })
   const suggest = useRef<FormulaSuggestHandle | null>(null)
@@ -304,6 +309,9 @@ function OpenSpreadsheet({ loaded, onBack, onReload }: { loaded: Loaded; onBack?
             <Lock className="h-3 w-3" /> Private
           </span>
         )}
+        <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" aria-label="Version history" aria-pressed={history} title="Version history" onClick={() => setHistory((on) => !on)}>
+          <History className="h-4 w-4" />
+        </Button>
         <SaveNote state={workbook.readOnly ? 'saved' : save} readOnly={workbook.readOnly} onRetry={() => void saveNow()} onReload={onReload} />
       </div>
 
@@ -330,6 +338,24 @@ function OpenSpreadsheet({ loaded, onBack, onReload }: { loaded: Loaded; onBack?
           onContextMenu={(target, at) => setMenu({ target, x: at.x, y: at.y })}
           onEditorKey={(event) => suggest.current?.handleKey(event) ?? false}
         />
+        {history && (
+          <VersionHistory
+            spreadsheetId={loaded.record.id}
+            revision={record.revision}
+            readOnly={workbook.readOnly}
+            dirty={workbook.dirty}
+            onMessage={onMessage}
+            onClose={() => {
+              setHistory(false)
+              focusGrid()
+            }}
+            onRestored={() => {
+              // The restore is saved; what is open here is the older workbook, so nothing of it is saved over it.
+              stopped.current = true
+              onReload()
+            }}
+          />
+        )}
         {finding && (
           <FindReplace
             workbook={workbook}
@@ -342,7 +368,12 @@ function OpenSpreadsheet({ loaded, onBack, onReload }: { loaded: Loaded; onBack?
         )}
       </div>
 
-      <SheetTabs workbook={workbook} onMessage={onMessage} focusGrid={focusGrid} />
+      <SheetTabs
+        workbook={workbook}
+        onMessage={onMessage}
+        focusGrid={focusGrid}
+        trailing={<ImportExport workbook={workbook} title={record.title} onMessage={onMessage} onOpen={onOpen} focusGrid={focusGrid} />}
+      />
 
       <FormulaSuggest workbook={workbook} caret={caret} handle={suggest} caretTick={caretTick} />
       <GridMenu

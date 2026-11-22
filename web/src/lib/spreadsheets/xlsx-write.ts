@@ -398,6 +398,10 @@ function cellXml(
     return `<c r="${ref}"${sAttr}><f>${formula}</f>${v}</c>`
   }
 
+  // An empty cell that only carries a format (a bold, bordered blank) is written with no value: the engine
+  // calls an empty cell a number, and a blank must not come out as 0.
+  if (content === '') return `<c r="${ref}"${sAttr}/>`
+
   if (type === CELL_TYPE.boolean) return `<c r="${ref}"${sAttr} t="b"><v>${content === 'TRUE' ? 1 : 0}</v></c>`
   if (type === CELL_TYPE.error) return `<c r="${ref}"${sAttr} t="e"><v>${xmlEscape(content)}</v></c>`
   if (type === CELL_TYPE.number) {

@@ -79,8 +79,9 @@ describe('GET /api/account/spreadsheets/[id]/export', () => {
     const res = await exportRoute(getReq(`${base}/${S}/export?format=csv&sheet=0`), ctx())
     expect(res.status).toBe(200)
     expect(res.headers.get('content-type')).toBe('text/csv; charset=utf-8')
-    const text = await res.text()
-    expect(text.charCodeAt(0)).toBe(0xfeff) // BOM
+    const bytes = new Uint8Array(await res.arrayBuffer())
+    expect(Array.from(bytes.subarray(0, 3))).toEqual([0xef, 0xbb, 0xbf]) // a UTF-8 BOM, for Excel
+    const text = new TextDecoder('utf-8').decode(bytes).replace(/^﻿/, '')
     expect(text).toContain('Item,Qty')
     expect(text).toContain('Widgets,42')
     expect(text).not.toContain('=20+22')
@@ -109,15 +110,15 @@ describe('POST /api/account/spreadsheets/import', () => {
     m.evaluate()
     const bytes = await workbookToXlsx(m)
     m.free()
-    const file = new File([bytes], 'plan.xlsx', { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    const file = new File([new Uint8Array(bytes)], 'plan.xlsx', { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
 
     const res = await importRoute(upload(file))
     expect(res.status).toBe(201)
     const json = await readJson<{ spreadsheet: Row; warnings: string[] }>(res)
     expect(json.spreadsheet.title).toBe('plan')
     expect(Array.isArray(json.warnings)).toBe(true)
-    expect(tables.spreadsheet).toHaveLength(1)
-    const back = loadModel(tables.spreadsheet[0].workbook as string)
+    const created = tables.spreadsheet.find((r) => r.id === json.spreadsheet.id)!
+    const back = loadModel(created.workbook as string)
     expect(back.getFormattedCellValue(0, 1, 1)).toBe('Imported cell')
     expect(back.getFormattedCellValue(0, 1, 2)).toBe('5')
     back.free()
@@ -130,7 +131,8 @@ describe('POST /api/account/spreadsheets/import', () => {
     expect(res.status).toBe(201)
     const json = await readJson<{ spreadsheet: Row }>(res)
     expect(json.spreadsheet.title).toBe('My import')
-    const back = loadModel(tables.spreadsheet[0].workbook as string)
+    const created = tables.spreadsheet.find((r) => r.id === json.spreadsheet.id)!
+    const back = loadModel(created.workbook as string)
     expect(back.getFormattedCellValue(0, 1, 1)).toBe('Name')
     expect(back.getFormattedCellValue(0, 2, 2)).toBe('100')
     expect(back.getFormattedCellValue(0, 3, 1)).toBe('=danger') // kept as text, not a formula
