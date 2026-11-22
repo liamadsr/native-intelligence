@@ -66,6 +66,8 @@ interface FullEmailThread {
   accountId?: string | null
   /** That mailbox's address (the composer's From). */
   mailboxEmail?: string | null
+  /** The thread's AI-written drafts awaiting review (email_draft rows): which draft messages an agent wrote. */
+  drafts?: Array<{ provider_draft_id?: string | null }>
   /** The thread's index row, which its agent activity is keyed on (null when not indexed). */
   indexId?: string | null
   subject: string
@@ -357,13 +359,21 @@ export function EmailThreadDetail({
     requestAnimationFrame(() => composerRef.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }))
   }, [])
 
+  // The last composer opened: Undo (or a failed send) opens it again.
+  const lastComposeRef = useRef<{ threadId: string; compose: OpenCompose } | null>(null)
+  if (compose) lastComposeRef.current = { threadId, compose }
+  const reopenCompose = useCallback(() => {
+    const last = lastComposeRef.current
+    if (last && last.threadId === shownThreadRef.current) setCompose(last.compose)
+  }, [])
+
   // "Draft with AI" (inside the composer): the chat assistant drafts it
-  // (lib/email/reply-in-chat.ts), onto the thread as a draft.
+  // (lib/email/reply-in-chat.ts), onto the thread as a draft, which the
+  // composer then fills in from.
   const replyHandoff = useCallback((request: EmailReplyRequest) => {
     if (onReplyRequest) onReplyRequest(request)
     else requestEmailReply(request)
   }, [onReplyRequest])
-  void replyHandoff
 
   // Mail's keys (email-layout.tsx): E archives; R, A and F open the composer
   // on the message R replies to.
@@ -588,6 +598,10 @@ export function EmailThreadDetail({
   const replyTarget = replyTargetOf(thread.messages, ownAddressSet)
   const onComposeRequest = openCompose
   const composeSource = compose ? thread.messages.find((m) => m.id === compose.messageId) ?? null : null
+  // The thread's newest AI draft (an agent's or the chat's), for the composer's Draft with AI.
+  const aiDraftIds = new Set((thread.drafts ?? []).map((d) => d.provider_draft_id).filter((id): id is string => !!id))
+  const aiDraft = [...thread.messages].reverse().find((m) => m.isDraft && !m.draftStale && aiDraftIds.has(m.id)) ?? null
+  const sentOn = threadId
 
   // `ph-no-capture`: PostHog session replay blocks the thread (subjects,
   // bodies, the reply draft) and autocapture skips it. It also renders alone,
@@ -861,10 +875,26 @@ export function EmailThreadDetail({
                 ownAddresses={ownAddressSet}
                 draftKey={composeDraftKey(threadId)}
                 onModeChange={(mode) => setCompose({ mode, messageId: compose.messageId })}
+                aiDraft={aiDraft}
+                onRequestAiDraft={() =>
+                  replyHandoff(
+                    compose.mode === 'reply' && composeSource.from.email
+                      ? { threadId, message: { id: composeSource.id, fromEmail: composeSource.from.email } }
+                      : { threadId },
+                  )
+                }
                 onClose={() => setCompose(null)}
-                onSent={() => {
+                onSent={() => setCompose(null)}
+                onReopen={reopenCompose}
+                onDelivered={() => {
+                  if (shownThreadRef.current === sentOn) loadThread({ background: true })
+                }}
+                onSavedToMailbox={() => {
                   setCompose(null)
-                  if (shownThreadRef.current === threadId) loadThread({ background: true })
+                  if (shownThreadRef.current === sentOn) {
+                    loadThread({ background: true })
+                    void loadScheduled()
+                  }
                 }}
               />
             </div>

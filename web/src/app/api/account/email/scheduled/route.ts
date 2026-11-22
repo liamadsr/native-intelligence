@@ -10,8 +10,10 @@
  * POST schedule one. `send_at` (an ISO time, in the future, within a year),
  *      and either
  *        a new message: `account_id` (the From mailbox: the caller's own, the
- *        check sendEmail makes), `to`, `cc?`, `bcc?`, `subject`, `body_html`;
- *        it is saved as a draft in that mailbox, then scheduled;
+ *        check sendEmail makes), `to`, `cc?`, `bcc?`, `subject`, `body_html`,
+ *        and for a reply written in Mail's composer `reply_thread_id` with
+ *        `in_reply_to_message_id`; it is saved as a draft in that mailbox
+ *        (threaded, for a reply), then scheduled;
  *      or a draft on a thread (a reply): `thread_id`, `draft_id` (its message
  *        id, as the thread view shows it), `edits?` (written into the draft
  *        first), `shown?` ({ to, subject }: what the folder lists when there
@@ -23,6 +25,7 @@ import { NextResponse } from 'next/server'
 import { requireWorkspace } from '@/lib/api-auth'
 import { badRequest, notFound, serverError } from '@/lib/api-errors'
 import { isProviderId } from '@/lib/email/provider-drafts'
+import { parseComposeAttachments } from '@/lib/email/compose-attachments'
 import { MAX_DRAFT_BODY, MAX_DRAFT_RECIPIENTS, MAX_DRAFT_SUBJECT, isDraftAddress, parseDraftEdits } from '@/lib/email/draft-edits'
 import {
   LISTED_STATUSES,
@@ -111,5 +114,19 @@ export async function POST(request: Request) {
   const bodyHtml = typeof body.body_html === 'string' ? body.body_html : ''
   if (bodyHtml.length > MAX_DRAFT_BODY * 2) return badRequest('The message is too long')
 
-  return answer(await scheduleNewMessage({ userId: user.id, workspaceId, accountId, to, cc, bcc, subject, bodyHtml, sendAt }))
+  // A reply written in Mail's composer: its thread and the message it answers.
+  const replyThread = body.reply_thread_id
+  const replyTo = body.in_reply_to_message_id
+  let reply: { threadId: string; inReplyTo: string } | null = null
+  if (replyThread !== undefined || replyTo !== undefined) {
+    if (!isProviderId(replyThread) || !isProviderId(replyTo)) return badRequest('A reply needs its thread and message')
+    reply = { threadId: replyThread, inReplyTo: replyTo }
+  }
+
+  const attachments = parseComposeAttachments(body.attachments)
+  if (attachments === 'invalid') return badRequest('Check the attachments: 10 files, 3 MB each and 6 MB in all at most')
+
+  return answer(
+    await scheduleNewMessage({ userId: user.id, workspaceId, accountId, to, cc, bcc, subject, bodyHtml, sendAt, reply, ...(attachments.length ? { attachments } : {}) }),
+  )
 }
