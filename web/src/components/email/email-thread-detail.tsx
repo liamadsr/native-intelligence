@@ -44,6 +44,7 @@ import { scheduleSend } from '@/lib/email/send-later'
 import { EmailMessage, type EmailMessageData } from './email-message'
 import { EmailShareDialog, copyEmailShareLink } from './email-share-dialog'
 import { EmailShareChips } from './email-share-chips'
+import { ThreadMentionShares } from './thread-mention-shares'
 import { EmailThreadTags } from './email-thread-tags'
 import { requestEmailReply } from '@/lib/email/reply-in-chat'
 
@@ -769,6 +770,11 @@ export function EmailThreadDetail({
           )}
           <EmailShareChips thread={{ threadId, accountId }} reloadKey={sharesKey} />
         </EmailThreadTags>
+        {/* Who this thread is shared with by an @-mention (owner only): the
+            list route returns the caller's own shares, so a non-owner's view
+            draws nothing. Stopping a share ends access (removing the mention
+            would not). */}
+        <ThreadMentionShares threadIndexId={thread.indexId ?? null} providerThreadId={threadId} />
       </div>
 
       {/* Messages */}

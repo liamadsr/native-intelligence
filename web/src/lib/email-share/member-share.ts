@@ -378,6 +378,80 @@ export async function findMemberShareId(
   return ((data ?? []) as Array<{ id: string }>)[0]?.id ?? null
 }
 
+/** One active share, as its OWNER lists it (ids and provenance only; no mail). */
+export interface OwnerThreadShare {
+  id: string
+  threadIndexId: string | null
+  providerThreadId: string
+  granteeMemberId: string
+  granteeName: string
+  sourceType: string | null
+  sourceId: string | null
+  createdAt: string
+}
+
+export interface ListOwnerThreadSharesInput {
+  ownerUserId: string
+  workspaceId: string
+  /** Narrow to one thread by its email_thread_index row id. */
+  threadIndexId?: string | null
+  /** Narrow to one thread by its provider thread id. */
+  providerThreadId?: string | null
+}
+
+/** The most shares one owner-list returns. */
+export const OWNER_THREAD_SHARES_CAP = 200
+
+interface OwnerShareRow {
+  id: string
+  thread_index_id: string | null
+  provider_thread_id: string
+  grantee_member_id: string
+  source_type: string | null
+  source_id: string | null
+  created_at: string
+}
+
+/**
+ * The caller's OWN active (not revoked) mention shares, newest first, each with
+ * its grantee's name. Explicit, service-role conditions: owner_user_id = the
+ * caller, workspace_id = this workspace, revoked_at is null (never the caller's
+ * word). Optionally narrowed to one thread (by its index row id, or its
+ * provider thread id). Grantee names come from member.display_name in one read.
+ * A non-owner simply gets an empty list, since the owner_user_id condition only
+ * matches their own rows.
+ */
+export async function listOwnerThreadShares(svc: SupabaseClient, input: ListOwnerThreadSharesInput): Promise<OwnerThreadShare[]> {
+  if (!isUuid(input.ownerUserId) || !isUuid(input.workspaceId)) return []
+  let query = svc
+    .from('email_thread_share')
+    .select('id, thread_index_id, provider_thread_id, grantee_member_id, source_type, source_id, created_at')
+    .eq('owner_user_id', input.ownerUserId)
+    .eq('workspace_id', input.workspaceId)
+    .is('revoked_at', null)
+  if (input.threadIndexId && isUuid(input.threadIndexId)) query = query.eq('thread_index_id', input.threadIndexId)
+  else if (input.providerThreadId) query = query.eq('provider_thread_id', input.providerThreadId)
+  const { data } = await query.order('created_at', { ascending: false }).limit(OWNER_THREAD_SHARES_CAP)
+  const rows = (data ?? []) as OwnerShareRow[]
+  if (rows.length === 0) return []
+
+  const memberIds = [...new Set(rows.map((r) => r.grantee_member_id))]
+  const { data: members } = await svc.from('member').select('id, display_name').eq('workspace_id', input.workspaceId).in('id', memberIds)
+  const nameById = new Map(
+    ((members ?? []) as Array<{ id: string; display_name: string | null }>).map((m) => [m.id, m.display_name?.trim() || 'A teammate']),
+  )
+  return rows.map((r) => ({
+    id: r.id,
+    threadIndexId: r.thread_index_id ?? null,
+    providerThreadId: r.provider_thread_id,
+    granteeMemberId: r.grantee_member_id,
+    granteeName: nameById.get(r.grantee_member_id) ?? 'A teammate',
+    sourceType: r.source_type ?? null,
+    sourceId: r.source_id ?? null,
+    createdAt: r.created_at,
+  }))
+}
+
 export type RevokeThreadShareResult = { ok: true } | { ok: false; status: number }
 
 /** Un-share: the owner's alone. Access ends at once. A non-owner (or unknown id) gets "not found". */

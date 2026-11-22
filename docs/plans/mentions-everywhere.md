@@ -344,6 +344,10 @@ Not done, and why:
 - **Removing the mention does not revoke.** Access a person was given ends only when its owner
   stops the share (`DELETE /api/account/email/thread-shares/[id]`), never as a side effect of an edit.
 
-Not done: the owner has no screen that lists a thread's mention shares or stops one (the route
-exists; the read-only viewer is the grantee's, and nothing lists shares for their owner).
-
+- **The owner sees and ends what they shared.** In Mail's thread view, beside the channel-share
+  control, a thread's owner sees each teammate it is shared with by mention (when, and from what)
+  with Stop sharing (`web/src/components/email/thread-mention-shares.tsx`); Profile settings has
+  one list of all of them ("Shared emails"). Stopping ends the grantee's access to the thread and
+  its attachments at once. Only the owner's own shares are ever listed
+  (`GET /api/account/email/thread-shares/mine`).
+- **The owner's own mail chip opens the thread in Mail.**

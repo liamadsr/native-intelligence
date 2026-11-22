@@ -22,6 +22,7 @@ const hoisted = vi.hoisted(() => ({
   revoke: vi.fn(),
   find: vi.fn(),
   attachment: vi.fn(),
+  listMine: vi.fn(),
 }))
 
 vi.mock('@/lib/api-auth', async (importOriginal) => ({
@@ -34,11 +35,13 @@ vi.mock('@/lib/email-share/member-share', () => ({
   revokeEmailThreadShare: hoisted.revoke,
   findMemberShareId: hoisted.find,
   readSharedEmailAttachmentForMember: hoisted.attachment,
+  listOwnerThreadShares: hoisted.listMine,
 }))
 
 import { GET, DELETE } from '@/app/api/account/email/thread-shares/[id]/route'
 import { GET as GET_INDEX } from '@/app/api/account/email/thread-shares/route'
 import { GET as GET_ATTACHMENT } from '@/app/api/account/email/thread-shares/[id]/attachment/route'
+import { GET as GET_MINE } from '@/app/api/account/email/thread-shares/mine/route'
 
 const params = (id: string) => ({ params: Promise.resolve({ id }) })
 
@@ -116,6 +119,66 @@ describe('GET /api/account/email/thread-shares?thread=', () => {
   it('400 without a thread param', async () => {
     const res = await GET_INDEX(req('https://x/api/account/email/thread-shares'))
     expect(res.status).toBe(400)
+  })
+})
+
+describe('GET /api/account/email/thread-shares/mine', () => {
+  const DOC = '77777777-7777-4777-8777-000000000001'
+  const share = (over: Record<string, unknown> = {}) => ({
+    id: SHARE,
+    threadIndexId: INDEX,
+    providerThreadId: 'thr-1',
+    granteeMemberId: MEMBER,
+    granteeName: 'Ben',
+    sourceType: 'comment',
+    sourceId: null,
+    createdAt: '2026-11-10T10:00:00.000Z',
+    ...over,
+  })
+
+  it('returns the caller’s own shares and resolves a comment source', async () => {
+    hoisted.listMine.mockResolvedValue([share()])
+    const res = await GET_MINE(req('https://x/api/account/email/thread-shares/mine'))
+    expect(res.status).toBe(200)
+    const body = await readJson<{ shares: Array<{ id: string; granteeName: string; source: unknown }> }>(res)
+    expect(body.shares).toHaveLength(1)
+    expect(body.shares[0]).toMatchObject({ id: SHARE, granteeName: 'Ben', source: { type: 'comment', id: null, label: 'a comment' } })
+    expect(hoisted.listMine).toHaveBeenCalledWith({}, { ownerUserId: USER, workspaceId: WS, threadIndexId: null, providerThreadId: null })
+  })
+
+  it('passes ?thread= and ?providerThread= through to the list', async () => {
+    hoisted.listMine.mockResolvedValue([])
+    await GET_MINE(req(`https://x/api/account/email/thread-shares/mine?thread=${INDEX}`))
+    expect(hoisted.listMine).toHaveBeenLastCalledWith({}, { ownerUserId: USER, workspaceId: WS, threadIndexId: INDEX, providerThreadId: null })
+    await GET_MINE(req('https://x/api/account/email/thread-shares/mine?providerThread=thr-1'))
+    expect(hoisted.listMine).toHaveBeenLastCalledWith({}, { ownerUserId: USER, workspaceId: WS, threadIndexId: null, providerThreadId: 'thr-1' })
+  })
+
+  it('resolves a readable source title on the caller’s own client', async () => {
+    const supa = {
+      from: (table: string) => ({
+        select: () => ({ in: (_c: string, _ids: string[]) => Promise.resolve({ data: table === 'document' ? [{ id: DOC, title: 'Harbor plan' }] : [] }) }),
+      }),
+    }
+    hoisted.requireWorkspaceMember.mockResolvedValueOnce({ supabase: supa, user: { id: USER }, workspaceId: WS, member: { id: MEMBER } })
+    hoisted.listMine.mockResolvedValue([share({ sourceType: 'document', sourceId: DOC })])
+    const res = await GET_MINE(req('https://x/api/account/email/thread-shares/mine'))
+    const body = await readJson<{ shares: Array<{ source: unknown }> }>(res)
+    expect(body.shares[0].source).toEqual({ type: 'document', id: DOC, label: 'Harbor plan' })
+  })
+
+  it('an unreadable source is "a mention" with no link (the list never fails)', async () => {
+    hoisted.listMine.mockResolvedValue([share({ sourceType: 'document', sourceId: DOC })])
+    const res = await GET_MINE(req('https://x/api/account/email/thread-shares/mine'))
+    const body = await readJson<{ shares: Array<{ source: unknown }> }>(res)
+    expect(body.shares[0].source).toEqual({ type: 'mention', id: null, label: 'a mention' })
+  })
+
+  it('refuses a device/agent Bearer caller (shared mail opens in the app)', async () => {
+    const withBearer = new NextRequest('https://x/api/account/email/thread-shares/mine', { headers: { authorization: 'Bearer nid_madeupdevicetoken' } })
+    const res = await GET_MINE(withBearer)
+    expect(res.status).toBe(403)
+    expect(hoisted.listMine).not.toHaveBeenCalled()
   })
 })
 
