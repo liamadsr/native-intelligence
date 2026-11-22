@@ -14,9 +14,17 @@ import { act, createElement as h, forwardRef, useImperativeHandle, useRef } from
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
-const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }))
+const toast = vi.hoisted(() => Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn() }))
 vi.mock('sonner', () => ({ toast }))
 vi.mock('next/dynamic', () => ({ default: () => () => null }))
+// Send goes at once here (the Undo wait has its own test).
+vi.mock('@/lib/email/undo-send', () => ({
+  UNDO_SEND_MS: 5000,
+  queueSend: (send: () => unknown) => {
+    void send()
+    return { undo: () => false, flush: () => {} }
+  },
+}))
 // Read aloud has its own test (email-thread-detail-listen); nothing here reads.
 vi.mock('@/components/read-aloud/listen-target', () => ({ ListenTarget: () => null }))
 vi.mock('@/lib/labels/use-scoped-labels', () => ({

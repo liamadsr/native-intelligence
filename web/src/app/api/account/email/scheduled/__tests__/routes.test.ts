@@ -110,6 +110,26 @@ describe('POST /api/account/email/scheduled (create)', () => {
     expect(lib.scheduleNewMessage).not.toHaveBeenCalled()
   })
 
+  it('a reply written in the composer names its thread and message, and its files go on the draft', async () => {
+    lib.scheduleNewMessage.mockResolvedValue({ ok: true, row: ROW })
+    const file = { name: 'plan.pdf', mime_type: 'application/pdf', content_base64: Buffer.from('made up').toString('base64') }
+    const res = await POST(req(compose({ subject: 'Re: Q4 renewal', reply_thread_id: 'thr-9', in_reply_to_message_id: 'msg-1', attachments: [file] })))
+    expect(res.status).toBe(200)
+    expect(lib.scheduleNewMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reply: { threadId: 'thr-9', inReplyTo: 'msg-1' },
+        attachments: [{ name: 'plan.pdf', mimeType: 'application/pdf', contentBase64: file.content_base64 }],
+      }),
+    )
+  })
+
+  it('refuses half a reply, or files it can’t carry', async () => {
+    expect((await POST(req(compose({ reply_thread_id: 'thr-9' })))).status).toBe(400)
+    expect((await POST(req(compose({ reply_thread_id: 'thr-9', in_reply_to_message_id: 'bad id!' })))).status).toBe(400)
+    expect((await POST(req(compose({ attachments: [{ name: 'a', mime_type: 'text/plain', content_base64: '!!' }] })))).status).toBe(400)
+    expect(lib.scheduleNewMessage).not.toHaveBeenCalled()
+  })
+
   it('schedules a draft on a thread with its edits; a draft no longer there is a 404', async () => {
     lib.scheduleExistingDraft.mockResolvedValueOnce({ ok: true, row: { ...ROW, thread_id: 'thr-9' } })
     const edits = { to: ['dana@harborline.example'], cc: [], subject: 'Re: Q4', body: 'Tuesday works.' }
