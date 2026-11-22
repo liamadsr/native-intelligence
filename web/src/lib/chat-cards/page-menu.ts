@@ -138,6 +138,8 @@ export const CARD_PAGES: readonly CardPage[] = [
   { slug: 'spreadsheets', label: 'Spreadsheets', description: 'Workbooks with formulas', kind: 'spreadsheets', view: 'docs', keywords: ['sheets', 'excel', 'workbooks'], spec: page('spreadsheets', 'Spreadsheets') },
   // The workspace's whiteboards (Canvas, migration 676). Gated with Docs, in the Drive group beside Tables and Files.
   { slug: 'canvases', label: 'Canvases', description: 'Your whiteboards', kind: 'canvases', view: 'docs', keywords: ['canvas', 'whiteboard', 'whiteboards', 'draw', 'diagram'], spec: page('canvases', 'Canvases') },
+  // Drive folders (migration 690): folders of docs, tables, spreadsheets and canvases. Gated with Docs.
+  { slug: 'folders', label: 'Folders', description: 'Your docs, tables, sheets and canvases, in folders', kind: 'folders', view: 'docs', keywords: ['folder', 'folders', 'directory', 'drive', 'organize'], spec: page('folders', 'Folders') },
   // Liam, 11-11: "a new page that shows all available files that were uploaded anywhere in the app" (the Drive group, with Docs and Knowledge).
   {
     slug: 'files',

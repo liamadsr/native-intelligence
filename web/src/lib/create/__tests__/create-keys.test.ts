@@ -28,6 +28,12 @@ describe('C then a letter', () => {
     }
   })
 
+  it('C then R is a new folder (Drive folders, 690): F, O, L and D were taken', () => {
+    expect(CREATE_LETTERS.folder).toBe('r')
+    expect([CREATE_LETTERS.flow, CREATE_LETTERS.contact, CREATE_LETTERS.deal, CREATE_LETTERS.document]).toEqual(['f', 'o', 'l', 'd'])
+    expect(createTypeForLetter('r', ['action', 'folder'])).toBe('folder')
+  })
+
   it('finds a letter’s type among those on offer only', () => {
     expect(createTypeForLetter('A', ['action', 'project'])).toBe('action')
     expect(createTypeForLetter('n', ['action'])).toBeNull()

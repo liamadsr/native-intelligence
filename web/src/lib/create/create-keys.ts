@@ -17,7 +17,8 @@
  * type's initial; where that is taken, the G letter of the type's page
  * (lib/shortcuts.ts GO_TO) so the two families agree: Contact O (G O
  * Contacts), Company B (G B Companies). Macro's own where it has one:
- * Canvas N, Channel G, Folder F (our Flow takes F: no folders here).
+ * Canvas N, Channel G. Macro's Folder F is our Flow's, and folder's O, L
+ * and D are taken (Contact, Deal, Doc): Folder is R, its next free letter.
  *
  * Client-safe and pure (SEQUENCE_MS is the G sequences' window, shared).
  */
@@ -33,6 +34,7 @@ export const CREATE_LETTERS: Readonly<Partial<Record<CreateTypeId, string>>> = {
   table: 't',
   spreadsheet: 's',
   canvas: 'n',
+  folder: 'r',
   event: 'e',
   email: 'm',
   contact: 'o',

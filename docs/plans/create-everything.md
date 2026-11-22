@@ -98,7 +98,13 @@ These are minimal and additive:
 - `QUICK_CREATE.document` sends `project_id`, which the route already took.
 - `QUICK_CREATE.channel` sends `teamId`, which the route already took.
 
-No route itself changed.
+No route itself changed in that first pass. Since then (11-22, the two items left out):
+- The project routes take a `priority`, one of the actions' five values or null, and refuse
+  anything else (migration 691; decision 6).
+- The folder routes are new: `/api/account/folders`, `/api/account/folders/[id]`, its
+  `items`, and `/api/account/folders/candidates` (migration 690; "Drive folders" below).
+- `QUICK_CREATE.folder` makes a folder, inside the one it was made in. A doc, table,
+  spreadsheet or canvas made in a folder is filed there once made.
 
 ## Decisions to review
 
@@ -116,10 +122,9 @@ No route itself changed.
 3. **"Create more" became ⌘↵.** The switch is gone. The "Create another ⌘↵" button does the
    same thing.
 4. **↵ opens what was made**, as Macro does. Before, the dialog closed and showed a toast.
-5. **No Drive folders.** The app has no folder or group record for docs or files: no table
-   and no route. "Create in …" therefore means a project (docs and actions land in it), an
-   initiative, a team, a company, a contact or a deal. Adding folders would need a migration
-   (685) and was out of scope for a UI unification.
+5. **Drive folders (11-22, migration 690).** Before this there was no folder record, so
+   "Create in …" could only mean a project, an initiative, a team, a company, a contact or a
+   deal. Folders are now a thing of their own; the design is in "Drive folders" below.
 6. **A project's Priority (11-22, migration 691).** The composer has Macro's Priority chip
    for a project: the actions' pill and the actions' five values (none, low, medium, high,
    urgent; `lib/projects/priority.ts`). The project card shows it and sets it, under Status.
@@ -154,3 +159,96 @@ No route itself changed.
     `components/email/email-composer.tsx`, with Send later, Save draft, Undo and files,
     into the Create dialog's Email entry. C then M and the Create menu open it. Its own
     keys apply (⌘↵ sends); the dialog's "Create another" key leaves it alone.
+
+## Drive folders
+
+Owner, 11-22: build the item left out of Create ("no Drive folders"). This is the smallest
+folder that works. Migration 690 holds it; nothing existing is changed.
+
+### The records
+
+- **`drive_folder`**: workspace, name (1 to 200 characters, trimmed), an optional parent
+  folder (none: the top of Drive), who made it, and when. Folders nest; a folder never sits
+  inside itself or one of its own subfolders.
+- **`drive_folder_item`**: which folder a Drive record sits in. The record is named by its
+  kind and id: `document` (a doc), `data_table` (a table), `spreadsheet` or `canvas`. One folder
+  a record at most (the record is the primary key), so a move is an update.
+- **A link table, not a `folder_id` column on each record's table.** A column would put a new
+  writable field on four tables whose writes are each guarded in their own way (359, 369,
+  520, 675, 676), and filing a record would then need the right to edit it. A link table
+  restates none of that, and filing needs only that the person can open the record.
+- **Files, captures and the rest are not filed.** Files belong to the capture, action or
+  project they were uploaded to; Knowledge and the Library have their own homes.
+
+### Who does what
+
+Folders are the workspace's, as a shared drive is: there are no private folders. Guests are
+left out of all of it.
+
+| | Who |
+|---|---|
+| See a workspace's folders | every member but a guest |
+| Make one | a member, as themself |
+| Rename or move one | a member |
+| Delete one | its maker, or an owner or admin |
+| File a record, or move it to another folder | a member who can open the record |
+| See a record's place in a folder, or unfile it | a member who can open the record |
+
+- **A private record stays private in a folder.** Its filed row is seen, moved and unfiled only
+  by someone who can open the record. Every policy on `drive_folder_item` asks
+  `drive_folder_item_readable` under the reader's own row security, so another member doesn't
+  learn its id, its folder or who filed it, and can't unfile it. (Found in review, 11-22.)
+- **Deleting a folder** deletes its subfolders, and unfiles the records in them. No record is
+  deleted.
+- **A record deleted for good** leaves its filed row behind until its folder goes: 690 adds no
+  trigger to the records' tables. Lists skip a row whose record they cannot read.
+
+### The guards (the 359/369/675 style)
+
+These are before-write triggers, not definers. They hold a client's own token; the service role
+(the agents' tools, which check the person first) and a database owner are not held to them.
+
+- **A folder keeps its workspace and its maker.** A new one is made as its maker. Its parent is
+  a folder of the same workspace that the person can read, and never the folder itself or one
+  of its subfolders (the trigger walks up from the new parent, at most 64 deep).
+- **A filed row's workspace is always its folder's.** It is filed as the person who filed it,
+  whatever was sent. The record must be one they can open, in that workspace, read under their
+  own row security. A move changes the folder alone, within the workspace.
+
+### In the app
+
+- **New folder** is in the Create menu (Work group), **C then R**. Macro's letter is F, which our
+  Flow has. O, L and D are taken too (Contact, Deal, Doc), so it is the next letter of "folder"
+  that is free.
+- **"Create in <folder>".** A doc, table, spreadsheet, canvas or folder made from a folder lands
+  in it. The chip names the folder, and × makes the record without it, as every place does.
+- **The Folders page** is in the Drive group, after Docs. Its top level shows the top folders.
+  A folder shows its path, its subfolders and its records, newest first. Each record opens as
+  the app opens it.
+  - **New** makes a doc, table, spreadsheet, canvas or folder in the open folder.
+  - **Add** files records already made.
+  - A record's menu moves it to another folder or takes it out.
+  - A folder's menu renames, moves or deletes it.
+- **Routes**, each with the workspace's member checks, and the database rules underneath:
+  - `GET`, `POST /api/account/folders`
+  - `GET`, `PATCH`, `DELETE /api/account/folders/[id]`
+  - `POST`, `DELETE /api/account/folders/[id]/items`
+
+### For the owner to decide
+
+These are kept as built, to keep folders simple and shared:
+
+- **(a) Any member can rename or move any folder**, including one someone else made. Only
+  deleting is limited (to its maker, or an owner or admin). The alternative is to limit renames
+  and moves to the maker and admins.
+- **(b) Deleting a folder deletes every subfolder in it**, including ones other people made. The
+  records in them are only unfiled, never deleted. The alternative is to refuse the delete while
+  it holds someone else's subfolder, or to move such subfolders up a level.
+
+### Not in this
+
+- Private folders, and sharing a folder with one person. These need the per-person grants (492).
+- A folder's own permissions. A folder never widens or narrows who opens a record.
+- Filing from each record's own menu. The Folders page's Add and the "Create in" chip are the
+  two ways in.
+

@@ -21,7 +21,7 @@
  */
 
 export type CreateFormTypeId = 'action' | 'project' | 'initiative' | 'contact' | 'email' | 'event'
-export type CreateQuickTypeId = 'company' | 'document' | 'table' | 'spreadsheet' | 'canvas' | 'channel' | 'package' | 'studio_project'
+export type CreateQuickTypeId = 'company' | 'document' | 'table' | 'spreadsheet' | 'canvas' | 'folder' | 'channel' | 'package' | 'studio_project'
 export type CreatePageTypeId = 'deal' | 'flow' | 'agent' | 'skill' | 'sequence' | 'prospect_list' | 'campaign' | 'booking_link' | 'studio_video'
 export type CreateTypeId = CreateFormTypeId | CreateQuickTypeId | CreatePageTypeId
 
@@ -57,6 +57,8 @@ export const CREATE_TYPES: ReadonlyArray<CreateTypeDef> = [
   { id: 'table', label: 'Table', group: 'work', mode: 'quick', page: 'tables', keywords: ['database', 'list'] },
   { id: 'spreadsheet', label: 'Spreadsheet', group: 'work', mode: 'quick', page: 'spreadsheets', keywords: ['sheet', 'excel', 'workbook', 'formulas'] },
   { id: 'canvas', label: 'Canvas', group: 'work', mode: 'quick', page: 'canvases', keywords: ['whiteboard', 'draw', 'diagram', 'board'] },
+  // Drive folders (migration 690): made in the Folders page's place, opened there.
+  { id: 'folder', label: 'Folder', group: 'work', mode: 'quick', page: 'folders', keywords: ['directory', 'drive', 'organize', 'files'] },
   { id: 'event', label: 'Event', group: 'work', mode: 'form', keywords: ['meeting', 'calendar'] },
   { id: 'booking_link', label: 'Booking link', group: 'work', mode: 'page', page: 'availability', opensPage: true, keywords: ['scheduling', 'availability', 'calendar'] },
   // A package lives on the Library (Liam, 11-21), where the new one opens.
