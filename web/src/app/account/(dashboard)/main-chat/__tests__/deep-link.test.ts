@@ -42,6 +42,12 @@ describe('deepLinkCard', () => {
     expect(deepLinkCard(new URLSearchParams(`page=availability&video=${VIDEO}`))?.request.spec).toEqual({ kind: 'availability', title: 'Availability' })
   })
 
+  it('?spreadsheet=<id> and ?document=<id> each open their card (the deep-link boot bug, 11-22: a spreadsheet’s link opened nothing)', () => {
+    const ID = '44444444-4444-4444-8444-444444444444'
+    expect(deepLinkCard(new URLSearchParams(`spreadsheet=${ID}`))).toMatchObject({ param: 'spreadsheet', request: { from: 'link', spec: { target: { type: 'spreadsheet', id: ID } } } })
+    expect(deepLinkCard(new URLSearchParams(`document=${ID}`))).toMatchObject({ param: 'document', request: { from: 'link', spec: { kind: 'record', record: { type: 'document', id: ID } } } })
+  })
+
   it('no workspace, or one that isn’t an id: where the person is', () => {
     expect(deepLinkCard(new URLSearchParams(`team_chat_message=${MSG}`))?.request.workspaceId).toBeUndefined()
     expect(deepLinkCard(new URLSearchParams(`team_chat_message=${MSG}&workspace=nope`))?.request.workspaceId).toBeUndefined()

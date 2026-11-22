@@ -108,6 +108,20 @@ function oldestTime(messages: readonly UIMessage[]): number | null {
 /** The `metadata.kind` of the bubble an approval's outcome writes into the home thread (src/lib/safety/approvals.ts postHomeResult). */
 export const APPROVAL_RESULT_KIND = 'approval_result'
 
+/**
+ * Where a row the chat doesn't hold goes: before the first message held that
+ * is newer than it, else at the bottom. A row with no time, and messages
+ * without one, keep the old rule (the bottom; passed over).
+ */
+export function insertionIndex(thread: readonly UIMessage[], time: number | null): number {
+  if (time === null) return thread.length
+  for (let i = 0; i < thread.length; i++) {
+    const t = messageTime(thread[i])
+    if (t !== null && t > time) return i
+  }
+  return thread.length
+}
+
 /** True for an approval's outcome bubble (an approved tool ran, or didn't). */
 export function isApprovalResultMessage(message: unknown): boolean {
   const meta = (message as { metadata?: unknown } | null)?.metadata
@@ -231,7 +245,7 @@ export function useLiveConversation(opts: {
   // Merge a batch of rows into useChat state by message id — append if unseen,
   // replace in place only if the payload changed. Never a wholesale replace, so
   // in-flight (un-persisted) turns survive.
-  const mergeIntoChat = useCallback((incoming: UIMessage[]) => {
+  const mergeIntoChat = useCallback((incoming: UIMessage[], opts: { resync?: boolean } = {}) => {
     if (incoming.length === 0) return
     markSavedRef.current(incoming.map((m) => m.id))
     // Read (and spend) the resync marks here, outside the updater: an updater
@@ -259,8 +273,17 @@ export function useLiveConversation(opts: {
           }
         } else {
           next = next ?? [...prev]
-          byId.set(msg.id, next.length)
-          next.push(msg)
+          // A resync's row goes in time order, not simply at the bottom: one
+          // older than what the chat already holds (the thread's history read
+          // in after a card was opened on it) goes before the newer messages,
+          // so the retention trim, which keeps the newest by position, never
+          // cuts the newer ones for it (the deep-link boot bug, 11-22). A live
+          // row still lands at the bottom, where it is news.
+          const ordered = opts.resync || fromResync.has(msg.id)
+          const at = ordered ? insertionIndex(next, messageTime(msg)) : next.length
+          next.splice(at, 0, msg)
+          if (at === next.length - 1) byId.set(msg.id, at)
+          else next.forEach((m, i) => byId.set(m.id, i))
         }
       }
       return next ?? prev
@@ -385,7 +408,7 @@ export function useLiveConversation(opts: {
           if (streamingRef.current) {
             for (const m of fetched) if (m?.id) bufferRef.current.set(m.id, m)
           } else {
-            mergeIntoChat(fetched)
+            mergeIntoChat(fetched, { resync: true })
           }
         })
         .catch(() => {})

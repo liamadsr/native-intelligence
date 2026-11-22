@@ -145,6 +145,23 @@ describe('useLiveConversation — home conversation (F3)', () => {
     hk.unmount()
   })
 
+  it('a resync puts history older than a card opened at boot BEFORE the card, so the retention trim never cuts the card (deep-link boot bug, 11-22)', async () => {
+    const at = (id: string, iso: string) => ({ id, role: 'assistant', parts: [{ type: 'text', text: id }], metadata: { createdAt: iso } }) as UIMessage
+    // The card a deep link opened, the moment the page came up: the thread's only message.
+    const card = { id: 'opened-card-c1', role: 'user', parts: [], metadata: { createdAt: '2026-11-22T10:00:00.000Z' } } as UIMessage
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ messages: [at('old-1', '2026-11-20T09:00:00.000Z'), at('old-2', '2026-11-21T09:00:00.000Z'), at('later', '2026-11-22T10:05:00.000Z')] }),
+    })
+    const hk = mount({ conversationId: 'home-1', status: 'ready', messages: [card] })
+    await act(async () => { subscribeCb?.('SUBSCRIBED'); await flush() })
+    expect(hk.messages().map((m) => m.id)).toEqual(['old-1', 'old-2', 'opened-card-c1', 'later'])
+    // A live row still goes to the bottom.
+    act(() => inserted[0]?.({ new: { ui_message: at('live', '2026-11-19T09:00:00.000Z') } }))
+    expect(hk.messages().map((m) => m.id).at(-1)).toBe('live')
+    hk.unmount()
+  })
+
   it('replaces a placeholder in place when the real brief shares its id (supersede)', async () => {
     const placeholder = {
       id: 'onboarding-brief-w1',
