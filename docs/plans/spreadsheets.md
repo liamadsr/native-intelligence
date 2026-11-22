@@ -619,8 +619,16 @@ Made without asking, while the owner was away. Each can be changed.
     the later saver's set of that kind replaces the other's; and extras ranges, like cell edits,
     are not moved around the other person's row or column inserts. Checked in a browser on the dev server with two windows on one
     spreadsheet, both signed in as the same test account: edits to different cells, made apart and
-    at the same moment (a real 409), ended up in both windows and on the server. **Not checked
-    with two different people**, nor with a private spreadsheet.
+    at the same moment (a real 409), ended up in both windows and on the server. Also in two windows: both typing into
+    the same cell at the same moment (both windows and the server ended on the later save's
+    value); a hidden tab (no polls for 12 s, one poll on showing, the other window's change on
+    screen 1.5 s later). **The limit that matters, seen in the browser:** one window inserted a row
+    and saved; the other, not yet updated (its tab was hidden), set a value on what it saw as row 5;
+    the value landed on row 5 of the newer workbook, which was a different item's row, with no
+    warning. The same would happen in the up-to-4-second gap between polls. Fixing it means either
+    a live channel or the server recording row and column inserts per revision, so a late edit can
+    be moved; both need a schema change. **Not checked with two different people**, nor with a
+    private spreadsheet.
 27. **Comment anchors follow row/column inserts and deletes, and move back on undo.** The
     controller emits a structural change (and its inverse on undo/redo) that the editor applies to
     the threads of that sheet, saving the moved anchors. A thread whose cells were wholly deleted
