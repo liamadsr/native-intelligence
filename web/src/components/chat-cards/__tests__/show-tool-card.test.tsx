@@ -108,14 +108,14 @@ describe('ShowToolCard', () => {
       ['Go back', true],
       ['Go forward', true],
     ])
-    // The left slot after Back and Forward; the right one before Save as view.
+    // The left slot after Back and Forward; the right one at the right.
     const left = header.querySelector('[data-card-header-slot="left"] [data-page-control="left"]') as HTMLElement
     const right = header.querySelector('[data-card-header-slot="right"] [data-page-control="right"]') as HTMLElement
     expect(left.textContent).toBe('Crumb')
     expect(right.textContent).toBe('Tool')
-    const save = header.querySelector('[aria-label="Save as view"]') as HTMLElement
-    expect(right.compareDocumentPosition(save) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(history.compareDocumentPosition(left) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // No Save as view in any page's header (Liam, 11-21).
+    expect(container.querySelector('[aria-label="Save as view"]')).toBeNull()
     // Not in the page's body.
     expect(container.querySelector('[data-card-body] [data-page-control]')).toBeNull()
   })

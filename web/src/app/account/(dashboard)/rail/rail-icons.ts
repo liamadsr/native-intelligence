@@ -15,10 +15,12 @@
  *
  * Liam, 11-11: Drive (Docs, Knowledge, Files, Tables) wears HardDrive, its members
  * the icons they had; Agents (Agents & skills, Flows, Evals) keeps Agents &
- * skills' Sparkles, its namesake member's.
+ * skills' Sparkles, its namesake member's. 11-21: the Library joins Drive
+ * after Knowledge, with the BookOpen its surface picker wore.
  */
 import {
   AudioLines,
+  BookOpen,
   Bot,
   Brain,
   Building2,
@@ -96,6 +98,7 @@ export const GROUP_PAGE_ICONS: Readonly<Record<string, LucideIcon>> = {
   // Drive and Agents (Liam, 11-11).
   docs: Folder,
   knowledge: Brain,
+  library: BookOpen,
   files: Paperclip,
   tables: Table2,
   spreadsheets: Sheet,

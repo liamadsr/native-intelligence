@@ -47,6 +47,7 @@ import {
   FolderKanban,
   KeyRound,
   LayoutList,
+  Library,
   Link2,
   Mail,
   MapPin,
@@ -174,6 +175,8 @@ const PAGE_ICONS: Record<string, LucideIcon> = {
   tables: Table2,
   canvases: Shapes,
   knowledge: Brain,
+  // The Library (Liam, 11-21): BookOpen is Docs' here, so its shelf of books.
+  library: Library,
   initiatives: Target,
   projects: FolderKanban,
   flows: Workflow,

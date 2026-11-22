@@ -41,6 +41,8 @@ import { onEntityDeleted } from '@/lib/entity-events'
 import type { ProspectListWithCounts } from '@/lib/prospecting/lists'
 import { type ProspectListPurpose } from '@/lib/prospecting/types'
 import { ViewHeader } from '../views/view-header'
+import { useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
+import { CARD_HEADER_PILL_BUTTON } from '@/components/chat-cards/card-header-button'
 import { BetaPill } from './beta-pill'
 import { ListDetail } from './list-detail'
 import { usePageCreate } from '@/lib/create/page-create'
@@ -871,6 +873,9 @@ export function ProspectingView({
   // (list-detail.tsx guards its stores the same way). Only a chat card gives
   // its rows their own target.
   const inChatCard = useProspectEntryActionTarget() !== null
+  // In a card its header says Prospecting: the page draws no title, and Beta,
+  // the runs and New list stand at the header's end (Liam, 11-22).
+  const inCard = useCardHeaderSlots() !== null
   useEffect(() => {
     if (!inChatCard) publishProspectListLive(liveListIds)
   }, [liveListIds, inChatCard])
@@ -1095,13 +1100,18 @@ export function ProspectingView({
         // rather than being pushed to the actions side, which is where a
         // disclaimer about the page would read as a control.
         title={
-          <span className="inline-flex items-center gap-2 truncate text-sm font-semibold text-foreground">
-            <PageTitle label="Prospecting" as="h1" />
-            <BetaPill />
-          </span>
+          inCard ? undefined : (
+            <span className="inline-flex items-center gap-2 truncate text-sm font-semibold text-foreground">
+              <PageTitle label="Prospecting" as="h1" />
+              <BetaPill />
+            </span>
+          )
         }
         actions={
           <>
+            {/* In a card the title is the header's, and Beta, a fact about the
+                page, leads its end. */}
+            {inCard && <BetaPill className="mr-1" />}
             {/* Quiet, and to the LEFT of the new-list button: it is a fact
                 about the workspace, not a control. */}
             {/* "1 run active" — the workspace's own state, said once, in the
@@ -1124,18 +1134,24 @@ export function ProspectingView({
                 </span>
               </span>
             )}
-            {!empty && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                onClick={() => setSheetPurpose('buyers')}
-                title="New list"
-                aria-label="New list"
-              >
-                <Plus className="h-4 w-4" />
-              </Button>
-            )}
+            {!empty &&
+              (inCard ? (
+                <button type="button" data-new-prospect-list="" onClick={() => setSheetPurpose('buyers')} className={CARD_HEADER_PILL_BUTTON}>
+                  <Plus className="size-3.5" strokeWidth={1.75} aria-hidden />
+                  New list
+                </button>
+              ) : (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                  onClick={() => setSheetPurpose('buyers')}
+                  title="New list"
+                  aria-label="New list"
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              ))}
           </>
         }
       />

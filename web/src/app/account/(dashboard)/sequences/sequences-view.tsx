@@ -23,6 +23,8 @@ import { UnifiedViewLayout } from '@/components/views/unified-view-layout'
 import { useEntityListSync } from '@/hooks/use-entity-sync'
 import { useOptionalSettingsOverlay } from '../settings-overlay'
 import { ViewHeader } from '../views/view-header'
+import { useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
+import { CARD_HEADER_PILL_BUTTON } from '@/components/chat-cards/card-header-button'
 import { SequenceBuilder } from './sequence-builder'
 import { usePageCreate } from '@/lib/create/page-create'
 import { SequenceDetail } from './sequence-detail'
@@ -49,6 +51,8 @@ export function SequencesView({
   const [hasMailbox, setHasMailbox] = useState<boolean | null>(null)
   const [creating, setCreating] = useState(false)
   const settingsOverlay = useOptionalSettingsOverlay()
+  // In a card its header says Sequences: no title here, New sequence there (Liam, 11-22).
+  const inCard = useCardHeaderSlots() !== null
 
   // The Create dialog's Sequence (Liam, 11-20): this page's builder, from the list.
   usePageCreate('sequence', () => {
@@ -117,16 +121,23 @@ export function SequencesView({
       <ViewHeader
         title="Sequences"
         actions={
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 text-muted-foreground hover:text-foreground"
-            onClick={() => setCreating(true)}
-            title={NEW_SEQUENCE_LABEL}
-            aria-label={NEW_SEQUENCE_LABEL}
-          >
-            <Plus className="h-4 w-4" />
-          </Button>
+          inCard ? (
+            <button type="button" data-new-sequence="" onClick={() => setCreating(true)} className={CARD_HEADER_PILL_BUTTON}>
+              <Plus className="size-3.5" strokeWidth={1.75} aria-hidden />
+              {NEW_SEQUENCE_LABEL}
+            </button>
+          ) : (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-muted-foreground hover:text-foreground"
+              onClick={() => setCreating(true)}
+              title={NEW_SEQUENCE_LABEL}
+              aria-label={NEW_SEQUENCE_LABEL}
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+          )
         }
       />
 

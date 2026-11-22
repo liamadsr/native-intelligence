@@ -3273,9 +3273,11 @@ export function CaptureDetailPanel({
       >
           <div ref={panelBodyRef} className={cn('flex flex-1 min-h-0 justify-center', activeSection !== 'overview' && 'hidden')}>
             {/* Main content area */}
-            <div ref={editorContainerRef} className="w-full max-w-[736px] min-w-0 mx-auto">
-              <ScrollArea className="h-full">
-                <div className="px-8 pb-28">
+            {/* The whole card's width scrolls, with no bar drawn; the reading
+                column stays centred in it (Liam, 11-21). */}
+            <div ref={editorContainerRef} className="w-full min-w-0">
+              <ScrollArea scrollbar={false} className="h-full">
+                <div className="mx-auto w-full max-w-[736px] px-8 pb-28">
                 <AnnotatedContent section="capture">
                   <div className="space-y-8">
                     {/* Title + metadata */}

@@ -14,11 +14,15 @@
  * kept in this browser.
  */
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { ArrowDown, ArrowLeft, ArrowUp, ClipboardList, Download, History, Link2, Lock, Star, Undo2, Upload, X } from 'lucide-react'
+import { ArrowDown, ArrowLeft, ArrowUp, ClipboardList, Download, History, Link2, Lock, Star, Undo2, Upload, X, type LucideIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { ViewHeader } from '@/app/account/(dashboard)/views/view-header'
+import { useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
+import { CARD_HEADER_ICON_BUTTON } from '@/components/chat-cards/card-header-button'
+import { EntityIcon } from '@/components/entities/entity-icon'
+import { cn } from '@/lib/utils'
 import { ViewToolbar } from '@/components/views/view-toolbar'
 import { useView, useViewConfig, type ViewConfig } from '@/components/views/hooks/use-view'
 import { CustomFieldDefinitionsContext } from '@/components/views/hooks/use-custom-field-definitions'
@@ -90,6 +94,10 @@ export function TableDetail({
   const [importing, setImporting] = useState(false)
   const [formsOpen, setFormsOpen] = useState(false)
   const [openRowId, setOpenRowId] = useState<string | null>(initialRowId)
+  // In a card the table is a place in its header, "Tables › Orders", the
+  // card's title the way back, and the toolbar's actions are icons at the
+  // header's end (Liam, 11-22: "the back button should just be the breadcrumb").
+  const inCard = useCardHeaderSlots() !== null
 
   // The table's columns, for the filter picker, the chips and the settings.
   const definitions = useMemo(
@@ -175,52 +183,40 @@ export function TableDetail({
               {table && !data.canEdit && <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">View only</span>}
             </span>
           }
+          place={{
+            label: (
+              <span data-table-crumb="" className="flex min-w-0 items-center gap-1.5">
+                <EntityIcon kind={table?.kind === 'pipeline' ? (table.record_kind ?? 'deal') : 'data_table'} size="sm" />
+                <span className="min-w-0 truncate font-medium">{table?.name ?? 'Table'}</span>
+                {table?.visibility === 'private' && <Lock className="size-3 shrink-0 text-muted-foreground" aria-label="Private" />}
+                {table && !data.canEdit && <span className="shrink-0 text-[11px] text-muted-foreground">View only</span>}
+              </span>
+            ),
+            onBack,
+            backLabel: table?.kind === 'pipeline' ? 'Back to pipelines' : 'Back to tables',
+          }}
           actions={
             table && (
-              <span className="flex items-center gap-1">
+              <span className="flex items-center gap-1" data-table-actions="">
                 {/* A pipeline that isn't the default can become it (Tables, phase 7); the default holds deals (679). */}
                 {data.canEdit && table.kind === 'pipeline' && !table.record_kind && !table.is_default && !table.archived_at && table.visibility === 'workspace' && (
-                  <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => void makeDefault(table.id, data.reload)}>
-                    <Star className="h-3.5 w-3.5" />
-                    Make default
-                  </Button>
+                  <TableAction inCard={inCard} icon={Star} label="Make default" onClick={() => void makeDefault(table.id, data.reload)} />
                 )}
-                {data.canEdit && (
-                  <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setImporting(true)}>
-                    <Upload className="h-3.5 w-3.5" />
-                    Import
-                  </Button>
-                )}
+                {data.canEdit && <TableAction inCard={inCard} icon={Upload} label="Import" onClick={() => setImporting(true)} />}
                 {/* A form adds rows from outside (forms phase 3), on a pipeline a deal in its first open stage: never to an archived table. */}
-                {data.canEdit && !table.archived_at && (
-                  <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setFormsOpen(true)}>
-                    <ClipboardList className="h-3.5 w-3.5" />
-                    Form
-                  </Button>
-                )}
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 px-2 text-xs"
+                {data.canEdit && !table.archived_at && <TableAction inCard={inCard} icon={ClipboardList} label="Form" onClick={() => setFormsOpen(true)} />}
+                <TableAction
+                  inCard={inCard}
+                  icon={Link2}
+                  label="Copy link"
                   title="Paste it in a doc to show this view there"
                   onClick={() => {
                     void copyTextToClipboard(tableLink({ tableId, viewId: activeView?.id ?? null }, /^https?:/.test(window.location.origin) ? window.location.origin : undefined))
                     toast('Copied the link to this view')
                   }}
-                >
-                  <Link2 className="h-3.5 w-3.5" />
-                  Copy link
-                </Button>
-                <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => void exportView()}>
-                  <Download className="h-3.5 w-3.5" />
-                  Export
-                </Button>
-                {data.changes.length > 0 && (
-                  <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setHistoryOpen(true)}>
-                    <History className="h-3.5 w-3.5" />
-                    History
-                  </Button>
-                )}
+                />
+                <TableAction inCard={inCard} icon={Download} label="Export" onClick={() => void exportView()} />
+                {data.changes.length > 0 && <TableAction inCard={inCard} icon={History} label="History" onClick={() => setHistoryOpen(true)} />}
               </span>
             )
           }
@@ -378,6 +374,33 @@ async function makeDefault(tableId: string, reload: () => Promise<void> | void) 
   if (!res.ok) return void toast.error(json.error || 'Could not make it the default')
   toast('This is now the default pipeline')
   await reload()
+}
+
+/**
+ * One of the table's actions: a ghost button with its name on the page, an
+ * icon with its name on hover in a card's header, where six names would not
+ * fit beside the breadcrumb.
+ */
+function TableAction({ inCard, icon: Icon, label, title, onClick }: { inCard: boolean; icon: LucideIcon; label: string; title?: string; onClick: () => void }) {
+  if (inCard) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={label}
+        title={title ? `${label}: ${title.charAt(0).toLowerCase()}${title.slice(1)}` : label}
+        className={cn('grid size-7 shrink-0 place-items-center', CARD_HEADER_ICON_BUTTON)}
+      >
+        <Icon className="size-3.5" strokeWidth={1.75} aria-hidden />
+      </button>
+    )
+  }
+  return (
+    <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" title={title} onClick={onClick}>
+      <Icon className="h-3.5 w-3.5" />
+      {label}
+    </Button>
+  )
 }
 
 function Hint({ children }: { children: ReactNode }) {

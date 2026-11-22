@@ -18,6 +18,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as React from 'react'
 import { act } from 'react'
 import { makeStore, mountRoot } from './page-card-harness'
+import { seoHeaderHosts } from './seo-header-hosts'
 import { stubAppFetch } from '@/test/app-fetch-stub'
 
 const hoisted = vi.hoisted(() => ({ toast: Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn() }) }))
@@ -595,5 +596,25 @@ describe('SeoKeywordsCard: saved', () => {
     routes['/api/account/seo/keywords/saved*'] = SAVED_PAGE
     await click(q('[data-seo-error] button'))
     expect(all('[data-kw-saved] [data-kw-row]')).toHaveLength(2)
+  })
+})
+
+describe('SeoKeywordsCard: in a card’s header', () => {
+  // Liam, 11-22: the page never repeats its title, and the spend line is the header's.
+  let hosts: ReturnType<typeof seoHeaderHosts>
+  beforeEach(() => {
+    hosts = seoHeaderHosts()
+    routes['/api/account/seo/keywords/saved*'] = EMPTY_SAVED
+  })
+  afterEach(() => hosts.remove())
+
+  it('no title row of its own: the tabs start the page, the spend line is at the header’s right', async () => {
+    await mount.render(hosts.wrap(React.createElement(SeoKeywordsCard, { toolCallId: 'kw-1', spec, store, fullScreen: true, onCount })))
+    await settle()
+    await settle()
+    expect(mount.container.querySelector('h1')).toBeNull()
+    expect(mount.container.querySelector('[data-seo-tab="research"]')).not.toBeNull()
+    expect(mount.container.querySelector('[data-seo-spend]')).toBeNull()
+    expect(hosts.right.querySelector('[data-seo-spend]')!.textContent).toBe('$3.40 of $20 this month · resets Dec 1')
   })
 })

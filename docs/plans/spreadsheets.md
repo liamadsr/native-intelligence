@@ -414,6 +414,13 @@ Not in phase 2, said plainly:
 | Version history | Done: a History button in the title bar lists who changed it and when (an agent's change is marked), and restores a version as an ordinary save, so nothing is lost. One person's run of saves within ten minutes is one entry. |
 | Entity links | A spreadsheet is linkable in the entity registry since phase 1, and private ones are fenced. The side panel that shows a record's links is not on the spreadsheet's card yet. |
 
+**Migration 683** came with the tools: a new tool category would have silently narrowed every
+agent persona saved with "all categories on" (the app's rule, migrations 538, 623, 632), so
+683 gives those personas the `spreadsheets` category and leaves a narrowed one alone. The
+committed file was applied to a local Postgres 16 several times: two every-category personas
+gained it with their other settings kept; a narrowed one, one with disabled tools and a
+non-agent row were untouched; a re-run changed nothing. Not applied to DEV or production.
+
 Not done: comments (phase 5, with the threads on cells), sharing with one person (decision 5),
 the activity log and copy link (they need database triggers and deep-link handling).
 

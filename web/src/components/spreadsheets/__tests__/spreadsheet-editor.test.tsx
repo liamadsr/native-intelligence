@@ -106,6 +106,8 @@ const key = (k: string, target: Element = grid(), init: KeyboardEventInit = {}) 
   act(() => {
     target.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...init }))
   })
+// What the save says: nothing while it goes well (Saved, Saving… and Unsaved
+// changes are not shown; Liam, 11-22), only a save that needs the person.
 const note = () => container.querySelector('[aria-live="polite"]')?.textContent ?? container.querySelector('[role="alert"]')?.textContent ?? ''
 const patches = () => calls.filter((c) => c.method === 'PATCH')
 async function typeCell(text: string) {
@@ -127,7 +129,7 @@ describe('opening a spreadsheet', () => {
     expect((container.querySelector('[aria-label="Formula bar"]') as HTMLInputElement).value).toBe('Role')
     expect((container.querySelector('[aria-label="Go to cell"]') as HTMLInputElement).value).toBe('A1')
     expect(container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toContain('Sheet1')
-    expect(note()).toBe('Saved')
+    expect(note()).toBe('')
   })
 
   it('says what went wrong and offers to try again', async () => {
@@ -151,7 +153,7 @@ describe('saving', () => {
   it('saves a little after a change, against the revision it loaded, then against the one the save answered', async () => {
     await open()
     await typeCell('5')
-    expect(note()).toBe('Unsaved changes')
+    expect(note()).toBe('')
     expect(patches()).toHaveLength(0)
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1300)
@@ -161,7 +163,7 @@ describe('saving', () => {
     const sent = loadModel(String(patches()[0].body?.workbook))
     expect(sent.getCellContent(0, 1, 1)).toBe('5')
     sent.free()
-    expect(note()).toBe('Saved')
+    expect(note()).toBe('')
     await typeCell('6')
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1300)
@@ -194,7 +196,7 @@ describe('saving', () => {
       await vi.advanceTimersByTimeAsync(3000)
     })
     expect(patches()).toHaveLength(0)
-    expect(note()).toBe('Saved')
+    expect(note()).toBe('')
   })
 
   it('when someone else saved first, it stops saving and offers their version', async () => {
@@ -218,7 +220,7 @@ describe('saving', () => {
       await vi.advanceTimersByTimeAsync(10)
     })
     expect(container.querySelector('[data-cell="A1"]')?.textContent).toBe('Theirs')
-    expect(note()).toBe('Saved')
+    expect(note()).toBe('')
   })
 
   it('a save that fails says so and can be tried again', async () => {
@@ -236,7 +238,7 @@ describe('saving', () => {
       ;([...container.querySelectorAll('button')].find((b) => b.textContent === 'Try again') as HTMLButtonElement).click()
       await vi.advanceTimersByTimeAsync(10)
     })
-    expect(note()).toBe('Saved')
+    expect(note()).toBe('')
   })
 })
 
