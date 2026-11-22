@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { CREATE_LETTERS, composerKeyIntent, createTypeForLetter, isCreateLetterKey } from '../create-keys'
+import { CREATE_LETTERS, OPENING_ECHO_MS, composerKeyIntent, createTypeForLetter, isCreateLetterKey, isOpeningKeyEcho } from '../create-keys'
 import { CREATE_TYPES } from '../create-types'
 import { SEQUENCE_MS } from '@/lib/hotkeys'
 
@@ -42,6 +42,15 @@ describe('C then a letter', () => {
     expect(isCreateLetterKey(key('a', { shiftKey: true }), { search: '', openedAt, now: openedAt })).toBe(false)
     expect(isCreateLetterKey(key('a', { metaKey: true }), { search: '', openedAt, now: openedAt })).toBe(false)
     expect(isCreateLetterKey(key('1'), { search: '', openedAt, now: openedAt })).toBe(false)
+  })
+})
+
+describe('the C that opened the menu', () => {
+  it('is not a search when the browser types it into the search at once', () => {
+    expect(isOpeningKeyEcho('c', 1_000, 1_050)).toBe(true)
+    expect(isOpeningKeyEcho('C', 1_000, 1_050)).toBe(true)
+    expect(isOpeningKeyEcho('c', 1_000, 1_000 + OPENING_ECHO_MS + 1)).toBe(false)
+    expect(isOpeningKeyEcho('ca', 1_000, 1_050)).toBe(false)
   })
 })
 

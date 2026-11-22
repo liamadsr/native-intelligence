@@ -63,6 +63,18 @@ export function isCreateLetterKey(
   return (state.now ?? Date.now()) - state.openedAt <= SEQUENCE_MS
 }
 
+/** How soon after opening a lone `c` in the search is the opening key's own echo. */
+export const OPENING_ECHO_MS = 300
+
+/**
+ * C opens the menu and the menu focuses its search during that keydown, so
+ * the browser types the `c` into it. A search of just `c` that soon is that
+ * echo, not a search.
+ */
+export function isOpeningKeyEcho(value: string, openedAt: number, now = Date.now()): boolean {
+  return value.toLowerCase() === 'c' && now - openedAt <= OPENING_ECHO_MS
+}
+
 /** What a key does in a composer: create and open, create and stay for another, or nothing. */
 export type ComposerKeyIntent = 'create-open' | 'create-another' | null
 

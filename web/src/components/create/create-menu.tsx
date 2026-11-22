@@ -11,7 +11,7 @@
 import { useRef, useState, type ReactNode } from 'react'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
 import { CREATE_TYPE_GROUPS, type CreateTypeDef, type CreateTypeId } from '@/lib/create/create-types'
-import { CREATE_LETTERS, createTypeForLetter, isCreateLetterKey } from '@/lib/create/create-keys'
+import { CREATE_LETTERS, createTypeForLetter, isCreateLetterKey, isOpeningKeyEcho } from '@/lib/create/create-keys'
 import { containerLabel, type CreateContainer } from '@/lib/create/create-context'
 
 export interface CreateMenuOption extends CreateTypeDef {
@@ -43,11 +43,15 @@ export function CreateMenu({
       // Match on the label and keywords, not the id.
       filter={(itemValue, q) => (itemValue.toLowerCase().includes(q.trim().toLowerCase()) ? 1 : 0)}
     >
-      <div className="flex items-center gap-2 px-1">
-        <CommandInput
+      <CommandInput
           autoFocus
           value={search}
-          onValueChange={setSearch}
+          onValueChange={(v) => {
+            // The C that opened the menu: the browser types it into the search
+            // it focused during that same keydown. It isn't a search.
+            if (isOpeningKeyEcho(v, openedAt)) return
+            setSearch(v)
+          }}
           placeholder={container ? `${containerLabel(container)}…` : 'Create…'}
           aria-label="Create"
           data-create-menu-search=""
@@ -60,7 +64,6 @@ export function CreateMenu({
             onPick(id)
           }}
         />
-      </div>
       <CommandList className="max-h-[min(440px,60vh)]">
         <CommandEmpty>Nothing to create by that name</CommandEmpty>
         {groups.map((g) => (
