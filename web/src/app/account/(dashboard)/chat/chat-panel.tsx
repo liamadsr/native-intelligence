@@ -1652,6 +1652,23 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
   useEffect(() => {
     messagesRef.current = messages
   }, [messages])
+  /**
+   * A thread read from the server, put in place of the one on screen: the
+   * ref at once, the state for the next render. The ref otherwise catches up
+   * only after that render, and whatever appends in between (openCardHere,
+   * appendCodeMessage: `[...messagesRef.current, x]`) would append to the
+   * thread before the load and write it back over the loaded one. A deep
+   * link's card, opened the moment the boot's home load lands, did exactly
+   * that: the home thread went, then came back on the next merge without the
+   * card (docs: the deep-link boot bug, 11-22).
+   */
+  const adoptThread = useCallback(
+    (thread: UIMessage[]) => {
+      messagesRef.current = thread
+      setMessages(thread)
+    },
+    [setMessages],
+  )
   useEffect(() => {
     inputRef.current = input
   }, [input])
@@ -1847,7 +1864,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
       // Its first visit, so a page that never goes full screen (one of several
       // picked at once) still counts among the pages visited last.
       cardStore.update(id, { ...(request.seed ? seedCardState(request.seed) : {}), visitedAt: Date.now() }, { touch: !!request.seed })
-      const message = openedCardMessage({ id, spec: request.spec, number, page: request.from })
+      // With the time it was opened (as a message the person sends has): a
+      // thread's history read in after it lands before it, not after it.
+      const opened = openedCardMessage({ id, spec: request.spec, number, page: request.from })
+      const message: UIMessage = { ...opened, metadata: stampCreatedAt(opened.metadata) }
       linkOrigin(id)
       // Docked, it is the dock's from the start (before it is one of the store's cards).
       if (docking) cardStore.setDocked(id)
@@ -1983,7 +2003,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
         const rowCount = Array.isArray(data.messages) ? data.messages.length : 0
         earlierRef.current.arm(conversationId, data.hasMore === true || rowCount > (next ?? mountedWith).length)
         if (!next) return
-        setMessages(next)
+        adoptThread(next)
         setConversationId(conversationId, next)
       } catch {
         // Offline, or the conversation is gone: the stored thread stands.
@@ -2025,7 +2045,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
         // A long thread answers its newest page (hasMore): the copy's older messages are no turn of its own.
         const next = caughtUpThread(messagesRef.current, data.messages, { partial: data.hasMore === true })
         if (!next) return
-        setMessages(next)
+        adoptThread(next)
       } catch {
         // Offline: what this window holds stands.
       } finally {
@@ -2038,7 +2058,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
       window.removeEventListener('focus', resync)
       document.removeEventListener('visibilitychange', resync)
     }
-  }, [isHomeThread, getConversationId, setMessages, chatSessionId, transport])
+  }, [isHomeThread, getConversationId, adoptThread, chatSessionId, transport])
 
   // The home thread on screen, for the presence client's seen marker
   // (docs/plans/reach-follows-you.md §2): it sends the newest message time
@@ -2100,7 +2120,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
           earlierRef.current.arm(conversationId, data.hasMore === true)
           pendingFocusAfterCountRef.current = null
           setResponseRunwayActive(false)
-          setMessages(data.messages)
+          // The ref too, now: what runs next in this continuation (a card a
+          // deep link opens the moment the home thread lands) appends to the
+          // loaded thread, not to the one before it (adoptThread).
+          adoptThread(data.messages)
           setConversationId(conversationId, data.messages)
           // Loading a different conversation clears the active recipe — it
           // belonged to the previous thread and must not leak into this one.
@@ -2119,7 +2142,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
         return 'failed'
       }
     },
-    [setMessages, setConversationId, resetChatSession, stopReadAloud],
+    [adoptThread, setConversationId, resetChatSession, stopReadAloud],
   )
 
   // The newest load's number (handleLoadConversation): older ones are dropped.

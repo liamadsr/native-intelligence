@@ -34,10 +34,14 @@ window.HTMLElement.prototype.scrollIntoView = () => {}
 let chatMessages: UIMessage[] = []
 let seededWith: UIMessage[] | null = null
 let rerender: (() => void) | null = null
+// As React does it: the render a setMessages asks for comes after the code that
+// asked has run on (its promise continuations included), not inside the call.
+let deferRender = false
 const setMessages = vi.fn((updater: UIMessage[] | ((prev: UIMessage[]) => UIMessage[])) => {
   const next = typeof updater === 'function' ? updater(chatMessages) : updater
   chatMessages = [...next]
-  rerender?.()
+  if (deferRender) setTimeout(() => rerender?.(), 0)
+  else rerender?.()
 })
 
 // The chat's transport: which eve session its handle is on (A3: the focus
@@ -137,6 +141,7 @@ vi.mock('@/lib/workspace-fetch', () => ({
 }))
 
 import { ChatPanel, type ChatPanelHandle } from '../chat-panel'
+import { cardForTarget } from '@/lib/chat-cards/open-card'
 
 const msg = (id: string, role: 'user' | 'assistant' = 'user'): UIMessage =>
   ({ id, role, parts: [{ type: 'text', text: id }] }) as UIMessage
@@ -159,6 +164,7 @@ async function settle() {
 beforeEach(() => {
   chatMessages = []
   seededWith = null
+  deferRender = false
   setMessages.mockClear()
   history = null
   pending.length = 0
@@ -238,6 +244,25 @@ describe('ChatPanel — the home thread’s loads (A3 review)', () => {
     await pending[0].respond({ messages: rows(4), title: 'Home', agentTeammateKnown: true })
     expect(outcome).toBe('aborted')
     expect(chatMessages.map((m) => m.id)).toEqual(['typed'])
+  })
+
+  it('a card opened the moment a load lands (a deep link at boot) keeps the loaded thread, and stays', async () => {
+    await mount({ initialMessages: [] })
+    deferRender = true
+    const card = cardForTarget({ type: 'document', id: '11111111-1111-4111-8111-111111111111', title: 'Launch plan' })!
+    act(() => {
+      // As the host does: the card waits for the home thread's load, then opens in the same continuation.
+      void panelRef.current!.loadConversation('home-1', { ifUntouched: true }).then((o) => {
+        if (o === 'loaded') panelRef.current!.openCard({ spec: card.spec, from: 'link' })
+      })
+    })
+    await pending[0].respond({ messages: rows(4), title: 'Home', agentTeammateKnown: true })
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    // The home thread's rows, then the card: neither lost.
+    expect(chatMessages.slice(0, 4).map((m) => m.id)).toEqual(rows(4).map((m) => m.id))
+    expect(chatMessages).toHaveLength(5)
   })
 
   it('an ifUntouched load on an untouched chat applies', async () => {
