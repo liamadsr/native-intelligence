@@ -108,7 +108,6 @@ function oldestTime(messages: readonly UIMessage[]): number | null {
 /** The `metadata.kind` of the bubble an approval's outcome writes into the home thread (src/lib/safety/approvals.ts postHomeResult). */
 export const APPROVAL_RESULT_KIND = 'approval_result'
 
-/** True for an approval's outcome bubble (an approved tool ran, or didn't). */
 /**
  * Where a row the chat doesn't hold goes: before the first message held that
  * is newer than it, else at the bottom. A row with no time, and messages
@@ -123,6 +122,7 @@ export function insertionIndex(thread: readonly UIMessage[], time: number | null
   return thread.length
 }
 
+/** True for an approval's outcome bubble (an approved tool ran, or didn't). */
 export function isApprovalResultMessage(message: unknown): boolean {
   const meta = (message as { metadata?: unknown } | null)?.metadata
   return !!meta && typeof meta === 'object' && (meta as { kind?: unknown }).kind === APPROVAL_RESULT_KIND
