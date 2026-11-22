@@ -7,6 +7,7 @@
  * view (action-scoped) and the standalone /account/agent-runs/[id] deep-link
  * page (run-id-scoped, serves flow-origin runs) render runs identically.
  */
+import { EntityIcon } from '@/components/entities/entity-icon'
 import {
   Loader2,
   GitPullRequest,
@@ -16,19 +17,6 @@ import {
   CircleDot,
   Clock,
   MessageCircleQuestion,
-  Package,
-  AudioLines,
-  FileText,
-  User,
-  FolderKanban,
-  SquareCheckBig,
-  Target,
-  RefreshCw,
-  Mail,
-  Paperclip,
-  MessageSquare,
-  Quote,
-  type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { canonicalEntityType } from '@/lib/knowledge/entity-registry'
@@ -242,28 +230,9 @@ export function WorkTask({ task }: { task: string | null | undefined }) {
 }
 
 /**
- * Per-type icon for a declared work resource. Keyed on the `WorkResourceRef.type`
- * string (the WORK_RESOURCE_TYPES set). Icons match the app's existing entity
- * conventions where one dominates (project→FolderKanban and member→User mirror
- * the filter-field picker; initiative→Target mirrors nav + create-dialog), and
- * fall back to the design contract's list otherwise. An unknown type gets no icon.
+ * A declared work resource's icon is its kind's identity (<EntityIcon>, keyed on
+ * the `WorkResourceRef.type` string); an unknown type gets no icon.
  */
-const RESOURCE_TYPE_ICONS: Record<string, LucideIcon> = {
-  package: Package,
-  capture: AudioLines,
-  document: FileText,
-  contact: User,
-  project: FolderKanban,
-  action: SquareCheckBig,
-  initiative: Target,
-  cycle: RefreshCw,
-  email_thread: Mail,
-  attachment: Paperclip,
-  member: User,
-  conversation: MessageSquare,
-  claim: Quote,
-}
-
 /**
  * Resource types the caller can navigate to. The DetailPanel-backed entity types
  * (action/capture/document/contact/project/initiative) plus 'package' (a deep
@@ -311,10 +280,7 @@ export function WorkResources({
       <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/60">{label}</p>
       <div className="flex flex-wrap gap-1.5">
         {resources.map((r, i) => {
-          const Icon = RESOURCE_TYPE_ICONS[canonicalEntityType(r.type)]
-          const icon = Icon ? (
-            <Icon className="h-3 w-3 shrink-0 text-muted-foreground/70" />
-          ) : null
+          const icon = <EntityIcon kind={canonicalEntityType(r.type)} size="xs" strokeWidth={2} />
           const openable = isResourceOpenable(r, onOpen)
           const chipClass =
             'inline-flex max-w-full items-center gap-1 rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] font-medium text-foreground/70'

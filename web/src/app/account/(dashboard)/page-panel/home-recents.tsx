@@ -19,9 +19,10 @@
  *           a little room under it. What came to them carries a dot until
  *           they open it. The For you cards stay in the right panel;
  *           nothing of theirs is here.
- *   A row   the kind's glyph alone, muted, no tile behind it (Liam, 11-11:
- *           "the icons don't need a white background"; chat/feed-icons.ts,
- *           the palette's) in a fixed-width slot so the titles line up, the
+ *   A row   the kind's glyph alone, in the kind's colour, no tile behind it
+ *           (Liam, 11-11: "the icons don't need a white background"; 11-22:
+ *           each kind its own identity, <EntityIcon>, the palette's too) in
+ *           a fixed-width slot so the titles line up, the
  *           title on one line, and a short time at the right ("2d", "Nov 9").
  *   Open    a click (or Enter on a focused row) opens it exactly as the
  *           palette's Inbox and Recent rows do (entityOpenTarget +
@@ -48,11 +49,12 @@
  * more", no animation. `ph-no-capture`: titles can be private.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Building2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { openTarget } from '@/lib/chat-cards/open-card'
 import { entityOpenTarget } from '@/lib/entity-links/open-entity'
 import { useScrollFades } from '@/components/attention/scroll-fades'
-import { FALLBACK_FEED_ICON, FEED_ICONS } from '../chat/feed-icons'
+import { EntityIcon } from '@/components/entities/entity-icon'
 import { useSidePanelState } from '../side-panels/side-panels'
 import { CodeChatsPanel } from './code-chats'
 import { PagePanelFrame } from './page-panel-frame'
@@ -169,7 +171,6 @@ function RecentsPanel({ active, mode, front, onContent, shown }: PagePanelProps 
 const ROW_LIT = 'bg-foreground/[0.08] hover:bg-foreground/[0.08]'
 
 function RecentRow({ item, now, lit, onOpen }: { item: RecentItem; now: Date; lit: boolean; onOpen: (item: RecentItem) => void }) {
-  const Icon = FEED_ICONS[item.type] ?? FALLBACK_FEED_ICON
   return (
     <button
       type="button"
@@ -186,7 +187,7 @@ function RecentRow({ item, now, lit, onOpen }: { item: RecentItem; now: Date; li
     >
       {/* The glyph alone, no tile (Liam, 11-11), in a fixed slot so the titles line up. */}
       <span aria-hidden data-recent-icon="" className="flex w-4 shrink-0 items-center justify-center text-muted-foreground">
-        <Icon className="size-4" strokeWidth={1.75} />
+        <EntityIcon kind={item.type} size="md" fallback={Building2} />
       </span>
       <span data-recent-title="" className={cn('min-w-0 flex-1 truncate text-[13px] text-foreground', item.needsYou && 'font-medium')}>
         {item.title}

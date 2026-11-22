@@ -1,5 +1,6 @@
 'use client'
 
+import { EntityIcon } from '@/components/entities/entity-icon'
 import * as React from 'react'
 import { ArrowUpRight, Target } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -13,7 +14,7 @@ import type { InitiativeOption } from './types'
 
 function InitiativeGlyph({ icon }: { icon: string | null }) {
   if (icon && isEmoji(icon)) return <span className="text-sm shrink-0">{icon}</span>
-  return <Target className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+  return <EntityIcon kind="initiative" size="sm" />
 }
 
 // ── Shared content ─────────────────────────────────────────

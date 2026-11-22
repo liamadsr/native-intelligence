@@ -1,5 +1,6 @@
 'use client'
 
+import { EntityIcon } from '@/components/entities/entity-icon'
 import { useWorkspaceId } from '@/app/account/workspace-switcher'
 import { ThinkingOrb } from 'thinking-orbs'
 import { PageLoadingOrb } from '@/components/page-loading-orb'
@@ -41,7 +42,6 @@ import {
   Package,
   Plus,
   RefreshCw,
-  Sparkles,
   Trash2,
   Users,
   X,
@@ -331,7 +331,7 @@ export function KnowledgeLibrary({
                     }}
                     className="border-border bg-card hover:border-foreground/30 flex w-full items-center gap-3 rounded-md border p-3 text-left transition-colors"
                   >
-                    <Package className="text-muted-foreground h-4 w-4 shrink-0" />
+                    <EntityIcon kind="knowledge_package" />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <span className="text-foreground truncate text-sm font-medium">

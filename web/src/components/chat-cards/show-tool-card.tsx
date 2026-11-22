@@ -58,6 +58,7 @@
  * Each card redraws only when its own draw state changes (the store's
  * drawKey), not on every change to any card in the chat.
  */
+import { EntityIcon } from '@/components/entities/entity-icon'
 import * as React from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
@@ -1006,6 +1007,7 @@ export function ShowToolCard({
         <div data-card-header-trail="" className="flex min-w-0 flex-1 items-center gap-1.5 text-[13px]">
           <span className="max-w-[40%] shrink-0 truncate text-muted-foreground">{spec.title}</span>
           <ChevronRight aria-hidden className="size-3.5 shrink-0 text-muted-foreground/60" strokeWidth={1.75} />
+          <EntityIcon kind={openRecord.type} size="sm" />
           {openRecord.ref && <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{openRecord.ref}</span>}
           <span className="min-w-0 truncate font-medium">{openRecord.label}</span>
         </div>
