@@ -14,7 +14,7 @@
  * save is refused, and that person is told and offered the newer version.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, Bold, Italic, Lock, Redo2, Strikethrough, Underline, Undo2 } from 'lucide-react'
+import { ArrowLeft, Lock } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -23,11 +23,13 @@ import { EntityIcon } from '@/components/entities/entity-icon'
 import { WorkbookController } from '@/lib/spreadsheets/controller'
 import { openModel } from '@/lib/spreadsheets/engine-client'
 import type { SpreadsheetRecord, SpreadsheetSummary } from '@/lib/spreadsheets/types'
+import { FindReplace } from './find-replace'
 import { FormulaBar } from './formula-bar'
 import { FormulaSuggest, type FormulaSuggestHandle } from './formula-suggest'
 import { GridMenu, type GridCommands, type GridMenuState } from './grid-menu'
 import { SheetGrid, pasteInto, type CaretState } from './sheet-grid'
 import { SheetTabs } from './sheet-tabs'
+import { Toolbar, type ViewOptions } from './toolbar'
 import { useWorkbook } from './use-workbook'
 
 /** How long after the last change a save goes out. */
@@ -135,6 +137,8 @@ function OpenSpreadsheet({ loaded, onBack, onReload }: { loaded: Loaded; onBack?
   const [save, setSave] = useState<SaveState>('saved')
   const [menu, setMenu] = useState<GridMenuState | null>(null)
   const [caretTick, setCaretTick] = useState(0)
+  const [view, setView] = useState<ViewOptions>({ formulaBar: true, formulas: false })
+  const [finding, setFinding] = useState(false)
   const [resizing, setResizing] = useState<{ axis: 'row' | 'column'; from: number; to: number; value: string } | null>(null)
   const caret = useRef<CaretState>({ start: 0, end: 0, pointed: null })
   const suggest = useRef<FormulaSuggestHandle | null>(null)
@@ -275,16 +279,6 @@ function OpenSpreadsheet({ loaded, onBack, onReload }: { loaded: Loaded; onBack?
     },
   }
 
-  const { row, column } = workbook.selection()
-  const style = workbook.style(row, column).font
-  // The engine leaves out what is off.
-  const font = { b: Boolean(style.b), i: Boolean(style.i), u: Boolean(style.u), strike: Boolean(style.strike) }
-  const toggle = (path: 'b' | 'i' | 'u' | 'strike', on: boolean) => {
-    const result = workbook.setStyle(`font.${path}`, on ? 'false' : 'true')
-    if (!result.ok) onMessage(result.message)
-    focusGrid()
-  }
-
   // The name's field, in the card's header or the page's own title row.
   const nameProps = {
     'aria-label': 'Spreadsheet name',
@@ -303,7 +297,18 @@ function OpenSpreadsheet({ loaded, onBack, onReload }: { loaded: Loaded; onBack?
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col" data-spreadsheet-editor>
+    <div
+      className="flex h-full min-h-0 flex-col"
+      data-spreadsheet-editor
+      onKeyDown={(event) => {
+        // Ctrl/Cmd+F anywhere in the editor: this spreadsheet's find, not the browser's.
+        if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === 'f') {
+          event.preventDefault()
+          if (workbook.editing) workbook.commitEdit()
+          setFinding(true)
+        }
+      }}
+    >
       {inHeader && onBack ? (
         <>
           <CardHeaderTrail onBack={onBack} backLabel="Back to spreadsheets">
@@ -345,28 +350,39 @@ function OpenSpreadsheet({ loaded, onBack, onReload }: { loaded: Loaded; onBack?
         </div>
       )}
 
-      {/* Toolbar */}
-      <div role="toolbar" aria-label="Formatting" className={cn('flex h-9 shrink-0 items-center gap-0.5 border-border/60 px-2', inHeader ? 'border-b' : 'border-y')}>
-        <ToolButton label="Undo" disabled={!workbook.canUndo()} onClick={() => { workbook.undo(); focusGrid() }}><Undo2 className="h-3.5 w-3.5" /></ToolButton>
-        <ToolButton label="Redo" disabled={!workbook.canRedo()} onClick={() => { workbook.redo(); focusGrid() }}><Redo2 className="h-3.5 w-3.5" /></ToolButton>
-        <span aria-hidden className="mx-1 h-4 w-px bg-border" />
-        <ToolButton label="Bold" pressed={font.b} disabled={workbook.readOnly} onClick={() => toggle('b', font.b)}><Bold className="h-3.5 w-3.5" /></ToolButton>
-        <ToolButton label="Italic" pressed={font.i} disabled={workbook.readOnly} onClick={() => toggle('i', font.i)}><Italic className="h-3.5 w-3.5" /></ToolButton>
-        <ToolButton label="Strikethrough" pressed={font.strike} disabled={workbook.readOnly} onClick={() => toggle('strike', font.strike)}><Strikethrough className="h-3.5 w-3.5" /></ToolButton>
-        <ToolButton label="Underline" pressed={font.u} disabled={workbook.readOnly} onClick={() => toggle('u', font.u)}><Underline className="h-3.5 w-3.5" /></ToolButton>
-      </div>
+      <Toolbar
+        workbook={workbook}
+        view={view}
+        onView={setView}
+        onFind={() => setFinding(true)}
+        onPaste={(valuesOnly) => commands.paste(valuesOnly)}
+        onMessage={onMessage}
+        focusGrid={focusGrid}
+      />
 
-      <FormulaBar workbook={workbook} caret={caret} suggest={suggest} onCaret={() => setCaretTick((n) => n + 1)} onMessage={onMessage} focusGrid={focusGrid} />
+      {view.formulaBar && <FormulaBar workbook={workbook} caret={caret} suggest={suggest} onCaret={() => setCaretTick((n) => n + 1)} onMessage={onMessage} focusGrid={focusGrid} />}
 
       <div ref={gridHost} className="relative min-h-0 flex-1">
         <SheetGrid
           workbook={workbook}
           caret={caret}
           ariaLabel={`${record.title}: ${workbook.sheets()[workbook.sheet]?.name ?? 'sheet'}`}
+          showGridlines={workbook.showGridLines()}
+          showFormulas={view.formulas}
           onMessage={onMessage}
           onContextMenu={(target, at) => setMenu({ target, x: at.x, y: at.y })}
           onEditorKey={(event) => suggest.current?.handleKey(event) ?? false}
         />
+        {finding && (
+          <FindReplace
+            workbook={workbook}
+            onMessage={(message) => (message.startsWith('Replaced') ? toast.message(message) : onMessage(message))}
+            onClose={() => {
+              setFinding(false)
+              focusGrid()
+            }}
+          />
+        )}
       </div>
 
       <SheetTabs workbook={workbook} onMessage={onMessage} focusGrid={focusGrid} />
@@ -398,27 +414,6 @@ function OpenSpreadsheet({ loaded, onBack, onReload }: { loaded: Loaded; onBack?
         />
       )}
     </div>
-  )
-}
-
-function ToolButton({ label, pressed, disabled, onClick, children }: { label: string; pressed?: boolean; disabled?: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      type="button"
-      title={label}
-      aria-label={label}
-      aria-pressed={pressed === undefined ? undefined : pressed}
-      disabled={disabled}
-      // The grid keeps the keyboard: a toolbar press must not take the focus from it.
-      onPointerDown={(event) => event.preventDefault()}
-      onClick={onClick}
-      className={cn(
-        'flex h-7 min-w-7 items-center justify-center rounded-md px-1.5 text-muted-foreground hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40',
-        pressed && 'bg-accent text-foreground',
-      )}
-    >
-      {children}
-    </button>
   )
 }
 

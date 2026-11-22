@@ -367,10 +367,8 @@ Decided along the way:
 
 Not done in phase 1, and where it goes:
 
-- The full toolbar, number and date formats, borders, colors, alignment, find and replace,
-  view options, the phone layout: phase 2. The toolbar has undo, redo, bold, italic,
-  strikethrough and underline so far.
-- Move a range by its border: phase 2.
+- The full toolbar, number and date formats, borders, colors, alignment, find and replace and
+  view options came in phase 2 (below).
 - **History and the Recent feed.** The app's activity log needs triggers and a list of kinds
   in the database for each kind (migration 488's pattern); 675 has none, so a spreadsheet
   has no activity entries. It needs a migration number of its own.
@@ -379,6 +377,69 @@ Not done in phase 1, and where it goes:
 - **Icon and color:** the `entity-identity` registry is not on `main`. The icon (lucide
   `Sheet`) is set in the create dialog, the rail, the feed and the command menu; the entry
   to add when it merges is kind `spreadsheet`, icon `Sheet`.
+
+### Phase 2: done
+
+| Item | State |
+| --- | --- |
+| The toolbar | Done, in Macro's order: font size (smaller, the size, larger); bold, italic, strikethrough, underline; undo, redo, currency, percent, fewer and more decimal places, wrap; find and replace; then the menus Number format, Font, Text color, Fill color, Borders, Horizontal alignment, Vertical alignment, Functions, Paste special, View options, Format and data. It fits a card 946 px wide and scrolls sideways on a narrower one. |
+| Number formats | Done: Automatic, Number, Currency, Accounting, Percent, Scientific, Time, Plain text, with what each looks like beside its name. A plain-text cell keeps a formula and leading zeros as typed. |
+| Date formats | Done: the seven presets, and "Custom date and time…" with any Excel code and a live preview drawn by the engine itself. |
+| Font and size | Done. Eight fonts every machine has, so two readers see the same sheet. |
+| Text color and fill | Done: 25 named colors. Text on a fill with no color of its own is dark on a light fill and white on a dark one, in either theme. |
+| Borders | Done: all, inside, outside, each edge, the two inner directions, none, and a thick outside. |
+| Alignment and wrap | Done: automatic, left, center, right; top, middle, bottom; wrap. |
+| Functions menu | Done: SUM, AVERAGE, COUNT, MIN, MAX. Over a selection it writes the formula under each column (or beside a single row); on one cell it starts the formula for pointing. |
+| Paste special | Done: Paste, Paste values only. |
+| View options | Done: Gridlines (kept with the workbook, per sheet), Formula bar, Formulas. |
+| Format and data | Sort range A to Z and Z to A, Trim whitespace, Fill down, Fill right, Clear formatting, Clear values. Dropdown…, Convert to table and Goal Seek… are phase 4. |
+| Find and replace | Done: Ctrl/Cmd+F or the toolbar; the count, next and previous (Enter, Shift+Enter), match case, whole cell, search formulas, Replace and Replace all (one undo step). It searches the sheet in view. |
+
+Not in phase 2, said plainly:
+
+- **Indent in and out.** The engine's cell style has no indent, so there is nothing to store it in. It would be this app's own addition (in `extras`), drawn by the grid and lost on export.
+- **Move a range by dragging its border.** Cut and paste does the same job; the drag is not built.
+- **A layout of its own for phones.** The editor works at any width (the toolbar scrolls sideways), and touch scrolls and taps select, but there are no drag handles on the selection and the footer does not follow the on-screen keyboard. Not tried on a phone.
+- **The Insert and Comment controls** of Macro's toolbar come with what they insert: phases 4 and 5.
+
+## Decisions to review
+
+Made without asking, while the owner was away. Each can be changed.
+
+1. **G D opens Drive, not Docs.** Every "G then a letter" was taken by 25 pages, so the
+   Spreadsheets page had no letter left. G D now opens the Drive group on its page last used
+   (Docs the first time), the way G S opens SEO, and Spreadsheets is reached through it.
+   The other choice is to give Spreadsheets a letter another page has now.
+2. **The engine is upstream IronCalc, on the page's own thread.** Not Macro's patched copy
+   (it is AGPL like the rest of Macro), and not in a worker (see "Where it stands").
+   AGGREGATE and GETPIVOTDATA, which Macro added to its copy, are therefore missing.
+3. **NOW, TODAY and RAND calculate**, as in Excel. Macro blanks them to `#N/A` so two readers
+   never differ; here a workbook is recalculated by whoever opens it, so two people can see
+   different values of these until one saves.
+4. **Comments on a spreadsheet are their own table** (`spreadsheet_comment`), not rows of the
+   app's `comment` table, because that table's kinds are pinned by a test and an enum value
+   cannot be added and used in one migration. They are anchored to cells.
+5. **A spreadsheet is for the workspace or private, nothing between.** Sharing a private one
+   with one member, a team or a channel needs five shared functions restated, which this
+   work was told not to do.
+6. **Whoever can read a spreadsheet can edit it** (and archive it); only its maker changes
+   who sees it, and its maker or a workspace owner or admin deletes it. Documents have finer
+   rules (system documents, product documents); a spreadsheet has no such kinds.
+7. **Saving is the whole workbook against a revision.** Two people editing at once: the
+   second save is refused and that person is offered the newer version. Their unsaved
+   changes are lost when they take it. Live editing (phase 5) is what removes this.
+8. **A fill with no text color gets dark or white text by the fill's brightness**, in both
+   themes, so a pale header row stays readable in the dark theme. Excel would draw black.
+9. **Text typed into a plain-text cell is stored with the engine's quote prefix**, so
+   `=1+1` and `007` stay as typed. Copying such a cell to another app gives the text
+   without the prefix.
+10. **Sorting moves formulas as typed.** Macro shifts their relative references; here a
+    formula that points at its own row keeps pointing at the row it was written for.
+11. **Fonts are the eight every machine has.** A font from an imported file that is not
+    among them is kept in the workbook and drawn with the reader's fallback.
+12. **Pushes went out before the full test run finished**, several times: the session's
+    stop hook requires unpushed commits to be pushed. The managing session was told each
+    time to hold until the run's result, and merged only on its own evidence.
 
 ## Dependencies
 
