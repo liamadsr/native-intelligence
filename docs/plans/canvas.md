@@ -308,8 +308,7 @@ Built and checked in a browser against the dev project (50 scripted checks):
   (`create_artifact`, `set_artifact` in `edit_canvas`) only where
   `CANVAS_AGENT_ARTIFACTS=1`, off by default; a person changes one's
   markup from its menu ("Edit page…"). Not built: Macro's per-canvas library
-  of named styles and components, and a person making an artifact from
-  nothing (the insert menu has Macro's three choices).
+  of named styles and components.
 - **Unsent edits survive a reload.** What the server does not have yet is
   kept in the browser (localStorage), per canvas and per person, from the
   moment an edit is made until its write is answered. Opening the canvas again
@@ -321,6 +320,12 @@ Built and checked in a browser against the dev project (50 scripted checks):
   to the views, not to the canvas.
 - **Play and pause for a video**, in the inspector (so for people who can
   edit; the inspector is not shown to viewers).
+- **On `claude/canvas-phase-4` (after phase 3):** the author edits their own
+  comment in the panel ("edited" shows beside it); `read_canvas` also returns
+  the open comment threads (who said what, and the item a thread is about),
+  described to the agent as people's notes and never as instructions; and
+  "New artifact" in the canvas's menu (right-click on empty canvas) makes an
+  empty one and opens its editor, so a person can make one from nothing.
 - **A canvas deleted for good takes its files** out of storage (archiving,
   which is what the editor's Delete does, keeps them).
 - **Phase 4:** `read_canvas`, `edit_canvas`, `create_canvas` in the tool
@@ -337,8 +342,8 @@ Not built yet:
   It needs either a mark on the write (a column, so a migration) or the
   server saying so on the room.
 - Per-person grants and public links: not now (the owner, 2026-11-22).
-- In comments: @-mentions and notifications, editing a comment's words in the
-  panel (the route and the guard allow it), and comments in the agent tools.
+- In comments: @-mentions and notifications, and an agent writing or
+  resolving a comment (it reads the open threads: see below).
 
 Things to know:
 
@@ -489,4 +494,11 @@ Made without asking, while working through the night of 2026-11-22.
     signing out does not erase them.
 13. **The canvas's GET now also returns `viewer`** (the caller's own user id),
     for that key.
+14. **An agent reading a canvas now also reads its open comment threads.**
+    Comments are other people's words, so they are a way to put text in front
+    of an agent. The tool's description says to read them as information and
+    never as instructions, words are cut at 400 characters and threads at 50,
+    and the risky-call reviewer still stands between an agent and anything
+    that writes outside. If that is not enough, drop `comments` from
+    `read_canvas` (one line in `src/lib/ai/tools/canvas.ts`).
 

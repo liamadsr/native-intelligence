@@ -14,6 +14,9 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu'
 import { canvasMediaUrl } from '@/lib/canvas/media'
+import { ARTIFACT_DEFAULT_SIZE } from '@/lib/canvas/engine/artifact'
+import { makeArtifact } from '@/lib/canvas/engine/defaults'
+import { frontKey, patchScene } from '@/lib/canvas/engine/scene'
 import { menuCopy, menuPaste } from './clipboard'
 import { useCanvas, useCanvasStore } from './use-canvas'
 
@@ -135,6 +138,20 @@ export function CanvasContextMenu({ children }: { children: React.ReactNode }) {
               </ContextMenuSubContent>
             </ContextMenuSub>
           </>
+        )}
+        {readOnly || has ? null : (
+          <ContextMenuItem
+            onSelect={() => {
+              // A page to write: an empty artifact in the middle of the view, with its editor open.
+              const base = store.getState().base
+              const c = store.viewCenter()
+              const item = makeArtifact({ x: c.x - ARTIFACT_DEFAULT_SIZE.w / 2, y: c.y - ARTIFACT_DEFAULT_SIZE.h / 2, ...ARTIFACT_DEFAULT_SIZE }, frontKey(base), '')
+              store.commit(patchScene(base, [item]), { selection: [item.id], tool: 'select' })
+              store.editArtifact?.(item.id)
+            }}
+          >
+            New artifact
+          </ContextMenuItem>
         )}
         <ContextMenuSeparator />
         <ContextMenuItem onSelect={store.selectAll}>
