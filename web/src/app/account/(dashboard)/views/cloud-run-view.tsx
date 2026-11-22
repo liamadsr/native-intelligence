@@ -61,7 +61,7 @@ import { Linkify } from '@/components/ui/linkify'
  * workspace, so an action opened from an All-workspaces list would go silent.
  */
 
-/** Resource types that open as a record card; 'package' opens the Knowledge card on it. */
+/** Resource types that open as a record card; 'package' opens the Library card on it. */
 const RESOURCE_RECORDS = new Set(['action', 'capture', 'document', 'contact', 'project', 'initiative'])
 
 /** A run's own columns, as the channel delivers them; the joins (agent, action)
@@ -273,7 +273,7 @@ function useRunNavigation() {
   )
 
   // A declared resource chip: a record as its record card, a package on the
-  // Knowledge card. WorkResources only ever calls this for an openable ref
+  // Library card. WorkResources only ever calls this for an openable ref
   // (id present + supported type), so the else-branch is defensive.
   // Best-effort: a stale/foreign id opens an empty record (the resource
   // snapshot may name an id Start would have dropped).

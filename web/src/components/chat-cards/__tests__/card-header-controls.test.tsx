@@ -223,7 +223,7 @@ describe('the card header’s Properties popover', () => {
     expect(header().querySelector('[aria-label="Properties"]')).toBeNull()
     await click('Open row')
     const props = button('Properties', header())
-    // In the header's right slot, before Save as view.
+    // In the header's right slot.
     expect(props.closest('[data-card-header-slot="right"]')).not.toBeNull()
     // Not drawn in the page: no inline sidebar, no toolbar row.
     expect(inCard().querySelector('.toolbar')).toBeNull()

@@ -126,7 +126,8 @@ export const PACKS: Record<AreaKey, PackDefinition> = {
     name: 'Knowledge',
     feature: 'knowledge',
     toolGroups: ['knowledge'],
-    cardKinds: ['knowledge', ...entityCards('claim')],
+    // The Library (Knowledge's packages, its own page since 11-21) is Knowledge's area too.
+    cardKinds: ['knowledge', 'knowledge_library', ...entityCards('claim')],
   },
   initiatives: {
     key: 'initiatives',

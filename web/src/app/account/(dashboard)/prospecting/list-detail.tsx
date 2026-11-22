@@ -40,7 +40,7 @@
  */
 
 import { PageTitle } from '@/components/views/page-title'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Check,
   ChevronRight,
@@ -57,7 +57,7 @@ import {
   X,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { Button } from '@/components/ui/button'
+import { Button, type ButtonProps } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Input } from '@/components/ui/input'
 import {
@@ -86,6 +86,9 @@ import {
   type ProspectListEntryRow,
 } from '@/lib/prospecting/types'
 import { ViewHeader } from '../views/view-header'
+import { CardHeaderSlotsProvider, useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
+import { CARD_HEADER_ICON_BUTTON, CARD_HEADER_PILL_BUTTON } from '@/components/chat-cards/card-header-button'
+import { EntityIcon } from '@/components/entities/entity-icon'
 import { CompanyDetailPanel } from '../views/company-detail-panel'
 import { ContactDetailPanel } from '../views/contact-detail-panel'
 import { DetailBreadcrumbHeader } from '../views/detail-breadcrumb-header'
@@ -238,6 +241,21 @@ function ProspectingContactBanner({
   )
 }
 
+/** A round icon control in a card's header (the list's settings, Find decision makers). */
+const HEADER_ICON_BUTTON = cn('grid size-7 shrink-0 place-items-center disabled:pointer-events-none disabled:opacity-50', CARD_HEADER_ICON_BUTTON)
+
+/**
+ * One of the list's header controls: the page's Button on its own, a plain
+ * button in the card's header style (`cardClassName`) in a card. A ref, for a
+ * popover's trigger.
+ */
+const HeaderControl = forwardRef<HTMLButtonElement, ButtonProps & { inCard: boolean; cardClassName: string }>(function HeaderControl(
+  { inCard, cardClassName, variant, size, className, ...props },
+  ref,
+) {
+  return inCard ? <button ref={ref} type="button" {...props} className={cardClassName} /> : <Button ref={ref} variant={variant} size={size} className={className} {...props} />
+})
+
 export function ListDetail({
   listId,
   onBack,
@@ -303,6 +321,10 @@ export function ListDetail({
   const [renaming, setRenaming] = useState(false)
   const [nameDraft, setNameDraft] = useState('')
   const nameInputRef = useRef<HTMLInputElement | null>(null)
+  // In a card the list is a place in its header, "Prospecting › Fernhill
+  // buyers", the card's title the way back to the lists, and the list's
+  // controls stand at the header's end (Liam, 11-22).
+  const inCard = useCardHeaderSlots() !== null
   /**
    * WHAT THE LAST SAVE DID, kept on screen (C5).
    *
@@ -1665,10 +1687,13 @@ export function ListDetail({
       <div className="flex h-full flex-col">
         <ViewHeader
           title="Prospect list"
+          place={{ label: <span className="min-w-0 truncate font-medium">Prospect list</span>, onBack, backLabel: 'Back to lists' }}
           actions={
-            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onBack}>
-              Back to lists
-            </Button>
+            inCard ? undefined : (
+              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onBack}>
+                Back to lists
+              </Button>
+            )
           }
         />
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6">
@@ -1932,6 +1957,49 @@ export function ListDetail({
               )}
             </div>
           }
+          place={{
+            label: (
+              <span data-prospect-list-crumb="" className="flex min-w-0 items-center gap-1.5">
+                <EntityIcon kind="prospect_list" size="sm" />
+                {renaming ? (
+                  // As wide as the name being typed (an invisible copy sizes it).
+                  <span className="inline-grid min-w-0 grid-cols-[minmax(0,auto)]">
+                    <span aria-hidden className="invisible col-start-1 row-start-1 overflow-hidden whitespace-pre px-1 font-medium">{nameDraft || ' '}</span>
+                    <input
+                      ref={nameInputRef}
+                      data-prospect-list-name-input
+                      value={nameDraft}
+                      onChange={(e) => setNameDraft(e.target.value)}
+                      onBlur={() => void commitRename()}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          void commitRename()
+                        } else if (e.key === 'Escape') {
+                          e.preventDefault()
+                          cancelRename()
+                        }
+                      }}
+                      aria-label="List name"
+                      className="col-start-1 row-start-1 w-full min-w-0 rounded bg-foreground/[0.06] px-1 font-medium text-foreground outline-none"
+                    />
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    data-prospect-list-name
+                    onClick={startRename}
+                    title="Rename this list"
+                    className="min-w-0 truncate rounded px-1 text-left font-medium text-foreground transition-colors hover:bg-foreground/[0.06] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  >
+                    {list.name}
+                  </button>
+                )}
+              </span>
+            ),
+            onBack,
+            backLabel: 'Back to lists',
+          }}
           actions={
             <>
               {/* ── List settings ──
@@ -1948,15 +2016,17 @@ export function ListDetail({
                 }}
               >
                 <PopoverTrigger asChild>
-                  <Button
+                  <HeaderControl
+                    inCard={inCard}
+                    cardClassName={HEADER_ICON_BUTTON}
                     variant="ghost"
                     size="icon"
                     className="h-8 w-8 text-muted-foreground hover:text-foreground"
                     title="List settings"
                     aria-label="List settings"
                   >
-                    <Settings2 className="h-4 w-4" />
-                  </Button>
+                    <Settings2 className={inCard ? 'size-3.5' : 'h-4 w-4'} strokeWidth={inCard ? 1.75 : undefined} />
+                  </HeaderControl>
                 </PopoverTrigger>
                 <PopoverContent align="end" className="w-80 p-0">
                   {settingsView === 'menu' ? (
@@ -2073,7 +2143,9 @@ export function ListDetail({
                   "just have the icon and make the text on hover"). Disabled,
                   never hidden, when there is nothing to run or a run is live —
                   a control that vanishes reads as the layout breaking. */}
-              <Button
+              <HeaderControl
+                inCard={inCard}
+                cardClassName={HEADER_ICON_BUTTON}
                 variant="ghost"
                 size="icon"
                 data-prospect-find-people-header
@@ -2092,8 +2164,8 @@ export function ListDetail({
                   setPeopleOpen(true)
                 }}
               >
-                <Users className="h-4 w-4" />
-              </Button>
+                <Users className={inCard ? 'size-3.5' : 'h-4 w-4'} strokeWidth={inCard ? 1.75 : undefined} />
+              </HeaderControl>
 
               {/* PUBLISH — the list into the CRM (migration 259). The count is
                   what a press would write: saved rows the CRM group does not
@@ -2101,7 +2173,9 @@ export function ListDetail({
                   disabled, saying the list is published — a control that
                   vanished would leave "did I publish this?" unanswerable. */}
               {detail && (
-                <Button
+                <HeaderControl
+                  inCard={inCard}
+                  cardClassName={CARD_HEADER_PILL_BUTTON}
                   size="sm"
                   variant="outline"
                   data-prospect-publish
@@ -2128,7 +2202,7 @@ export function ListDetail({
                       : detail.list.published_at
                         ? 'Published'
                         : 'Publish'}
-                </Button>
+                </HeaderControl>
               )}
             </>
           }
@@ -2415,6 +2489,9 @@ export function ListDetail({
               if (!escapeClosesOverlay) e.preventDefault()
             }}
           >
+            {/* The pop-up is a frame of its own: its breadcrumb and arrows
+                stay in it, not in the card's header behind its backdrop. */}
+            <CardHeaderSlotsProvider value={null}>
             {/* Radix requires a title for the dialog's accessible name. The
                 breadcrumb below is the VISIBLE naming — a second heading would
                 repeat it — so this is the same string, screen-reader only. */}
@@ -2540,6 +2617,7 @@ export function ListDetail({
                 />
               )}
             </div>
+            </CardHeaderSlotsProvider>
           </DialogContent>
         )}
       </Dialog>

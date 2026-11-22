@@ -1,9 +1,12 @@
 'use client'
 
 /**
- * One spreadsheet open for editing. Top to bottom: its title (and where it
- * stands: saved, saving, who else changed it), the toolbar, the Go to cell
+ * One spreadsheet open for editing. Top to bottom: its title (and a save
+ * that needs the person: failed, or someone else changed it), the toolbar, the Go to cell
  * box and the formula bar, the grid, and the footer with the sheet tabs.
+ * In a card the title and where it stands are in the card's header, after the
+ * page's name, which is the way back to the list (Liam, 11-22: "this should
+ * all move into the header. the back button should just be the breadcrum").
  *
  * It loads the record, opens the workbook in the engine, and saves a little
  * after every change against the revision it loaded, so two people editing
@@ -11,9 +14,12 @@
  * save is refused, and that person is told and offered the newer version.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, History, Loader2, Lock } from 'lucide-react'
+import { ArrowLeft, History, Lock } from 'lucide-react'
 import { toast } from 'sonner'
+import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { CardHeaderSlot, CardHeaderTrail, useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
+import { EntityIcon } from '@/components/entities/entity-icon'
 import { WorkbookController } from '@/lib/spreadsheets/controller'
 import { openModel } from '@/lib/spreadsheets/engine-client'
 import type { SpreadsheetRecord, SpreadsheetSummary } from '@/lib/spreadsheets/types'
@@ -96,17 +102,25 @@ export function SpreadsheetEditor({ spreadsheetId, onBack, onOpen }: Spreadsheet
 
 /** The grid's outline while the workbook loads. */
 function GridSkeleton({ onBack }: { onBack?: () => void }) {
+  const inCard = useCardHeaderSlots() !== null
   return (
     <div className="flex h-full flex-col" aria-busy="true" aria-label="Loading spreadsheet">
-      <div className="flex h-12 shrink-0 items-center gap-2 px-3">
-        {onBack && (
-          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={onBack} aria-label="Back to spreadsheets">
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-        )}
-        <div className="h-4 w-40 animate-pulse rounded bg-muted" />
-      </div>
-      <div className="h-9 shrink-0 border-y border-border/60" />
+      {inCard && onBack ? (
+        <CardHeaderTrail onBack={onBack} backLabel="Back to spreadsheets">
+          <EntityIcon kind="spreadsheet" size="sm" />
+          <div className="h-3 w-28 animate-pulse rounded bg-muted" />
+        </CardHeaderTrail>
+      ) : (
+        <div className="flex h-12 shrink-0 items-center gap-2 px-3">
+          {onBack && (
+            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={onBack} aria-label="Back to spreadsheets">
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+          )}
+          <div className="h-4 w-40 animate-pulse rounded bg-muted" />
+        </div>
+      )}
+      <div className={cn('h-9 shrink-0 border-border/60', inCard && onBack ? 'border-b' : 'border-y')} />
       <div
         className="min-h-0 flex-1 animate-pulse opacity-60"
         style={{
@@ -202,6 +216,8 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
 
   // ── The title ────────────────────────────────────────────────────────────
   const [title, setTitle] = useState(loaded.record.title)
+  // In a card the title and the save note are in its header (CardHeaderTrail).
+  const inHeader = useCardHeaderSlots() !== null && !!onBack
   const renameTo = async (next: string) => {
     const clean = next.replace(/\s+/g, ' ').trim()
     if (!clean || clean === record.title) {
@@ -268,6 +284,23 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
     },
   }
 
+  // The name's field, in the card's header or the page's own title row.
+  const nameProps = {
+    'aria-label': 'Spreadsheet name',
+    value: title,
+    readOnly: workbook.readOnly,
+    maxLength: 300,
+    onChange: (event: React.ChangeEvent<HTMLInputElement>) => setTitle(event.target.value),
+    onBlur: (event: React.FocusEvent<HTMLInputElement>) => void renameTo(event.target.value),
+    onKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === 'Enter') event.currentTarget.blur()
+      else if (event.key === 'Escape') {
+        setTitle(record.title)
+        requestAnimationFrame(focusGrid)
+      }
+    },
+  }
+
   return (
     <div
       className="flex h-full min-h-0 flex-col"
@@ -281,39 +314,59 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
         }
       }}
     >
-      {/* Title bar */}
-      <div className="flex h-12 shrink-0 items-center gap-2 px-3">
-        {onBack && (
-          <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={onBack} aria-label="Back to spreadsheets">
-            <ArrowLeft className="h-4 w-4" />
+      {inHeader && onBack ? (
+        <>
+          <CardHeaderTrail onBack={onBack} backLabel="Back to spreadsheets">
+            <EntityIcon kind="spreadsheet" size="sm" />
+            {/* As wide as the name (an invisible copy sizes it), renamed in place. */}
+            <span className="inline-grid min-w-0 grid-cols-[minmax(0,auto)]">
+              <span aria-hidden className="invisible col-start-1 row-start-1 overflow-hidden whitespace-pre px-1 font-medium">{title || ' '}</span>
+              <input
+                {...nameProps}
+                data-spreadsheet-name=""
+                className="col-start-1 row-start-1 w-full min-w-0 truncate rounded bg-transparent px-1 font-medium text-foreground outline-none hover:bg-foreground/[0.06] focus:bg-foreground/[0.06]"
+              />
+            </span>
+            {record.visibility === 'private' && <Lock className="size-3 shrink-0 text-muted-foreground" aria-label="Private" />}
+          </CardHeaderTrail>
+          <CardHeaderSlot side="right">
+            <button
+              type="button"
+              aria-label="Version history"
+              aria-pressed={history}
+              title="Version history"
+              onClick={() => setHistory((on) => !on)}
+              className={cn('mr-1 flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground', history && 'bg-foreground/[0.08] text-foreground')}
+            >
+              <History className="size-3.5" strokeWidth={1.75} aria-hidden />
+            </button>
+            <span className="mr-2 flex items-center empty:hidden">
+              <SaveNote state={workbook.readOnly ? 'saved' : save} readOnly={workbook.readOnly} onRetry={() => void saveNow()} onReload={onReload} />
+            </span>
+          </CardHeaderSlot>
+        </>
+      ) : (
+        <div className="flex h-12 shrink-0 items-center gap-2 px-3">
+          {onBack && (
+            <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={onBack} aria-label="Back to spreadsheets">
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+          )}
+          <input
+            {...nameProps}
+            className="min-w-0 flex-1 truncate rounded-md bg-transparent px-1.5 py-1 text-[15px] font-semibold text-foreground outline-none hover:bg-accent/40 focus:bg-accent/40"
+          />
+          {record.visibility === 'private' && (
+            <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+              <Lock className="h-3 w-3" /> Private
+            </span>
+          )}
+          <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" aria-label="Version history" aria-pressed={history} title="Version history" onClick={() => setHistory((on) => !on)}>
+            <History className="h-4 w-4" />
           </Button>
-        )}
-        <input
-          aria-label="Spreadsheet name"
-          value={title}
-          readOnly={workbook.readOnly}
-          maxLength={300}
-          className="min-w-0 flex-1 truncate rounded-md bg-transparent px-1.5 py-1 text-[15px] font-semibold text-foreground outline-none hover:bg-accent/40 focus:bg-accent/40"
-          onChange={(event) => setTitle(event.target.value)}
-          onBlur={(event) => void renameTo(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') event.currentTarget.blur()
-            else if (event.key === 'Escape') {
-              setTitle(record.title)
-              requestAnimationFrame(focusGrid)
-            }
-          }}
-        />
-        {record.visibility === 'private' && (
-          <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-            <Lock className="h-3 w-3" /> Private
-          </span>
-        )}
-        <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" aria-label="Version history" aria-pressed={history} title="Version history" onClick={() => setHistory((on) => !on)}>
-          <History className="h-4 w-4" />
-        </Button>
-        <SaveNote state={workbook.readOnly ? 'saved' : save} readOnly={workbook.readOnly} onRetry={() => void saveNow()} onReload={onReload} />
-      </div>
+          <SaveNote state={workbook.readOnly ? 'saved' : save} readOnly={workbook.readOnly} onRetry={() => void saveNow()} onReload={onReload} />
+        </div>
+      )}
 
       <Toolbar
         workbook={workbook}
@@ -423,12 +476,10 @@ function SaveNote({ state, readOnly, onRetry, onReload }: { state: SaveState; re
       </span>
     )
   }
-  return (
-    <span aria-live="polite" className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
-      {state === 'saving' && <Loader2 className="h-3 w-3 animate-spin" />}
-      {state === 'saved' ? 'Saved' : state === 'saving' ? 'Saving…' : 'Unsaved changes'}
-    </span>
-  )
+  // Saved, Saving… and Unsaved changes are not shown: saving runs on its own,
+  // and only what needs the person does (Liam, 11-22: "we don't need to see
+  // the save button as long as it's still happening in the background").
+  return null
 }
 
 function ResizeBox({ state, onCancel, onApply }: { state: { axis: 'row' | 'column'; from: number; to: number; value: string }; onCancel: () => void; onApply: (px: number) => void }) {

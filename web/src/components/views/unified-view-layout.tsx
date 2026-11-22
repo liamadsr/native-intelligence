@@ -11,6 +11,8 @@ import { ViewBoard } from './view-board'
 import { ViewRoadmap } from './view-roadmap'
 import { supportsRoadmap } from '@/lib/views/roadmap'
 import { CardHeaderSlot } from '@/components/chat-cards/card-header-slot'
+import { ViewLayoutSwitcher } from './view-layout-switcher'
+import { layoutOptions } from './view-layouts'
 import { isLazyGroup } from '@/lib/views/lazy-done-groups'
 import { defaultConfig, spansWorkspaces, useView, useViewConfig, useViewResults, type CardConfigSource, type ViewConfig } from './hooks/use-view'
 import { CARD_SEARCHABLE_ENTITIES } from '@/lib/chat-cards/kinds'
@@ -672,6 +674,8 @@ export function UnifiedViewLayout({
   )
 
   const effectiveLayout = resolveEffectiveLayout(config.layout, Boolean(renderGraph), effectiveEntityType)
+  // The layouts the header island's switcher offers (view-layouts.ts).
+  const headerLayouts = React.useMemo(() => layoutOptions(effectiveEntityType, Boolean(renderGraph)), [effectiveEntityType, renderGraph])
 
   const isGraph = effectiveLayout === 'graph'
 
@@ -1952,9 +1956,19 @@ export function UnifiedViewLayout({
   return (
     <div ref={listRootRef} data-list-keyboard-root="" className="relative isolate h-full flex flex-col" inert={obscured || undefined} aria-hidden={obscured || undefined}>
       {/* The card's own list searches from the card's header, where a window
-          held its search. A record open over the list owns the header while
-          it is there. */}
-      {cardOwnList && search && !obscured && <CardHeaderSlot side="right">{search}</CardHeaderSlot>}
+          held its search, and picks its layout there, one icon each (Liam,
+          11-21: "they're kinda hidden I want to move it to the header
+          island"); the settings popover keeps it for a list with no header
+          of its own. A record open over the list owns the header while it is
+          there. */}
+      {cardOwnList && !obscured && (search || headerLayouts.length > 1) && (
+        <CardHeaderSlot side="right">
+          <div className="flex items-center gap-1.5">
+            <ViewLayoutSwitcher options={headerLayouts} value={effectiveLayout} onChange={(layout) => updateConfig({ layout })} />
+            {search}
+          </div>
+        </CardHeaderSlot>
+      )}
       {/* Toolbar (view tabs, settings, layout toggle) */}
       <ViewToolbar
         embedded={isScopedInstance || !!card}
@@ -1991,6 +2005,7 @@ export function UnifiedViewLayout({
         onSaveDraft={saveOverrides}
         onDiscardDraft={discardOverrides}
         graphAvailable={Boolean(renderGraph)}
+        layoutInHeader={cardOwnList}
       />
 
       {/* ── Selection islands ──
@@ -2137,8 +2152,18 @@ export function UnifiedViewLayout({
           Every such toggle resizes this box, and for a canvas a resize is a
           viewport change that re-requests tiles. `min-h-0` alone does not stop
           that: the flex child still shrinks. The graph body must therefore size
-          itself from this box's final rect, not participate in its flow. */}
-      <div className="flex-1 min-h-0 overflow-hidden relative">
+          itself from this box's final rect, not participate in its flow.
+          A record's own list (a tab in its card: a contact's actions, a
+          project's issues) scrolls with no bar drawn, as the record's page
+          does (Liam, 11-21). */}
+      <div
+        data-view-body=""
+        className={
+          isScopedInstance
+            ? 'flex-1 min-h-0 overflow-hidden relative [&_*]:[scrollbar-width:none] [&_*::-webkit-scrollbar]:hidden'
+            : 'flex-1 min-h-0 overflow-hidden relative'
+        }
+      >
         <ListFocusProvider value={liveFocusedId}>
         {isGraph ? (
           renderGraph?.({ filters: graphFilters, search: activeSearch ?? '' })

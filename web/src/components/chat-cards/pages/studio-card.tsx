@@ -9,6 +9,10 @@
  * the Studio project's overview, the video's Overview, Storyboard, Cast and Edit) is its own pages rail, a column of
  * icons down its left edge, always there (components/studio/ui/AppRail.tsx).
  *
+ * The card's header is the editor's (ui/App.tsx; Liam, 11-22: a page's controls live in its card's header): the
+ * open video's name is its breadcrumb ("Studio › <video>", renamed in place, the title back to Projects and videos),
+ * and Undo, Redo, Record, Export and the editor's menu stand at its right. The editor draws no header row of its own.
+ *
  * The editor is a large bundle with a video player in it, and it measures the window as it mounts: it loads the
  * first time a Studio card is opened, in the browser only, never on the server.
  *

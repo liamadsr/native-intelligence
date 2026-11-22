@@ -551,7 +551,7 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       { name: 'get_dashboard_summary', sideEffect: 'read', label: 'Dashboard Summary', description: "Get the user's dashboard — assigned actions, overdue items, reviews, cycle progress" },
       // Pages in the chat (docs/plans/one-agent-and-chat-pages.md, Part 1).
       // Here because every edition has the dashboard, so every chat can show.
-      { name: 'show', sideEffect: 'read', label: 'Show', description: 'Put a page in the chat: a live list or board of records filtered your way, one record, the calendar for a day, week or month, a mail folder or thread, or a whole page (a team board, sequences, prospecting, flows, evals, campaigns, knowledge, agents & skills, teams, the browser). The answer to "what\'s due", "my open deals", "my week", "unread from Acme" and the like, instead of rows in prose' },
+      { name: 'show', sideEffect: 'read', label: 'Show', description: 'Put a page in the chat: a live list or board of records filtered your way, one record, the calendar for a day, week or month, a mail folder or thread, or a whole page (a team board, sequences, prospecting, flows, evals, campaigns, knowledge, the Library of knowledge packages, agents & skills, teams, the browser). The answer to "what\'s due", "my open deals", "my week", "unread from Acme" and the like, instead of rows in prose' },
       // Attended only (ATTENDED_ONLY_TOOL_NAMES): reads a card on the person's screen.
       { name: 'read_card', sideEffect: 'read', label: 'Read Card', description: "Read the rows a card in this chat shows the person now, their own filter, sort and search changes included, with the fields asked for" },
     ],

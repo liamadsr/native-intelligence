@@ -14,6 +14,8 @@ import * as React from 'react'
 import { formatDistanceToNow } from 'date-fns'
 import { Archive, MoreHorizontal, Pencil, Plus, Shapes } from 'lucide-react'
 import { FLOATING_CARD_CLASS } from '@/components/attention/card-skin'
+import { CardHeaderSlot } from '../card-header-slot'
+import { CARD_HEADER_PILL_BUTTON } from '../card-header-button'
 import { usePagePlace, type PageCardProps } from './page-card'
 
 const CanvasEditor = React.lazy(() => import('@/components/canvas/canvas-editor'))
@@ -100,18 +102,14 @@ function CanvasList({ onOpen, onCount }: { onOpen: (id: string, title?: string) 
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 p-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-foreground">Canvases</h2>
-        <button
-          type="button"
-          onClick={create}
-          disabled={busy}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-border/60 bg-background/60 px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-background disabled:opacity-50"
-        >
-          <Plus className="h-3.5 w-3.5" />
+      {/* The card's header names the page (Liam, 11-22: one title, its
+          controls in the header); New canvas goes there. */}
+      <CardHeaderSlot side="right">
+        <button type="button" onClick={create} disabled={busy} data-new-canvas="" className={CARD_HEADER_PILL_BUTTON}>
+          <Plus className="size-3.5" strokeWidth={1.75} aria-hidden />
           New canvas
         </button>
-      </div>
+      </CardHeaderSlot>
 
       {rows === null ? (
         <Loading />
