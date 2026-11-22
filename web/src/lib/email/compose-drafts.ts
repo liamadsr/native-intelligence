@@ -8,6 +8,7 @@
  * read and write guarded: storage can be missing, full or refused.
  */
 import type { ComposeMode } from './compose'
+import type { ComposeAttachmentWire } from './compose-attachments'
 
 export interface LocalComposeDraft {
   mode: ComposeMode
@@ -19,6 +20,10 @@ export interface LocalComposeDraft {
   subject: string
   html: string
   savedAt: number
+  /** The thread's AI draft it was filled from (replaced when it is sent). */
+  replacesDraftId?: string | null
+  /** Attached files: kept in memory only (too big for storage). */
+  files?: ComposeAttachmentWire[]
 }
 
 const PREFIX = 'ni:mail-compose:'
@@ -69,7 +74,9 @@ export function readComposeDraft(key: string, now = Date.now()): LocalComposeDra
 export function writeComposeDraft(key: string, draft: LocalComposeDraft): void {
   memory.set(key, draft)
   try {
-    window.localStorage.setItem(PREFIX + key, JSON.stringify(draft))
+    const { files: _files, ...stored } = draft
+    void _files
+    window.localStorage.setItem(PREFIX + key, JSON.stringify(stored))
   } catch {
     // Kept in memory only.
   }

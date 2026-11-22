@@ -5,32 +5,80 @@
  * person, in the thread (under its last message) or on its own. To, Cc and
  * Bcc are theirs to change; the message is rich text (compose-editor.tsx);
  * the subject and the threading come from what is replied to
- * (src/lib/email/compose.ts). Send goes through POST /api/account/email/send
- * (sendEmail), from the thread's own mailbox.
+ * (src/lib/email/compose.ts).
+ *
+ *  - Send goes through POST /api/account/email/send (sendEmail), from the
+ *    thread's own mailbox, after a few seconds of "Sending… Undo"
+ *    (src/lib/email/undo-send.ts): Undo brings it back here, and nothing left.
+ *  - Send later schedules it (POST /api/account/email/scheduled: saved as a
+ *    draft in the mailbox, threaded for a reply, sent at the time).
+ *  - Save draft puts it in the mailbox as a draft (POST save-draft, threaded
+ *    for a reply), where the thread shows it with its own Send and Edit.
+ *  - Files go with it (3 MB each, 6 MB in all: compose-attachments.ts).
+ *  - Draft with AI fills it from the thread's AI draft when there is one (the
+ *    person reviews it and sends it; that draft is replaced), or asks the chat
+ *    to write one (lib/email/reply-in-chat.ts), which fills it in when it lands.
  *
  * Keys: ⌘/Ctrl+Enter sends; Esc closes it, keeping what is written (for this
  * person in this browser, src/lib/email/compose-drafts.ts) for next time.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { Bold, ChevronDown, Forward, Italic, Link2, List, ListOrdered, Loader2, Reply, ReplyAll, Send, Trash2, X } from 'lucide-react'
+import {
+  Bold,
+  ChevronDown,
+  FileText,
+  Forward,
+  Italic,
+  Link2,
+  List,
+  ListOrdered,
+  Loader2,
+  Paperclip,
+  Reply,
+  ReplyAll,
+  Send,
+  Sparkles,
+  Trash2,
+  X,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
+  composeDraftBody,
   composeProblem,
+  composeScheduleBody,
   composeSendBody,
   composeStart,
   editorIsEmpty,
   forwardQuoteHtml,
   noReplyRecipients,
   type ComposeMode,
+  type ComposeSendInput,
   type ComposeSource,
 } from '@/lib/email/compose'
+import { attachmentsProblem, base64Bytes, type ComposeAttachmentWire } from '@/lib/email/compose-attachments'
 import { clearComposeDraft, readComposeDraft, writeComposeDraft } from '@/lib/email/compose-drafts'
+import { plainTextToHtml } from '@/lib/email/plain-text-to-html'
+import { scheduleSend } from '@/lib/email/send-later'
+import { queueSend, UNDO_SEND_MS } from '@/lib/email/undo-send'
 import { EmailRecipientInput } from './email-recipient-input'
 import { ComposeEditor, sanitizeComposeHtml, type ComposeEditorHandle } from './compose-editor'
 import { sanitizeEmailHtml } from './email-sanitize'
+import { SendLaterButton } from './send-later-button'
+import { formatFileSize } from './email-attachments'
+
+/** An AI-written draft on the thread, as the thread view has it. */
+export interface ComposeAiDraft {
+  /** Its mailbox message id (what the send replaces). */
+  id: string
+  to: ReadonlyArray<{ email: string }>
+  cc: ReadonlyArray<{ email: string }>
+  subject: string
+  bodyHtml: string | null
+  bodyText: string | null
+}
 
 export interface EmailComposerProps {
   mode: ComposeMode
@@ -42,18 +90,33 @@ export interface EmailComposerProps {
   accountId?: string | null
   /** That mailbox's address, shown as From. */
   fromAddress?: string | null
+  /** New email: the mailboxes it can go from (a picker when there are two or more). */
+  fromOptions?: ReadonlyArray<{ id: string; email: string }>
+  onFromChange?: (accountId: string) => void
   /** The person's own addresses, lowercase: never replied to, shown as Me. */
   ownAddresses: ReadonlySet<string>
   /** Where what is written is kept when the composer closes (compose-drafts.ts). */
   draftKey: string
   /** Reply ↔ Reply all ↔ Forward, from the composer's own switch. */
   onModeChange?: (mode: Exclude<ComposeMode, 'new'>) => void
-  /** Sent. */
-  onSent?: (result: { message_id?: string; thread_id?: string | null }) => void
+  /** The thread's AI draft, when it has one: Draft with AI fills the composer from it. */
+  aiDraft?: ComposeAiDraft | null
+  /** Ask the chat to draft it (none: Draft with AI only uses a draft that exists). */
+  onRequestAiDraft?: () => void
+  /** Send was pressed: the composer can close (it goes once the Undo time is up). */
+  onSent?: () => void
+  /** It went: the mailbox has it. */
+  onDelivered?: (result: { message_id?: string; thread_id?: string | null }) => void
+  /** Undo (or a failed send): open the composer again; what was written is there. */
+  onReopen?: () => void
+  /** Saved as a draft in the mailbox, or scheduled. */
+  onSavedToMailbox?: () => void
   /** Closed without sending (what is written is kept). */
   onClose: () => void
   /** Thrown away (what is written is cleared). */
   onDiscard?: () => void
+  /** How long Undo is offered (tests: 0). */
+  undoMs?: number
   autoFocus?: boolean
   className?: string
 }
@@ -66,18 +129,53 @@ const MODE_LABEL: Record<ComposeMode, string> = {
 }
 const MODE_ICON = { reply: Reply, replyAll: ReplyAll, forward: Forward } as const
 
+/** A file as the browser gives it, read to base64. */
+function readFile(file: File): Promise<ComposeAttachmentWire> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(reader.error ?? new Error('read failed'))
+    reader.onload = () => {
+      const url = String(reader.result ?? '')
+      resolve({
+        name: file.name || 'attachment',
+        mime_type: file.type || 'application/octet-stream',
+        content_base64: url.slice(url.indexOf(',') + 1),
+      })
+    }
+    reader.readAsDataURL(file)
+  })
+}
+
+/** An AI draft's words as the editor takes them. */
+function aiDraftHtml(draft: ComposeAiDraft): string {
+  if (draft.bodyHtml) return sanitizeComposeHtml(draft.bodyHtml)
+  return plainTextToHtml(draft.bodyText ?? '')
+    .replace(/^<div[^>]*>/, '')
+    .replace(/<\/div>$/, '')
+    .replace(/<div>/g, '<p>')
+    .replace(/<\/div>/g, '</p>')
+}
+
 export function EmailComposer({
   mode,
   source,
   threadId = null,
   accountId = null,
   fromAddress = null,
+  fromOptions,
+  onFromChange,
   ownAddresses,
   draftKey,
   onModeChange,
+  aiDraft = null,
+  onRequestAiDraft,
   onSent,
+  onDelivered,
+  onReopen,
+  onSavedToMailbox,
   onClose,
   onDiscard,
+  undoMs = UNDO_SEND_MS,
   autoFocus = true,
   className,
 }: EmailComposerProps) {
@@ -96,59 +194,64 @@ export function EmailComposer({
   const [subject, setSubject] = useState(kept?.subject ?? start.subject)
   const [editingSubject, setEditingSubject] = useState(start.mode === 'forward' || start.mode === 'new')
   const [html, setHtml] = useState(kept?.html ?? '')
-  const [sending, setSending] = useState(false)
+  const [files, setFiles] = useState<ComposeAttachmentWire[]>(kept?.files ?? [])
+  const [replacesDraftId, setReplacesDraftId] = useState<string | null>(kept?.replacesDraftId ?? null)
+  // Waiting for the chat's draft (Draft with AI with none on the thread yet).
+  const [aiWaitingSince, setAiWaitingSince] = useState<string | null>(null)
+  const [busy, setBusy] = useState<null | 'saving' | 'scheduling'>(null)
   const [linkOpen, setLinkOpen] = useState(false)
   const [linkValue, setLinkValue] = useState('')
   const editorRef = useRef<ComposeEditorHandle>(null)
-
-  // A different message or mode: start again from it.
-  const startKey = `${start.mode}:${source?.id ?? ''}`
-  const lastStartKey = useRef(startKey)
-  useEffect(() => {
-    if (lastStartKey.current === startKey) return
-    lastStartKey.current = startKey
-    setTo(start.to)
-    setCc(start.cc)
-    setShowCc(start.cc.length > 0)
-    setSubject(start.subject)
-    setEditingSubject(start.mode === 'forward' || start.mode === 'new')
-  }, [startKey, start])
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const quoteHtml = useMemo(
     () => (start.mode === 'forward' && source ? forwardQuoteHtml(source, sanitizeEmailHtml) : null),
     [start.mode, source],
   )
-  const problem = composeProblem({ to, cc, bcc, subject }, html.length, start.mode)
+  const fileSizes = files.map((f) => ({ name: f.name, size: base64Bytes(f.content_base64) }))
+  const filesIssue = attachmentsProblem(fileSizes)
+  const problem = composeProblem({ to, cc, bcc, subject }, html.length, start.mode) ?? filesIssue
   const noReply = start.mode === 'reply' || start.mode === 'replyAll' ? noReplyRecipients(to) : []
 
   // What is written, kept as it changes: closing the tab keeps it too.
-  const latest = useRef({ to, cc, bcc, subject, html })
-  latest.current = { to, cc, bcc, subject, html }
-  const keep = useCallback(() => {
-    const now = latest.current
-    const written = !editorIsEmpty(now.html) || now.subject !== start.subject || now.to.join() !== start.to.join() || now.cc.join() !== start.cc.join() || now.bcc.length > 0
-    if (!written) {
-      clearComposeDraft(draftKey)
-      return
-    }
-    writeComposeDraft(draftKey, {
-      mode: start.mode,
-      sourceId: source?.id ?? null,
-      to: now.to,
-      cc: now.cc,
-      bcc: now.bcc,
-      subject: now.subject,
-      html: now.html,
-      savedAt: Date.now(),
-    })
-  }, [draftKey, start, source?.id])
+  const latest = useRef({ to, cc, bcc, subject, html, files, replacesDraftId })
+  latest.current = { to, cc, bcc, subject, html, files, replacesDraftId }
+  const keep = useCallback(
+    (editorHtml?: string) => {
+      const now = { ...latest.current, html: editorHtml ?? latest.current.html }
+      const written =
+        !editorIsEmpty(now.html) ||
+        now.subject !== start.subject ||
+        now.to.join() !== start.to.join() ||
+        now.cc.join() !== start.cc.join() ||
+        now.bcc.length > 0 ||
+        now.files.length > 0
+      if (!written) {
+        clearComposeDraft(draftKey)
+        return
+      }
+      writeComposeDraft(draftKey, {
+        mode: start.mode,
+        sourceId: source?.id ?? null,
+        to: now.to,
+        cc: now.cc,
+        bcc: now.bcc,
+        subject: now.subject,
+        html: now.html,
+        savedAt: Date.now(),
+        replacesDraftId: now.replacesDraftId,
+        files: now.files,
+      })
+    },
+    [draftKey, start, source?.id],
+  )
   useEffect(() => {
-    const t = setTimeout(keep, 400)
+    const t = setTimeout(() => keep(), 400)
     return () => clearTimeout(t)
-  }, [to, cc, bcc, subject, html, keep])
+  }, [to, cc, bcc, subject, html, files, replacesDraftId, keep])
 
   const close = useCallback(() => {
-    keep()
+    keep(editorRef.current?.getHTML())
     onClose()
   }, [keep, onClose])
 
@@ -157,59 +260,205 @@ export function EmailComposer({
     ;(onDiscard ?? onClose)()
   }, [draftKey, onDiscard, onClose])
 
-  const send = useCallback(async () => {
-    if (sending) return
-    const editorHtml = sanitizeComposeHtml(editorRef.current?.getHTML() ?? html)
-    const now = latest.current
-    const issue = composeProblem({ to: now.to, cc: now.cc, bcc: now.bcc, subject: now.subject }, editorHtml.length, start.mode)
+  /** What the composer holds, checked; null (and said why) when it can't go. */
+  const ready = useCallback(
+    (requireBody: boolean): ComposeSendInput | null => {
+      const editorHtml = sanitizeComposeHtml(editorRef.current?.getHTML() ?? latest.current.html)
+      const now = latest.current
+      const issue =
+        composeProblem({ to: now.to, cc: now.cc, bcc: now.bcc, subject: now.subject }, editorHtml.length, start.mode) ??
+        attachmentsProblem(now.files.map((f) => ({ name: f.name, size: base64Bytes(f.content_base64) })))
+      if (issue) {
+        toast.error(issue)
+        return null
+      }
+      if (requireBody && editorIsEmpty(editorHtml) && start.mode !== 'forward' && now.files.length === 0) {
+        toast.error('Write a message first')
+        editorRef.current?.focus()
+        return null
+      }
+      return {
+        mode: start.mode,
+        to: now.to,
+        cc: now.cc,
+        bcc: now.bcc,
+        subject: now.subject,
+        editorHtml,
+        quoteHtml,
+        threadId,
+        inReplyTo: start.inReplyTo,
+        accountId,
+        replacesDraftId: now.replacesDraftId,
+        attachments: now.files,
+      }
+    },
+    [start, quoteHtml, threadId, accountId],
+  )
+
+  const send = useCallback(() => {
+    const input = ready(true)
+    if (!input) return
+    const body = composeSendBody(input)
+    // Kept until it has gone: Undo, or a failed send, opens it again as it was.
+    keep(input.editorHtml)
+    const label = start.mode === 'forward' ? 'Forwarded' : 'Sent'
+    const go = async () => {
+      try {
+        const res = await fetch('/api/account/email/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+        const data = (await res.json().catch(() => ({}))) as { error?: unknown; message_id?: string; thread_id?: string | null }
+        if (!res.ok) throw new Error(typeof data.error === 'string' && data.error ? data.error : 'Could not send the email')
+        clearComposeDraft(draftKey)
+        toast.success(label)
+        onDelivered?.(data)
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Could not send the email', {
+          ...(onReopen ? { action: { label: 'Open', onClick: onReopen } } : {}),
+        })
+      }
+    }
+    if (undoMs <= 0) {
+      onSent?.()
+      void go()
+      return
+    }
+    const queued = queueSend(go, undoMs)
+    toast('Sending…', {
+      duration: undoMs,
+      action: {
+        label: 'Undo',
+        onClick: () => {
+          if (queued.undo()) onReopen?.()
+        },
+      },
+    })
+    onSent?.()
+  }, [ready, keep, start.mode, draftKey, onDelivered, onReopen, onSent, undoMs])
+
+  const saveDraft = useCallback(async () => {
+    if (busy) return
+    const input = ready(false)
+    if (!input) return
+    if (input.to.length === 0) {
+      toast.error('Add a To recipient to save a draft')
+      return
+    }
+    setBusy('saving')
+    try {
+      const res = await fetch('/api/account/email/save-draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(composeDraftBody(input)),
+      })
+      const data = (await res.json().catch(() => ({}))) as { error?: unknown }
+      if (!res.ok) {
+        toast.error(typeof data.error === 'string' && data.error ? data.error : 'Could not save the draft')
+        return
+      }
+      // The AI draft it was filled from is superseded by this one.
+      if (input.replacesDraftId && threadId) {
+        void fetch('/api/account/email/draft/discard', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ thread_id: threadId, draft_id: input.replacesDraftId }),
+        }).catch(() => {})
+      }
+      clearComposeDraft(draftKey)
+      toast.success('Draft saved')
+      onSavedToMailbox?.()
+    } catch {
+      toast.error('Could not save the draft')
+    } finally {
+      setBusy(null)
+    }
+  }, [busy, ready, threadId, draftKey, onSavedToMailbox])
+
+  const scheduleAt = useCallback(
+    async (at: Date) => {
+      const input = ready(true)
+      if (!input) return
+      const body = composeScheduleBody(input)
+      if (!body) {
+        toast.error('Pick the mailbox to send from')
+        return
+      }
+      setBusy('scheduling')
+      try {
+        const row = await scheduleSend(body as Parameters<typeof scheduleSend>[0], at)
+        if (!row) return
+        clearComposeDraft(draftKey)
+        onSavedToMailbox?.()
+      } finally {
+        setBusy(null)
+      }
+    },
+    [ready, draftKey, onSavedToMailbox],
+  )
+
+  // Draft with AI: the thread's AI draft into the composer.
+  const fillFromAi = useCallback(
+    (draft: ComposeAiDraft) => {
+      const toList = draft.to.map((r) => r.email.toLowerCase()).filter(Boolean)
+      const ccList = draft.cc.map((r) => r.email.toLowerCase()).filter(Boolean)
+      if (toList.length) setTo(toList)
+      if (ccList.length) {
+        setCc(ccList)
+        setShowCc(true)
+      }
+      if (draft.subject.trim()) setSubject(draft.subject)
+      const words = aiDraftHtml(draft)
+      editorRef.current?.setHTML(words)
+      setHtml(words)
+      setReplacesDraftId(draft.id)
+      setAiWaitingSince(null)
+      editorRef.current?.focus()
+    },
+    [],
+  )
+  const draftWithAi = () => {
+    if (aiDraft && aiDraft.id !== replacesDraftId) {
+      fillFromAi(aiDraft)
+      return
+    }
+    if (!onRequestAiDraft) return
+    setAiWaitingSince(aiDraft?.id ?? '')
+    onRequestAiDraft()
+  }
+  // The chat's draft landed on the thread: in it goes, if nothing is written yet.
+  useEffect(() => {
+    if (aiWaitingSince === null || !aiDraft || aiDraft.id === aiWaitingSince) return
+    if (editorIsEmpty(editorRef.current?.getHTML() ?? latest.current.html)) fillFromAi(aiDraft)
+    else {
+      setAiWaitingSince(null)
+      toast('The AI draft is ready', { action: { label: 'Use it', onClick: () => fillFromAi(aiDraft) } })
+    }
+  }, [aiDraft, aiWaitingSince, fillFromAi])
+
+  const addFiles = async (list: FileList | null) => {
+    if (!list?.length) return
+    const picked = [...list]
+    const next = [...latest.current.files.map((f) => ({ name: f.name, size: base64Bytes(f.content_base64) })), ...picked.map((f) => ({ name: f.name, size: f.size }))]
+    const issue = attachmentsProblem(next)
     if (issue) {
       toast.error(issue)
       return
     }
-    if (editorIsEmpty(editorHtml) && start.mode !== 'forward') {
-      toast.error('Write a message first')
-      editorRef.current?.focus()
-      return
-    }
-    const body = composeSendBody({
-      mode: start.mode,
-      to: now.to,
-      cc: now.cc,
-      bcc: now.bcc,
-      subject: now.subject,
-      editorHtml,
-      quoteHtml,
-      threadId,
-      inReplyTo: start.inReplyTo,
-      accountId,
-    })
-    setSending(true)
     try {
-      const res = await fetch('/api/account/email/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      const data = (await res.json().catch(() => ({}))) as { error?: unknown; message_id?: string; thread_id?: string | null }
-      if (!res.ok) {
-        toast.error(typeof data.error === 'string' && data.error ? data.error : 'Could not send the email')
-        return
-      }
-      clearComposeDraft(draftKey)
-      toast.success(start.mode === 'forward' ? 'Forwarded' : 'Sent')
-      onSent?.(data)
+      const read = await Promise.all(picked.map(readFile))
+      setFiles((prev) => [...prev, ...read])
     } catch {
-      toast.error('Could not send the email')
-    } finally {
-      setSending(false)
+      toast.error('Could not read that file')
     }
-  }, [sending, html, start, quoteHtml, threadId, accountId, draftKey, onSent])
+  }
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault()
       e.stopPropagation()
-      void send()
+      send()
     } else if (e.key === 'Escape') {
       // Esc here closes the composer only, never the thread behind it.
       e.preventDefault()
@@ -226,16 +475,26 @@ export function EmailComposer({
 
   const toolButton = (active: boolean) =>
     cn(
-      'inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground',
+      'inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground disabled:opacity-40',
       active && 'bg-foreground/[0.08] text-foreground',
     )
   const ModeIcon = start.mode === 'new' ? Send : MODE_ICON[start.mode]
   const replyName = source && start.mode !== 'forward' ? source.from.name || source.from.email : null
+  const canAi = !!aiDraft || !!onRequestAiDraft
+  const aiWaiting = aiWaitingSince !== null
 
   return (
     <div
       data-email-composer={start.mode}
       onKeyDown={onKeyDown}
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes('Files')) e.preventDefault()
+      }}
+      onDrop={(e) => {
+        if (!e.dataTransfer.files.length) return
+        e.preventDefault()
+        void addFiles(e.dataTransfer.files)
+      }}
       className={cn(
         'ph-no-capture rounded-2xl bg-background/80 px-5 pb-4 pt-3 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_8px_24px_-12px_rgba(0,0,0,0.18)] ring-1 ring-border/60 backdrop-blur-sm dark:bg-white/[0.045] dark:shadow-none',
         className,
@@ -259,7 +518,10 @@ export function EmailComposer({
                   <button
                     key={m}
                     type="button"
-                    onClick={() => onModeChange(m)}
+                    onClick={() => {
+                      keep(editorRef.current?.getHTML())
+                      onModeChange(m)
+                    }}
                     className={cn('flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent', m === start.mode && 'font-medium')}
                   >
                     <Icon className="h-3.5 w-3.5" />
@@ -277,7 +539,30 @@ export function EmailComposer({
         )}
         {replyName && <span className="truncate">to {replyName}</span>}
         <span className="flex-1" />
-        {fromAddress && <span className="hidden truncate sm:inline" title="Sent from this mailbox">from {fromAddress}</span>}
+        {fromOptions && fromOptions.length > 1 && onFromChange ? (
+          <label className="flex min-w-0 items-center gap-1">
+            <span>from</span>
+            <select
+              aria-label="From"
+              data-compose-from=""
+              value={accountId ?? ''}
+              onChange={(e) => onFromChange(e.target.value)}
+              className="max-w-[200px] truncate rounded-md bg-transparent py-0.5 text-xs text-foreground/80 outline-none hover:bg-foreground/[0.06]"
+            >
+              {fromOptions.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.email}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          fromAddress && (
+            <span className="hidden truncate sm:inline" title="Sent from this mailbox">
+              from {fromAddress}
+            </span>
+          )
+        )}
         <button type="button" onClick={close} aria-label="Close composer" title="Close (Esc) — keeps what you wrote" className="rounded-md p-1 hover:bg-foreground/[0.06] hover:text-foreground">
           <X className="h-3.5 w-3.5" />
         </button>
@@ -286,7 +571,7 @@ export function EmailComposer({
       {/* Recipients */}
       <div className="space-y-0.5 border-b border-border/50 pb-1.5 text-sm">
         <div className="flex items-start gap-2">
-          <span className="w-10 shrink-0 pt-1.5 text-xs text-muted-foreground">To</span>
+          <span className="w-12 shrink-0 pt-1.5 text-xs text-muted-foreground">To</span>
           <div className="min-w-0 flex-1" data-compose-to="">
             <EmailRecipientInput values={to} onChange={setTo} placeholder="Add recipients" />
           </div>
@@ -305,7 +590,7 @@ export function EmailComposer({
         </div>
         {showCc && (
           <div className="flex items-start gap-2">
-            <span className="w-10 shrink-0 pt-1.5 text-xs text-muted-foreground">Cc</span>
+            <span className="w-12 shrink-0 pt-1.5 text-xs text-muted-foreground">Cc</span>
             <div className="min-w-0 flex-1" data-compose-cc="">
               <EmailRecipientInput values={cc} onChange={setCc} placeholder="Add recipients" />
             </div>
@@ -313,14 +598,14 @@ export function EmailComposer({
         )}
         {showBcc && (
           <div className="flex items-start gap-2">
-            <span className="w-10 shrink-0 pt-1.5 text-xs text-muted-foreground">Bcc</span>
+            <span className="w-12 shrink-0 pt-1.5 text-xs text-muted-foreground">Bcc</span>
             <div className="min-w-0 flex-1" data-compose-bcc="">
               <EmailRecipientInput values={bcc} onChange={setBcc} placeholder="Add recipients" />
             </div>
           </div>
         )}
         <div className="flex items-center gap-2">
-          <span className="w-10 shrink-0 text-xs text-muted-foreground">Subject</span>
+          <span className="w-12 shrink-0 text-xs text-muted-foreground">Subject</span>
           {editingSubject ? (
             <input
               value={subject}
@@ -347,6 +632,18 @@ export function EmailComposer({
           {noReply.join(', ')} {noReply.length === 1 ? "doesn't" : "don't"} take replies.
         </p>
       )}
+      {replacesDraftId && (
+        <p className="mt-1.5 flex items-center gap-1 text-xs text-muted-foreground" data-compose-from-ai="">
+          <Sparkles className="h-3 w-3 text-violet-500" aria-hidden />
+          Written from the AI draft. Read it over; sending replaces that draft.
+        </p>
+      )}
+      {aiWaiting && (
+        <p className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground" data-compose-ai-waiting="">
+          <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+          Drafting in chat… it fills in here when it’s ready.
+        </p>
+      )}
 
       {/* The message */}
       <div className="pt-3">
@@ -366,19 +663,41 @@ export function EmailComposer({
         </details>
       )}
 
+      {files.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2" data-compose-files="">
+          {files.map((f, i) => (
+            <span key={`${f.name}-${i}`} data-compose-file={f.name} className="inline-flex max-w-[260px] items-center gap-1.5 rounded-lg bg-foreground/[0.04] py-1 pl-2 pr-1 text-xs">
+              <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+              <span className="truncate font-medium">{f.name}</span>
+              <span className="shrink-0 text-muted-foreground">{formatFileSize(base64Bytes(f.content_base64))}</span>
+              <button
+                type="button"
+                aria-label={`Remove ${f.name}`}
+                onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))}
+                className="rounded p-0.5 text-muted-foreground hover:bg-foreground/[0.08] hover:text-foreground"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
+          {filesIssue && <span className="self-center text-xs text-destructive">{filesIssue}</span>}
+        </div>
+      )}
+
       {/* Send, formatting, and the rest */}
       <div className="mt-3 flex flex-wrap items-center gap-1">
         <Button
           size="sm"
           className="h-8 gap-1.5 rounded-full px-3.5"
-          onClick={() => void send()}
-          disabled={sending || !!problem}
+          onClick={send}
+          disabled={!!busy || !!problem}
           title={problem ?? 'Send (⌘↵)'}
           data-compose-send=""
         >
-          {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-          {sending ? 'Sending…' : 'Send'}
+          <Send className="h-3.5 w-3.5" />
+          Send
         </Button>
+        <SendLaterButton disabled={!!busy || !!problem} onSchedule={scheduleAt} className="h-8" />
         <span className="mx-1 h-4 w-px bg-border" aria-hidden />
         <button type="button" className={toolButton(!!editorRef.current?.isActive('bold'))} onClick={() => editorRef.current?.toggleBold()} aria-label="Bold" title="Bold (⌘B)">
           <Bold className="h-3.5 w-3.5" />
@@ -426,7 +745,45 @@ export function EmailComposer({
         <button type="button" className={toolButton(!!editorRef.current?.isActive('orderedList'))} onClick={() => editorRef.current?.toggleOrderedList()} aria-label="Numbered list" title="Numbered list">
           <ListOrdered className="h-3.5 w-3.5" />
         </button>
+        <button type="button" className={toolButton(false)} onClick={() => fileInputRef.current?.click()} aria-label="Attach files" title="Attach files (3 MB each, 6 MB in all)" data-compose-attach="">
+          <Paperclip className="h-3.5 w-3.5" />
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          hidden
+          data-compose-file-input=""
+          onChange={(e) => {
+            void addFiles(e.target.files)
+            e.target.value = ''
+          }}
+        />
+        {canAi && start.mode !== 'forward' && (
+          <button
+            type="button"
+            onClick={draftWithAi}
+            disabled={aiWaiting}
+            data-compose-ai=""
+            title={aiDraft ? 'Fill this in from the AI draft on this thread' : 'Ask the assistant to draft it; you review and send'}
+            className="ml-1 inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-xs font-medium text-violet-700 transition-colors hover:bg-violet-500/10 disabled:opacity-50 dark:text-violet-300"
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            {aiDraft && aiDraft.id !== replacesDraftId ? 'Use AI draft' : 'Draft with AI'}
+          </button>
+        )}
         <span className="flex-1" />
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2 text-xs text-muted-foreground"
+          onClick={() => void saveDraft()}
+          disabled={!!busy}
+          data-compose-save=""
+          title="Save it as a draft in your mailbox"
+        >
+          {busy === 'saving' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Save draft'}
+        </Button>
         <button type="button" onClick={discard} className={toolButton(false)} aria-label="Discard" title="Discard">
           <Trash2 className="h-3.5 w-3.5" />
         </button>

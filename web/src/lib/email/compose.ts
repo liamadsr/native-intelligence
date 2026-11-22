@@ -18,6 +18,7 @@
 import { isDraftAddress, MAX_DRAFT_BODY, MAX_DRAFT_RECIPIENTS, MAX_DRAFT_SUBJECT } from './draft-edits'
 import { escapeHtml, htmlToPlainText } from './plain-text-to-html'
 import { isNoReplyAddress } from './reply-policy'
+import type { ComposeAttachmentWire } from './compose-attachments'
 
 export type ComposeMode = 'reply' | 'replyAll' | 'forward' | 'new'
 
@@ -216,6 +217,8 @@ export interface ComposeSendInput extends ComposeFields {
   accountId?: string | null
   /** The thread's draft this send replaces (an AI draft the composer was filled from): deleted after the send. */
   replacesDraftId?: string | null
+  /** Files attached in the composer. */
+  attachments?: readonly ComposeAttachmentWire[]
 }
 
 /** The body POST /api/account/email/send takes. */
@@ -230,6 +233,7 @@ export interface ComposeSendBody {
   in_reply_to_message_id?: string
   account_id?: string
   provider_draft_id?: string
+  attachments?: ComposeAttachmentWire[]
 }
 
 /**
@@ -257,5 +261,45 @@ export function composeSendBody(input: ComposeSendInput): ComposeSendBody {
     ...(reply && input.inReplyTo ? { in_reply_to_message_id: input.inReplyTo } : {}),
     ...(input.accountId ? { account_id: input.accountId } : {}),
     ...(input.replacesDraftId ? { provider_draft_id: input.replacesDraftId } : {}),
+    ...(input.attachments?.length ? { attachments: [...input.attachments] } : {}),
+  }
+}
+
+/** The body POST /api/account/email/save-draft takes, for what the composer holds. */
+export function composeDraftBody(input: ComposeSendInput): Record<string, unknown> {
+  const send = composeSendBody({ ...input, replacesDraftId: null })
+  return {
+    to: send.to,
+    ...(send.cc ? { cc: send.cc } : {}),
+    ...(send.bcc ? { bcc: send.bcc } : {}),
+    subject: send.subject,
+    body_html: send.body_html,
+    ...(send.thread_id ? { thread_id: send.thread_id } : {}),
+    ...(send.in_reply_to_message_id ? { in_reply_to_message_id: send.in_reply_to_message_id } : {}),
+    ...(send.account_id ? { account_id: send.account_id } : {}),
+    ...(send.attachments ? { attachments: send.attachments } : {}),
+  }
+}
+
+/**
+ * The body POST /api/account/email/scheduled takes for a message written in
+ * the composer (its "new message" form; a reply names its thread and message
+ * as reply_thread_id / in_reply_to_message_id). Null without a mailbox to
+ * send from: scheduling needs one named.
+ */
+export function composeScheduleBody(input: ComposeSendInput): Record<string, unknown> | null {
+  const send = composeSendBody({ ...input, replacesDraftId: null })
+  if (!send.account_id) return null
+  return {
+    account_id: send.account_id,
+    to: send.to,
+    ...(send.cc ? { cc: send.cc } : {}),
+    ...(send.bcc ? { bcc: send.bcc } : {}),
+    subject: send.subject,
+    body_html: send.body_html,
+    ...(send.thread_id && send.in_reply_to_message_id
+      ? { reply_thread_id: send.thread_id, in_reply_to_message_id: send.in_reply_to_message_id }
+      : {}),
+    ...(send.attachments ? { attachments: send.attachments } : {}),
   }
 }

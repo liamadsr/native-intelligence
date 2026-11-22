@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentWorkspaceId } from '@/lib/workspace'
 import { sendEmail } from '@/lib/crm/email-client'
+import { parseComposeAttachments } from '@/lib/email/compose-attachments'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export const maxDuration = 30
@@ -23,6 +24,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Subject required for new emails' }, { status: 400 })
   }
 
+  // Files from Mail's composer: well-formed and within its limits, or nothing is sent.
+  const attachments = parseComposeAttachments(body.attachments)
+  if (attachments === 'invalid') {
+    return NextResponse.json({ error: 'Check the attachments: 10 files, 3 MB each and 6 MB in all at most' }, { status: 400 })
+  }
+
   try {
     const result = await sendEmail(user.id, workspaceId, {
       thread_id: body.thread_id,
@@ -38,6 +45,7 @@ export async function POST(request: NextRequest) {
       // The From mailbox picked in the composer; sendEmail checks it is the
       // caller's own email account. Unset falls back to the default mailbox.
       account_id: typeof body.account_id === 'string' && body.account_id ? body.account_id : undefined,
+      ...(attachments.length ? { attachments } : {}),
     })
 
     return NextResponse.json(result)
