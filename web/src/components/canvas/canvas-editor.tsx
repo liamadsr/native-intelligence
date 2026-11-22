@@ -16,6 +16,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { CardHeaderSlot, CardHeaderTrail, useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
+import { CARD_HEADER_ICON_BUTTON } from '@/components/chat-cards/card-header-button'
+import { EntityIcon } from '@/components/entities/entity-icon'
 import { rowToItem, type CanvasItem, type CanvasItemRow, type CanvasRecord } from '@/lib/canvas/types'
 import { THEME_COLORS } from '@/lib/canvas/engine/colors'
 import { ordered } from '@/lib/canvas/engine/scene'
@@ -33,7 +36,7 @@ import { CanvasInspector } from './inspector'
 import { Interaction } from './interaction'
 import { CanvasStore } from './store'
 import { CanvasSurface, isTyping } from './surface'
-import { CanvasSync, type SaveState } from './sync'
+import { CanvasSync } from './sync'
 import { PeerList, PresenceRoom, PresenceSender, RemoteChanges, peerColor, type RoomClient } from './live'
 import { PeerFaces, PresenceLayer, usePeers } from './presence-layer'
 import { CommentPins, CommentsButton, CommentsPanel, useCanvasComments } from './comments-panel'
@@ -97,7 +100,12 @@ function SelectionActions({ styleOpen, onStyle }: { styleOpen: boolean; onStyle:
   )
 }
 
-const SAVE_TEXT: Record<SaveState, string> = { saved: 'Saved', unsaved: 'Editing…', saving: 'Saving…', error: 'Not saved. Trying again…' }
+/**
+ * What the save says: only when it went wrong. Saving runs on its own, so
+ * Saved, Saving… and Editing… are not shown (Liam, 11-22: "we don't need to
+ * see the save button as long as it's still happening in the background").
+ */
+const SAVE_ERROR_TEXT = 'Not saved. Trying again…'
 
 function Header({
   canvas,
@@ -126,32 +134,123 @@ function Header({
   const [title, setTitle] = React.useState(canvas.title)
   React.useEffect(() => setTitle(canvas.title), [canvas.title])
   const inputRef = React.useRef<HTMLInputElement>(null)
+  // In a card the title and the menu are in its header, after the page's
+  // name, which is the way back to the list (Liam, 11-22: "you need to do
+  // the same for canvass"): no floating header over the canvas.
+  const inCard = useCardHeaderSlots() !== null
+  const titleProps = {
+    ref: inputRef,
+    'aria-label': 'Canvas title',
+    value: title,
+    readOnly: !canEdit,
+    maxLength: 200,
+    onChange: (e: React.ChangeEvent<HTMLInputElement>) => setTitle(e.target.value),
+    onBlur: () => {
+      const next = title.trim() || 'Untitled canvas'
+      setTitle(next)
+      if (next !== canvas.title) onRename(next)
+    },
+    onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
+      e.stopPropagation()
+      if (e.key === 'Enter') e.currentTarget.blur()
+      if (e.key === 'Escape') {
+        setTitle(canvas.title)
+        requestAnimationFrame(() => inputRef.current?.blur())
+      }
+    },
+  }
+  const note = !canEdit ? (
+    <span className="shrink-0 px-1.5 text-[11px] text-muted-foreground">View only</span>
+  ) : save === 'error' ? (
+    <span data-canvas-save={save} role="alert" className="shrink-0 px-1.5 text-[11px] text-red-500">
+      {SAVE_ERROR_TEXT}
+    </span>
+  ) : null
+  const menu = (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label="Canvas menu"
+          className={inCard ? cn('grid size-7 shrink-0 place-items-center', CARD_HEADER_ICON_BUTTON) : 'flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground'}
+        >
+          <MoreHorizontal className={inCard ? 'size-4' : 'h-4 w-4'} strokeWidth={inCard ? 1.75 : undefined} />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align={inCard ? 'end' : 'start'} sideOffset={10} className="w-56">
+        {canEdit ? (
+          <DropdownMenuItem onSelect={() => requestAnimationFrame(() => inputRef.current?.focus())}>
+            <Pencil className="mr-2 h-4 w-4" /> Rename
+          </DropdownMenuItem>
+        ) : null}
+        {canEdit ? (
+          canvas.visibility === 'private' ? (
+            <DropdownMenuItem onSelect={() => onVisibility('workspace')}>
+              <Users className="mr-2 h-4 w-4" /> Share with the workspace
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem onSelect={() => onVisibility('private')}>
+              <Lock className="mr-2 h-4 w-4" /> Make private
+            </DropdownMenuItem>
+          )
+        ) : null}
+        <DropdownMenuItem onSelect={onCopyLink}>
+          <Link2 className="mr-2 h-4 w-4" /> Copy link to this view
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={onDownload}>
+          <Download className="mr-2 h-4 w-4" /> Download
+        </DropdownMenuItem>
+        {canEdit ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem className="text-red-600 focus:text-red-600" onSelect={onDelete}>
+              <Trash2 className="mr-2 h-4 w-4" /> Delete
+            </DropdownMenuItem>
+          </>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+
+  if (inCard) {
+    return (
+      <>
+        <CardHeaderTrail onBack={onBack} backLabel="Back to canvases">
+          <HeaderFence>
+          <EntityIcon kind="canvas" size="sm" />
+          {/* As wide as the title (an invisible copy sizes it), renamed in place. */}
+          <span className="inline-grid min-w-0 grid-cols-[minmax(0,auto)]">
+            <span aria-hidden className="invisible col-start-1 row-start-1 overflow-hidden whitespace-pre px-1 font-medium">{title || ' '}</span>
+            <input
+              {...titleProps}
+              data-canvas-title=""
+              className="col-start-1 row-start-1 w-full min-w-0 truncate rounded bg-transparent px-1 font-medium text-foreground outline-none hover:bg-foreground/[0.06] focus:bg-foreground/[0.06]"
+            />
+          </span>
+          {canvas.visibility === 'private' && <Lock className="size-3 shrink-0 text-muted-foreground" aria-label="Private" />}
+          </HeaderFence>
+        </CardHeaderTrail>
+        <CardHeaderSlot side="right">
+          <HeaderFence>
+            <div data-canvas-header-controls="" className="flex items-center gap-1">
+              {peers}
+              {note}
+              {menu}
+            </div>
+          </HeaderFence>
+        </CardHeaderSlot>
+      </>
+    )
+  }
+
   return (
     <div data-canvas-chrome data-canvas-header className={cn(FLOATING_CARD_CLASS, 'absolute left-4 top-4 z-20 flex h-10 max-w-[calc(100%-2rem)] items-center gap-1 px-1.5 md:max-w-[calc(100%-18rem)]')} onPointerDown={(e) => e.stopPropagation()}>
       <button type="button" aria-label="Back to canvases" onClick={onBack} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground">
         <ArrowLeft className="h-4 w-4" />
       </button>
       <input
-        ref={inputRef}
-        aria-label="Canvas title"
-        value={title}
-        readOnly={!canEdit}
-        maxLength={200}
+        {...titleProps}
         size={Math.max(8, Math.min(40, title.length + 1))}
-        onChange={(e) => setTitle(e.target.value)}
-        onBlur={() => {
-          const next = title.trim() || 'Untitled canvas'
-          setTitle(next)
-          if (next !== canvas.title) onRename(next)
-        }}
-        onKeyDown={(e) => {
-          e.stopPropagation()
-          if (e.key === 'Enter') e.currentTarget.blur()
-          if (e.key === 'Escape') {
-            setTitle(canvas.title)
-            requestAnimationFrame(() => inputRef.current?.blur())
-          }
-        }}
         className="h-7 min-w-0 rounded-md bg-transparent px-1.5 text-sm font-medium text-foreground outline-none hover:bg-foreground/[0.04] focus:bg-foreground/[0.06]"
       />
       {canvas.visibility === 'private' ? (
@@ -159,54 +258,26 @@ function Header({
           <Lock className="h-3 w-3" /> Private
         </span>
       ) : null}
-      {canEdit ? (
-        <span data-canvas-save={save} aria-live="polite" className={cn('shrink-0 px-1.5 text-[11px] text-muted-foreground', save === 'error' && 'text-red-500')}>
-          {SAVE_TEXT[save]}
-        </span>
-      ) : (
-        <span className="shrink-0 px-1.5 text-[11px] text-muted-foreground">View only</span>
-      )}
       {peers}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button type="button" aria-label="Canvas menu" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground">
-            <MoreHorizontal className="h-4 w-4" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" sideOffset={10} className="w-56">
-          {canEdit ? (
-            <DropdownMenuItem onSelect={() => requestAnimationFrame(() => inputRef.current?.focus())}>
-              <Pencil className="mr-2 h-4 w-4" /> Rename
-            </DropdownMenuItem>
-          ) : null}
-          {canEdit ? (
-            canvas.visibility === 'private' ? (
-              <DropdownMenuItem onSelect={() => onVisibility('workspace')}>
-                <Users className="mr-2 h-4 w-4" /> Share with the workspace
-              </DropdownMenuItem>
-            ) : (
-              <DropdownMenuItem onSelect={() => onVisibility('private')}>
-                <Lock className="mr-2 h-4 w-4" /> Make private
-              </DropdownMenuItem>
-            )
-          ) : null}
-          <DropdownMenuItem onSelect={onCopyLink}>
-            <Link2 className="mr-2 h-4 w-4" /> Copy link to this view
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={onDownload}>
-            <Download className="mr-2 h-4 w-4" /> Download
-          </DropdownMenuItem>
-          {canEdit ? (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-red-600 focus:text-red-600" onSelect={onDelete}>
-                <Trash2 className="mr-2 h-4 w-4" /> Delete
-              </DropdownMenuItem>
-            </>
-          ) : null}
-        </DropdownMenuContent>
-      </DropdownMenu>
+      {note}
+      {menu}
     </div>
+  )
+}
+
+/**
+ * What the canvas puts in its card's header, fenced off from the canvas: a
+ * portal's events bubble to its React parents, and the header's parent here is
+ * the surface, whose presses draw, select and type (surface.tsx skips only
+ * targets inside `[data-canvas-chrome]` in the DOM, which the header is not).
+ * So a press on the title or the menu stops here, as the floating header's do.
+ */
+export function HeaderFence({ children }: { children: React.ReactNode }) {
+  const stop = (e: React.SyntheticEvent) => e.stopPropagation()
+  return (
+    <span data-canvas-header-fence="" className="contents" onPointerDown={stop} onPointerUp={stop} onDoubleClick={stop} onContextMenu={stop}>
+      {children}
+    </span>
   )
 }
 

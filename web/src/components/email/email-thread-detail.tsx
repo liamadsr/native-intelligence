@@ -10,10 +10,12 @@ import {
   Trash2,
   Star,
   ReplyAll,
+  Reply,
+  Forward,
   CircleCheck,
   Boxes,
   ChevronDown,
-  Tag,
+  MoreHorizontal,
   Send,
   Link2,
 } from 'lucide-react'
@@ -47,6 +49,9 @@ import { EmailShareChips } from './email-share-chips'
 import { ThreadMentionShares } from './thread-mention-shares'
 import { EmailThreadTags } from './email-thread-tags'
 import { requestEmailReply } from '@/lib/email/reply-in-chat'
+import { composeDraftKey } from '@/lib/email/compose-drafts'
+import type { ComposeMode } from '@/lib/email/compose'
+import { EmailComposer } from './email-composer'
 
 interface EmailLabel {
   id: string
@@ -56,6 +61,10 @@ interface EmailLabel {
 
 interface FullEmailThread {
   threadId: string
+  /** The mailbox the thread is in: a reply goes out from it. */
+  accountId?: string | null
+  /** That mailbox's address (the composer's From). */
+  mailboxEmail?: string | null
   /** The thread's index row, which its agent activity is keyed on (null when not indexed). */
   indexId?: string | null
   subject: string
@@ -130,6 +139,13 @@ export interface ThreadKeyActions {
   archive: () => void
   reply: () => void
   replyAll: () => void
+  forward: () => void
+}
+
+/** The composer open on the thread: which kind, on which message. */
+interface OpenCompose {
+  mode: Exclude<ComposeMode, 'new'>
+  messageId: string
 }
 
 /**
@@ -328,31 +344,48 @@ export function EmailThreadDetail({
     if (!ok) toast.error('Could not archive the email')
   }, [threadId, onClose, onThreadUpdate])
 
-  // Mail's keys (email-layout.tsx): E archives; R and A hand the thread to the
-  // chat to draft a reply, as Reply and Reply All do (lib/email/reply-in-chat.ts).
+  // The person's own reply (Reply, Reply all, Forward): the composer under
+  // the thread's last message (email-composer.tsx). Opening another on the
+  // same thread replaces it; what was written in it is kept for next time.
+  const [compose, setCompose] = useState<OpenCompose | null>(null)
+  const composerRef = useRef<HTMLDivElement>(null)
+  useEffect(() => setCompose(null), [threadId])
+  const openCompose = useCallback((mode: OpenCompose['mode'], message: EmailMessageData) => {
+    setCompose({ mode, messageId: message.id })
+    // Into view once it has drawn (the thread can be long).
+    requestAnimationFrame(() => composerRef.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }))
+  }, [])
+
+  // "Draft with AI" (inside the composer): the chat assistant drafts it
+  // (lib/email/reply-in-chat.ts), onto the thread as a draft.
   const replyHandoff = useCallback((request: EmailReplyRequest) => {
     if (onReplyRequest) onReplyRequest(request)
     else requestEmailReply(request)
   }, [onReplyRequest])
+  void replyHandoff
+
+  // Mail's keys (email-layout.tsx): E archives; R, A and F open the composer
+  // on the message R replies to.
   const threadRef = useRef(thread)
   threadRef.current = thread
   const ownRef = useRef(ownAddresses)
   ownRef.current = ownAddresses
   useEffect(() => {
     if (!keyActionsRef) return
+    const on = (mode: OpenCompose['mode']) => () => {
+      const target = replyTargetOf(threadRef.current?.messages ?? [], new Set((ownRef.current ?? []).map((a) => a.trim().toLowerCase())))
+      if (target) openCompose(mode, target)
+    }
     keyActionsRef.current = {
       archive: () => void handleArchive(),
-      reply: () => {
-        const target = replyTargetOf(threadRef.current?.messages ?? [], new Set(ownRef.current ?? []))
-        const fromEmail = target?.from.email?.trim()
-        replyHandoff(target && fromEmail ? { threadId, message: { id: target.id, fromEmail } } : { threadId })
-      },
-      replyAll: () => replyHandoff({ threadId }),
+      reply: on('reply'),
+      replyAll: on('replyAll'),
+      forward: on('forward'),
     }
     return () => {
       keyActionsRef.current = null
     }
-  }, [keyActionsRef, handleArchive, replyHandoff, threadId])
+  }, [keyActionsRef, handleArchive, openCompose])
 
   const handleTrash = useCallback(async () => {
     onThreadUpdate?.({ type: 'remove', threadId })
@@ -557,6 +590,10 @@ export function EmailThreadDetail({
   // The newest message sent (a draft isn't): a new reply landing changes
   // what listen mode reads, and so its key.
   const latest = [...thread.messages].reverse().find((message) => !message.isDraft)
+  // What the reply row and R answer: the newest message someone else sent.
+  const replyTarget = replyTargetOf(thread.messages, ownAddressSet)
+  const onComposeRequest = openCompose
+  const composeSource = compose ? thread.messages.find((m) => m.id === compose.messageId) ?? null : null
 
   // `ph-no-capture`: PostHog session replay blocks the thread (subjects,
   // bodies, the reply draft) and autocapture skips it. It also renders alone,
@@ -620,40 +657,6 @@ export function EmailThreadDetail({
           </Tooltip>
 
           <div className="flex-1" />
-
-          {/* Reply All — the chat assistant drafts a reply to everyone on the thread */}
-          {onReplyRequest && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 gap-1.5 px-2 text-xs text-muted-foreground"
-                  onClick={() => onReplyRequest({ threadId })}
-                >
-                  <ReplyAll className="h-3.5 w-3.5" />
-                  Reply All
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Draft AI reply to all participants</TooltipContent>
-            </Tooltip>
-          )}
-
-          {/* Labels */}
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
-                <Tag className="h-3.5 w-3.5" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-56 p-2" align="start">
-              <LabelPickerContent
-                grouped={scopedLabelsGrouped}
-                selectedIds={threadLabels.map((l) => l.id)}
-                onToggle={(id, isAttached) => toggleLabel(id, isAttached)}
-              />
-            </PopoverContent>
-          </Popover>
 
           {/* Thread actions */}
           <Tooltip>
@@ -742,9 +745,41 @@ export function EmailThreadDetail({
 
       </div>
 
-      {/* Subject + meta */}
-      <div className="shrink-0 px-5 pt-4 pb-3">
-        <h2 className="select-text text-lg font-semibold leading-snug">{thread.subject}</h2>
+      {/* Subject + meta: the subject large, its "…" menu beside it, and
+          under it one row of pill chips (tags, then the people). */}
+      <div className="shrink-0 px-6 pt-3 pb-4">
+        <div className="flex items-start gap-2">
+          <h2 className="min-w-0 flex-1 select-text text-2xl font-semibold leading-tight tracking-tight">
+            {thread.subject || '(no subject)'}
+          </h2>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="ghost" size="sm" className="mt-0.5 h-7 w-7 shrink-0 rounded-full p-0 text-muted-foreground" aria-label="More" data-thread-more="">
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-52 p-1" align="end">
+              {replyTarget && (
+                <>
+                  <MenuItem icon={Reply} label="Reply" hint="R" onClick={() => onComposeRequest('reply', replyTarget)} />
+                  <MenuItem icon={ReplyAll} label="Reply all" hint="A" onClick={() => onComposeRequest('replyAll', replyTarget)} />
+                  <MenuItem icon={Forward} label="Forward" hint="F" onClick={() => onComposeRequest('forward', replyTarget)} />
+                  <div className="my-1 h-px bg-border/60" />
+                </>
+              )}
+              <MenuItem icon={Star} label={starred ? 'Unstar' : 'Star'} onClick={handleToggleStar} />
+              <MenuItem icon={Archive} label="Archive" hint="E" onClick={handleArchive} />
+              <MenuItem icon={Trash2} label="Delete" onClick={handleTrash} />
+              {thread.indexId && <MenuItem icon={CircleCheck} label="Make a task" onClick={handleMakeTask} />}
+              <MenuItem icon={Send} label="Share to chat" onClick={() => setShareOpen(true)} />
+              <MenuItem
+                icon={Link2}
+                label="Copy link"
+                onClick={() => void copyEmailShareLink({ threadId, accountId, indexId: thread.indexId ?? null }, { onMade: bumpShares })}
+              />
+            </PopoverContent>
+          </Popover>
+        </div>
         <EmailThreadTags
           metadata={thread.metadata}
           labels={threadLabels}
@@ -779,25 +814,22 @@ export function EmailThreadDetail({
 
       {/* Messages */}
       <ScrollArea className="flex-1">
-        <div ref={messagesRootRef} className="px-5 pb-4 space-y-3">
+        <div ref={messagesRootRef} className="mx-auto max-w-3xl space-y-2 px-6 pb-6">
           {thread.messages.map((message, index) => (
             <div
               key={message.id}
               data-email-message-id={message.id}
               // The draft the card opened on: ringed until the person moves on.
               className={cn(
-                'rounded-xl transition-shadow duration-700 motion-reduce:transition-none',
+                'rounded-2xl transition-shadow duration-700 motion-reduce:transition-none',
                 focusRing === message.id ? 'ring-2 ring-primary/40 ring-offset-2 ring-offset-background' : null,
               )}
             >
             <EmailMessage
               message={message}
               defaultExpanded={index === thread.messages.length - 1 || !!message.isDraft}
-              onReply={
-                onReplyRequest && !message.isDraft
-                  ? () => onReplyRequest({ threadId, message: { id: message.id, fromEmail: message.from.email } })
-                  : undefined
-              }
+              onReply={!message.isDraft ? () => onComposeRequest('reply', message) : undefined}
+              onForward={!message.isDraft ? () => onComposeRequest('forward', message) : undefined}
               onSend={message.isDraft ? (edits) => handleSendDraft(message.id, edits) : undefined}
               sending={sendingDraftId === message.id}
               onSendLater={message.isDraft ? (at, edits) => handleScheduleDraft(message, at, edits) : undefined}
@@ -821,6 +853,39 @@ export function EmailThreadDetail({
             />
             </div>
           ))}
+          {/* The thread ends in its reply row: your avatar and "Reply…";
+              clicked (or R, A, F, or a card's Reply / Forward), the composer. */}
+          {compose && composeSource && (
+            <div ref={composerRef}>
+              <EmailComposer
+                key={`${compose.mode}:${compose.messageId}`}
+                mode={compose.mode}
+                source={composeSource}
+                threadId={threadId}
+                accountId={thread.accountId ?? accountId ?? null}
+                fromAddress={thread.mailboxEmail ?? null}
+                ownAddresses={ownAddressSet}
+                draftKey={composeDraftKey(threadId)}
+                onModeChange={(mode) => setCompose({ mode, messageId: compose.messageId })}
+                onClose={() => setCompose(null)}
+                onSent={() => {
+                  setCompose(null)
+                  if (shownThreadRef.current === threadId) loadThread({ background: true })
+                }}
+              />
+            </div>
+          )}
+          {!compose && replyTarget && (
+            <button
+              type="button"
+              data-reply-row=""
+              onClick={() => onComposeRequest('reply', replyTarget)}
+              className="flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm text-muted-foreground ring-1 ring-inset ring-border/50 transition-colors hover:bg-foreground/[0.03] hover:text-foreground"
+            >
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-medium text-primary">Me</span>
+              Reply…
+            </button>
+          )}
           {thread.indexId && <ThreadAgents threadIndexId={thread.indexId} />}
         </div>
       </ScrollArea>
@@ -835,6 +900,21 @@ export function EmailThreadDetail({
       />
 
     </div>
+  )
+}
+
+/** A row of the subject's "…" menu. */
+function MenuItem({ icon: Icon, label, hint, onClick }: { icon: React.ComponentType<{ className?: string }>; label: string; hint?: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground"
+    >
+      <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+      <span className="flex-1">{label}</span>
+      {hint && <kbd className="text-[10px] text-muted-foreground">{hint}</kbd>}
+    </button>
   )
 }
 

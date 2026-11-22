@@ -12,9 +12,10 @@
  *                  newest stored overview of the workspace's own site opens,
  *                  if there is one; otherwise the first-run block, or the
  *                  Recent list of stored lookups (they reopen for free).
- *   A site         the crumb and the site, when it was looked up (Refresh
- *                  buys again) and what the numbers leave out (the scope
- *                  note), then four tabs: Overview (./overview-tab.tsx), and
+ *   A site         the crumb and the site (in a card, its header's
+ *                  breadcrumb, the title the way back), when it was looked
+ *                  up (Refresh buys again) and what the numbers leave out
+ *                  (the scope note), then four tabs: Overview (./overview-tab.tsx), and
  *                  Links, Sites and Pages (./profile-lists.tsx), which each
  *                  wait for their own "Load …" button since every page of
  *                  them is bought.
@@ -32,10 +33,12 @@ import { PageTitle } from '@/components/views/page-title'
 import type { BacklinksOverview } from '@/lib/seo/backlinks/view'
 import type { SeoLookupSummary } from '@/lib/seo/lookup-view'
 import { isSeoRefusalCode, type SeoSpendView } from '@/lib/seo/spend-view'
+import { cn } from '@/lib/utils'
 import { ViewHeader } from '../../views/view-header'
 import { SeoRequestError, errorMessage } from '../api'
 import { CenteredError, CenteredLoader } from '../load-states'
 import { SeoDataNotice, SeoSpendLine, buyBlockedReason, useSeoData } from '../shared/data-status'
+import { SeoPlaceLabel, useInCard } from '../shared/header-controls'
 import { TabPills } from '../shared/tab-pills'
 import { relativeWhen } from '../ui-helpers'
 import { fetchOverview, fetchOwnSite, fetchRecentOverviews, fetchStoredOverview, paidFailure, type BacklinksTarget } from './api'
@@ -64,6 +67,7 @@ interface Banner {
 
 export function BacklinksPage({ tab, onTab, onCount }: BacklinksPageProps) {
   const seoData = useSeoData()
+  const inCard = useInCard()
   const [booted, setBooted] = React.useState(false)
   const [bootError, setBootError] = React.useState(false)
   const [recent, setRecent] = React.useState<SeoLookupSummary[]>([])
@@ -221,13 +225,30 @@ export function BacklinksPage({ tab, onTab, onCount }: BacklinksPageProps) {
           <PageTitle label="Backlinks" as="h1" />
         )
       }
+      // In a card the site or page on show is the header's breadcrumb,
+      // "Backlinks › example.com", the title the way back to the lookups (Liam,
+      // 11-22: "the back button should just be the breadcrum"); the spend line
+      // is the header's too.
+      place={
+        overview
+          ? {
+              label: (
+                <SeoPlaceLabel name={overview.display_target} data-seo-target-title="">
+                  {isOwn && <YourSiteChip />}
+                </SeoPlaceLabel>
+              ),
+              onBack: back,
+              backLabel: 'Back to backlinks',
+            }
+          : undefined
+      }
       actions={<SeoSpendLine view={view} />}
     />
   )
 
   if (!booted) {
     return (
-      <div className="flex h-full min-h-0 flex-col">
+      <div className={cn('flex h-full min-h-0 flex-col', inCard && 'pt-2')}>
         {header}
         {bootError ? <CenteredError text="Could not load your backlink lookups." onRetry={() => void boot()} /> : <CenteredLoader />}
       </div>
@@ -236,7 +257,7 @@ export function BacklinksPage({ tab, onTab, onCount }: BacklinksPageProps) {
 
   const activeTab: BacklinkTab = tab && (BACKLINK_TABS as readonly string[]).includes(tab) ? (tab as BacklinkTab) : 'overview'
   return (
-    <div data-seo-backlinks-page="" data-seo-state={overview ? 'site' : 'index'} className="flex h-full min-h-0 flex-col">
+    <div data-seo-backlinks-page="" data-seo-state={overview ? 'site' : 'index'} className={cn('flex h-full min-h-0 flex-col', inCard && 'pt-2')}>
       {header}
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6">
         <div className="max-w-3xl">

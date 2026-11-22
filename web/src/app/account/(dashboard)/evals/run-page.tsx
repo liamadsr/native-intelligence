@@ -64,6 +64,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { truncateBreadcrumbTitle } from '../views/detail-breadcrumb-header'
+import { useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
 import { ViewHeader } from '../views/view-header'
 import {
   cancelRun,
@@ -645,6 +646,7 @@ export function EvalRunPage({
   runId,
   suiteName,
   onBack,
+  onBackToEvals,
   onRunLabelLoaded,
 }: {
   runId: string
@@ -652,6 +654,8 @@ export function EvalRunPage({
    *  the header falls back to a generic label rather than an empty crumb. */
   suiteName?: string
   onBack: () => void
+  /** In a card: what its title (Evals) goes back to, the suites; the suite is the crumb after it. */
+  onBackToEvals?: () => void
   /** Deep links arrive with a placeholder label; called once the page knows the
    *  real one so the caller can refresh the history entry/tab label. */
   onRunLabelLoaded?: (id: string, label: string) => void
@@ -662,6 +666,8 @@ export function EvalRunPage({
   const [openTrialId, setOpenTrialId] = useState<string | null>(null)
   const [retrying, setRetrying] = useState(false)
   const [canceling, setCanceling] = useState(false)
+  // In a card the header is the page's: "Evals › Suite › Batch run · …", its actions at the end (Liam, 11-22).
+  const inCard = useCardHeaderSlots() !== null
 
   const panelBodyRef = useRef<HTMLDivElement>(null)
   const propertiesOpen = usePropertiesVisible(panelBodyRef)
@@ -878,15 +884,18 @@ export function EvalRunPage({
       <div className="flex h-full flex-col">
         <ViewHeader
           title="Run"
+          place={{ label: <span className="min-w-0 truncate font-medium">Run</span>, onBack, backLabel: 'Back to suite' }}
           actions={
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 text-xs"
-              onClick={onBack}
-            >
-              Back to suite
-            </Button>
+            inCard ? undefined : (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={onBack}
+              >
+                Back to suite
+              </Button>
+            )
           }
         />
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6">
@@ -936,6 +945,32 @@ export function EvalRunPage({
             />
           </div>
         }
+        place={{
+          label: (
+            <span data-eval-run-crumb="" className="flex min-w-0 items-center gap-1.5">
+              {onBackToEvals && (
+                <>
+                  <button
+                    type="button"
+                    onClick={onBack}
+                    title={suiteName ?? 'Suite'}
+                    aria-label={`Back to ${suiteName ?? 'the suite'}`}
+                    className="max-w-[10rem] shrink-0 truncate rounded text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+                  >
+                    {truncateBreadcrumbTitle(suiteName ?? 'Suite')}
+                  </button>
+                  <ChevronRight aria-hidden className="size-3.5 shrink-0 text-muted-foreground/60" strokeWidth={1.75} />
+                </>
+              )}
+              <span className="min-w-0 truncate font-medium">
+                {MODE_LABELS[currentRun.mode]} run · {formatWhen(currentRun.started_at)}
+              </span>
+              <OutcomeChip outcome={currentRun.outcome} pendingLabel={isLive ? 'Running' : 'Queued'} />
+            </span>
+          ),
+          onBack: onBackToEvals ?? onBack,
+          backLabel: onBackToEvals ? 'Back to evals' : 'Back to suite',
+        }}
         actions={
           <WindowActions className="flex items-center gap-1.5">
             {failedCaseIds.length > 0 && (

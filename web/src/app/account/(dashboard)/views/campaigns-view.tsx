@@ -53,6 +53,8 @@ import {
 } from '@/lib/campaigns/shape'
 import { ViewHeader } from './view-header'
 import { usePageCreate } from '@/lib/create/page-create'
+import { CardHeaderSlot, useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
+import { CARD_HEADER_PILL_BUTTON } from '@/components/chat-cards/card-header-button'
 
 const NEW_CAMPAIGN_LABEL = 'New campaign'
 
@@ -78,6 +80,7 @@ export function CampaignsView({ onCount }: { onCount?: (count: number) => void }
   const [editing, setEditing] = useState<Campaign | '__new__' | null>(null)
   // The Create dialog's Campaign (Liam, 11-20): this page's own editor, on a new one.
   usePageCreate('campaign', () => setEditing('__new__'))
+  const inCard = useCardHeaderSlots() !== null
 
   const load = useCallback(async () => {
     try {
@@ -116,17 +119,28 @@ export function CampaignsView({ onCount }: { onCount?: (count: number) => void }
 
   return (
     <div className="flex h-full flex-col">
-      <ViewHeader
-        title="Campaigns"
-        actions={
-          <Button size="sm" onClick={() => setEditing('__new__')}>
-            <Plus className="h-3.5 w-3.5" />
+      {inCard ? (
+        // In a card its header says Campaigns: no title here, New campaign
+        // there (Liam, 11-22: every control in the header).
+        <CardHeaderSlot side="right">
+          <button type="button" data-new-campaign="" onClick={() => setEditing('__new__')} className={CARD_HEADER_PILL_BUTTON}>
+            <Plus className="size-3.5" strokeWidth={1.75} aria-hidden />
             {NEW_CAMPAIGN_LABEL}
-          </Button>
-        }
-      />
+          </button>
+        </CardHeaderSlot>
+      ) : (
+        <ViewHeader
+          title="Campaigns"
+          actions={
+            <Button size="sm" onClick={() => setEditing('__new__')}>
+              <Plus className="h-3.5 w-3.5" />
+              {NEW_CAMPAIGN_LABEL}
+            </Button>
+          }
+        />
+      )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6">
+      <div className={cn('min-h-0 flex-1 overflow-y-auto pb-6', inCard ? 'pl-[18px] pr-5 pt-2' : 'px-5')}>
         {campaigns === null ? (
           <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>
         ) : error ? (

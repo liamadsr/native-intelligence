@@ -51,6 +51,38 @@ afterEach(() => {
   container?.remove()
 })
 
+// ── discardOverrides(fields): the ribbon's Cancel keeps the layout ───────────
+
+describe('useViewConfig.discardOverrides', () => {
+  it('given fields, drops only those: Cancel on the filters leaves a board picked beside them (Liam, 11-22)', () => {
+    const api: { config?: ViewConfig; isDirty?: boolean; updateConfig?: (o: Partial<ViewConfig>) => void; discard?: (f?: readonly (keyof ViewConfig)[]) => void } = {}
+    function Harness() {
+      const v = useViewConfig(null, 'action', undefined, false)
+      api.config = v.config
+      api.isDirty = v.isDirty
+      api.updateConfig = v.updateConfig
+      api.discard = v.discardOverrides
+      return null
+    }
+    mount(h(Harness))
+    act(() => { api.updateConfig!({ layout: 'board', filters: [{ id: 'f1', field: 'priority', operator: 'is', value: 1 }] }) })
+    expect(api.config?.filters).toHaveLength(1)
+
+    act(() => { api.discard!(['filters']) })
+    expect(api.config?.filters).toEqual([])
+    expect(api.config?.layout).toBe('board')
+    expect(api.isDirty).toBe(true)
+    const persisted = JSON.parse(window.localStorage.getItem(DEFAULT_BASELINE_KEY)!)
+    expect(persisted.overrides).toEqual({ layout: 'board' })
+
+    // With no fields, everything goes, as before.
+    act(() => { api.discard!() })
+    expect(api.config?.layout).toBe('list')
+    expect(api.isDirty).toBe(false)
+    expect(window.localStorage.getItem(DEFAULT_BASELINE_KEY)).toBeNull()
+  })
+})
+
 // ── resetConfig: scope tabs must not destroy layout ──────────────────────────
 
 describe('useViewConfig.resetConfig', () => {

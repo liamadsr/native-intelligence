@@ -5,8 +5,8 @@
  * write. SERVICE client throughout: every rule below is checked here, in code.
  *
  * Who may do what is the agent editor's rule (editable-fields.ts botRule), so
- * the chat can do exactly what the person could do from the Library's Agents
- * & skills card, and nothing more:
+ * the chat can do exactly what the person could do from the Agents & skills
+ * card, and nothing more:
  *   - a loop's work agent: any member who can reach it;
  *   - a custom agent's work agent: the agent's author, or an owner or admin;
  *   - a full teammate (a role or custom agent's): owners, admins and its

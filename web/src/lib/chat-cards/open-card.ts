@@ -300,8 +300,9 @@ export function cardForTarget(target: OpenTarget, now: Date = new Date()): Targe
         seed: { at: { type: target.type, id: target.id, label: label(target.title, fallback) }, trail: [suite] },
       }
     }
+    // A package lives on the Library since Knowledge split in two (Liam, 11-21).
     case 'package':
-      return { spec: { kind: 'knowledge', title: label(target.title, 'Knowledge'), target: { type: 'package', id: target.id, label: label(target.title, 'Package') } } }
+      return { spec: { kind: 'knowledge_library', title: label(target.title, 'Library'), target: { type: 'package', id: target.id, label: label(target.title, 'Package') } } }
     case 'agent':
     case 'skill':
       return {

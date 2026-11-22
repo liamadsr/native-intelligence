@@ -3,14 +3,15 @@
 /**
  * Landing demo of a shared context package feeding the live agent on a call:
  * the package as it opens in the chat's Knowledge card (DemoCard: the
- * Knowledge header, the package as the active filter, shared with the sales
- * team, one row per piece), and floating over it the live agent's heads-up as
+ * Knowledge header with its search and no surface picker since the Library
+ * became its own page, Liam, 11-21; the package as the active filter, shared
+ * with the sales team, one row per piece), and floating over it the live agent's heads-up as
  * the HUD draws it (LiveChatRowView, components/live-chat/live-chat.tsx, on
  * the HUD's glass), each tip lighting the row it was drawn from. Content is
  * FICTIONAL.
  */
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronDown, Package, Search, Users } from 'lucide-react'
+import { Search, Users } from 'lucide-react'
 import { LiveChatRowView } from '@/components/live-chat/live-chat'
 import { BotFaceChip } from '@/components/bots/bot-face-chip'
 import { GlassBackdrop } from '@/components/agent-ui/glass-backdrop'
@@ -51,12 +52,7 @@ export function ContextPackageDemo() {
       <div className="relative [zoom:0.8]">
         <DemoCard title="Knowledge" className="h-[560px]">
           <div className="flex h-11 shrink-0 items-center gap-2 px-4">
-            <span className="text-sm text-muted-foreground">Knowledge</span>
-            <span className="inline-flex items-center gap-1 text-sm font-medium">
-              <Package className="h-3.5 w-3.5" />
-              Library
-              <ChevronDown className="h-3.5 w-3.5 opacity-60" />
-            </span>
+            <span className="text-sm font-medium">Knowledge</span>
             <Search className="ml-auto h-4 w-4 text-muted-foreground" />
           </div>
           <div className="flex h-9 shrink-0 items-center gap-1.5 px-3">

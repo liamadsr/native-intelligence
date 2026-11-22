@@ -23,6 +23,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 ).IS_REACT_ACT_ENVIRONMENT = true
 
 import { EntityDetailHeader } from '../entity-detail-header'
+import { CardHeaderSlotsProvider, type CardHeaderBack } from '@/components/chat-cards/card-header-slot'
 
 let container: HTMLDivElement
 let root: Root
@@ -126,5 +127,65 @@ describe('EntityDetailHeader — name sizing', () => {
     // input is content-sized at all.
     expect(more).toBeTruthy()
     expect(nameInput().nextElementSibling).toBe(more)
+  })
+})
+
+/**
+ * In a card the breadcrumb is the card header's (Liam, 11-22: "the back
+ * button should just be the breadcrumb"): the name after the card's title,
+ * which goes back; the status, the actions and ⋯ at the header's end; no row
+ * of its own in the page.
+ */
+describe('EntityDetailHeader — in a card', () => {
+  let right: HTMLDivElement
+  let trail: HTMLDivElement
+  let back: CardHeaderBack | null
+  beforeEach(() => {
+    right = document.createElement('div')
+    trail = document.createElement('div')
+    document.body.append(right, trail)
+    back = null
+  })
+  afterEach(() => {
+    right.remove()
+    trail.remove()
+  })
+  const renderInCard = (props: Partial<React.ComponentProps<typeof EntityDetailHeader>> = {}) => {
+    act(() => {
+      root.render(
+        <CardHeaderSlotsProvider value={{ left: null, right, trail, setBack: (b) => (back = b) }}>
+          <EntityDetailHeader viewTitle="Sequences" onBack={props.onBack ?? (() => {})} name="Seed raise" onNameChange={() => {}} {...props} />
+        </CardHeaderSlotsProvider>,
+      )
+    })
+  }
+
+  it('puts the name in the trail and the rest at the header’s end, nothing in the page', () => {
+    const onBack = vi.fn()
+    renderInCard({ onBack, statusPill: <span data-testid="status">Draft</span>, actions: <button type="button">Launch</button>, menuItems: <div>Delete</div> })
+    expect(container.childElementCount).toBe(0)
+    const input = trail.querySelector<HTMLInputElement>('input[data-entity-detail-name]')!
+    expect(input.value).toBe('Seed raise')
+    expect(input.getAttribute('aria-label')).toBe('Sequence name')
+    const controls = right.querySelector('[data-entity-detail-controls]')!
+    expect(controls.querySelector('[data-testid="status"]')).not.toBeNull()
+    expect(controls.textContent).toContain('Launch')
+    expect(controls.querySelector('button[aria-label="More actions"]')).not.toBeNull()
+    expect(back!.label).toBe('Back to sequences')
+    back!.go()
+    expect(onBack).toHaveBeenCalled()
+  })
+
+  it('with a page above the crumb (an eval case): the crumb stays before the name, the title goes to the page', () => {
+    const toSuite = vi.fn()
+    const toEvals = vi.fn()
+    renderInCard({ viewTitle: 'Smoke 2', viewTitleFull: 'Smoke 2 — discovery', onBack: toSuite, page: { title: 'Evals', onBack: toEvals }, name: 'Case 1' })
+    const crumb = trail.querySelector<HTMLButtonElement>('[data-entity-detail-crumb]')!
+    expect(crumb.textContent).toBe('Smoke 2')
+    act(() => crumb.click())
+    expect(toSuite).toHaveBeenCalled()
+    expect(back!.label).toBe('Back to evals')
+    back!.go()
+    expect(toEvals).toHaveBeenCalled()
   })
 })

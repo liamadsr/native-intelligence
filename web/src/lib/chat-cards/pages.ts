@@ -1,8 +1,8 @@
 /**
  * Every other page as a card (docs/plans/one-agent-and-chat-pages.md, Part 1
  * "Every page as a card", phase P3): the team boards, sequences, prospecting,
- * flows, evals, campaigns, knowledge, agents & skills, teams and the
- * browser; and (P5) a bot's page and a work item with no bot's page to open
+ * flows, evals, campaigns, knowledge and its library, agents & skills, teams
+ * and the browser; and (P5) a bot's page and a work item with no bot's page to open
  * on, and (guest access) a guest's conversation, and (agent links) a linked
  * person's agent's conversation with theirs, which only the person opens.
  *
@@ -39,6 +39,7 @@ export const PAGE_KIND_NAMES = [
   'pipelines',
   'canvases',
   'knowledge',
+  'knowledge_library',
   'library',
   'teams',
   'team_chat',
@@ -232,13 +233,25 @@ export const PAGE_KINDS: Record<PageKind, PageKindDef> = {
     view: 'docs',
     target: { types: ['canvas'] },
   },
+  // Knowledge is the claims alone (Liam, 11-21: "split the Knowledge page
+  // into two pages"): the graph, its list and board, and Promote. What its
+  // library tab showed is the Library page, next.
   knowledge: {
     label: 'Knowledge',
     rows: 'claims',
     view: 'knowledge',
-    target: { types: ['package'] },
-    tabs: ['claims', 'library'],
     rootEntity: 'claim',
+  },
+  // The Library (Liam, 11-21): the workspace brief, the projects' knowledge
+  // and the packages, once Knowledge's library tab. Its own kind, since
+  // `library` is Agents & skills. Gated with Knowledge (the same view), so it
+  // is off exactly when Knowledge is. `target` is one package, open in its
+  // panel; a package Promote makes on Knowledge is found here.
+  knowledge_library: {
+    label: 'Library',
+    rows: 'knowledge packages',
+    view: 'knowledge',
+    target: { types: ['package'] },
   },
   library: {
     label: 'Agents & skills',
@@ -423,15 +436,12 @@ export function pageTab(kind: PageKind, tab: string | undefined): string | undef
 
 /**
  * The views-system list a page shows at a place (null: its top level), on a
- * tab, if it shows one there. Knowledge's library tab is not a list of
- * claims, so it has none; neither has one sequence or one team.
+ * tab, if it shows one there. The Library is not a list of claims, so it has
+ * none; neither has one sequence or one team.
  */
 export function pageListEntity(kind: PageKind, place: PagePlace | null, tab: string | undefined): ViewEntityType | null {
   const def = PAGE_KINDS[kind]
-  if (!place) {
-    if (kind === 'knowledge' && pageTab(kind, tab) === 'library') return null
-    return def.rootEntity ?? null
-  }
+  if (!place) return def.rootEntity ?? null
   const entities = def.placeEntity ?? {}
   return entities[`${place.type}:${tab ?? ''}`] ?? entities[place.type] ?? null
 }
@@ -447,6 +457,23 @@ export function pageEntities(kind: PageKind): Set<ViewEntityType> {
 /** The query the agent asked for on a page card: a team board's filters, drawn as a board. */
 export function pageBaseQuery(spec: PageCardSpec): CardQuery {
   return { filters: spec.filters ?? [], ...(spec.kind === 'team_board' ? { layout: 'board' as const } : {}) }
+}
+
+/**
+ * A card saved before Knowledge split in two (Liam, 11-21), in a chat's show
+ * result or opened card: on Knowledge's old library tab, or on a package,
+ * it is the Library's now, and opens there; on its old claims tab, it is
+ * Knowledge, which has no tabs. Every other value comes back as it is, for
+ * the checks to judge.
+ */
+export function upgradeSavedPageSpec(value: unknown): unknown {
+  if (!value || typeof value !== 'object') return value
+  const v = value as Record<string, unknown>
+  if (v.kind !== 'knowledge' || (v.tab === undefined && v.target === undefined)) return value
+  const { tab, ...rest } = v
+  const onPackage = (v.target as { type?: unknown } | undefined)?.type === 'package'
+  if (tab !== 'library' && !onPackage) return tab === 'claims' ? rest : value
+  return { ...rest, kind: 'knowledge_library', title: v.title === 'Knowledge' ? PAGE_KINDS.knowledge_library.label : v.title }
 }
 
 /** True for a page card spec the client can draw. */

@@ -2,7 +2,8 @@
 
 /**
  * One site audit (the Site audit card's `seo_audit` place): the crumb back to
- * the audits and the site, then
+ * the audits and the site (in a card, its header's breadcrumb, with the menu
+ * at the header's right), then
  *
  *   while it runs   the run rail (polled every 3 s; Stop keeps what it found)
  *   failed          an amber banner with the reason and Run again
@@ -16,7 +17,7 @@
  * (ConfirmDialog, never window.confirm).
  */
 import * as React from 'react'
-import { AlertTriangle, MoreHorizontal, RotateCcw, Trash2 } from 'lucide-react'
+import { AlertTriangle, RotateCcw, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
@@ -30,6 +31,7 @@ import { AuditFindings } from './audit-findings'
 import { AuditPages } from './audit-pages'
 import { AuditRunRail } from './audit-run-rail'
 import { CenteredError, CenteredLoader } from './load-states'
+import { SeoHeaderMore, SeoPlaceLabel, useInCard } from './shared/header-controls'
 import { SEVERITY_BAR, count, severityCountLabel } from './ui-helpers'
 import { useAuditPoll } from './use-audit-poll'
 
@@ -52,6 +54,7 @@ export function AuditDetail({
   onOpenAudit: (audit: Pick<SiteAuditView, 'id' | 'host'>) => void
   onCount?: (count: number | null) => void
 }) {
+  const inCard = useInCard()
   const [detail, setDetail] = React.useState<SiteAuditDetail | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -162,20 +165,15 @@ export function AuditDetail({
           </h1>
         </div>
       }
+      // In a card the site is the header's breadcrumb, "Site audit › example.com",
+      // the title the way back, and the menu its right end (Liam, 11-22: "the
+      // back button should just be the breadcrum").
+      place={{ label: <SeoPlaceLabel name={host} />, onBack, backLabel: 'Back to site audits' }}
       actions={
         audit ? (
           <Popover open={menuOpen} onOpenChange={setMenuOpen}>
             <PopoverTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                data-seo-audit-menu=""
-                className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                title="More"
-                aria-label="More"
-              >
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
+              <SeoHeaderMore data-seo-audit-menu="" />
             </PopoverTrigger>
             <PopoverContent align="end" className="w-52 p-1.5">
               <button
@@ -212,7 +210,7 @@ export function AuditDetail({
 
   if (!detail || !audit) {
     return (
-      <div className="flex h-full min-h-0 flex-col">
+      <div className={cn('flex h-full min-h-0 flex-col', inCard && 'pt-2')}>
         {header}
         {error && !loading ? <CenteredError text={error} onRetry={() => void load()} /> : <CenteredLoader />}
       </div>
@@ -223,7 +221,7 @@ export function AuditDetail({
   // An audit that ended having checked nothing (it failed at the start) has nothing to show below its banner.
   const nothing = !live && audit.pages_crawled === 0 && detail.issues.length === 0
   return (
-    <div data-seo-detail={audit.id} data-seo-status={audit.status} className="flex h-full min-h-0 flex-col">
+    <div data-seo-detail={audit.id} data-seo-status={audit.status} className={cn('flex h-full min-h-0 flex-col', inCard && 'pt-2')}>
       {header}
       {live && <AuditRunRail audit={audit} stopping={stopping} onStop={() => void stop()} />}
       {audit.status === 'failed' && (

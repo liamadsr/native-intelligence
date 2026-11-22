@@ -1,6 +1,6 @@
 /**
  * The chat card header's small icon buttons: Back / Forward, the page's
- * Properties, Save as view.
+ * Properties.
  *
  * Round, with a faint tint of the text colour on hover, not an opaque
  * `bg-muted` box. The card is glass with 24px corners (rounded-3xl), and a
@@ -15,3 +15,11 @@ export const CARD_HEADER_ICON_BUTTON =
 
 /** The same button while what it opens is open (the Properties popover). */
 export const CARD_HEADER_ICON_BUTTON_ACTIVE = 'bg-foreground/[0.06] text-foreground'
+
+/**
+ * A page's own action in the card's header, with words (New spreadsheet, New
+ * canvas, New table): a pill on the header's glass, like the layout switcher's
+ * capsule beside it.
+ */
+export const CARD_HEADER_PILL_BUTTON =
+  'inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full bg-foreground/[0.05] px-3 text-xs font-medium text-foreground transition-colors hover:bg-foreground/[0.1] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none'
