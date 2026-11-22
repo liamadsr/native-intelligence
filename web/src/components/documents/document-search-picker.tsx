@@ -1,5 +1,6 @@
 'use client'
 
+import { EntityIcon } from '@/components/entities/entity-icon'
 import { useEffect, useRef, useState } from 'react'
 import { FileText, Plus } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -80,7 +81,7 @@ export function DocumentSearchPicker({
                 onClick={() => onSelect(d.id)}
                 className="flex w-full items-center gap-2 rounded-2xl px-2 py-1.5 text-xs text-left text-popover-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
               >
-                <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <EntityIcon kind="document" size="sm" />
                 <span className="min-w-0 flex-1 truncate">{d.title}</span>
               </button>
             ))

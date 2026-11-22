@@ -37,8 +37,9 @@
  * (src/lib/team-chat/typing.ts).
  */
 
+import { EntityIcon } from '@/components/entities/entity-icon'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
-import { Bell, BellOff, Check, ChevronLeft, CircleCheck, Hash, Lock, MessageSquare, MessageSquareReply, Pencil, Plus, RotateCw, Trash2, Users, Video, X } from 'lucide-react'
+import { Bell, BellOff, Check, ChevronLeft, CircleCheck, Lock, MessageSquare, MessageSquareReply, Pencil, Plus, RotateCw, Trash2, Users, Video, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -1230,7 +1231,7 @@ function ChannelRow({
       )}
     >
       {channel.kind === 'channel' ? (
-        privateTeam ? <Lock className="h-4 w-4 shrink-0 opacity-70" /> : <Hash className="h-4 w-4 shrink-0 opacity-70" />
+        privateTeam ? <Lock className="h-4 w-4 shrink-0 opacity-70" /> : <EntityIcon kind="team_chat_channel" />
       ) : channel.kind === 'meeting' ? (
         <Video className="h-4 w-4 shrink-0 opacity-70" />
       ) : (
@@ -1432,7 +1433,7 @@ function ChannelPane({
           </button>
         )}
         {channel.kind === 'channel' ? (
-          <Hash className="h-5 w-5 shrink-0 text-muted-foreground" />
+          <EntityIcon kind="team_chat_channel" size="xl" />
         ) : channel.kind === 'meeting' ? (
           <Video className="h-5 w-5 shrink-0 text-muted-foreground" />
         ) : (
