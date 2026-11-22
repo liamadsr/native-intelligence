@@ -54,6 +54,7 @@ let root: Root
 beforeEach(() => {
   opened.urls = []
   replies.mockReset()
+  localStorage.clear()
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -64,7 +65,7 @@ afterEach(() => {
   container.remove()
 })
 
-type Reply = (invite: CalendarInvite, response: 'accepted' | 'declined' | 'tentative') => Promise<InviteCalendarStatus>
+type Reply = (invite: CalendarInvite, response: 'accepted' | 'declined' | 'tentative', which: 'series' | 'occurrence') => Promise<InviteCalendarStatus>
 const LINK = 'https://calendar.example.com/event/7781'
 const ON_CALENDAR: InviteCalendarStatus = { found: true, response: 'pending', link: LINK, canAnswer: true, provider: 'google', accountEmail: 'sam@example.com' }
 const replies = vi.fn<Reply>()
@@ -128,7 +129,7 @@ describe('EmailInviteCard', () => {
     expect(pressed()).toEqual([])
     act(() => button('Yes').click())
     expect(replies).toHaveBeenCalledTimes(1)
-    expect(replies).toHaveBeenCalledWith(INVITE, 'accepted')
+    expect(replies).toHaveBeenCalledWith(INVITE, 'accepted', 'series')
     // While it goes: the clicked answer is busy, the others can't be clicked, nothing is marked as given yet.
     expect(button('Yes').getAttribute('aria-busy')).toBe('true')
     expect(button('No').disabled).toBe(true)
@@ -153,7 +154,7 @@ describe('EmailInviteCard', () => {
     act(() => button('Yes').click())
     expect(replies).not.toHaveBeenCalled()
     await act(async () => button('No').click())
-    expect(replies).toHaveBeenCalledWith(INVITE, 'declined')
+    expect(replies).toHaveBeenCalledWith(INVITE, 'declined', 'series')
     expect(pressed()).toEqual(['declined'])
     expect(note().textContent).toBe('You answered No. Priya Natarajan has been told, and Outlook has taken the event off your calendar.')
   })
@@ -204,6 +205,92 @@ describe('EmailInviteCard', () => {
     expect(note().textContent).toContain('not on its guest list')
     for (const b of container.querySelectorAll<HTMLButtonElement>('[data-invite-answer]')) expect(b.disabled).toBe(true)
     expect(container.querySelector<HTMLButtonElement>('[data-invite-more]')!.disabled).toBe(false)
+  })
+
+  describe('a repeating event', () => {
+    const NEXT = new Date(2026, 11, 3, 10, 0).toISOString()
+    const REPEATS: InviteCalendarStatus = { ...ON_CALENDAR, response: 'accepted', recurring: true, nextOccurrence: NEXT }
+    const option = (value: string) => container.querySelector<HTMLButtonElement>(`[data-invite-which-option="${value}"]`)!
+
+    it('offers "All events" (the default) or "This event" with its day; an event that doesn’t repeat offers neither', async () => {
+      await renderCard(INVITE, ON_CALENDAR)
+      expect(container.querySelector('[data-invite-which]')).toBeNull()
+      await renderCard({ ...INVITE }, REPEATS)
+      expect(option('series').getAttribute('aria-pressed')).toBe('true')
+      expect(option('occurrence').textContent).toBe('This event · Thu, Dec 3')
+      // Repeats, but no occurrence can be answered alone: only the series.
+      await renderCard({ ...INVITE }, { ...REPEATS, nextOccurrence: undefined })
+      expect(container.querySelector('[data-invite-which]')).toBeNull()
+    })
+
+    it('answers every event by default', async () => {
+      replies.mockResolvedValue({ ...REPEATS, response: 'declined' })
+      await renderCard(INVITE, REPEATS)
+      await act(async () => button('No').click())
+      expect(replies).toHaveBeenCalledWith(INVITE, 'declined', 'series')
+      expect(pressed()).toEqual(['declined'])
+    })
+
+    it('answers the next one alone when "This event" is chosen: the series’ answer stays marked, and the card says which day', async () => {
+      replies.mockResolvedValue(REPEATS)
+      await renderCard(INVITE, REPEATS)
+      act(() => option('occurrence').click())
+      // No answer is marked for the one occurrence (the calendar's answer is the series'), so "Yes" can be given to it.
+      expect(pressed()).toEqual([])
+      await act(async () => button('No').click())
+      expect(replies).toHaveBeenCalledWith(INVITE, 'declined', 'occurrence')
+      expect(note().textContent).toBe('You answered No for Thu, Dec 3 only. Priya Natarajan has been told; the other events keep your earlier answer.')
+      act(() => option('series').click())
+      expect(pressed()).toEqual(['accepted'])
+    })
+  })
+
+  describe('an invitation declined from here, on a calendar that removes declined events (Outlook)', () => {
+    it('still says "You declined" after a reload, not "not on a connected calendar"', async () => {
+      replies.mockResolvedValue({ ...ON_CALENDAR, response: 'declined', provider: 'microsoft' })
+      await renderCard(INVITE, { ...ON_CALENDAR, provider: 'microsoft' })
+      await act(async () => button('No').click())
+
+      // The reload: the calendar no longer has the event.
+      act(() => root.unmount())
+      root = createRoot(container)
+      await renderCard({ ...INVITE }, { found: false, reason: 'not_found' })
+      expect(pressed()).toEqual(['declined'])
+      expect(note().textContent).toContain('You declined this invitation')
+      expect(note().textContent).not.toContain('not on a connected calendar')
+      // The event is gone, so there is nothing to change the answer on.
+      for (const b of container.querySelectorAll<HTMLButtonElement>('[data-invite-answer]')) expect(b.disabled).toBe(true)
+    })
+
+    it('says so from the invitation itself when it already records the person’s "No"', async () => {
+      const declined = { ...INVITE, attendees: INVITE.attendees.map((a) => (a.email === 'sam@example.com' ? { ...a, status: 'declined' as const } : a)) }
+      await renderCard(declined, { found: false, reason: 'not_found' })
+      expect(pressed()).toEqual(['declined'])
+      expect(note().textContent).toContain('You declined this invitation')
+    })
+
+    it('remembers nothing for another invitation, a "Yes", or a reply that failed', async () => {
+      replies.mockResolvedValue({ ...ON_CALENDAR, response: 'accepted' })
+      await renderCard(INVITE, ON_CALENDAR)
+      await act(async () => button('Yes').click())
+      await renderCard({ ...INVITE }, { found: false, reason: 'not_found' })
+      expect(note().textContent).toContain('not on a connected calendar')
+      await renderCard({ ...INVITE, uid: 'another@example.com' }, { found: false, reason: 'not_found' })
+      expect(note().textContent).toContain('not on a connected calendar')
+
+      replies.mockRejectedValue(new InviteReplyError('Your calendar didn’t take the answer.'))
+      await renderCard({ ...INVITE, uid: 'third@example.com' }, ON_CALENDAR)
+      await act(async () => button('No').click())
+      await renderCard({ ...INVITE, uid: 'third@example.com' }, { found: false, reason: 'not_found' })
+      expect(note().textContent).toContain('not on a connected calendar')
+    })
+
+    it('does not claim a decline when the calendar couldn’t be read', async () => {
+      localStorage.setItem('ni:invite-answers:v1', JSON.stringify({ [INVITE.uid!]: { a: 'declined', at: 1 } }))
+      await renderCard(INVITE, { found: false, reason: 'unreadable' })
+      expect(note().textContent).toContain('couldn’t be read just now')
+      expect(pressed()).toEqual([])
+    })
   })
 
   it('never lands a reply on another invitation: the card moved on while it was going', async () => {

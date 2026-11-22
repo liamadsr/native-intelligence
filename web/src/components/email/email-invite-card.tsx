@@ -19,6 +19,11 @@
  * sign-in, the event on no connected calendar) with the calendar's own page
  * as the way out when there is one. "More options" opens the event there.
  *
+ * A repeating event offers "All events" (the default) or "This event", its
+ * next occurrence. An invitation declined from here stays "You declined"
+ * after a reload even though Outlook has taken the event off the calendar
+ * (invite-answer-memory.ts: this browser remembers the answer it sent).
+ *
  * Every value from the invitation is rendered as text (React escapes it); the
  * only links are the call link the parser accepted (http/https) and the
  * calendar's own link, both opened as any external link is.
@@ -28,6 +33,7 @@ import { CalendarDays, Check, ExternalLink, HelpCircle, Loader2, MapPin, Users, 
 import { cn } from '@/lib/utils'
 import { isOpenableUrl, openExternalUrl } from '@/lib/open-external'
 import type { CalendarInvite, InviteAttendee, InviteResponse } from '@/lib/email/calendar-invite'
+import { recallInviteAnswer, rememberInviteAnswer } from './invite-answer-memory'
 
 /** Guests named before "View all guest info". */
 const GUESTS_SHOWN = 3
@@ -60,9 +66,17 @@ export function inviteWhen(invite: Pick<CalendarInvite, 'start' | 'end' | 'allDa
   return `${day(start)} · ${from} – ${time(end)}`
 }
 
+/** "Thu, Dec 3": the day of an occurrence (an instant, or a date for an all-day one). Pure. */
+export function inviteDay(value: string, locale = 'en-US'): string | null {
+  const day = toDate(value)
+  return Number.isNaN(day.getTime()) ? null : day.toLocaleDateString(locale, { weekday: 'short', month: 'short', day: 'numeric' })
+}
+
 const RESPONSE_WORD: Record<InviteResponse, string> = { accepted: 'Yes', declined: 'No', tentative: 'Maybe', pending: 'Not answered' }
 
 type Answer = Exclude<InviteResponse, 'pending'>
+/** What an answer is for: every event of a repeating one (and any single event), or its next occurrence alone. */
+export type AnswerWhich = 'series' | 'occurrence'
 
 /** What the calendar says about the invitation's event (GET /api/calendar/rsvp). */
 export interface InviteCalendarStatus {
@@ -73,6 +87,9 @@ export interface InviteCalendarStatus {
   canAnswer?: boolean
   blocked?: 'organizer' | 'not_invited' | 'cancelled'
   provider?: 'google' | 'microsoft'
+  /** The event repeats; `nextOccurrence` (an instant, or a date) when that one can be answered on its own. */
+  recurring?: boolean
+  nextOccurrence?: string
   accountEmail?: string | null
   /** not found: why. */
   reason?: 'no_calendar' | 'reconnect' | 'unreadable' | 'not_found'
@@ -100,13 +117,13 @@ async function findOnCalendar(invite: CalendarInvite, signal: AbortSignal): Prom
 }
 
 /** Answer the invitation as the person. Throws InviteReplyError with the route's words when it wasn't given. */
-async function answerOnCalendar(invite: CalendarInvite, response: Answer): Promise<InviteCalendarStatus> {
+async function answerOnCalendar(invite: CalendarInvite, response: Answer, which: AnswerWhich = 'series'): Promise<InviteCalendarStatus> {
   let res: Response
   try {
     res = await fetch('/api/calendar/rsvp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ uid: invite.uid, response }),
+      body: JSON.stringify({ uid: invite.uid, response, ...(which === 'occurrence' ? { which } : {}) }),
     })
   } catch {
     throw new InviteReplyError('Your answer didn’t reach us. Check your connection and try again.')
@@ -125,12 +142,20 @@ export function inviteNote(args: {
   sent: Answer | null
   error: string | null
   organizer: string | null
+  /** The answer this browser last sent for the invitation, when the calendar no longer holds the event. */
+  remembered?: Answer | null
+  /** A reply just given was for one occurrence: its day, as the card says it. */
+  sentFor?: string | null
 }): string {
-  const { status, sending, sent, error, organizer } = args
+  const { status, sending, sent, error, organizer, remembered, sentFor } = args
   if (error) return error
   if (status === 'loading') return 'Looking for this event on your calendar…'
   if (sending) return `Sending “${ANSWER_WORD[sending]}”…`
   if (!status.found) {
+    // Declined, and the calendar took the event away (Outlook does): it was answered, not lost.
+    if (remembered === 'declined' && (status.reason === 'not_found' || status.reason === undefined)) {
+      return 'You declined this invitation, so it is no longer on your calendar. To come after all, ask the organizer to invite you again.'
+    }
     switch (status.reason) {
       case 'no_calendar':
         return 'No calendar is connected to this workspace, so this can’t be answered from here. Connect one in Settings › Connectors.'
@@ -145,6 +170,9 @@ export function inviteNote(args: {
   if (status.blocked === 'cancelled') return 'This event was cancelled on your calendar.'
   if (status.blocked === 'organizer') return 'You organize this event, so there is no invitation to answer.'
   if (status.blocked === 'not_invited') return 'This event is on your calendar, but you are not on its guest list, so it can’t be answered from here.'
+  if (sent && sentFor) {
+    return `You answered ${ANSWER_WORD[sent]} for ${sentFor} only. ${organizer ? `${organizer} has been told` : 'The organizer has been told'}; the other events keep your earlier answer.`
+  }
   if (sent) {
     const told = organizer ? `${organizer} has been told` : 'The organizer has been told'
     return sent === 'declined' && status.provider === 'microsoft'
@@ -173,13 +201,17 @@ export function EmailInviteCard({
   /** How the event is looked up on the person's calendars (tests pass their own). */
   lookup?: (invite: CalendarInvite, signal: AbortSignal) => Promise<InviteCalendarStatus | null>
   /** How an answer is given (tests pass their own). Rejects with the words to show. */
-  reply?: (invite: CalendarInvite, response: Answer) => Promise<InviteCalendarStatus>
+  reply?: (invite: CalendarInvite, response: Answer, which: AnswerWhich) => Promise<InviteCalendarStatus>
 }) {
   const [allGuests, setAllGuests] = useState(false)
   const [status, setStatus] = useState<InviteCalendarStatus | 'loading'>('loading')
   const [sending, setSending] = useState<Answer | null>(null)
   const [sent, setSent] = useState<Answer | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // A repeating event: every event (the default), or the next one alone.
+  const [which, setWhich] = useState<AnswerWhich>('series')
+  const [sentWhich, setSentWhich] = useState<AnswerWhich>('series')
+  const [remembered, setRemembered] = useState<Answer | null>(null)
   // One reply at a time, and a reply for another invitation never lands on this one.
   const inviteRef = useRef(invite)
   inviteRef.current = invite
@@ -190,6 +222,9 @@ export function EmailInviteCard({
     setSending(null)
     setSent(null)
     setError(null)
+    setWhich('series')
+    setSentWhich('series')
+    setRemembered(recallInviteAnswer(invite.uid))
     lookup(invite, controller.signal)
       .then((found) => {
         if (!controller.signal.aborted) setStatus(found ?? NOT_FOUND)
@@ -210,7 +245,11 @@ export function EmailInviteCard({
 
   const me = guests.find((g) => ownAddresses?.has(g.email)) ?? null
   const found = status !== 'loading' && status.found ? status : null
-  const myAnswer: InviteResponse | null = found?.response ?? me?.status ?? null
+  // Gone from the calendar after a "No" (Outlook removes a declined event): what was sent from here, or what the invitation itself says.
+  const declinedAway = status !== 'loading' && !status.found && (status.reason === 'not_found' || !status.reason) && (remembered === 'declined' || me?.status === 'declined')
+  const myAnswer: InviteResponse | null = found?.response ?? (declinedAway ? 'declined' : null) ?? me?.status ?? null
+  const occurrenceDay = found?.recurring && found.nextOccurrence ? inviteDay(found.nextOccurrence) : null
+  const forOccurrence = which === 'occurrence' && !!occurrenceDay
   const cancelled = invite.method === 'CANCEL'
   const eyebrow = cancelled ? 'Cancelled' : invite.method === 'REPLY' ? 'Reply to your invitation' : invite.updated ? 'Updated invitation' : 'Invitation'
   const canAnswer = !cancelled && invite.method !== 'REPLY' && !me?.organizer
@@ -220,15 +259,20 @@ export function EmailInviteCard({
   }
 
   const answer = (value: Answer) => {
-    if (!answerable || sending || myAnswer === value) return
+    // The same answer again does nothing, unless it is for one occurrence (the marked answer is the series').
+    if (!answerable || sending || (!forOccurrence && myAnswer === value)) return
     const asked = invite
+    const askedWhich: AnswerWhich = forOccurrence ? 'occurrence' : 'series'
     setSending(value)
     setError(null)
-    reply(asked, value)
+    reply(asked, value, askedWhich)
       .then((next) => {
+        if (askedWhich === 'series') rememberInviteAnswer(asked.uid, value)
         if (inviteRef.current !== asked) return
         setStatus(next)
         setSent(value)
+        setSentWhich(askedWhich)
+        if (askedWhich === 'series') setRemembered(value)
       })
       .catch((err: unknown) => {
         if (inviteRef.current !== asked) return
@@ -345,6 +389,34 @@ export function EmailInviteCard({
 
       {canAnswer && (
         <div className="border-t border-border/60 px-4 py-3">
+          {answerable && occurrenceDay && (
+            <div className="mb-2 flex flex-wrap items-center gap-2" data-invite-which="">
+              <span className="mr-1 text-xs text-muted-foreground">This repeats. Answer for</span>
+              <div className="inline-flex overflow-hidden rounded-lg border border-border/70" role="group" aria-label="Which events your answer is for">
+                {(
+                  [
+                    { value: 'series', label: 'All events' },
+                    { value: 'occurrence', label: `This event · ${occurrenceDay}` },
+                  ] as const
+                ).map(({ value, label }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    data-invite-which-option={value}
+                    aria-pressed={which === value}
+                    disabled={sending !== null}
+                    onClick={() => setWhich(value)}
+                    className={cn(
+                      'border-l border-border/70 px-2.5 py-1 text-xs transition-colors first:border-l-0 disabled:cursor-not-allowed disabled:opacity-50',
+                      which === value ? 'bg-muted font-medium text-foreground' : 'text-muted-foreground hover:bg-muted/60',
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-2">
             <span className="mr-1 text-xs text-muted-foreground">Reply{me ? <> for <span className="select-text text-foreground">{me.email}</span></> : null}</span>
             <div className="inline-flex overflow-hidden rounded-lg border border-border/70" role="group" aria-label="Your answer">
@@ -353,14 +425,14 @@ export function EmailInviteCard({
                   key={value}
                   type="button"
                   data-invite-answer={value}
-                  aria-pressed={myAnswer === value}
+                  aria-pressed={!forOccurrence && myAnswer === value}
                   aria-busy={sending === value}
                   disabled={!answerable || (sending !== null && sending !== value)}
                   onClick={() => answer(value)}
-                  title={answerable ? (myAnswer === value ? `Your answer is “${label}”` : `Answer “${label}”`) : undefined}
+                  title={answerable ? (forOccurrence ? `Answer “${label}” for ${occurrenceDay} only` : myAnswer === value ? `Your answer is “${label}”` : `Answer “${label}”`) : undefined}
                   className={cn(
                     'flex items-center gap-1 border-l border-border/70 px-3 py-1.5 text-xs font-medium transition-colors first:border-l-0',
-                    myAnswer === value && sending === null ? 'bg-foreground text-background' : sending === value ? 'bg-muted' : 'hover:bg-muted',
+                    !forOccurrence && myAnswer === value && sending === null ? 'bg-foreground text-background' : sending === value ? 'bg-muted' : 'hover:bg-muted',
                     'disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent',
                   )}
                 >
@@ -387,7 +459,15 @@ export function EmailInviteCard({
             data-invite-error={error ? '' : undefined}
             role={error ? 'alert' : 'status'}
           >
-            {inviteNote({ status, sending, sent, error, organizer: invite.organizer ? guestName(invite.organizer) : null })}
+            {inviteNote({
+              status,
+              sending,
+              sent,
+              error,
+              organizer: invite.organizer ? guestName(invite.organizer) : null,
+              remembered: declinedAway ? 'declined' : remembered,
+              sentFor: sent && sentWhich === 'occurrence' ? occurrenceDay : null,
+            })}
             {error && found?.link && (
               <>
                 {' '}
