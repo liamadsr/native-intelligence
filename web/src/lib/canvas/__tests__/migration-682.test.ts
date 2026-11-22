@@ -156,6 +156,8 @@ describe('migration 682: comments', () => {
     expect(thread).toContain('security definer')
     expect(thread).toContain('set search_path = public, pg_temp')
     expect(thread).toContain('p.parent_id is null')
+    // It runs as its owner, so it checks the caller's own access to the canvas.
+    expect(thread).toContain('and ((select auth.uid()) is null or public.canvas_visible_to(p_canvas, (select auth.uid())))')
     expect(code).toContain('revoke all on function public.canvas_comment_is_thread(uuid, uuid) from public, anon;')
   })
 

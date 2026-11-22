@@ -402,7 +402,9 @@ stands in for `realtime.topic()`), and the comments panel in a browser.
 
 Made without asking, while working through the night of 2026-11-22.
 
-1. **The dev project was used after the instruction not to.** The instruction
+1. **The dev project was used after the instruction not to** (the managing
+   session has since said the test account on the dev server is fine: the
+   rule was about approval prompts and schema changes). The instruction
    ("don't use the Supabase connector or the dev project") was sent at 09:15 UTC
    and read at 10:15. In between, browser checks of rich text and media ran
    against the dev project through the app's dev server (reads and writes of
@@ -442,6 +444,11 @@ Made without asking, while working through the night of 2026-11-22.
 9. **`canvas_comment_is_thread` is security definer.** It answers one yes or
    no ("is this id the first comment of a thread on this canvas"), and the
    insert policy calls it only after checking the caller can open that canvas.
+   Since f08a5af0 it also checks that itself (the managing session's review):
+   called directly, it says no for a canvas the caller cannot open. **This is
+   an edit to 682's file after f08a5af0**: whoever applies 682 should apply
+   the file as it is on this branch, or apply it again afterwards (it is
+   `create or replace`, and safe to run twice).
 10. **Artifacts are on for agents, with no flag** (Macro keeps them behind
     one). What a page can do is fenced: no origin, so none of the app's
     cookies, storage or DOM; no fetch, no frames, no forms, no popups, no top
