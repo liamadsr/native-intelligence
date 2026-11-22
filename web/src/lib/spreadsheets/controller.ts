@@ -369,7 +369,7 @@ export class WorkbookController {
    * gone, so it cannot be kept sound (see the plan). Pending is cleared too —
    * `merged` already contains it.
    */
-  adopt(merged: Model, extras: WorkbookExtras) {
+  adopt(merged: Model, extras: WorkbookExtras, saved: WorkbookExtras = extras) {
     const before = this.selection()
     const sheetId = this.sheets()[this.sheet]?.id
     const edit = this.editing
@@ -380,10 +380,14 @@ export class WorkbookController {
     this.model.evaluate()
     this.model.flushSendQueue()
     this.extras = extras
-    this.savedExtras = extras
+    // `saved` is what the server holds: when `extras` is a merge of mine and
+    // theirs, the next save has to send it.
+    this.savedExtras = saved
     this.undoStack = []
     this.redoStack = []
-    this.pending = []
+    // `pending` stays: the merged model contains that work, but it is not saved
+    // until a save says so (markSaved). If the save after a merge is refused
+    // again, the same work has to be replayed onto the next newer workbook.
     this.extents.clear()
     this.layouts.clear()
     this.layoutVersion += 1

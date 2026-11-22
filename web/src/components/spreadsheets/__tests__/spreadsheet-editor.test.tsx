@@ -227,6 +227,35 @@ describe('saving', () => {
     expect(note()).toBe('')
   })
 
+  it('refused twice in a row, my change is still in the save that lands', async () => {
+    await open()
+    await typeCell('m')
+    current = record({ revision: 9, workbook: workbookWith([[2, 2, 'Theirs']]) })
+    let refusals = 0
+    const ok = patch
+    patch = (body) => {
+      refusals += 1
+      if (refusals === 1) return json({ error: 'conflict', code: 'SPREADSHEET_REVISION_CONFLICT' }, 409)
+      if (refusals === 2) {
+        // A third person saved while the merge was on its way.
+        current = record({ revision: 10, workbook: workbookWith([[2, 2, 'Theirs'], [3, 3, 'Third']]) })
+        return json({ error: 'conflict', code: 'SPREADSHEET_REVISION_CONFLICT' }, 409)
+      }
+      return ok(body)
+    }
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1300)
+    })
+    const landed = patches().at(-1)!
+    expect(landed.body?.base_revision).toBe(10)
+    const sent = loadModel(String(landed.body?.workbook))
+    expect(sent.getCellContent(0, 1, 1)).toBe('m')
+    expect(sent.getFormattedCellValue(0, 2, 2)).toBe('Theirs')
+    expect(sent.getFormattedCellValue(0, 3, 3)).toBe('Third')
+    sent.free()
+    expect(note()).toBe('')
+  })
+
   it('bounds the merge retries, then says it is not saved', async () => {
     current = record({ revision: 9, workbook: workbookWith([[2, 2, 'Theirs']]) })
     patch = () => json({ error: 'conflict', code: 'SPREADSHEET_REVISION_CONFLICT', details: { current: { ...current, workbook: undefined } } }, 409)
@@ -615,6 +644,28 @@ describe('phase 4 data', () => {
     })
     const body = patches()[0].body as { extras?: { checkboxes?: unknown[] } }
     expect(body.extras?.checkboxes).toHaveLength(1)
+  })
+
+  it('a checkbox made just before a refused save is in the merged save that lands', async () => {
+    await open()
+    openMenu('Insert')
+    act(() => menuItem('Checkbox').dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    current = record({ revision: 9, workbook: workbookWith([[2, 2, 'Theirs']]) })
+    let first = true
+    const ok = patch
+    patch = (body) => {
+      if (first) {
+        first = false
+        return json({ error: 'conflict', code: 'SPREADSHEET_REVISION_CONFLICT' }, 409)
+      }
+      return ok(body)
+    }
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1300)
+    })
+    const landed = patches().at(-1)!.body as { base_revision?: number; extras?: { checkboxes?: unknown[] } }
+    expect(landed.base_revision).toBe(9)
+    expect(landed.extras?.checkboxes).toHaveLength(1)
   })
 
   it('an ordinary edit does not resend the extras', async () => {

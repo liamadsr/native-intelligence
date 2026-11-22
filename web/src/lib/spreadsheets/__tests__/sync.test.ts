@@ -156,6 +156,10 @@ describe('controller.adopt', () => {
     const sel = c.selection()
     expect([sel.row, sel.column]).toEqual([3, 2])
     expect(c.editing?.draft).toBe('hi')
+    // The sheet I added is not saved yet: it stays pending until a save lands,
+    // so a second refused save can replay it again.
+    expect(c.pendingDiffs()).toHaveLength(1)
+    c.markSaved(c.dataVersion, undefined, 1)
     expect(c.pendingDiffs()).toHaveLength(0)
     c.dispose()
   })

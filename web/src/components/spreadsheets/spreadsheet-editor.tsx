@@ -207,7 +207,8 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
     if (!latest) return false
     const theirs = await openModel(latest.workbook, latest.title)
     const { dropped } = rebasePending(theirs, workbook.pendingDiffs())
-    workbook.adopt(theirs, mergeExtras(workbook.baseExtras, workbook.extras, readExtras(latest.extras)))
+    const theirExtras = readExtras(latest.extras)
+    workbook.adopt(theirs, workbook.extrasDirty ? mergeExtras(workbook.baseExtras, workbook.extras, theirExtras) : theirExtras, theirExtras)
     revision.current = latest.revision
     setRecord((prev) => ({ ...prev, revision: latest.revision, last_edited_by: latest.last_edited_by }))
     const note = droppedNote(dropped)
@@ -280,24 +281,37 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
       if (!cancelled && !document.hidden && !stopped.current && !saving.current) {
         try {
           const res = await fetch(`/api/account/spreadsheets/${loaded.record.id}/revision`)
-          const json = (await res.json().catch(() => ({}))) as { revision?: number; editor_name?: string | null }
-          if (!cancelled && typeof json.revision === 'number' && json.revision > revision.current) {
+          const json = (await res.json().catch(() => ({}))) as { revision?: number; last_edited_by?: string | null; editor_name?: string | null }
+          // A save of my own may have started, or landed, while the question was out.
+          if (!cancelled && !saving.current && typeof json.revision === 'number' && json.revision > revision.current) {
+            const who = json.last_edited_by && json.last_edited_by === loaded.memberId ? null : (json.editor_name ?? null)
             if (!workbook.dirty && !workbook.hasPending()) {
               const latest = await fetchRecord(loaded.record.id)
-              if (latest && !workbook.dirty && !workbook.hasPending()) {
-                const theirs = await openModel(latest.workbook, latest.title)
-                workbook.adopt(theirs, readExtras(latest.extras))
+              const theirs = latest ? await openModel(latest.workbook, latest.title) : null
+              if (latest && theirs && !cancelled && !saving.current && latest.revision > revision.current) {
+                // Anything I did while their workbook was loading is replayed onto it,
+                // and stays pending for the next save.
+                const mine = workbook.pendingDiffs()
+                const theirExtras = readExtras(latest.extras)
+                const { dropped } = rebasePending(theirs, mine)
+                workbook.adopt(theirs, workbook.extrasDirty ? mergeExtras(workbook.baseExtras, workbook.extras, theirExtras) : theirExtras, theirExtras)
                 revision.current = latest.revision
-                workbook.markSaved(workbook.dataVersion, readExtras(latest.extras))
                 setRecord((prev) => ({ ...prev, revision: latest.revision, last_edited_by: latest.last_edited_by }))
-                setSave('saved')
+                if (!mine.length && !workbook.extrasDirty) {
+                  workbook.markSaved(workbook.dataVersion, theirExtras)
+                  setSave('saved')
+                }
+                const note = droppedNote(dropped)
+                if (note) onMessage(note)
                 void comments.reload()
-                noteUpdatedBy(json.editor_name ?? null)
+                noteUpdatedBy(who)
+              } else if (theirs) {
+                theirs.free()
               }
             } else {
               await saveNowRef.current()
               void comments.reload()
-              noteUpdatedBy(json.editor_name ?? null)
+              noteUpdatedBy(who)
             }
           }
         } catch {
@@ -316,7 +330,7 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
       if (timer) clearTimeout(timer)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [workbook, loaded.record.id, comments, noteUpdatedBy])
+  }, [workbook, loaded.record.id, loaded.memberId, comments, noteUpdatedBy, onMessage])
 
   // Comment anchors follow structural edits (and move back on undo).
   useEffect(() => workbook.onStructural((change) => comments.shiftAnchors(change)), [workbook, comments])
