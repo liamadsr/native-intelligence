@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
 
-const openTarget = vi.fn(() => true)
+const openTarget = vi.fn((..._a: unknown[]) => true)
 vi.mock('@/lib/chat-cards/open-card', () => ({
   openTarget: (...a: unknown[]) => openTarget(...a),
   originCardOf: () => null,

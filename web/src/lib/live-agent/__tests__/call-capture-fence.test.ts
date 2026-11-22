@@ -19,7 +19,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ToolSet } from 'ai'
-import { createFakeSupabase, meetingFixture, FIX, type FakeQuery } from './helpers/live-turn-fixture'
+import { createFakeSupabase, isSettled, meetingFixture, FIX, type FakeQuery } from './helpers/live-turn-fixture'
 
 vi.mock('server-only', () => ({}))
 
@@ -138,7 +138,7 @@ describe('the spec eve runs for a notes turn on a call’s capture (rebuilt from
     const base = meetingFixture()
     return (q: FakeQuery) => {
       const r = base(q)
-      if (q.table === 'captures' && q.columns.includes('is_eval') && r.data && !Array.isArray(r.data)) {
+      if (q.table === 'captures' && q.columns.includes('is_eval') && isSettled(r) && r.data && !Array.isArray(r.data)) {
         return { ...r, data: { ...(r.data as Record<string, unknown>), notes_channel_id: CHANNEL } }
       }
       return r

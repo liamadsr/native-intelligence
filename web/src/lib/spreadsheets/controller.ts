@@ -75,6 +75,7 @@ import { IMAGE_MIME, hashBytes, sniffImageType } from './images'
 import { rewriteStructuredRefs, type TableRefMeta } from './table-refs'
 import { CELL_TYPE, bytesToBase64, listSheets, saveWorkbook, usedRange, type SheetInfo } from './workbook'
 import type { ChartCell } from './charts'
+import type { PendingAction, PendingEntry } from './sync'
 
 export type Direction = 'up' | 'down' | 'left' | 'right'
 
@@ -265,7 +266,7 @@ export class WorkbookController {
    * flushing the engine's send queue after each action; a save that succeeds
    * drops the ones it carried, a save that fails keeps them.
    */
-  private pending: Uint8Array[] = []
+  private pending: PendingEntry[] = []
 
   constructor(model: Model, options: { readOnly?: boolean; extras?: WorkbookExtras } = {}) {
     this.model = model
@@ -345,7 +346,17 @@ export class WorkbookController {
 
   /** My unsaved work as the engine's change sets, one an action, oldest first. */
   pendingDiffs(): Uint8Array[] {
+    return this.pending.map((p) => p.diff)
+  }
+
+  /** My unsaved work with what each action is (for a log-aware rebase), oldest first. */
+  pendingActions(): PendingEntry[] {
     return this.pending.slice()
+  }
+
+  /** After a merge: my unsaved work re-expressed in the merged workbook's addresses (sync.ts). */
+  replacePending(entries: readonly PendingEntry[]) {
+    this.pending = entries.slice()
   }
 
   /** Whether any unsaved action-diffs are waiting (what the editor rebases on a conflict). */
@@ -353,11 +364,16 @@ export class WorkbookController {
     return this.pending.length > 0
   }
 
-  /** Capture the engine's change set for the action that just ran, if any. */
-  private capturePending() {
+  /**
+   * Capture the engine's change set for the action that just ran, if any, with
+   * a description of what the action was so a rebase can re-express it on a
+   * newer layout (sync.ts). Without a description an action is opaque: it can
+   * only be replayed at its absolute address.
+   */
+  private capturePending(action: PendingAction = { kind: 'opaque' }) {
     const diff = this.model.flushSendQueue()
     // An empty queue flushes to a one-byte marker; only a real change is longer.
-    if (diff.length > 1) this.pending.push(diff)
+    if (diff.length > 1) this.pending.push({ diff, action })
   }
 
   /**
@@ -758,17 +774,27 @@ export class WorkbookController {
     // the engine, which knows nothing of tables, sees them; the cell then stores the A1 form.
     const resolved = !plain && input.startsWith('=') ? rewriteStructuredRefs(input, this.tableRefMetas(), this.refContext(sheet, row, column)) : input
     const typed = plain ? `'${input}` : resolved
-    return this.act(() => {
-      this.mut(() => this.model.setUserInput(sheet, row, column, typed))
-      this.growTableIfAdjacent(sheet, row, column)
-    })
+    return this.act(
+      () => {
+        this.mut(() => this.model.setUserInput(sheet, row, column, typed))
+        this.growTableIfAdjacent(sheet, row, column)
+      },
+      // A plain cell edit a rebase can move onto a newer layout: the input is
+      // stored as it was handed to the engine (a typed formula stays as typed).
+      { describe: { kind: 'cells', sheetId: this.sheetIdAt(sheet), cells: [{ row, column, input: typed }] } },
+    )
   }
 
   /** Delete or Backspace: the values go, the formats stay. */
   clearSelection(): ActionResult {
     const { range } = this.selection()
     const sheet = this.sheet
-    return this.act(() => this.mut(() => this.model.rangeClearContents(sheet, range.r1, range.c1, range.r2, range.c2)))
+    // Clearing is a cell edit (each cell to empty) a rebase can move onto a newer layout.
+    const cells: Array<{ row: number; column: number; input: string }> = []
+    for (let r = range.r1; r <= range.r2; r++) for (let c = range.c1; c <= range.c2; c++) cells.push({ row: r, column: c, input: '' })
+    return this.act(() => this.mut(() => this.model.rangeClearContents(sheet, range.r1, range.c1, range.r2, range.c2)), {
+      describe: { kind: 'cells', sheetId: this.sheetIdAt(sheet), cells },
+    })
   }
 
   clearFormatting(): ActionResult {
@@ -839,7 +865,7 @@ export class WorkbookController {
    * One action of a person's: everything in `run` is one step of Undo. A
    * failure part-way takes back what was done, so an action is all or nothing.
    */
-  private act(run: () => void, options: { layout?: boolean; structure?: boolean; change?: ExtrasChange } = {}): ActionResult {
+  private act(run: () => void, options: { layout?: boolean; structure?: boolean; change?: ExtrasChange; describe?: PendingAction } = {}): ActionResult {
     if (this.readOnly) return no('You can view this spreadsheet but not change it.')
     // Clear anything the engine queued since the last capture (selection and
     // navigation), so this action's diff carries only this action's changes.
@@ -875,13 +901,23 @@ export class WorkbookController {
       this.dataVersion += 1
     }
     this.model.evaluate()
-    if (made > 0) this.capturePending()
+    if (made > 0) this.capturePending(this.describeAction(options))
     if (made > 0 && options.change) this.emitStructural(options.change)
     if (options.structure) this.extents.clear()
     // Any edit can change a row's height (wrapped text) or a column's width.
     this.layoutVersion += 1
     this.emit()
     return OK
+  }
+
+  /** What a pending action is, from its `act` options: an explicit description, my own row/column change, else opaque. */
+  private describeAction(options: { change?: ExtrasChange; describe?: PendingAction }): PendingAction {
+    if (options.describe) return options.describe
+    const change = options.change
+    if (change && (change.type === 'insertRows' || change.type === 'deleteRows' || change.type === 'insertColumns' || change.type === 'deleteColumns')) {
+      return { kind: 'structure', change }
+    }
+    return { kind: 'opaque' }
   }
 
   // ── Rows and columns ─────────────────────────────────────────────────────
@@ -1255,7 +1291,11 @@ export class WorkbookController {
   setStyle(path: string, value: string): ActionResult {
     const { range } = this.selection()
     const sheet = this.sheet
-    return this.act(() => this.mut(() => this.model.updateRangeStyle(area(sheet, range), path, value)), { layout: true })
+    // A style is opaque to the rebase (it carries no cell inputs), but it is on one sheet: note it.
+    return this.act(() => this.mut(() => this.model.updateRangeStyle(area(sheet, range), path, value)), {
+      layout: true,
+      describe: { kind: 'opaque', sheetId: this.sheetIdAt(sheet) },
+    })
   }
 
   /** The format code of the active cell: what the toolbar shows and steps from. */

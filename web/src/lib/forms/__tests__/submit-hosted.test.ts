@@ -133,7 +133,7 @@ describe('the bot check', () => {
     expect(res.status).toBe(201)
     expect(d.claimAttempt).toHaveBeenCalledWith(expect.objectContaining({ challengeId: answer._challenge.split('.')[2] }))
     // A field labelled Challenge is not filled by the post's _challenge.
-    expect(d.writeRow.mock.calls[0][1].values).toEqual({ email: 'sarah@example.com', message: 'Two rugs.', customer: ['contact-typed'] })
+    expect(vi.mocked(d.writeRow).mock.calls[0][1].values).toEqual({ email: 'sarah@example.com', message: 'Two rugs.', customer: ['contact-typed'] })
   })
 
   it('a challenge another submission already stores with is refused, and writes nothing', async () => {
@@ -175,7 +175,7 @@ describe("the website flow's live check", () => {
     const d = deps({ botCheck: false })
     const res = await handleFormSubmit(post({ ...GOOD, [INTAKE_TEST_FIELD]: 'nonce-1234567890abcdef' }), KEY, d)
     expect(res.status).toBe(201)
-    expect(JSON.stringify(d.writeRow.mock.calls[0][1])).not.toContain('nonce')
+    expect(JSON.stringify(vi.mocked(d.writeRow).mock.calls[0][1])).not.toContain('nonce')
   })
 })
 
@@ -222,7 +222,7 @@ describe('an invited form', () => {
     const d = deps(INVITED, { claimInvite: vi.fn(async () => invite({ contactId: 'contact-invited' })) })
     expect((await handleFormSubmit(post(GOOD), generateInviteToken(), d)).status).toBe(201)
     expect(d.upsertContact).not.toHaveBeenCalled()
-    expect(d.writeRow.mock.calls[0][1].values.customer).toEqual(['contact-invited'])
+    expect(vi.mocked(d.writeRow).mock.calls[0][1].values.customer).toEqual(['contact-invited'])
   })
 
   it('a used, lapsed or other form\'s link (the claim finds nothing) is 403, the try let go, nothing written', async () => {

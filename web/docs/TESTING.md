@@ -10,7 +10,7 @@ before adding new tests.
 npm test              # Run full suite once (what `npm run build` runs first)
 npm run test:watch    # Watch mode during development
 npm run test:coverage # v8 coverage report in ./coverage/
-npm run typecheck     # Standalone tsc --noEmit
+npm run typecheck     # tsc over everything, tests included, in 4 shards under 8 GB (scripts/typecheck.mjs)
 npm run lint          # ESLint on src/ (next lint was removed in Next 16)
 ```
 

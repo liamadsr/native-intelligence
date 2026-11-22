@@ -23,7 +23,7 @@ vi.mock('@/components/views/unified-view-layout', async () => {
     return React.createElement(
       'div',
       { 'data-open': '' },
-      React.createElement(CardHeaderTrail, { onBack: () => setOpen(false), backLabel: 'Back to the list' }, React.createElement('span', { 'data-place': '' }, 'Fernhill budget')),
+      React.createElement(CardHeaderTrail, { onBack: () => setOpen(false), backLabel: 'Back to the list', children: React.createElement('span', { 'data-place': '' }, 'Fernhill budget') }),
     )
   }
   return {

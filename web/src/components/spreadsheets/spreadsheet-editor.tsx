@@ -25,8 +25,8 @@ import { LinksPanel } from './links-panel'
 import { parseRange, rangeName } from '@/lib/spreadsheets/a1'
 import { WorkbookController } from '@/lib/spreadsheets/controller'
 import { openModel } from '@/lib/spreadsheets/engine-client'
-import { readExtras } from '@/lib/spreadsheets/extras'
-import { droppedNote, mergeExtras, rebasePending } from '@/lib/spreadsheets/sync'
+import { appendStructure, readExtras, type ExtrasChange, type StructureEntry, type WorkbookExtras } from '@/lib/spreadsheets/extras'
+import { droppedNote, mergeExtras, rebaseWithLog } from '@/lib/spreadsheets/sync'
 import type { SpreadsheetRecord, SpreadsheetSummary } from '@/lib/spreadsheets/types'
 import { CommentOverlay, CommentsPanel, useSpreadsheetComments } from './comments'
 import { ChartDialog } from './chart-dialog'
@@ -116,6 +116,15 @@ export function SpreadsheetEditor({ spreadsheetId, onBack, onOpen }: Spreadsheet
   return <OpenSpreadsheet key={`${loaded.record.id}:${attempt}`} loaded={loaded} onBack={onBack} onOpen={onOpen} onReload={() => setAttempt((n) => n + 1)} />
 }
 
+/** A structural change as a log entry stamped with the revision the save is made over; null for a kind not logged. */
+function structureEntryFromChange(change: ExtrasChange, base: number): StructureEntry | null {
+  if (change.type === 'insertRows' || change.type === 'deleteRows' || change.type === 'insertColumns' || change.type === 'deleteColumns') {
+    return { base, sheetId: change.sheetId, type: change.type, at: change.at, count: change.count }
+  }
+  if (change.type === 'deleteSheet') return { base, sheetId: change.sheetId, type: 'deleteSheet' }
+  return null
+}
+
 /** The newer record a poll or a conflict pointed at, with its workbook, loaded fresh. */
 async function fetchRecord(id: string): Promise<SpreadsheetRecord | null> {
   const res = await fetch(`/api/account/spreadsheets/${id}`)
@@ -178,6 +187,13 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
   const [openThreadId, setOpenThreadId] = useState<string | null>(null)
   const [composingAnchor, setComposingAnchor] = useState<string | null>(null)
   const [updatedBy, setUpdatedBy] = useState<string | null>(null)
+  // Set when a merge cannot be done with certainty (the other person changed rows,
+  // columns or sheets under my unsaved edits): the editor keeps my version on screen,
+  // stops saving and polling, and offers to load the latest.
+  const [guard, setGuard] = useState<{ name: string | null } | null>(null)
+  // My unsaved structural edits (and the inverse of any I undid), stamped with the
+  // base revision of each save attempt and written into the saved structure log.
+  const unsavedStructure = useRef<ExtrasChange[]>([])
   const caret = useRef<CaretState>({ start: 0, end: 0, pointed: null })
   const suggest = useRef<FormulaSuggestHandle | null>(null)
   const gridHost = useRef<HTMLDivElement>(null)
@@ -204,20 +220,53 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
 
   // ── Saving, with merge on a conflict ──────────────────────────────────────
   // Load the newer workbook, replay my unsaved work onto it, adopt the result,
-  // and keep saving against the new revision. Nobody's work is lost.
-  const rebaseOntoLatest = useCallback(async (): Promise<boolean> => {
+  // and keep saving against the new revision. Nobody's work is lost — unless the
+  // other person changed rows, columns or sheets I cannot move my edits around,
+  // when we stop instead of guessing (the guard).
+
+  // Stop saving and polling and keep my version on screen; the person copies
+  // what they need and loads the latest.
+  const enterGuard = useCallback((name: string | null) => {
+    stopped.current = true
+    setGuard({ name })
+    setSave('saved')
+  }, [])
+
+  // The extras to save, with the structure log = the server's log as of my base
+  // revision plus my unsaved structural edits, each stamped with that revision.
+  const buildExtrasToSave = useCallback((): WorkbookExtras => {
+    const entries = unsavedStructure.current
+      .map((c) => structureEntryFromChange(c, revision.current))
+      .filter((e): e is StructureEntry => e !== null)
+    const { structure, structureFloor } = appendStructure(workbook.baseExtras.structure, workbook.baseExtras.structureFloor, entries)
+    return { ...workbook.extras, structure, structureFloor }
+  }, [workbook])
+
+  const rebaseOntoLatest = useCallback(async (name: string | null): Promise<'merged' | 'stopped' | 'failed'> => {
     const latest = await fetchRecord(loaded.record.id)
-    if (!latest) return false
+    if (!latest) return 'failed'
     const theirs = await openModel(latest.workbook, latest.title)
-    const { dropped } = rebasePending(theirs, workbook.pendingDiffs())
     const theirExtras = readExtras(latest.extras)
+    const result = rebaseWithLog({
+      theirs,
+      theirsExtras: theirExtras,
+      myBaseRevision: revision.current,
+      mySheets: workbook.sheets(),
+      pending: workbook.pendingActions(),
+    })
+    if (result.status === 'stop') {
+      theirs.free()
+      enterGuard(name)
+      return 'stopped'
+    }
     workbook.adopt(theirs, workbook.extrasDirty ? mergeExtras(workbook.baseExtras, workbook.extras, theirExtras) : theirExtras, theirExtras)
+    workbook.replacePending(result.pending)
     revision.current = latest.revision
     setRecord((prev) => ({ ...prev, revision: latest.revision, last_edited_by: latest.last_edited_by }))
-    const note = droppedNote(dropped)
+    const note = droppedNote(result.dropped)
     if (note) onMessage(note)
-    return true
-  }, [workbook, loaded.record.id, onMessage])
+    return 'merged'
+  }, [workbook, loaded.record.id, onMessage, enterGuard])
 
   const saveNow = useCallback(async () => {
     if (saving.current || stopped.current || !workbook.dirty || workbook.readOnly) return
@@ -226,26 +275,30 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
     try {
       for (let attempt = 0; attempt < MAX_MERGE_ATTEMPTS; attempt++) {
         const snapshot = workbook.snapshot()
-        const extrasDirty = workbook.extrasDirty
+        const sendExtras = workbook.extrasDirty || unsavedStructure.current.length > 0
+        const extras = sendExtras ? buildExtrasToSave() : undefined
         const res = await fetch(`/api/account/spreadsheets/${loaded.record.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ base_revision: revision.current, workbook: snapshot.workbook, ...(extrasDirty ? { extras: snapshot.extras } : {}) }),
+          body: JSON.stringify({ base_revision: revision.current, workbook: snapshot.workbook, ...(extras ? { extras } : {}) }),
         })
         const json = (await res.json().catch(() => ({}))) as { spreadsheet?: SpreadsheetSummary; error?: string }
         if (res.status === 409) {
-          if (!(await rebaseOntoLatest())) {
+          const outcome = await rebaseOntoLatest(null)
+          if (outcome === 'stopped') return
+          if (outcome === 'failed') {
             giveUp.current = workbook.dataVersion
             setSave('failed')
             return
           }
-          continue // save again, now against the newer revision
+          continue // save again, now against the newer revision (my structure entries re-stamped)
         }
         if (!res.ok || !json.spreadsheet) throw new Error(json.error || 'Could not save')
         revision.current = json.spreadsheet.revision
         giveUp.current = -1
         setRecord((prev) => ({ ...prev, ...json.spreadsheet }))
-        workbook.markSaved(snapshot.version, snapshot.extras, snapshot.pending)
+        workbook.markSaved(snapshot.version, extras ?? snapshot.extras, snapshot.pending)
+        if (extras) unsavedStructure.current = []
         setSave(workbook.dirty ? 'unsaved' : 'saved')
         return
       }
@@ -257,7 +310,7 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
     } finally {
       saving.current = false
     }
-  }, [workbook, loaded.record.id, rebaseOntoLatest])
+  }, [workbook, loaded.record.id, rebaseOntoLatest, buildExtrasToSave])
 
   const dataVersion = workbook.dataVersion
   useEffect(() => {
@@ -294,17 +347,29 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
               if (latest && theirs && !cancelled && !saving.current && latest.revision > revision.current) {
                 // Anything I did while their workbook was loading is replayed onto it,
                 // and stays pending for the next save.
-                const mine = workbook.pendingDiffs()
+                const minePending = workbook.pendingActions()
                 const theirExtras = readExtras(latest.extras)
-                const { dropped } = rebasePending(theirs, mine)
+                const result = rebaseWithLog({
+                  theirs,
+                  theirsExtras: theirExtras,
+                  myBaseRevision: revision.current,
+                  mySheets: workbook.sheets(),
+                  pending: minePending,
+                })
+                if (result.status === 'stop') {
+                  theirs.free()
+                  enterGuard(who)
+                  return
+                }
                 workbook.adopt(theirs, workbook.extrasDirty ? mergeExtras(workbook.baseExtras, workbook.extras, theirExtras) : theirExtras, theirExtras)
+                workbook.replacePending(result.pending)
                 revision.current = latest.revision
                 setRecord((prev) => ({ ...prev, revision: latest.revision, last_edited_by: latest.last_edited_by }))
-                if (!mine.length && !workbook.extrasDirty) {
+                if (!minePending.length && !workbook.extrasDirty && unsavedStructure.current.length === 0) {
                   workbook.markSaved(workbook.dataVersion, theirExtras)
                   setSave('saved')
                 }
-                const note = droppedNote(dropped)
+                const note = droppedNote(result.dropped)
                 if (note) onMessage(note)
                 void comments.reload()
                 noteUpdatedBy(who)
@@ -333,10 +398,19 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
       if (timer) clearTimeout(timer)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [workbook, loaded.record.id, loaded.memberId, comments, noteUpdatedBy, onMessage])
+  }, [workbook, loaded.record.id, loaded.memberId, comments, noteUpdatedBy, onMessage, enterGuard])
 
-  // Comment anchors follow structural edits (and move back on undo).
-  useEffect(() => workbook.onStructural((change) => comments.shiftAnchors(change)), [workbook, comments])
+  // Comment anchors follow structural edits (and move back on undo); the same
+  // edits are logged (the inverse too, on undo) so the saved structure log lets
+  // another editor move their late cell edits onto my new layout.
+  useEffect(
+    () =>
+      workbook.onStructural((change) => {
+        comments.shiftAnchors(change)
+        unsavedStructure.current.push(change)
+      }),
+    [workbook, comments],
+  )
 
   // Open a comment thread on the active cell, or start a new one there.
   const commentHere = useCallback(() => {
@@ -381,14 +455,15 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
       window.removeEventListener('beforeunload', warn)
       if (!workbook.disposed && workbook.dirty && !stopped.current && !workbook.readOnly) {
         const snapshot = workbook.snapshot()
+        const extras = workbook.extrasDirty || unsavedStructure.current.length > 0 ? buildExtrasToSave() : undefined
         void fetch(`/api/account/spreadsheets/${loaded.record.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ base_revision: revision.current, workbook: snapshot.workbook, ...(workbook.extrasDirty ? { extras: snapshot.extras } : {}) }),
+          body: JSON.stringify({ base_revision: revision.current, workbook: snapshot.workbook, ...(extras ? { extras } : {}) }),
         }).catch(() => undefined)
       }
     }
-  }, [workbook, loaded.record.id])
+  }, [workbook, loaded.record.id, buildExtrasToSave])
 
   // ── The title ────────────────────────────────────────────────────────────
   const [title, setTitle] = useState(loaded.record.title)
@@ -581,7 +656,7 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
             <EntityActionsMenu entity={entityRef} state={entityState} omit={PANEL_OMIT} className="mr-1 size-6 p-0 text-muted-foreground hover:text-foreground" />
             <span className="mr-2 flex items-center gap-2 empty:hidden">
               {updatedBy && <span className="text-xs text-muted-foreground">Updated by {updatedBy}</span>}
-              <SaveNote state={workbook.readOnly ? 'saved' : save} readOnly={workbook.readOnly} onRetry={() => void saveNow()} />
+              <SaveNote state={workbook.readOnly ? 'saved' : save} readOnly={workbook.readOnly} onRetry={() => void saveNow()} guard={guard} onReload={onReload} />
             </span>
           </CardHeaderSlot>
         </>
@@ -608,10 +683,18 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
           </Button>
           <EntityActionsMenu entity={entityRef} state={entityState} omit={PANEL_OMIT} className="h-7 w-7 shrink-0 p-0 text-muted-foreground hover:text-foreground" />
           {updatedBy && <span className="shrink-0 text-xs text-muted-foreground">Updated by {updatedBy}</span>}
-          <SaveNote state={workbook.readOnly ? 'saved' : save} readOnly={workbook.readOnly} onRetry={() => void saveNow()} />
+          <SaveNote state={workbook.readOnly ? 'saved' : save} readOnly={workbook.readOnly} onRetry={() => void saveNow()} guard={guard} onReload={onReload} />
         </div>
       )}
 
+      {guard && (
+        <div role="alert" className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-border/60 bg-amber-500/10 px-3 py-1.5 text-xs text-foreground">
+          <span className="min-w-0 flex-1">
+            {guard.name ?? 'Someone'} added or removed rows or columns while you were editing. Your unsaved changes are still here: copy what you need, then load the latest.
+          </span>
+          <Button size="sm" variant="outline" className="h-6 shrink-0 px-2 text-xs" onClick={onReload}>Load the latest</Button>
+        </div>
+      )}
       <Toolbar
         workbook={workbook}
         view={view}
@@ -879,7 +962,9 @@ function CommentsButton({ count, open, onClick, standalone }: { count: number; o
   )
 }
 
-function SaveNote({ state, readOnly, onRetry }: { state: SaveState; readOnly: boolean; onRetry: () => void }) {
+function SaveNote({ state, readOnly, onRetry, guard, onReload }: { state: SaveState; readOnly: boolean; onRetry: () => void; guard: { name: string | null } | null; onReload: () => void }) {
+  // The full notice, with its button, is a banner over the grid: the header has no room for it.
+  if (guard) return <span className="shrink-0 text-xs text-destructive">Not saved</span>
   if (readOnly) return <span className="shrink-0 text-xs text-muted-foreground">Archived: view only</span>
   if (state === 'failed') {
     return (

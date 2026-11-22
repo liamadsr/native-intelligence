@@ -13,7 +13,7 @@ import type { AgentGuest } from '../store'
 const h = vi.hoisted(() => ({
   guest: null as unknown,
   runTool: vi.fn(),
-  createTools: vi.fn(() => ({ create_calendar_event: { execute: vi.fn() } })),
+  createTools: vi.fn((..._args: unknown[]) => ({ create_calendar_event: { execute: vi.fn() } })),
   events: [] as unknown[],
 }))
 

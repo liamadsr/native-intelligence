@@ -182,7 +182,7 @@ describe('a page group’s sub-nav', () => {
   it('a record opened from home keeps Home and its Recent panel, not a group’s', async () => {
     act(() => root.render(<Row />))
     await flush()
-    await hold('rec-1', { kind: 'record', title: 'Fernhill renewal', record: { type: 'deal', id: 'd1' } } as CardSpec)
+    await hold('rec-1', { kind: 'record', title: 'Fernhill', record: { type: 'company', id: 'co1' } })
     expect(selectedPlace()).toBe('home')
     expect(container.querySelector('aside[data-page-panel="contacts"][data-page-panel-mode="room"]')).toBeNull()
   })

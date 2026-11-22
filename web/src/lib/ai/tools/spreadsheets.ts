@@ -19,6 +19,7 @@ import {
   type CellRange,
 } from '@/lib/spreadsheets/a1'
 import { loadModel, newModel } from '@/lib/spreadsheets/engine-server'
+import { appendStructure, readExtras, shiftExtras, type StructureEntry } from '@/lib/spreadsheets/extras'
 import { CELL_TYPE, listSheets, readCell, saveWorkbook, usedRange, type CellKind, type SheetInfo } from '@/lib/spreadsheets/workbook'
 import { createSpreadsheet, getSpreadsheet, listSpreadsheets, saveSpreadsheet } from '@/lib/spreadsheets/store'
 import { MAX_WORKBOOK_BASE64 } from '@/lib/spreadsheets/types'
@@ -450,6 +451,12 @@ export function createSpreadsheetTools(
           model.evaluate()
           let affected = 0
           const notes: Array<{ op: string; note: string }> = []
+          // The record's extras (validations, tables, charts, …) follow an agent's
+          // row/column/sheet edits, and each such edit is logged so a person editing
+          // the same workbook can have their late cell edits moved onto the new layout.
+          let extras = readExtras(record.extras)
+          let extrasChanged = false
+          const structureEntries: StructureEntry[] = []
           // (sheetIndex, row, column) cells this call wrote: checked for errors after evaluation.
           const written: Array<{ index: number; name: string; row: number; column: number }> = []
 
@@ -582,10 +589,14 @@ export function createSpreadsheetTools(
               } else if (op.op === 'insert_rows' || op.op === 'delete_rows' || op.op === 'insert_columns' || op.op === 'delete_columns') {
                 const sheet = sheetByName(op.sheet)
                 if (!sheet.ok) return refuse(sheet.error)
+                const type = op.op === 'insert_rows' ? 'insertRows' : op.op === 'delete_rows' ? 'deleteRows' : op.op === 'insert_columns' ? 'insertColumns' : 'deleteColumns'
                 if (op.op === 'insert_rows') model.insertRows(sheet.value.index, op.at, op.count)
                 else if (op.op === 'delete_rows') model.deleteRows(sheet.value.index, op.at, op.count)
                 else if (op.op === 'insert_columns') model.insertColumns(sheet.value.index, op.at, op.count)
                 else model.deleteColumns(sheet.value.index, op.at, op.count)
+                extras = shiftExtras(extras, { type, sheetId: sheet.value.id, at: op.at, count: op.count })
+                structureEntries.push({ base: expected_revision, sheetId: sheet.value.id, type, at: op.at, count: op.count })
+                extrasChanged = true
                 notes.push({ op: op.op, note: `${op.op.startsWith('insert') ? 'inserted' : 'deleted'} ${op.count} on ${sheet.value.name} at ${op.at}` })
               } else if (op.op === 'add_sheet') {
                 if (listSheets(model).length >= MAX_SHEETS) return refuse(`a workbook holds ${MAX_SHEETS} sheets at most.`)
@@ -615,6 +626,9 @@ export function createSpreadsheetTools(
                 if (!sheet.ok) return refuse(sheet.error)
                 if (listSheets(model).filter((s) => !s.hidden && s.index !== sheet.value.index).length === 0) return refuse('a workbook keeps at least one sheet.')
                 model.deleteSheet(sheet.value.index)
+                extras = shiftExtras(extras, { type: 'deleteSheet', sheetId: sheet.value.id })
+                structureEntries.push({ base: expected_revision, sheetId: sheet.value.id, type: 'deleteSheet' })
+                extrasChanged = true
                 notes.push({ op: op.op, note: `deleted ${sheet.value.name}` })
               }
             } catch (e) {
@@ -637,11 +651,17 @@ export function createSpreadsheetTools(
 
           const workbook = saveWorkbook(model)
           if (workbook.length > MAX_WORKBOOK_BASE64) return { success: false, error: 'That workbook is too large to store.' }
+          let finalExtras: Record<string, unknown> | undefined
+          if (extrasChanged) {
+            const { structure, structureFloor } = appendStructure(extras.structure, extras.structureFloor, structureEntries)
+            finalExtras = { ...extras, structure, structureFloor }
+          }
           const saved = await saveSpreadsheet(supabase, record.id, {
             workspaceId: ws,
             memberId: me,
             baseRevision: expected_revision,
             workbook,
+            ...(finalExtras ? { extras: finalExtras } : {}),
             editSource: 'agent',
             summary: summary ?? null,
           })
