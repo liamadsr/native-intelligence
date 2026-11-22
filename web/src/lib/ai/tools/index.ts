@@ -61,6 +61,7 @@ import { createProspectingTools } from './prospecting'
 import { createCompanyTools } from './companies'
 import { createDealTools } from './deals'
 import { createTableTools } from './tables'
+import { createCanvasTools } from './canvas'
 import { createCampaignTools } from './campaigns'
 import { createReviewTools } from './reviews'
 import { createChatHelperTools } from './chat-helpers'
@@ -460,6 +461,8 @@ export function createTools(
     ...createDealTools(userId, supabase, workspaceId, strict, createPolicy, editGrants, omitGrants),
     // Tables (phase 5): the workspace's own databases, apply with undo, every batch in History. See ./tables.ts.
     ...createTableTools(userId, supabase, workspaceId, strict, createPolicy, editGrants, omitGrants, options?.timeZone),
+    // Canvases (whiteboards): read one as data, add to it or rearrange it. See ./canvas.ts.
+    ...createCanvasTools(userId, supabase, workspaceId, strict, createPolicy),
     // Campaigns — Marketing's anchor entity. Read + create + update; no delete
     // (a campaign is something claims point at).
     // launch_campaign raises the person's card and sends on their yes (roadmap D2).

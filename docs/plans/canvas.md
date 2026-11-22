@@ -1,7 +1,8 @@
 # Canvas: whiteboards in the app
 
-Status: phase 1 built on `claude/canvas-whiteboards`, 2026-11-22. Nothing merged,
-nothing rolled out. Migration 676 is written and applied to the dev project only.
+Status, 2026-11-22, on `claude/canvas-whiteboards`: phase 1 and most of phases 2,
+3 and 4 are built (see "Where it stands" at the end). Nothing rolled out. Migration
+676 is applied to the dev project only.
 
 The target is parity with the canvas in Macro (github.com/macro-inc/macro): the
 same tools, interactions, menus, shortcuts and screen layout, drawn in this app's
@@ -263,3 +264,55 @@ Each phase is pushed when the full test run passes.
 Macro does not have these. They are not in the phases above: sticky notes,
 frames, a highlighter, locking, a minimap, PNG/SVG/PDF export, templates, version
 history, comments pinned to a spot on the canvas.
+
+## Where it stands (2026-11-22)
+
+Built and checked in a browser against the dev project (40 scripted checks):
+
+- **Phase 1, all of it.**
+- **Phase 2:** connector binding and routes; snapping and guides; align and
+  distribute; groups; shape labels (plain text); images and video (upload,
+  paste, drop, the picker; "Copy image" and "Save image"); record cards that
+  write a link the record's "Referenced in" shows, and take it away when the
+  card goes; the insert menu (I, or the paperclip); Excalidraw paste; JSON
+  download; a link that carries the view; read-only mode; two-finger pan and
+  pinch, long-press for the menu, and the narrow layout (a selection bar and
+  the inspector as a sheet).
+- **Phase 3:** live editing between people (item rows over Supabase Realtime,
+  last write to an item wins), cursors, selections and faces (a broadcast
+  channel, nothing stored), a save queue that retries and warns before the page
+  closes.
+- **Phase 4:** `read_canvas`, `edit_canvas`, `create_canvas` in the tool
+  registry (so over MCP as `ni_read_canvas`, `ni_edit_canvas`,
+  `ni_create_canvas`); what an agent writes shows live to whoever has the
+  canvas open. Big boards: only what is near the view is mounted, and from 600
+  items, zoomed out past 20%, the board is painted as one bitmap.
+
+Not built yet:
+
+- **Rich text** in text items and labels (bold, italic, lists, links, headings).
+  Text is plain today, with font, size, color and alignment.
+- **Labels shrinking to fit** a small shape (they clip today).
+- **Artifacts** (sandboxed HTML items and "Present").
+- **Dragging a record from the app** onto the canvas (paste its link or use
+  Reference today), and video play controls in the inspector.
+- **Ghost cursors for an agent's edits** (the edits themselves arrive live).
+- **Unsent edits kept across a reload** (they are kept and retried while the
+  page is open).
+- Comments, per-person grants and public links: the owner's decision, above.
+
+Things to know:
+
+- **Presence is not private.** Cursor positions, names and selected item ids go
+  over a Realtime broadcast channel named by the canvas's id. Anyone signed in
+  who knows a canvas's id can listen to that channel, including for a private
+  canvas they cannot open. The canvas's contents are not on it. Closing this
+  needs Realtime's private channels (policies on `realtime.messages`).
+- **An agent sizes text by estimate.** There is no browser where the tools run,
+  so a text box an agent makes takes its true size the next time someone opens
+  the canvas.
+- **Performance was measured in a development build in a headless browser with
+  no GPU**, where a 6-item canvas pans at about 22 frames a second. A 2,400-item
+  canvas pans about 6 ms a frame slower than that one. It has not been measured
+  in a production build on real hardware.
+

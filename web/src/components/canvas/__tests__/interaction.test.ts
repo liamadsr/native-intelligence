@@ -374,6 +374,49 @@ describe('clipboard and view', () => {
   })
 })
 
+describe('pasted links, and things taken back without a trace', () => {
+  it('reads a record out of this app\'s own link only', async () => {
+    const { recordFromLink } = await import('../clipboard')
+    const id = '11111111-1111-4111-8111-111111111111'
+    const origin = 'https://app.example.test'
+    expect(recordFromLink(`${origin}/account?document=${id}`, origin)).toEqual({ type: 'document', id })
+    expect(recordFromLink(` ${origin}/account?action=${id}\n`, origin)).toEqual({ type: 'action', id })
+    // Another site, another path, not an id, not a kind, a canvas (no canvas inside a canvas), prose.
+    expect(recordFromLink(`https://elsewhere.example.test/account?document=${id}`, origin)).toBeNull()
+    expect(recordFromLink(`${origin}/login?document=${id}`, origin)).toBeNull()
+    expect(recordFromLink(`${origin}/account?document=42`, origin)).toBeNull()
+    expect(recordFromLink(`${origin}/account?nonsense=${id}`, origin)).toBeNull()
+    expect(recordFromLink(`${origin}/account?canvas=${id}`, origin)).toBeNull()
+    expect(recordFromLink(`see ${origin}/account?document=${id}`, origin)).toBeNull()
+  })
+
+  it('forgets an item with no undo step left pointing at it, and still saves the removal', () => {
+    const a = drawRect([0, 0], [50, 50])
+    const b = drawRect([100, 0], [150, 50])
+    const steps: number[] = []
+    store.onChange((step) => steps.push(step.length))
+    store.forget([b])
+    expect(items().map((i) => i.id)).toEqual([a])
+    expect(steps).toEqual([1])
+    expect(store.getState().history.past).toHaveLength(1)
+    store.undo()
+    expect(items()).toHaveLength(0)
+    store.redo()
+    expect(items().map((i) => i.id)).toEqual([a])
+  })
+
+  it('opens a record card on a double-click, even when looking only', () => {
+    const opened: string[] = []
+    store.setHooks({ openRecord: (ref) => opened.push(`${ref.type}:${ref.id}`) })
+    store.applyRemote([{ id: 'card', parentId: null, sortKey: 'a1', kind: 'record', x: 0, y: 0, w: 340, h: 136, rotation: 0, style: {}, ref: { type: 'document', id: 'd1' } }], [])
+    ix.doubleClick(P(100, 60))
+    store.setReadOnly(true)
+    ix.doubleClick(P(100, 60))
+    expect(opened).toEqual(['document:d1', 'document:d1'])
+    expect(store.getState().editing).toBeNull()
+  })
+})
+
 describe('saving', () => {
   it('sends only what changed, the last state of each item, and retries a failure', async () => {
     const sent: Array<{ upsert: string[]; remove: string[] }> = []

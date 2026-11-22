@@ -144,7 +144,7 @@ export function makeMedia(
   kind: 'image' | 'video',
   center: Point,
   sortKey: string,
-  media: { naturalW: number; naturalH: number; src?: string; attachmentId?: string; name?: string },
+  media: { naturalW: number; naturalH: number; src?: string; path?: string; name?: string },
 ): MediaItem {
   const { w, h } = fitMedia(media.naturalW, media.naturalH)
   return {
@@ -154,7 +154,7 @@ export function makeMedia(
     naturalW: media.naturalW,
     naturalH: media.naturalH,
     ...(media.src ? { src: media.src } : {}),
-    ...(media.attachmentId ? { attachmentId: media.attachmentId } : {}),
+    ...(media.path ? { path: media.path } : {}),
     ...(media.name ? { name: media.name } : {}),
   }
 }

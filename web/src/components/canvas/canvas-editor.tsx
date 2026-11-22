@@ -6,7 +6,7 @@
  * page card (components/chat-cards/pages/canvases-card.tsx).
  */
 import * as React from 'react'
-import { ArrowLeft, Download, Loader2, Lock, MoreHorizontal, Pencil, Trash2, Users } from 'lucide-react'
+import { ArrowLeft, CopyPlus, Download, SlidersHorizontal, Link2, Loader2, Lock, MoreHorizontal, Paperclip, Pencil, Trash2, Users } from 'lucide-react'
 import { FLOATING_CARD_CLASS } from '@/components/attention/card-skin'
 import {
   DropdownMenu,
@@ -21,12 +21,22 @@ import { THEME_COLORS } from '@/lib/canvas/engine/colors'
 import { ordered } from '@/lib/canvas/engine/scene'
 import { cn } from '@/lib/utils'
 import { CanvasContextMenu } from './canvas-context-menu'
-import { readPaste, writeCopy } from './clipboard'
+import { insertRecord, mediaFiles, readPaste, writeCopy } from './clipboard'
+import { InsertMenu, MediaPicker, ReferencePicker, type InsertChoice } from './insert-menu'
+import { insertMediaFiles, uploadTo } from './media-client'
+import { entityOpenTarget } from '@/lib/entity-links/open-entity'
+import { openTarget } from '@/lib/chat-cards/open-card'
+import { toWorld } from '@/lib/canvas/engine/camera'
+import { CANVAS_MEDIA_ACCEPT } from '@/lib/canvas/media'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { CanvasInspector } from './inspector'
 import { Interaction } from './interaction'
 import { CanvasStore } from './store'
 import { CanvasSurface, isTyping } from './surface'
 import { CanvasSync, type SaveState } from './sync'
+import { PeerList, PresenceSender, RemoteChanges, peerColor } from './live'
+import { PeerFaces, PresenceLayer, usePeers } from './presence-layer'
+import { createClient } from '@/lib/supabase/client'
 import { CanvasToolbar } from './toolbar'
 import { CanvasContext, useCanvas } from './use-canvas'
 import { ZoomBar } from './zoom-bar'
@@ -62,6 +72,30 @@ function EmptyHint() {
   )
 }
 
+/** Narrow screens: what to do with the selection, in a row over the toolbar. */
+function SelectionActions({ styleOpen, onStyle }: { styleOpen: boolean; onStyle: () => void }) {
+  const store = React.useContext(CanvasContext)!
+  const has = useCanvas((s) => s.selection.length > 0)
+  const readOnly = useCanvas((s) => s.readOnly)
+  if (!has || readOnly) return null
+  const btn = 'flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground'
+  return (
+    <div data-canvas-chrome data-canvas-selection-actions className="pointer-events-none absolute inset-x-0 bottom-[7.25rem] z-20 flex justify-center px-3 md:hidden">
+      <div className={cn(FLOATING_CARD_CLASS, 'pointer-events-auto flex h-10 items-center gap-0.5 px-1')}>
+        <button type="button" aria-pressed={styleOpen} onClick={onStyle} className={cn(btn, styleOpen && 'bg-foreground/10 text-foreground')}>
+          <SlidersHorizontal className="h-3.5 w-3.5" /> Style
+        </button>
+        <button type="button" onClick={store.duplicateSelection} className={btn}>
+          <CopyPlus className="h-3.5 w-3.5" /> Duplicate
+        </button>
+        <button type="button" onClick={store.deleteSelection} className={btn}>
+          <Trash2 className="h-3.5 w-3.5" /> Delete
+        </button>
+      </div>
+    </div>
+  )
+}
+
 const SAVE_TEXT: Record<SaveState, string> = { saved: 'Saved', unsaved: 'Editing…', saving: 'Saving…', error: 'Not saved. Trying again…' }
 
 function Header({
@@ -72,7 +106,9 @@ function Header({
   onRename,
   onVisibility,
   onDownload,
+  onCopyLink,
   onDelete,
+  peers,
 }: {
   canvas: CanvasRecord
   canEdit: boolean
@@ -81,7 +117,9 @@ function Header({
   onRename: (title: string) => void
   onVisibility: (v: 'workspace' | 'private') => void
   onDownload: () => void
+  onCopyLink: () => void
   onDelete: () => void
+  peers: React.ReactNode
 }) {
   const save = React.useSyncExternalStore(sync.subscribe, sync.getState, sync.getState)
   const [title, setTitle] = React.useState(canvas.title)
@@ -127,6 +165,7 @@ function Header({
       ) : (
         <span className="shrink-0 px-1.5 text-[11px] text-muted-foreground">View only</span>
       )}
+      {peers}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button type="button" aria-label="Canvas menu" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground">
@@ -150,6 +189,9 @@ function Header({
               </DropdownMenuItem>
             )
           ) : null}
+          <DropdownMenuItem onSelect={onCopyLink}>
+            <Link2 className="mr-2 h-4 w-4" /> Copy link to this view
+          </DropdownMenuItem>
           <DropdownMenuItem onSelect={onDownload}>
             <Download className="mr-2 h-4 w-4" /> Download
           </DropdownMenuItem>
@@ -240,6 +282,72 @@ export default function CanvasEditor({ canvasId, onBack, onTitle }: CanvasEditor
     }
   }, [session])
 
+  // Other people on the same canvas: their saved changes, and where they are.
+  const [peerList, setPeerList] = React.useState<PeerList | null>(null)
+  const presence = React.useRef<PresenceSender | null>(null)
+  React.useEffect(() => {
+    if (!session) return
+    const { store, interaction, sync } = session
+    const supabase = createClient()
+    const remote = new RemoteChanges(canvasId, {
+      busy: () => interaction.active || store.getState().scene !== store.getState().base,
+      pending: sync.isPending,
+      apply: (put, remove) => store.applyRemote(put, remove),
+    })
+    sync.setOnSent((rows, removed) => remote.noteSent(rows, removed))
+    type Change = { eventType: 'INSERT' | 'UPDATE' | 'DELETE'; new: Record<string, unknown> | null; old: Record<string, unknown> | null }
+    const rows = supabase
+      .channel(`canvas-items:${canvasId}:${Math.random().toString(36).slice(2, 8)}`)
+      .on('postgres_changes' as any, { event: 'INSERT', schema: 'public', table: 'canvas_item', filter: `canvas_id=eq.${canvasId}` }, (p: Change) => remote.onRow('INSERT', p.new, null))
+      .on('postgres_changes' as any, { event: 'UPDATE', schema: 'public', table: 'canvas_item', filter: `canvas_id=eq.${canvasId}` }, (p: Change) => remote.onRow('UPDATE', p.new, p.old))
+      // A delete cannot be filtered by the server; RemoteChanges checks it is this canvas's.
+      .on('postgres_changes' as any, { event: 'DELETE', schema: 'public', table: 'canvas_item' }, (p: Change) => remote.onRow('DELETE', null, p.old))
+      .subscribe()
+
+    const key = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+    const peers = new PeerList(key)
+    setPeerList(peers)
+    const room = supabase.channel(`canvas-presence:${canvasId}`, { config: { broadcast: { self: false } } })
+    room.on('broadcast', { event: 'peer' }, (m: { payload?: unknown }) => peers.hear(m.payload, Date.now()))
+    let sender: PresenceSender | null = null
+    let live = true
+    void supabase.auth.getUser().then(({ data }) => {
+      const user = data.user
+      if (!live || !user) return
+      const meta = (user.user_metadata ?? {}) as { full_name?: string; name?: string }
+      const name = (meta.full_name || meta.name || user.email?.split('@')[0] || 'Someone').slice(0, 60)
+      room.subscribe((status: string) => {
+        if (status !== 'SUBSCRIBED' || !live || sender) return
+        sender = new PresenceSender({ key, userId: user.id, name, color: peerColor(user.id) }, (payload) => void room.send({ type: 'broadcast', event: 'peer', payload }))
+        presence.current = sender
+        sender.start()
+        sender.update({ selection: [...store.getState().selection] })
+      })
+    })
+    let lastSelection = store.getState().selection
+    const offSelection = store.subscribe(() => {
+      const sel = store.getState().selection
+      if (sel !== lastSelection) {
+        lastSelection = sel
+        presence.current?.update({ selection: [...sel] })
+      }
+    })
+    const prune = setInterval(() => peers.prune(Date.now()), 2000)
+    return () => {
+      live = false
+      clearInterval(prune)
+      offSelection()
+      sync.setOnSent(null)
+      remote.stop()
+      sender?.stop()
+      presence.current = null
+      setPeerList(null)
+      void supabase.removeChannel(rows)
+      void supabase.removeChannel(room)
+    }
+  }, [session, canvasId])
+  const peers = usePeers(peerList)
+
   // Where the view was last time; else everything in view.
   React.useEffect(() => {
     if (!session) return
@@ -249,10 +357,23 @@ export default function CanvasEditor({ canvasId, onBack, onTitle }: CanvasEditor
       if (placed || !store.viewport.w) return
       placed = true
       let saved: { x: number; y: number; scale: number } | null = null
+      // A shared link carries the view it was copied at: the canvas point in the middle, and the zoom.
+      // The app has already taken `canvas=<id>` off the address by now; these three are ours to
+      // read once and take off, so they never land on another canvas opened later.
+      const params = new URLSearchParams(window.location.search)
+      if (params.has('cx') && params.has('cy') && params.has('cz')) {
+        const cx = Number(params.get('cx'))
+        const cy = Number(params.get('cy'))
+        const cz = Number(params.get('cz'))
+        if ([cx, cy, cz].every(Number.isFinite) && cz > 0) saved = { scale: cz, x: store.viewport.w / 2 - cx * cz, y: store.viewport.h / 2 - cy * cz }
+        for (const k of ['cx', 'cy', 'cz']) params.delete(k)
+        const rest = params.toString()
+        window.history.replaceState(window.history.state, '', window.location.pathname + (rest ? `?${rest}` : '') + window.location.hash)
+      }
       try {
-        saved = JSON.parse(window.localStorage.getItem(camKey(canvasId)) ?? 'null')
+        saved = saved ?? JSON.parse(window.localStorage.getItem(camKey(canvasId)) ?? 'null')
       } catch {
-        saved = null
+        saved = saved ?? null
       }
       if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y) && Number.isFinite(saved.scale)) store.setCamera(saved, false)
       else store.zoomToFit(false, false)
@@ -276,6 +397,39 @@ export default function CanvasEditor({ canvasId, onBack, onTitle }: CanvasEditor
       if (timer) clearTimeout(timer)
     }
   }, [session, canvasId])
+
+  // Files onto the canvas, from a paste, a drop or the picker.
+  const addFiles = React.useCallback(
+    async (files: File[], at: { x: number; y: number }) => {
+      if (!session) return
+      const refused = await insertMediaFiles(session.store, files, at, uploadTo(canvasId))
+      if (refused.length) setNotice(refused[0])
+    },
+    [session, canvasId],
+  )
+  const [insertAt, setInsertAt] = React.useState<{ x: number; y: number } | null>(null)
+  const [panel, setPanel] = React.useState<'media' | 'reference' | null>(null)
+  const fileInput = React.useRef<HTMLInputElement>(null)
+  const [styleSheet, setStyleSheet] = React.useState(false)
+  /** Where the next inserted thing goes: where the menu was opened. */
+  const insertWorld = React.useRef<{ x: number; y: number } | null>(null)
+
+  React.useEffect(() => {
+    if (!session) return
+    const { store } = session
+    store.setHooks({
+      notify: setNotice,
+      openRecord: (ref) => {
+        const target = entityOpenTarget(ref.type, ref.id, ref.label ?? null)
+        if (!target || !openTarget(target, { from: 'canvas' })) setNotice('That record cannot be opened from here.')
+      },
+      openInsert: (at) => {
+        insertWorld.current = toWorld(store.camera, at)
+        setInsertAt(at)
+      },
+    })
+    return () => store.setHooks({ notify: null, openRecord: null, openInsert: null })
+  }, [session])
 
   // Copy, cut, paste: the browser's own events, while the canvas has the focus.
   const rootRef = React.useRef<HTMLDivElement>(null)
@@ -302,6 +456,12 @@ export default function CanvasEditor({ canvasId, onBack, onTitle }: CanvasEditor
     }
     const paste = (e: ClipboardEvent) => {
       if (!mine(e) || store.getState().readOnly) return
+      const files = mediaFiles(e.clipboardData)
+      if (files.length) {
+        e.preventDefault()
+        void addFiles(files, store.viewCenter())
+        return
+      }
       if (readPaste(store, e.clipboardData, shift)) e.preventDefault()
     }
     document.addEventListener('copy', copy)
@@ -316,7 +476,7 @@ export default function CanvasEditor({ canvasId, onBack, onTitle }: CanvasEditor
       window.removeEventListener('keydown', key, true)
       window.removeEventListener('keyup', key, true)
     }
-  }, [session])
+  }, [session, addFiles])
 
   const patch = React.useCallback(
     async (body: Record<string, unknown>): Promise<boolean> => {
@@ -371,11 +531,59 @@ export default function CanvasEditor({ canvasId, onBack, onTitle }: CanvasEditor
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
+  const refocus = () => rootRef.current?.querySelector<HTMLElement>('[data-canvas-surface]')?.focus({ preventScroll: true })
+  const pickInsert = (choice: InsertChoice) => {
+    setInsertAt(null)
+    if (choice === 'upload') fileInput.current?.click()
+    else setPanel(choice)
+  }
+  const copyLink = () => {
+    const c = store.viewCenter()
+    const url = `${window.location.origin}/account?canvas=${canvasId}&cx=${Math.round(c.x)}&cy=${Math.round(c.y)}&cz=${Number(store.camera.scale.toFixed(3))}`
+    void navigator.clipboard.writeText(url).then(
+      () => setNotice('Link copied. It opens on this view.'),
+      () => setNotice(url),
+    )
+  }
+
   return (
     <TooltipProvider delayDuration={300}>
       <CanvasContext.Provider value={store}>
         <style>{THEME_CSS}</style>
-        <div ref={rootRef} data-canvas-root className="relative h-full min-h-0 w-full overflow-hidden bg-background/40">
+        <div
+          ref={rootRef}
+          data-canvas-root
+          className="relative h-full min-h-0 w-full overflow-hidden bg-background/40"
+          onPointerMoveCapture={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect()
+            presence.current?.update({ cursor: toWorld(store.camera, { x: e.clientX - rect.left, y: e.clientY - rect.top }) })
+          }}
+          onPointerLeave={() => presence.current?.update({ cursor: null })}
+          onDragOver={(e) => {
+            if (loaded.canEdit && [...e.dataTransfer.types].includes('Files')) e.preventDefault()
+          }}
+          onDrop={(e) => {
+            if (!loaded.canEdit) return
+            const files = mediaFiles(e.dataTransfer)
+            if (!files.length) return
+            e.preventDefault()
+            const rect = e.currentTarget.getBoundingClientRect()
+            void addFiles(files, toWorld(store.camera, { x: e.clientX - rect.left, y: e.clientY - rect.top }))
+          }}
+        >
+          <input
+            ref={fileInput}
+            type="file"
+            multiple
+            accept={CANVAS_MEDIA_ACCEPT}
+            className="hidden"
+            onChange={(e) => {
+              const files = [...(e.target.files ?? [])]
+              e.target.value = ''
+              if (files.length) void addFiles(files, insertWorld.current ?? store.viewCenter())
+              refocus()
+            }}
+          />
           <CanvasContextMenu>
             <div className="h-full w-full">
               <CanvasSurface interaction={interaction}>
@@ -390,6 +598,8 @@ export default function CanvasEditor({ canvasId, onBack, onTitle }: CanvasEditor
                   }}
                   onVisibility={(visibility) => void patch({ visibility })}
                   onDownload={download}
+                  onCopyLink={copyLink}
+                  peers={<PeerFaces peers={peers} />}
                   onDelete={() => {
                     if (!window.confirm(`Delete "${canvas.title}"? It moves to the archive.`)) return
                     void fetch(`/api/account/canvases/${canvasId}`, { method: 'DELETE' }).then((r) => {
@@ -398,9 +608,73 @@ export default function CanvasEditor({ canvasId, onBack, onTitle }: CanvasEditor
                     })
                   }}
                 />
-                <CanvasInspector />
+                <PresenceLayer peers={peers} />
+                <CanvasInspector sheet={styleSheet} />
+                <SelectionActions styleOpen={styleSheet} onStyle={() => setStyleSheet((v) => !v)} />
                 <ZoomBar />
-                <CanvasToolbar />
+                <CanvasToolbar
+                  extra={
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          aria-label="Attach"
+                          data-canvas-attach
+                          onClick={(e) => {
+                            const root = rootRef.current!.getBoundingClientRect()
+                            const b = e.currentTarget.getBoundingClientRect()
+                            store.openInsert?.({ x: b.left + b.width / 2 - root.left, y: b.top - root.top - 60 })
+                            insertWorld.current = store.viewCenter()
+                          }}
+                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+                        >
+                          <Paperclip className="h-4 w-4" strokeWidth={1.75} />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" sideOffset={8}>
+                        Attach<span className="ml-2 text-muted-foreground">I</span>
+                      </TooltipContent>
+                    </Tooltip>
+                  }
+                />
+                {insertAt ? (
+                  <InsertMenu
+                    at={insertAt}
+                    bounds={store.viewport}
+                    onPick={pickInsert}
+                    onClose={() => {
+                      setInsertAt(null)
+                      refocus()
+                    }}
+                  />
+                ) : null}
+                {panel === 'media' ? (
+                  <MediaPicker
+                    onClose={() => {
+                      setPanel(null)
+                      refocus()
+                    }}
+                    onFiles={(files) => {
+                      setPanel(null)
+                      void addFiles(files, insertWorld.current ?? store.viewCenter())
+                      refocus()
+                    }}
+                  />
+                ) : null}
+                {panel === 'reference' ? (
+                  <ReferencePicker
+                    canvasId={canvasId}
+                    onClose={() => {
+                      setPanel(null)
+                      refocus()
+                    }}
+                    onPick={(ref) => {
+                      setPanel(null)
+                      insertRecord(store, ref, insertWorld.current ?? store.viewCenter())
+                      refocus()
+                    }}
+                  />
+                ) : null}
                 {notice ? (
                   <div data-canvas-chrome role="status" className={cn(FLOATING_CARD_CLASS, 'absolute left-1/2 top-4 z-30 -translate-x-1/2 px-3 py-2 text-xs text-foreground')}>
                     {notice}

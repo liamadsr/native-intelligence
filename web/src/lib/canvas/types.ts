@@ -121,9 +121,9 @@ export interface ConnectorItem extends ItemBase {
 }
 export interface MediaItem extends ItemBase {
   kind: 'image' | 'video'
-  /** The attachment's id, once uploaded. */
-  attachmentId?: string
-  /** A URL to draw from (signed, or a local preview while uploading). */
+  /** Where the file is stored, once uploaded (src/lib/canvas/media.ts). */
+  path?: string
+  /** A local preview while it uploads. Never saved. */
   src?: string
   name?: string
   naturalW: number
@@ -191,6 +191,8 @@ export interface CanvasItemRow {
 
 export function itemToRow(canvasId: string, item: CanvasItem): CanvasItemRow {
   const { id, parentId, sortKey, kind, ...data } = item
+  // A preview address means something in one browser tab only.
+  if ('src' in data) delete (data as { src?: string }).src
   return { canvas_id: canvasId, id, parent_id: parentId, sort_key: sortKey, kind, data }
 }
 

@@ -136,7 +136,24 @@ export class Interaction {
       return
     }
     if (e.button === 2) {
-      // A right-click takes what is under it before its menu opens.
+      this.contextAt(e)
+      return
+    }
+    if (e.button !== 0) return
+    if (state.editing) return
+
+    if (tool === 'select') return this.selectDown(e, world)
+    if (state.readOnly) return
+    return this.toolDown(e, world, tool)
+  }
+
+  /** A right-click or a long press takes what is under it before its menu opens. */
+  contextAt(e: PointerInput): void {
+    const store = this.store
+    const state = store.getState()
+    const world = this.world(e)
+    const tool = state.tool
+    {
       if (!state.editing && tool === 'select') {
         const hit = pick(state.scene, world, this.pickTol(e))
         const target = hit ? store.targetOf(hit.id, e.mod) : null
@@ -146,14 +163,12 @@ export class Interaction {
           if (!frame || grabAt(frame, store.camera, e, { handles: false })?.type !== 'inside') store.select([])
         }
       }
-      return
     }
-    if (e.button !== 0) return
-    if (state.editing) return
+  }
 
-    if (tool === 'select') return this.selectDown(e, world)
-    if (state.readOnly) return
-
+  private toolDown(e: PointerInput, world: Point, tool: ToolId): void {
+    const store = this.store
+    const state = store.getState()
     const step = store.snapStep()
     const snapped = snapPointTo(world, step)
     if (tool === 'rectangle' || tool === 'ellipse') {
@@ -558,9 +573,14 @@ export class Interaction {
   doubleClick(e: PointerInput): void {
     const store = this.store
     const state = store.getState()
-    if (state.readOnly || state.tool !== 'select' || state.editing) return
+    if (state.tool !== 'select' || state.editing) return
     const world = this.world(e)
     const hit = pick(state.scene, world, this.pickTol(e)) ?? pickBox(state.scene, world)
+    if (state.readOnly) {
+      // Looking only: a card still opens its record.
+      if (hit?.kind === 'record') store.openRecord?.(hit.ref)
+      return
+    }
     if (!hit) {
       this.newText(snapPointTo(world, store.snapStep()))
       return
@@ -568,6 +588,8 @@ export class Interaction {
     if (hit.kind === 'text' || hit.kind === 'rectangle' || hit.kind === 'ellipse' || hit.kind === 'connector') {
       store.select([hit.id])
       store.setEditing(hit.id)
+    } else if (hit.kind === 'record') {
+      store.openRecord?.(hit.ref)
     }
   }
 
@@ -680,6 +702,11 @@ export class Interaction {
       return false
     }
 
+    if (!e.alt && key === 'i' && !state.readOnly) {
+      const at = this.last ? { x: this.last.x, y: this.last.y } : { x: store.viewport.w / 2, y: store.viewport.h / 2 }
+      store.openInsert?.(at)
+      return true
+    }
     const tools: Record<string, ToolId> = { v: 'select', h: 'hand', r: 'rectangle', o: 'ellipse', a: 'arrow', l: 'line', p: 'pencil', e: 'eraser', t: 'text' }
     if (!e.alt && tools[key]) {
       store.setTool(tools[key])
@@ -737,7 +764,8 @@ export class Interaction {
   }
 
   /** The pointer moved with nothing pressed: show where a connector would tie. */
-  hover(e: { x: number; y: number }): void {
+  hover(e: PointerInput): void {
+    this.last = e
     const store = this.store
     const state = store.getState()
     const tool = state.tool

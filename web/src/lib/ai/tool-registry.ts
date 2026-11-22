@@ -238,6 +238,10 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       // only (ATTENDED_ONLY_TOOL_NAMES), like restore_document_revision.
       { name: 'revert_section_edit', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Revert Edit', description: 'Undo just one edit to a document, at section level, keeping later edits to other sections' },
       { name: 'create_document', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Create Document', description: 'Create a new document' },
+      // Canvases (whiteboards, docs/plans/canvas.md): in this category, so a persona that has documents has them.
+      { name: 'read_canvas', sideEffect: 'read', label: 'Read Canvas', description: 'Read a canvas (a whiteboard): its shapes, text, connectors and cards, with their ids, boxes and words' },
+      { name: 'edit_canvas', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Edit Canvas', description: 'Add shapes, text and arrows to a canvas, or move, resize, restyle, group, restack and delete what is there' },
+      { name: 'create_canvas', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Create Canvas', description: 'Make a new, empty canvas (a whiteboard)' },
       { name: 'update_document', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Update Document', description: 'Edit document content directly (published, no draft)' },
       { name: 'edit_document_content', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Edit Content', description: 'Make a surgical text edit to a document' },
       // Part edits (documents phase 1): the same kind of write as

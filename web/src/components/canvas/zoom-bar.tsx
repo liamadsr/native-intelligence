@@ -57,7 +57,7 @@ export function ZoomBar() {
   const readOnly = useCanvas((s) => s.readOnly)
 
   return (
-    <div data-canvas-chrome data-canvas-zoom className="absolute bottom-4 left-4 z-20 flex items-center gap-2">
+    <div data-canvas-chrome data-canvas-zoom className="absolute bottom-[4.25rem] left-2 z-20 flex items-center gap-2 md:bottom-4 md:left-4">
       <div className={cn(FLOATING_CARD_CLASS, 'flex h-10 items-center gap-0.5 px-1.5')}>
         <IconButton label="Zoom out" hint={`${MOD}−`} onClick={store.zoomOut}>
           <Minus className="h-3.5 w-3.5" />

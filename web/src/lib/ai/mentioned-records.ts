@@ -217,8 +217,7 @@ const REF_LINES: Partial<Record<MentionableType, { noun: string; read: (id: stri
   // Its tools arrive with the agents' spreadsheet tools; until then the line names it.
   spreadsheet: { noun: 'Spreadsheet', read: (id) => `id ${id}` },
   data_row: { noun: 'Table row', read: (id) => `id ${id}: query_rows on its table reads its fields` },
-  // No tool reads a canvas yet (docs/plans/canvas.md, phase 4 adds read_canvas): name it, do not point at a tool that is not there.
-  canvas: { noun: 'Canvas', read: (id) => `id ${id}: a whiteboard; no tool reads its items yet` },
+  canvas: { noun: 'Canvas', read: (id) => `read_canvas(canvas_id: ${id})` },
   team_chat_channel: { noun: 'Team chat channel', read: (id) => `id ${id}` },
   decision: { noun: 'Decision', read: (id) => `id ${id}: list_decisions shows it with its capture` },
   studio_project: { noun: 'Studio project', read: (id) => `id ${id}: list_studio_projects shows it in full` },
@@ -285,7 +284,7 @@ const ANY_REF_LINES: Partial<Record<MentionableType, { noun: string; read: (id: 
   attachment: { noun: 'File', read: (id) => `get_attachment_content(attachment_id: ${id})` },
   calendar_event: { noun: 'Calendar event', read: (id) => `id ${id}: get_calendar_events shows it` },
   studio_video: { noun: 'Studio video', read: (id) => `get_studio_video(video_id: ${id})` },
-  canvas: { noun: 'Canvas', read: (id) => `id ${id}: a whiteboard; no tool reads its items yet` },
+  canvas: { noun: 'Canvas', read: (id) => `read_canvas(canvas_id: ${id})` },
 }
 
 /**
