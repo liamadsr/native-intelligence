@@ -134,8 +134,9 @@ function mountFlowing() {
   expect(container.querySelector('[data-voice-beam] canvas')).not.toBeNull()
 }
 
-// If these fail, voice-glow is unpatched: run `npm install` (postinstall
-// applies patches/).
+// If these fail, voice-glow is unpatched. vitest's global setup
+// (src/test/global-setup.ts) applies patches/ before the run, so a failure
+// here means the patch itself no longer does what it says.
 describe("the HUD call glow's frame", () => {
   it('reads the box size before it writes styles, never after', () => {
     mountFlowing()
