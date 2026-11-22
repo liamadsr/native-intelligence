@@ -1,7 +1,9 @@
 # Sharing a private record with people
 
-Status: plan, waiting for the managing session's OK. Nothing here has been
-written to the database. Migration number: 688.
+Status: plan approved by the managing session (2026-11-22). Phase 1 (migration
+688) is written, tested and rehearsed on a local Postgres only; it is not
+applied anywhere else. See "Phase 1 as built" at the end for how the build
+differs from the plan.
 
 The goal: a person can share a PRIVATE record with chosen members of the
 workspace ("Can view" / "Can edit"), see who it is shared with, and stop
@@ -404,3 +406,68 @@ Tables (520) have steps 1–6 done and only need step 7.
     `entity_access` CHECK, two notification CHECKs), as 520, 601 and 679 did.
     Each restatement is the newest body with one arm added, and a test pins
     that.
+
+## Phase 1 as built
+
+`web/supabase/migrations/688_record_sharing.sql` has no begin/commit of its
+own, as 675. It was written to the plan, with these changes:
+
+- **No `my_spreadsheet_ids()`.** 675's select and update policies are
+  re-created as they stood, with one grant arm each: the caller's grant ids
+  (one InitPlan per query), then `has_entity_grant` or `has_entity_edit_grant`.
+  This is 493's and 512's shape for documents. A full id list of every
+  workspace spreadsheet would cost more than 675's own rule.
+  `spreadsheet_visible_to`, `spreadsheet_editable_by`,
+  `spreadsheet_visible_ungranted` and `visible_spreadsheet_ids` exist for the
+  app and the agent in Phase 2.
+- **Column guards reuse 512's `entity_edit_grant_column_guard(kind)`** on new
+  triggers. They need no new guard function, and 675's and 676's own guards are
+  not restated. A spreadsheet's guard watches `workspace_id`, `created_by`,
+  `visibility` and `status`. A canvas's watches `workspace_id`,
+  `created_by_user_id`, `owner_member_id`, `visibility`, `archived_at` and
+  `project_id`.
+- **View-only grantees** are refused comment insert, update (resolve) and
+  delete, as 512 does for `comment`. There are also restrictive delete
+  policies on both records, the spreadsheet's included (no grant deletes a
+  record, 494).
+- **Notifications**: the target list is 679's plus `'canvas'` and
+  `'spreadsheet'`, in that order, as the managing session gave 687's. The
+  test pins both lists against their sources.
+- **`entity_activity`**: 513's triggers write a "shared" row for these kinds,
+  but its read policy shows no kind it doesn't know (`else false`), so the
+  rows stay hidden. Showing them in a record's feed is later work.
+- **The app holds new spreadsheet grants.** A test requires `GRANTABLE_TYPES`
+  (`src/lib/entity-access/model.ts`) to equal the CHECK, so both kinds are
+  in it from Phase 1. `addEntityGrant` refuses kinds in `GRANTING_HELD_TYPES`
+  (`spreadsheet`), so neither the Share API nor an @-mention in a comment can
+  share a spreadsheet before Phase 3's read-only editor. **Canvases are not
+  held**: once Phase 1 is released, @-mentioning your own private canvas in a
+  comment beside a teammate shares it with them, view only. That is the
+  mention rule documents and tables already follow (`comment-mentions.ts`).
+- **The agent's fences** (`entity-fences.ts`) still hold the rule without
+  grants until Phase 2, so the agent's graph reads fail closed for a grantee.
+  The canvas tools already ask `canvas_visible_to`, so they see a grant from
+  Phase 1.
+
+**Rehearsal** (local Postgres 16, every migration through 686, then 688, then
+689 from `claude/spreadsheet-presence`, on stub `auth`, `realtime` and
+`storage` schemas): 94 checks, all passing. They cover the people and cases
+listed under Phase 1, plus spreadsheet presence through 689 and the
+notification checks.
+- **Control run**: the same script without 688 fails every grant check.
+- **Query plans**: `spreadsheet_select` and the canvas item policy each run
+  one InitPlan per query.
+
+**Not proven locally**: Supabase's Realtime server itself, which checks
+`postgres_changes` RLS per event and authorises a channel when it is joined.
+The policies it asks were exercised directly against `realtime.messages`, as
+Realtime authorises.
+
+### Decisions to review, added in Phase 1
+
+11. **The hold on spreadsheet grants** lives in the app
+    (`GRANTING_HELD_TYPES`), not in the database. The database already takes
+    them, so Phase 3 removes one line.
+12. **@-mentions share canvases** from the moment Phase 1 is released, view
+    only, as for documents and tables. To hold that back too, add `canvas` to
+    `GRANTING_HELD_TYPES`.

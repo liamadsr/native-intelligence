@@ -10,7 +10,7 @@ import { noticeEventKind } from '@/lib/agent-events/types'
 /**
  * Runtime list backing the NotificationType union — single source of truth
  * for code that needs the types at runtime. Must stay in sync with the DB
- * CHECK constraint (migration 671 is the latest DROP+ADD; 401 dropped the
+ * CHECK constraint (migration 688 is the latest DROP+ADD; 401 dropped the
  * types nothing writes any more, with their rows, when the notifications page
  * went: docs/plans/retire-notifications-page.md). Which of these reach the
  * agent, and as what: agent-events/types.ts NOTICE_EVENT_KIND.
@@ -89,6 +89,10 @@ export const NOTIFICATION_TYPES = [
   // Targets the record the mention is on. Team chat's mentions keep their own
   // type ('team_chat_message').
   'mentioned',
+  // A private record was shared with the person (migration 688,
+  // docs/plans/record-sharing.md): targets the record (a spreadsheet or a
+  // canvas). Nothing writes it until the plan's Phase 2.
+  'record_shared',
 ] as const
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number]
@@ -102,7 +106,8 @@ export interface CreateNotificationParams {
   body?: string
   actorId?: string
   // Must stay in sync with the notification.target_type CHECK (migration 031,
-  // widened by 172, then 197, then 224, then 273, then 560, then 679 with 'company') — an out-of-set value fails the
+  // widened by 172, then 197, then 224, then 273, then 560, then 679 with 'company', then 687/688 with 'canvas'
+  // and 'spreadsheet') — an out-of-set value fails the
   // insert, which createNotification swallows, silently dropping the row.
   // 'flow_run'/'flow' deep-link loop notifications to the Loop Activity surface
   // (WS-3b); 'agent_run' deep-links a work_run_ready notification to the run
@@ -113,7 +118,7 @@ export interface CreateNotificationParams {
     | 'action' | 'capture' | 'document' | 'project' | 'contact' | 'company'
     | 'cycle' | 'comment' | 'decision' | 'share' | 'flow_run' | 'flow'
     | 'agent_run' | 'initiative' | 'work_item' | 'email_draft' | 'sequence'
-    | 'team_chat_message'
+    | 'team_chat_message' | 'canvas' | 'spreadsheet'
   targetId?: string
   contextType?: string
   contextId?: string

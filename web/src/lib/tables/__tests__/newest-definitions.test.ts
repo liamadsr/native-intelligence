@@ -89,8 +89,8 @@ describe('Tables: the newest definition by file name keeps the table arm', () =>
     expect(sql.match(/public\.is_workspace_member\(workspace_id\)/g)).toHaveLength(2)
   })
 
-  it('the restatements after main are 601 and 664 (600’s, with a row’s file arm)', () => {
-    expect(newest(fn('entity_grant_ids_for'), true).file.startsWith('601_')).toBe(true)
+  it('the restatements after main are 601 (then 688, record sharing) and 664 (600’s, with a row’s file arm)', () => {
+    expect(newest(fn('entity_grant_ids_for'), true).file.startsWith('688_')).toBe(true)
     for (const name of ['entity_visible_to (4 args)', 'entity_visible_to (5 args)']) {
       expect(newest(CASES.find((c) => c.name === name)!.head, true).file, name).toBe('664_row_file_visibility.sql')
     }

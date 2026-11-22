@@ -134,12 +134,13 @@ describe('migration 671', () => {
     expect(BODY.indexOf('drop constraint if exists comment_record_mentions')).toBeLessThan(BODY.indexOf('add constraint comment_record_mentions'))
   })
 
-  it('adds `mentioned` to the app’s notification types, and is the newest word on the check', () => {
+  it('adds `mentioned` to the app’s notification types; 688 widens the check next', () => {
     const types = [...(/notification_type_check check \(type = any \(array\[([^\]]*)\]\)\)/.exec(BODY)?.[1] ?? '').matchAll(/'([a-z_]+)'/g)].map((v) => v[1])
-    expect(types).toEqual([...NOTIFICATION_TYPES])
+    // 688 (record sharing) adds 'record_shared' after it, and is the newest word on the check since.
+    expect(types).toEqual(NOTIFICATION_TYPES.filter((t) => t !== 'record_shared'))
     expect(types[types.length - 1]).toBe('mentioned')
     const newest = [...migrationsInOrder()].reverse().find((m) => /add constraint notification_type_check/i.test(m.sql))!.file
-    expect(newest).toBe(FILE)
+    expect(newest).toBe('688_record_sharing.sql')
     expect(BODY.indexOf('drop constraint if exists notification_type_check')).toBeLessThan(BODY.indexOf('add constraint notification_type_check'))
   })
 

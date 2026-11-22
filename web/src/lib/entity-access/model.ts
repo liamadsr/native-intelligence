@@ -16,13 +16,26 @@
  * or sees it, archive it, or share it on.
  */
 
-/** The kinds a grant can open: those with a per-record read rule that can be shared (a private table, migration 520). */
-export const GRANTABLE_TYPES = ['document', 'capture', 'contact', 'company', 'data_table'] as const
+/**
+ * The kinds a grant can open: those with a per-record read rule that can be
+ * shared (a private table, migration 520; a private spreadsheet or canvas,
+ * 688). Exactly entity_access_entity_type's list (a test holds them equal).
+ */
+export const GRANTABLE_TYPES = ['document', 'capture', 'contact', 'company', 'data_table', 'spreadsheet', 'canvas'] as const
 export type GrantableType = (typeof GRANTABLE_TYPES)[number]
 
 export function isGrantableType(type: unknown): type is GrantableType {
   return typeof type === 'string' && (GRANTABLE_TYPES as readonly string[]).includes(type)
 }
+
+/**
+ * Kinds the database can grant but the app does not make new grants on yet:
+ * addEntityGrant refuses them (the Share menu, an @-mention). Reading the
+ * grants that exist, changing a level and removing one still work.
+ * A spreadsheet waits for its read-only editor (docs/plans/record-sharing.md,
+ * Phase 3), so a view grantee never opens an editor that cannot save.
+ */
+export const GRANTING_HELD_TYPES: ReadonlySet<GrantableType> = new Set<GrantableType>(['spreadsheet'])
 
 /** Who a grant names. A channel's grantees are whoever can read it. */
 export const GRANTEE_KINDS = ['member', 'team', 'channel'] as const

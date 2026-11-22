@@ -17,7 +17,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { dmOtherMember } from '@/lib/team-chat/types'
-import { GRANT_SOURCES, isGrantLevel, isGranteeKind, type EntityAccessResponse, type EntityGrant, type GrantableType, type GranteeKind, type GrantLevel, type GrantSource } from './model'
+import { GRANT_SOURCES, GRANTING_HELD_TYPES, isGrantLevel, isGranteeKind, type EntityAccessResponse, type EntityGrant, type GrantableType, type GranteeKind, type GrantLevel, type GrantSource } from './model'
 
 type Row = Record<string, unknown>
 
@@ -139,6 +139,7 @@ export async function addEntityGrant(
   /** How it came about: by hand (the Share menu), or by an @-mention of the record (a comment's). */
   source: Extract<GrantSource, 'manual' | 'mention'> = 'manual',
 ): Promise<AddGrantResult> {
+  if (GRANTING_HELD_TYPES.has(type)) return { error: 'forbidden', message: "This can't be shared yet" }
   const column = grantee.kind === 'member' ? 'grantee_member_id' : grantee.kind === 'team' ? 'grantee_team_id' : 'grantee_channel_id'
   const { data, error } = await supabase
     .from('entity_access')
