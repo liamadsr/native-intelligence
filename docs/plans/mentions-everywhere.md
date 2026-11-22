@@ -331,3 +331,19 @@ Not done, and why:
   keeps its own channel share.
 - Teammates as people (not contacts) in `MentionTextarea`.
 - Run chats carrying the kinds that have no id key.
+
+### Third round (`claude/mentions-everywhere-3`, no migration)
+
+- **Attachments of a shared mail thread.** `GET /api/account/email/thread-shares/[id]/attachment`:
+  the share's grantee or owner, while it is not revoked, for a message among the share's frozen
+  ids only; read live through the channel share's own path (same size cap, download-only headers).
+- **Mail shared from documents and descriptions.** The comment rule everywhere a text is saved
+  (`web/src/lib/email-share/share-on-mention.ts`): the saver's OWN thread, mentioned beside a
+  teammate in the same text, is shared view only with that teammate. Only a pair new to the text
+  shares, so an autosave that changes nothing reads no mailbox.
+- **Removing the mention does not revoke.** Access a person was given ends only when its owner
+  stops the share (`DELETE /api/account/email/thread-shares/[id]`), never as a side effect of an edit.
+
+Not done: the owner has no screen that lists a thread's mention shares or stops one (the route
+exists; the read-only viewer is the grantee's, and nothing lists shares for their owner).
+

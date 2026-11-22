@@ -21,6 +21,7 @@ const hoisted = vi.hoisted(() => ({
   read: vi.fn(),
   revoke: vi.fn(),
   find: vi.fn(),
+  attachment: vi.fn(),
 }))
 
 vi.mock('@/lib/api-auth', async (importOriginal) => ({
@@ -32,10 +33,12 @@ vi.mock('@/lib/email-share/member-share', () => ({
   readSharedEmailThreadForMember: hoisted.read,
   revokeEmailThreadShare: hoisted.revoke,
   findMemberShareId: hoisted.find,
+  readSharedEmailAttachmentForMember: hoisted.attachment,
 }))
 
 import { GET, DELETE } from '@/app/api/account/email/thread-shares/[id]/route'
 import { GET as GET_INDEX } from '@/app/api/account/email/thread-shares/route'
+import { GET as GET_ATTACHMENT } from '@/app/api/account/email/thread-shares/[id]/attachment/route'
 
 const params = (id: string) => ({ params: Promise.resolve({ id }) })
 
@@ -113,5 +116,56 @@ describe('GET /api/account/email/thread-shares?thread=', () => {
   it('400 without a thread param', async () => {
     const res = await GET_INDEX(req('https://x/api/account/email/thread-shares'))
     expect(res.status).toBe(400)
+  })
+})
+
+describe('GET /api/account/email/thread-shares/[id]/attachment', () => {
+  const attUrl = (opts: { message?: string; key?: string } = {}) =>
+    `https://x/api/account/email/thread-shares/${SHARE}/attachment?message=${encodeURIComponent(opts.message ?? 'm1')}&key=${encodeURIComponent(opts.key ?? 'att-1')}`
+
+  it('streams the file as a download, never inline, with the message and key passed through', async () => {
+    hoisted.attachment.mockResolvedValue({
+      state: 'file',
+      file: { name: 'terms.pdf', mimeType: 'application/pdf', size: 4, body: new Uint8Array([1, 2, 3, 4]) },
+    })
+    const res = await GET_ATTACHMENT(req(attUrl()), params(SHARE))
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toBe('application/pdf')
+    expect(res.headers.get('content-disposition')).toContain('attachment;')
+    expect(res.headers.get('content-disposition')).toContain('terms.pdf')
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff')
+    expect(res.headers.get('content-security-policy')).toContain('sandbox')
+    expect(res.headers.get('cache-control')).toBe('no-store, private')
+    expect(res.headers.get('content-length')).toBe('4')
+    expect(hoisted.attachment).toHaveBeenCalledWith({}, { shareId: SHARE, messageId: 'm1', key: 'att-1', callerUserId: USER, workspaceId: WS })
+  })
+
+  it('an active content type is handed on as bytes, never drawn on our origin', async () => {
+    hoisted.attachment.mockResolvedValue({
+      state: 'file',
+      file: { name: 'evil.html', mimeType: 'text/html', size: 3, body: new Uint8Array([1, 2, 3]) },
+    })
+    const res = await GET_ATTACHMENT(req(attUrl({ key: 'att-html' })), params(SHARE))
+    expect(res.headers.get('content-type')).toBe('application/octet-stream')
+  })
+
+  it('404 for a caller the share does not reach (or a message/key it refuses)', async () => {
+    hoisted.attachment.mockResolvedValue({ state: 'not_found' })
+    const res = await GET_ATTACHMENT(req(attUrl()), params(SHARE))
+    expect(res.status).toBe(404)
+  })
+
+  it('410 when the owner’s mailbox can’t give it any more', async () => {
+    hoisted.attachment.mockResolvedValue({ state: 'unavailable' })
+    const res = await GET_ATTACHMENT(req(attUrl()), params(SHARE))
+    expect(res.status).toBe(410)
+    expect((await readJson<{ code?: string }>(res)).code).toBe('unavailable')
+  })
+
+  it('refuses a device/agent Bearer caller (shared mail opens in the app)', async () => {
+    const withBearer = new NextRequest(attUrl(), { headers: { authorization: 'Bearer nid_madeupdevicetoken' } })
+    const res = await GET_ATTACHMENT(withBearer, params(SHARE))
+    expect(res.status).toBe(403)
+    expect(hoisted.attachment).not.toHaveBeenCalled()
   })
 })

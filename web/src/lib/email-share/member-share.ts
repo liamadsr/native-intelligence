@@ -29,18 +29,18 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { isUuid } from '@/lib/team-chat/types'
 import { defaultEmailShareDeps, type EmailShareDeps } from './service'
-import type { ShareMailbox } from './provider'
+import type { ShareMailbox, SharedAttachmentFile } from './provider'
 import type { EmailShareMessage } from './types'
 
-/** The live reads a member share needs: the owner's mailbox, and the two provider reads. */
+/** The live reads a member share needs: the owner's mailbox, and the provider reads (ids, a message, an attachment). */
 export interface MemberShareDeps {
   mailbox: EmailShareDeps['mailbox']
-  provider: Pick<EmailShareDeps['provider'], 'threadIds' | 'message'>
+  provider: Pick<EmailShareDeps['provider'], 'threadIds' | 'message' | 'attachment'>
 }
 
 export function defaultMemberShareDeps(): MemberShareDeps {
   const d = defaultEmailShareDeps()
-  return { mailbox: d.mailbox, provider: { threadIds: d.provider.threadIds, message: d.provider.message } }
+  return { mailbox: d.mailbox, provider: { threadIds: d.provider.threadIds, message: d.provider.message, attachment: d.provider.attachment } }
 }
 
 /** The most grantees one mention shares a thread with. */
@@ -297,6 +297,61 @@ export async function readSharedEmailThreadForMember(
     mine: share.owner_user_id === input.callerUserId,
     thread,
   }
+}
+
+export type MemberShareAttachmentRead =
+  | { state: 'file'; file: SharedAttachmentFile }
+  | { state: 'not_found' }
+  | { state: 'unavailable' }
+
+interface AttachmentReadInput {
+  shareId: string
+  /** The message the attachment is on: must be one of the share's FROZEN ids (exact string match). */
+  messageId: string
+  /** The attachment's key (Gmail part id / Graph attachment id); the provider verifies it belongs to the message. */
+  key: string
+  callerUserId: string
+  workspaceId: string
+}
+
+/**
+ * One attachment of a thread shared with the caller (or owned by them),
+ * read-only, live. The SAME access the thread read makes, plus two live
+ * checks, in this order:
+ *   - the share reaches the caller (grantee or owner, not revoked, in this
+ *     workspace): else "not_found" (never 403);
+ *   - the requested message is one of the share's FROZEN message_ids (exact
+ *     string match): a message outside the share, even one in the same thread,
+ *     is "not_found";
+ *   - the owner is still a member and their mailbox still reads here: else
+ *     "unavailable" (never a partial leak).
+ * Then the attachment is read live through the SAME provider path the channel
+ * share uses (liveSharedAttachment): it re-fetches the message, verifies the
+ * key is one the message lists now (never an arbitrary id on trust), and
+ * enforces SHARE_ATTACHMENT_MAX_BYTES. A forged key, another message's key, or
+ * a file over the cap is "not_found"; the provider's busy error propagates to
+ * the route, which offers a retry. Fails closed throughout; never a leak.
+ */
+export async function readSharedEmailAttachmentForMember(
+  svc: SupabaseClient,
+  input: AttachmentReadInput,
+  deps: MemberShareDeps = defaultMemberShareDeps(),
+): Promise<MemberShareAttachmentRead> {
+  const share = await readableShare(svc, { shareId: input.shareId, callerUserId: input.callerUserId, workspaceId: input.workspaceId })
+  if (!share) return { state: 'not_found' }
+  // Only one of the share's frozen messages, by an exact id match, and a key of reasonable shape.
+  if (!input.messageId || !share.message_ids.includes(input.messageId)) return { state: 'not_found' }
+  if (!input.key || input.key.length > 512) return { state: 'not_found' }
+  // The owner must still be in the workspace, and have a mailbox that reads here (as the thread read).
+  const ownerMemberId = await memberIdOf(svc, share.workspace_id, share.owner_user_id)
+  if (!ownerMemberId || !share.account_id) return { state: 'unavailable' }
+  const mailbox = await deps.mailbox(share.owner_user_id, share.account_id, share.workspace_id)
+  if (!mailbox || mailbox.provider !== share.provider) return { state: 'unavailable' }
+  // Read live through the channel share's own provider path: it verifies the
+  // key belongs to this message and enforces the size cap.
+  const file = await deps.provider.attachment(mailbox, input.messageId, share.provider_thread_id, input.key)
+  if (!file) return { state: 'not_found' }
+  return { state: 'file', file }
 }
 
 /**

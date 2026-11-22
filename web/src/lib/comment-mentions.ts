@@ -20,11 +20,10 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { CommentableType } from '@/lib/comments'
-import { getServiceClient } from '@/lib/admin'
 import { addEntityGrant } from '@/lib/entity-access/store'
 import { isGrantableType } from '@/lib/entity-access/model'
 import { shareConversationWithMembers } from '@/lib/chat/conversation-share'
-import { shareEmailThreadWithMembers } from '@/lib/email-share/member-share'
+import { shareMentionedMail } from '@/lib/email-share/share-on-mention'
 import { MAX_MENTIONED_RECORDS, type LabeledMentionRef } from '@/lib/entity-links/mentionable'
 import { syncMentions } from '@/lib/entity-links/mentions'
 import { fenceRecordMentions } from '@/lib/team-chat/record-mentions'
@@ -119,24 +118,25 @@ export async function applyCommentMentions(
     }
 
     // A mentioned mail thread of the author's OWN is shared live, view only,
-    // with the teammates mentioned beside it (decision 1). Mail is not a grant
-    // kind and is not stored: the share is email_thread_share (673), read live
-    // on open, and is written with the service role (the table has no client
-    // grants). ownerUserId is the comment author, so only their OWN thread is
-    // ever shared; shareEmailThreadWithMembers verifies that with its own reads.
+    // with the teammates mentioned beside it (decision 1), through the one
+    // shared helper (src/lib/email-share/share-on-mention.ts) that documents
+    // and descriptions also use. Mail is not a grant kind and is not stored:
+    // the share is email_thread_share (673), read live on open, written with
+    // the service role (the helper calls getServiceClient). authorUserId is the
+    // comment author, so only their OWN thread is ever shared; the share verifies
+    // that with its own reads. A comment has no previous text, so every
+    // (thread, teammate) pair is new, which keeps the old behaviour exactly.
     if (others.length) {
-      const threadIndexIds = [...new Set(mentions.records.filter((r) => r.type === 'email_thread').map((r) => r.id))]
-      for (const threadIndexId of threadIndexIds) {
-        await shareEmailThreadWithMembers(getServiceClient(), {
-          workspaceId: input.workspaceId,
-          ownerUserId: input.userId,
-          threadIndexId,
-          memberIds: others,
-          // The comment carried the mention; applyCommentMentions does not
-          // receive the comment's own id, so only the kind is recorded.
-          source: { type: 'comment' },
-        })
-      }
+      await shareMentionedMail(supabase, {
+        workspaceId: input.workspaceId,
+        authorUserId: input.userId,
+        authorMemberId: input.memberId,
+        mentions: mentions.records,
+        resolvedMemberIds: others,
+        // The comment carried the mention; applyCommentMentions does not
+        // receive the comment's own id, so only the kind is recorded.
+        source: { type: 'comment' },
+      })
     }
   } catch (err) {
     console.warn('[comment-mentions] apply threw:', err instanceof Error ? err.message : 'unknown')

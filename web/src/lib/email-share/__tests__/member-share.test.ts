@@ -10,13 +10,14 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { memoryDb } from '@/test/memory-db'
 import {
   findMemberShareId,
+  readSharedEmailAttachmentForMember,
   readSharedEmailThreadForMember,
   revokeEmailThreadShare,
   shareEmailThreadWithMembers,
   type MemberShareDeps,
 } from '../member-share'
 import type { EmailShareMessage } from '../types'
-import type { ShareMailbox } from '../provider'
+import { SHARE_ATTACHMENT_MAX_BYTES, type ShareMailbox } from '../provider'
 
 const WS = '11111111-1111-4111-8111-111111111111'
 const OTHER_WS = '11111111-1111-4111-8111-222222222222'
@@ -77,7 +78,12 @@ beforeEach(() => {
   threadNow = ['m1', 'm2']
   mailboxUp = true
   messages = {
-    m1: message('m1'),
+    m1: message('m1', 'thr-1', {
+      attachments: [
+        { key: 'att-1', name: 'terms.pdf', size: 1024, mimeType: 'application/pdf' },
+        { key: 'att-big', name: 'huge.zip', size: SHARE_ATTACHMENT_MAX_BYTES + 1, mimeType: 'application/zip' },
+      ],
+    }),
     m2: message('m2', 'thr-1', { bodyText: 'Sounds good.', bodyHtml: null, blockedImages: 0 }),
     m3: message('m3', 'thr-1', { bodyText: 'A later, private reply.' }),
   }
@@ -93,6 +99,16 @@ beforeEach(() => {
         if (!m || m.threadId !== threadId) return null
         const { threadId: _t, ...rest } = m
         return opts?.images ? { ...rest, blockedImages: 0 } : rest
+      }),
+      // The channel share's own attachment path (liveSharedAttachment): the key
+      // must be one the message lists now, and the file under the share cap.
+      attachment: vi.fn(async (_m, id: string, threadId: string, key: string) => {
+        const m = messages[id]
+        if (!m || m.threadId !== threadId) return null
+        const att = m.attachments.find((a) => a.key === key)
+        if (!att) return null
+        if (att.size > SHARE_ATTACHMENT_MAX_BYTES) return null
+        return { name: att.name, mimeType: att.mimeType, size: att.size, body: new Uint8Array([1, 2, 3, 4]) }
       }),
     },
   }
@@ -231,6 +247,87 @@ describe('readSharedEmailThreadForMember', () => {
     await shareToBen()
     const result = await readSharedEmailThreadForMember(svc, { threadIndexId: INDEX, callerUserId: BEN_USER, workspaceId: WS }, deps)
     expect(result.state).toBe('available')
+  })
+})
+
+describe('readSharedEmailAttachmentForMember', () => {
+  it('a grantee downloads an attachment of a frozen message', async () => {
+    const shareId = await shareToBen()
+    const result = await readSharedEmailAttachmentForMember(svc, { shareId, messageId: 'm1', key: 'att-1', callerUserId: BEN_USER, workspaceId: WS }, deps)
+    expect(result.state).toBe('file')
+    if (result.state === 'file') {
+      expect(result.file.name).toBe('terms.pdf')
+      expect(result.file.mimeType).toBe('application/pdf')
+    }
+  })
+
+  it('the owner downloads their own share’s attachment', async () => {
+    const shareId = await shareToBen()
+    const result = await readSharedEmailAttachmentForMember(svc, { shareId, messageId: 'm1', key: 'att-1', callerUserId: ANA_USER, workspaceId: WS }, deps)
+    expect(result.state).toBe('file')
+  })
+
+  it('a non-grantee member gets not-found', async () => {
+    const shareId = await shareToBen()
+    const result = await readSharedEmailAttachmentForMember(svc, { shareId, messageId: 'm1', key: 'att-1', callerUserId: DANA_USER, workspaceId: WS }, deps)
+    expect(result.state).toBe('not_found')
+  })
+
+  it('a revoked share gets not-found', async () => {
+    const shareId = await shareToBen()
+    await revokeEmailThreadShare(svc, { shareId, ownerUserId: ANA_USER, workspaceId: WS })
+    const result = await readSharedEmailAttachmentForMember(svc, { shareId, messageId: 'm1', key: 'att-1', callerUserId: BEN_USER, workspaceId: WS }, deps)
+    expect(result.state).toBe('not_found')
+  })
+
+  it('a grantee named in another workspace gets not-found', async () => {
+    tables.email_thread_share.push({
+      id: '66666666-6666-4666-8666-000000000002',
+      workspace_id: WS,
+      owner_user_id: ANA_USER,
+      account_id: ACCOUNT,
+      provider: 'google',
+      provider_thread_id: 'thr-1',
+      thread_index_id: INDEX,
+      message_ids: ['m1', 'm2'],
+      grantee_member_id: M_SAM,
+      source: 'mention',
+      revoked_at: null,
+    })
+    const result = await readSharedEmailAttachmentForMember(
+      svc,
+      { shareId: '66666666-6666-4666-8666-000000000002', messageId: 'm1', key: 'att-1', callerUserId: SAM_USER, workspaceId: WS },
+      deps,
+    )
+    expect(result.state).toBe('not_found')
+  })
+
+  it('a message id not in the frozen list is not-found, even in the same thread', async () => {
+    const shareId = await shareToBen() // freezes ['m1','m2']
+    // m3 is in the same thread (thr-1) but was never frozen.
+    const result = await readSharedEmailAttachmentForMember(svc, { shareId, messageId: 'm3', key: 'att-1', callerUserId: BEN_USER, workspaceId: WS }, deps)
+    expect(result.state).toBe('not_found')
+    // Never fetched from the mailbox: it was refused on the frozen-id check.
+    expect(deps.provider.attachment).not.toHaveBeenCalled()
+  })
+
+  it('an attachment id not on that message is not-found (never fetched on trust)', async () => {
+    const shareId = await shareToBen()
+    const result = await readSharedEmailAttachmentForMember(svc, { shareId, messageId: 'm1', key: 'not-a-real-key', callerUserId: BEN_USER, workspaceId: WS }, deps)
+    expect(result.state).toBe('not_found')
+  })
+
+  it('an attachment over the share cap is not-found', async () => {
+    const shareId = await shareToBen()
+    const result = await readSharedEmailAttachmentForMember(svc, { shareId, messageId: 'm1', key: 'att-big', callerUserId: BEN_USER, workspaceId: WS }, deps)
+    expect(result.state).toBe('not_found')
+  })
+
+  it('a disconnected mailbox reads as unavailable', async () => {
+    const shareId = await shareToBen()
+    mailboxUp = false
+    const result = await readSharedEmailAttachmentForMember(svc, { shareId, messageId: 'm1', key: 'att-1', callerUserId: BEN_USER, workspaceId: WS }, deps)
+    expect(result.state).toBe('unavailable')
   })
 })
 
