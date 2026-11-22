@@ -14,13 +14,12 @@
  * instead of surfacing as some test's puzzling failure.
  */
 import { execFileSync } from 'node:child_process'
-import { createRequire } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export default function applyPatches(): void {
   const webRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
-  const bin = createRequire(path.join(webRoot, 'package.json')).resolve('patch-package/index.js')
+  const bin = path.join(webRoot, 'node_modules/patch-package/index.js')
   try {
     execFileSync(process.execPath, [bin, '--error-on-fail'], { cwd: webRoot, stdio: 'pipe' })
   } catch (err) {
