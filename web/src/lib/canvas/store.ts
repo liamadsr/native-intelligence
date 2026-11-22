@@ -117,19 +117,22 @@ export async function createCanvas(
   if (visibility !== 'workspace' && visibility !== 'private') return { ok: false, reason: 'invalid', error: 'visibility is workspace or private' }
   if (input.project_id != null && !isUuid(input.project_id)) return { ok: false, reason: 'invalid', error: 'project_id is not an id' }
   if (!actor.ownerMemberId) return { ok: false, reason: 'forbidden', error: 'Only a workspace member can make a canvas.' }
-  const { data, error } = await db
-    .from('canvas')
-    .insert({
-      workspace_id: workspaceId,
-      title,
-      visibility,
-      owner_member_id: actor.ownerMemberId,
-      created_by_user_id: actor.userId,
-      ...(input.project_id ? { project_id: input.project_id } : {}),
-      ...(input.settings ? { settings: input.settings } : {}),
-    })
-    .select(CANVAS_SELECT)
-    .maybeSingle()
+  // The id is made here and the row is read back in a second query: the read
+  // policy's list of canvases (my_canvas_ids) is worked out before an insert
+  // runs, so the same statement could not return the row it just made.
+  const id = crypto.randomUUID()
+  const { error: insertError } = await db.from('canvas').insert({
+    id,
+    workspace_id: workspaceId,
+    title,
+    visibility,
+    owner_member_id: actor.ownerMemberId,
+    created_by_user_id: actor.userId,
+    ...(input.project_id ? { project_id: input.project_id } : {}),
+    ...(input.settings ? { settings: input.settings } : {}),
+  })
+  if (insertError) return refusal(insertError)
+  const { data, error } = await db.from('canvas').select(CANVAS_SELECT).eq('id', id).maybeSingle()
   if (error) return refusal(error)
   if (!data) return { ok: false, reason: 'forbidden', error: 'Could not make the canvas.' }
   return { ok: true, value: normalizeRecord(data as CanvasRecord) }

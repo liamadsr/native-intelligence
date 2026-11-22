@@ -114,7 +114,7 @@ export function fakeCanvasDb(seed: Record<string, Row[]>, opts: { editable?: boo
         const res = applyMutation()
         return { data: res[0] ?? null, error: null }
       },
-      then(resolve: (v: { data: Row[]; error: unknown }) => unknown) {
+      then(resolve: (v: { data: Row[] | null; error: unknown }) => unknown) {
         const e = err()
         if (e) return Promise.resolve({ data: null, error: e }).then(resolve)
         let res = applyMutation()

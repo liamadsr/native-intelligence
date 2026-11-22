@@ -1,7 +1,7 @@
 # Canvas: whiteboards in the app
 
-Status: phase 0 (inventory and plan) on `claude/canvas-whiteboards`, 2026-11-22.
-Nothing merged, nothing rolled out. Migration 676 is reserved for this work.
+Status: phase 1 built on `claude/canvas-whiteboards`, 2026-11-22. Nothing merged,
+nothing rolled out. Migration 676 is written and applied to the dev project only.
 
 The target is parity with the canvas in Macro (github.com/macro-inc/macro): the
 same tools, interactions, menus, shortcuts and screen layout, drawn in this app's
@@ -168,7 +168,7 @@ Shift+arrows; Cmd+G, Shift+Cmd+G; Cmd+Z, Shift+Cmd+Z, Cmd+Y; Backspace/Delete;
 ### The record
 
 A canvas is a record like a document: workspace-scoped, `workspace` or `private`
-visibility, with per-person grants. Migration 676 adds, and redefines nothing:
+visibility. Migration 676 adds, and redefines nothing:
 
 - `canvas`: title, workspace, project, team, visibility, creator, status, saved
   settings.
@@ -187,9 +187,24 @@ visibility, with per-person grants. Migration 676 adds, and redefines nothing:
 | Entity actions (`entity-actions-registry.ts`) | Open, link, rename, archive, share to a channel |
 | Page and card (`chat-cards/pages.ts`, `page-menu.ts`, rail "Drive" group) | A "Canvases" list page and the canvas itself as a card, like Tables |
 | Entity links | Attach a canvas to a project or an action; a record card placed on a canvas writes a link both ways, and removing the card removes it |
-| Comments | Record-level comments on the canvas (Macro has none pinned to coordinates) |
-| Sharing | Visibility and per-person view or edit grants; a view grant opens the canvas read-only |
+| Comments | Not yet: see "What 676 could not do" below |
+| Sharing | Workspace or private, set by the owner. A workspace guest opens a canvas read-only. Per-person grants and public links: not yet, see below |
 | Visual identity | No `entity-identity` registry on `main` yet. Canvas gets its icon in the existing icon maps; an entry goes into the registry when it lands. |
+
+### What 676 could not do without redefining something
+
+The rule for this work is to add beside what exists and never redefine an
+existing function or policy. Three things a document has need exactly that, so
+they are left for the owner to decide:
+
+| Feature | What would have to change |
+|---|---|
+| Comments on a canvas | A new value in the `commentable_type` enum, and `validate_commentable_exists()` redefined to know the `canvas` table |
+| Per-person grants (share with one person, view or edit) | `entity_access`'s kind CHECK widened, and `entity_access_guard`, `entity_grant_only`, `entity_edit_grant_on` and `entity_edit_grant_only` redefined, as 520 did for tables |
+| Public share links | `share_shareable_type_check` widened, and the share routes taught the kind |
+
+Also not in 676: activity-log triggers (a canvas does not appear in the feed's
+history yet; 521 is the pattern).
 
 ### The engine
 

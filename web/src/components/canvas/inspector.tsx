@@ -65,7 +65,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function Row({ label, children }: { label?: string; children: React.ReactNode }) {
   return (
     <div className="flex items-center gap-2">
-      {label ? <span className="w-14 shrink-0 text-xs text-muted-foreground">{label}</span> : null}
+      {label ? <span className="w-12 shrink-0 text-xs text-muted-foreground">{label}</span> : null}
       <div className="flex min-w-0 flex-1 items-center gap-1.5">{children}</div>
     </div>
   )
@@ -329,7 +329,7 @@ export function CanvasInspector() {
       data-canvas-chrome
       data-canvas-inspector
       aria-label="Inspector"
-      className={cn(FLOATING_CARD_CLASS, 'absolute bottom-16 right-4 top-4 z-20 hidden w-60 flex-col overflow-y-auto md:flex')}
+      className={cn(FLOATING_CARD_CLASS, 'absolute bottom-16 right-4 top-4 z-20 hidden w-64 flex-col overflow-y-auto md:flex')}
       onPointerDown={(e) => e.stopPropagation()}
     >
       {none ? <div className="border-b border-border/50 px-3 py-2.5 text-xs text-muted-foreground">Nothing selected. These are the next shape&rsquo;s colors.</div> : null}

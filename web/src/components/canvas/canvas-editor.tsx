@@ -171,10 +171,13 @@ export default function CanvasEditor({ canvasId, onBack, onTitle }: CanvasEditor
   const [loaded, setLoaded] = React.useState<Loaded | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [notice, setNotice] = React.useState<string | null>(null)
+  /** The record as last saved from here (a rename, a change of who sees it). */
+  const [record, setRecord] = React.useState<CanvasRecord | null>(null)
 
   React.useEffect(() => {
     let live = true
     setLoaded(null)
+    setRecord(null)
     setError(null)
     fetch(`/api/account/canvases/${canvasId}`)
       .then(async (r) => {
@@ -324,22 +327,12 @@ export default function CanvasEditor({ canvasId, onBack, onTitle }: CanvasEditor
         return false
       }
       const j = (await r.json().catch(() => null)) as { canvas?: CanvasRecord } | null
-      if (j?.canvas) setLoadedCanvas(j.canvas)
+      // Only the record changed: the session (and so the editor) stays as it is.
+      if (j?.canvas) setRecord(j.canvas)
       return true
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [canvasId],
   )
-  const setLoadedCanvas = (canvas: CanvasRecord) => {
-    // Only the record changed: keep the session (the same items array) so the editor stays as it is.
-    recordRef.current = canvas
-    forceRecord((n) => n + 1)
-  }
-  const recordRef = React.useRef<CanvasRecord | null>(null)
-  const [, forceRecord] = React.useState(0)
-  React.useEffect(() => {
-    recordRef.current = loaded?.canvas ?? null
-  }, [loaded])
 
   React.useEffect(() => {
     if (!notice) return
@@ -365,7 +358,7 @@ export default function CanvasEditor({ canvasId, onBack, onTitle }: CanvasEditor
     )
   }
 
-  const canvas = recordRef.current ?? loaded.canvas
+  const canvas = record ?? loaded.canvas
   const { store, interaction, sync } = session
 
   const download = () => {

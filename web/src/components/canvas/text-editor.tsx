@@ -40,7 +40,11 @@ export function TextEditor({ item, scene, onFinish }: { item: CanvasItem; scene:
     onFinish(cancel ? null : (el?.innerText ?? '').replace(/\n$/, ''))
   }
   // Unmounted without finishing (the item went away): nothing to save.
-  React.useEffect(() => () => void (done.current = true), [])
+  React.useEffect(() => {
+    // Set again on every mount: React's development double-mount runs the cleanup once first.
+    done.current = false
+    return () => void (done.current = true)
+  }, [])
 
   let frame: React.CSSProperties
   let text: React.CSSProperties

@@ -204,7 +204,6 @@ function ItemViewInner(props: ItemViewProps) {
       <div data-canvas-item={item.id} style={frameStyle(item, dim)} className="overflow-hidden rounded-[2px] bg-muted/40">
         {item.src ? (
           item.kind === 'image' ? (
-            // eslint-disable-next-line @next/next/no-img-element
             <img src={item.src} alt={item.name ?? ''} draggable={false} style={{ width: '100%', height: '100%', objectFit: 'fill', transform: flip, userSelect: 'none', pointerEvents: 'none' }} />
           ) : (
             <video src={item.src} muted playsInline style={{ width: '100%', height: '100%', objectFit: 'fill', transform: flip, pointerEvents: 'none' }} />

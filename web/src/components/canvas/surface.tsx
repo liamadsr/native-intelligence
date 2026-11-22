@@ -228,7 +228,12 @@ export function CanvasSurface({ interaction, className, children }: { interactio
       <div ref={gridRef} data-canvas-grid className="pointer-events-none absolute inset-0" />
       <div ref={worldRef} data-canvas-world className="absolute left-0 top-0 h-0 w-0" style={{ transformOrigin: '0 0' }}>
         <ItemsLayer onMeasure={onMeasure} />
-        {editingItem ? <TextEditor key={editingItem.id} item={editingItem} scene={scene} onFinish={(plain) => interaction.finishEditing(plain)} /> : null}
+        {editingItem ? <TextEditor key={editingItem.id} item={editingItem} scene={scene} onFinish={(plain) => {
+              interaction.finishEditing(plain)
+              // Back to the canvas, so the next key is a shortcut again.
+              rootRef.current?.focus({ preventScroll: true })
+            }}
+          /> : null}
       </div>
       <SelectionOverlay />
       {children}
