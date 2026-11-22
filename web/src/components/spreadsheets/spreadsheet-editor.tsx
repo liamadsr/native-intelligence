@@ -14,7 +14,7 @@
  * save is refused, and that person is told and offered the newer version.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, Lock } from 'lucide-react'
+import { ArrowLeft, History, Lock } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -22,11 +22,19 @@ import { CardHeaderSlot, CardHeaderTrail, useCardHeaderSlots } from '@/component
 import { EntityIcon } from '@/components/entities/entity-icon'
 import { WorkbookController } from '@/lib/spreadsheets/controller'
 import { openModel } from '@/lib/spreadsheets/engine-client'
+import { readExtras } from '@/lib/spreadsheets/extras'
 import type { SpreadsheetRecord, SpreadsheetSummary } from '@/lib/spreadsheets/types'
+import { ChartDialog } from './chart-dialog'
+import { ConditionalFormat } from './conditional-format'
+import { DataValidationDialog } from './data-validation'
 import { FindReplace } from './find-replace'
 import { FormulaBar } from './formula-bar'
+import { GoalSeekDialog } from './goal-seek-dialog'
+import { TableColumnMenu, TableOptionsPanel, type ColumnMenuState } from './table-tools'
 import { FormulaSuggest, type FormulaSuggestHandle } from './formula-suggest'
 import { GridMenu, type GridCommands, type GridMenuState } from './grid-menu'
+import { ImportExport } from './import-export'
+import { VersionHistory } from './version-history'
 import { SheetGrid, pasteInto, type CaretState } from './sheet-grid'
 import { SheetTabs } from './sheet-tabs'
 import { Toolbar, type ViewOptions } from './toolbar'
@@ -45,9 +53,11 @@ interface Loaded {
 export interface SpreadsheetEditorProps {
   spreadsheetId: string
   onBack?: () => void
+  /** Open another spreadsheet by id (an .xlsx just imported). */
+  onOpen?: (id: string, title: string) => void
 }
 
-export function SpreadsheetEditor({ spreadsheetId, onBack }: SpreadsheetEditorProps) {
+export function SpreadsheetEditor({ spreadsheetId, onBack, onOpen }: SpreadsheetEditorProps) {
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
@@ -67,7 +77,7 @@ export function SpreadsheetEditor({ spreadsheetId, onBack }: SpreadsheetEditorPr
           model.free()
           return
         }
-        made = new WorkbookController(model, { readOnly: json.spreadsheet.status === 'archived' })
+        made = new WorkbookController(model, { readOnly: json.spreadsheet.status === 'archived', extras: readExtras(json.spreadsheet.extras) })
         setLoaded({ record: json.spreadsheet, workbook: made })
       } catch (e) {
         if (live) setError(e instanceof Error ? e.message : 'Could not load the spreadsheet')
@@ -93,7 +103,7 @@ export function SpreadsheetEditor({ spreadsheetId, onBack }: SpreadsheetEditorPr
     )
   }
   if (!loaded) return <GridSkeleton onBack={onBack} />
-  return <OpenSpreadsheet key={`${loaded.record.id}:${attempt}`} loaded={loaded} onBack={onBack} onReload={() => setAttempt((n) => n + 1)} />
+  return <OpenSpreadsheet key={`${loaded.record.id}:${attempt}`} loaded={loaded} onBack={onBack} onOpen={onOpen} onReload={() => setAttempt((n) => n + 1)} />
 }
 
 /** The grid's outline while the workbook loads. */
@@ -130,7 +140,7 @@ function GridSkeleton({ onBack }: { onBack?: () => void }) {
   )
 }
 
-function OpenSpreadsheet({ loaded, onBack, onReload }: { loaded: Loaded; onBack?: () => void; onReload: () => void }) {
+function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded; onBack?: () => void; onOpen?: (id: string, title: string) => void; onReload: () => void }) {
   const { workbook } = loaded
   useWorkbook(workbook)
   const [record, setRecord] = useState<SpreadsheetSummary>(loaded.record)
@@ -139,10 +149,17 @@ function OpenSpreadsheet({ loaded, onBack, onReload }: { loaded: Loaded; onBack?
   const [caretTick, setCaretTick] = useState(0)
   const [view, setView] = useState<ViewOptions>({ formulaBar: true, formulas: false })
   const [finding, setFinding] = useState(false)
+  const [history, setHistory] = useState(false)
+  const [dialog, setDialog] = useState<'dropdown' | 'goalSeek' | null>(null)
+  const [conditional, setConditional] = useState(false)
+  const [tableMenu, setTableMenu] = useState<ColumnMenuState | null>(null)
+  const [tablePanel, setTablePanel] = useState<string | null>(null)
+  const [chartEdit, setChartEdit] = useState<string | null>(null)
   const [resizing, setResizing] = useState<{ axis: 'row' | 'column'; from: number; to: number; value: string } | null>(null)
   const caret = useRef<CaretState>({ start: 0, end: 0, pointed: null })
   const suggest = useRef<FormulaSuggestHandle | null>(null)
   const gridHost = useRef<HTMLDivElement>(null)
+  const imageInput = useRef<HTMLInputElement>(null)
   const revision = useRef(loaded.record.revision)
   const saving = useRef(false)
   const stopped = useRef(false)
@@ -158,11 +175,13 @@ function OpenSpreadsheet({ loaded, onBack, onReload }: { loaded: Loaded; onBack?
     saving.current = true
     setSave('saving')
     const snapshot = workbook.snapshot()
+    // Send the extras only when they changed, so an ordinary edit does not rewrite them.
+    const extrasDirty = workbook.extrasDirty
     try {
       const res = await fetch(`/api/account/spreadsheets/${loaded.record.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ base_revision: revision.current, workbook: snapshot.workbook }),
+        body: JSON.stringify({ base_revision: revision.current, workbook: snapshot.workbook, ...(extrasDirty ? { extras: snapshot.extras } : {}) }),
       })
       const json = (await res.json().catch(() => ({}))) as { spreadsheet?: SpreadsheetSummary; error?: string; code?: string }
       if (res.status === 409) {
@@ -173,7 +192,7 @@ function OpenSpreadsheet({ loaded, onBack, onReload }: { loaded: Loaded; onBack?
       if (!res.ok || !json.spreadsheet) throw new Error(json.error || 'Could not save')
       revision.current = json.spreadsheet.revision
       setRecord((prev) => ({ ...prev, ...json.spreadsheet }))
-      workbook.markSaved(snapshot.version)
+      workbook.markSaved(snapshot.version, snapshot.extras)
       setSave(workbook.dirty ? 'unsaved' : 'saved')
     } catch {
       setSave('failed')
@@ -203,7 +222,7 @@ function OpenSpreadsheet({ loaded, onBack, onReload }: { loaded: Loaded; onBack?
         void fetch(`/api/account/spreadsheets/${loaded.record.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ base_revision: revision.current, workbook: snapshot.workbook }),
+          body: JSON.stringify({ base_revision: revision.current, workbook: snapshot.workbook, ...(workbook.extrasDirty ? { extras: snapshot.extras } : {}) }),
         }).catch(() => undefined)
       }
     }
@@ -277,6 +296,37 @@ function OpenSpreadsheet({ loaded, onBack, onReload }: { loaded: Loaded; onBack?
       const starts = axis === 'column' ? layout.columnStarts : layout.rowStarts
       setResizing({ axis, from, to, value: String(Math.round(starts[from] - starts[from - 1])) })
     },
+    dropdown: () => setDialog('dropdown'),
+    convertToTable: () => {
+      const result = workbook.convertToTable()
+      if (!result.ok) onMessage(result.message)
+      focusGrid()
+    },
+    tableOptions: (id) => setTablePanel(id),
+  }
+
+  const insertImage = () => imageInput.current?.click()
+  const onImageFile = async (file: File | undefined) => {
+    if (imageInput.current) imageInput.current.value = ''
+    if (!file) return
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer())
+      const { width, height } = await imageDimensions(file)
+      const { result } = workbook.insertImageFromBytes(bytes, width, height)
+      if (!result.ok) onMessage(result.message)
+    } catch {
+      onMessage('Could not read that image.')
+    }
+    focusGrid()
+  }
+  const convertOrOptions = () => {
+    const sel = workbook.selection()
+    const table = workbook.tableAtCell(sel.row, sel.column)
+    if (table) setTablePanel(table.id)
+    else {
+      const result = workbook.convertToTable()
+      if (!result.ok) onMessage(result.message)
+    }
   }
 
   // The name's field, in the card's header or the page's own title row.
@@ -325,6 +375,16 @@ function OpenSpreadsheet({ loaded, onBack, onReload }: { loaded: Loaded; onBack?
             {record.visibility === 'private' && <Lock className="size-3 shrink-0 text-muted-foreground" aria-label="Private" />}
           </CardHeaderTrail>
           <CardHeaderSlot side="right">
+            <button
+              type="button"
+              aria-label="Version history"
+              aria-pressed={history}
+              title="Version history"
+              onClick={() => setHistory((on) => !on)}
+              className={cn('mr-1 flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground', history && 'bg-foreground/[0.08] text-foreground')}
+            >
+              <History className="size-3.5" strokeWidth={1.75} aria-hidden />
+            </button>
             <span className="mr-2 flex items-center empty:hidden">
               <SaveNote state={workbook.readOnly ? 'saved' : save} readOnly={workbook.readOnly} onRetry={() => void saveNow()} onReload={onReload} />
             </span>
@@ -346,6 +406,9 @@ function OpenSpreadsheet({ loaded, onBack, onReload }: { loaded: Loaded; onBack?
               <Lock className="h-3 w-3" /> Private
             </span>
           )}
+          <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" aria-label="Version history" aria-pressed={history} title="Version history" onClick={() => setHistory((on) => !on)}>
+            <History className="h-4 w-4" />
+          </Button>
           <SaveNote state={workbook.readOnly ? 'saved' : save} readOnly={workbook.readOnly} onRetry={() => void saveNow()} onReload={onReload} />
         </div>
       )}
@@ -358,6 +421,17 @@ function OpenSpreadsheet({ loaded, onBack, onReload }: { loaded: Loaded; onBack?
         onPaste={(valuesOnly) => commands.paste(valuesOnly)}
         onMessage={onMessage}
         focusGrid={focusGrid}
+        onDropdown={() => setDialog('dropdown')}
+        onConditionalFormatting={() => setConditional(true)}
+        onGoalSeek={() => setDialog('goalSeek')}
+        onInsertChart={() => {
+          const { result } = workbook.insertChart('column')
+          if (!result.ok) onMessage(result.message)
+          focusGrid()
+        }}
+        onInsertImage={insertImage}
+        onConvertToTable={commands.convertToTable}
+        onTableOptions={(id) => setTablePanel(id)}
       />
 
       {view.formulaBar && <FormulaBar workbook={workbook} caret={caret} suggest={suggest} onCaret={() => setCaretTick((n) => n + 1)} onMessage={onMessage} focusGrid={focusGrid} />}
@@ -372,7 +446,28 @@ function OpenSpreadsheet({ loaded, onBack, onReload }: { loaded: Loaded; onBack?
           onMessage={onMessage}
           onContextMenu={(target, at) => setMenu({ target, x: at.x, y: at.y })}
           onEditorKey={(event) => suggest.current?.handleKey(event) ?? false}
+          onTableColumnMenu={(table, offset, at) => setTableMenu({ table, offset, x: at.x, y: at.y })}
+          onEditChart={(id) => setChartEdit(id)}
+          onTableShortcut={convertOrOptions}
         />
+        {history && (
+          <VersionHistory
+            spreadsheetId={loaded.record.id}
+            revision={record.revision}
+            readOnly={workbook.readOnly}
+            dirty={workbook.dirty}
+            onMessage={onMessage}
+            onClose={() => {
+              setHistory(false)
+              focusGrid()
+            }}
+            onRestored={() => {
+              // The restore is saved; what is open here is the older workbook, so nothing of it is saved over it.
+              stopped.current = true
+              onReload()
+            }}
+          />
+        )}
         {finding && (
           <FindReplace
             workbook={workbook}
@@ -383,9 +478,36 @@ function OpenSpreadsheet({ loaded, onBack, onReload }: { loaded: Loaded; onBack?
             }}
           />
         )}
+        {conditional && (
+          <ConditionalFormat
+            workbook={workbook}
+            onMessage={onMessage}
+            onClose={() => {
+              setConditional(false)
+              focusGrid()
+            }}
+          />
+        )}
+        {tablePanel && (
+          <TableOptionsPanel
+            workbook={workbook}
+            tableId={tablePanel}
+            onMessage={onMessage}
+            focusGrid={focusGrid}
+            onClose={() => {
+              setTablePanel(null)
+              focusGrid()
+            }}
+          />
+        )}
       </div>
 
-      <SheetTabs workbook={workbook} onMessage={onMessage} focusGrid={focusGrid} />
+      <SheetTabs
+        workbook={workbook}
+        onMessage={onMessage}
+        focusGrid={focusGrid}
+        trailing={<ImportExport workbook={workbook} title={record.title} onMessage={onMessage} onOpen={onOpen} focusGrid={focusGrid} />}
+      />
 
       <FormulaSuggest workbook={workbook} caret={caret} handle={suggest} caretTick={caretTick} />
       <GridMenu
@@ -397,6 +519,59 @@ function OpenSpreadsheet({ loaded, onBack, onReload }: { loaded: Loaded; onBack?
         }}
         commands={commands}
         onMessage={onMessage}
+      />
+      {dialog === 'dropdown' && (
+        <DataValidationDialog
+          workbook={workbook}
+          onMessage={onMessage}
+          focusGrid={focusGrid}
+          onClose={() => {
+            setDialog(null)
+            focusGrid()
+          }}
+        />
+      )}
+      {dialog === 'goalSeek' && (
+        <GoalSeekDialog
+          workbook={workbook}
+          onMessage={onMessage}
+          focusGrid={focusGrid}
+          onClose={() => {
+            setDialog(null)
+            focusGrid()
+          }}
+        />
+      )}
+      {tableMenu && (
+        <TableColumnMenu
+          workbook={workbook}
+          state={tableMenu}
+          onMessage={onMessage}
+          onOpenOptions={(id) => {
+            setTableMenu(null)
+            setTablePanel(id)
+          }}
+          onClose={() => {
+            setTableMenu(null)
+            requestAnimationFrame(focusGrid)
+          }}
+        />
+      )}
+      {chartEdit && (
+        <ChartDialog
+          workbook={workbook}
+          chartId={chartEdit}
+          onMessage={onMessage}
+          focusGrid={focusGrid}
+          onClose={() => setChartEdit(null)}
+        />
+      )}
+      <input
+        ref={imageInput}
+        type="file"
+        accept="image/png,image/jpeg,image/gif,image/webp"
+        className="hidden"
+        onChange={(event) => void onImageFile(event.target.files?.[0] ?? undefined)}
       />
       {resizing && (
         <ResizeBox
@@ -415,6 +590,29 @@ function OpenSpreadsheet({ loaded, onBack, onReload }: { loaded: Loaded; onBack?
       )}
     </div>
   )
+}
+
+/** An image file's natural size, scaled so it is at most 360 px wide. Falls back to a default if it cannot be read. */
+async function imageDimensions(file: File): Promise<{ width: number; height: number }> {
+  const fallback = { width: 240, height: 180 }
+  if (typeof Image === 'undefined' || typeof URL === 'undefined' || !URL.createObjectURL) return fallback
+  const url = URL.createObjectURL(file)
+  try {
+    const size = await new Promise<{ width: number; height: number }>((resolve, reject) => {
+      const img = new Image()
+      img.onload = () => resolve({ width: img.naturalWidth || 240, height: img.naturalHeight || 180 })
+      img.onerror = reject
+      img.src = url
+    })
+    const max = 360
+    if (size.width <= max) return size
+    const scale = max / size.width
+    return { width: max, height: Math.round(size.height * scale) }
+  } catch {
+    return fallback
+  } finally {
+    URL.revokeObjectURL(url)
+  }
 }
 
 function SaveNote({ state, readOnly, onRetry, onReload }: { state: SaveState; readOnly: boolean; onRetry: () => void; onReload: () => void }) {

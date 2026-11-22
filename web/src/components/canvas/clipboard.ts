@@ -1,5 +1,8 @@
 /** Copy, cut and paste for the canvas: through the browser's clipboard events, and through the menu. */
-import { itemText, makeText } from '@/lib/canvas/engine/defaults'
+import { itemText, makeRecord, makeText } from '@/lib/canvas/engine/defaults'
+import { fromExcalidraw, parseExcalidraw } from '@/lib/canvas/engine/excalidraw'
+import { DEEP_LINK_TYPES } from '@/lib/entities/entity-actions-registry'
+import { isMentionableType } from '@/lib/entity-links/mentionable'
 import { frontKey, patchScene } from '@/lib/canvas/engine/scene'
 import { parseFragment, type CanvasStore, type Fragment } from './store'
 
@@ -32,21 +35,78 @@ export function pasteText(store: CanvasStore, text: string): void {
   store.commit(patchScene(state.base, [item]), { selection: [item.id], tool: 'select' })
 }
 
-/** Take a paste event's clipboard. Returns true when something was pasted. */
-export function readPaste(store: CanvasStore, data: DataTransfer | null, inPlace: boolean): boolean {
-  if (!data) return false
-  const raw = data.getData(FRAGMENT_MIME)
-  const fragment = raw ? parseFragment(raw) : parseFragment(data.getData('text/plain'))
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * The record a pasted link of this app points at (`/account?document=<id>`),
+ * or null. Only this app's own address, and only kinds that can be linked.
+ */
+export function recordFromLink(text: string, origin: string): { type: string; id: string } | null {
+  const t = text.trim()
+  if (!t || /\s/.test(t) || t.length > 400) return null
+  let url: URL
+  try {
+    url = new URL(t)
+  } catch {
+    return null
+  }
+  if (url.origin !== origin || !url.pathname.startsWith('/account')) return null
+  for (const [key, value] of url.searchParams) {
+    if (key !== 'canvas' && (DEEP_LINK_TYPES as readonly string[]).includes(key) && isMentionableType(key) && UUID.test(value)) return { type: key, id: value }
+  }
+  return null
+}
+
+/** Put a record's card in the middle of the view, in front. */
+export function insertRecord(store: CanvasStore, ref: { type: string; id: string; label?: string }, at = store.viewCenter()): void {
+  const state = store.getState()
+  if (state.readOnly) return
+  const item = makeRecord(at, frontKey(state.base), ref)
+  store.commit(patchScene(state.base, [item]), { selection: [item.id], tool: 'select' })
+}
+
+/** Words pasted on the canvas: an Excalidraw selection, a link to a record, or just words. */
+function pasteWords(store: CanvasStore, text: string, inPlace: boolean): boolean {
+  const fragment = parseFragment(text)
   if (fragment) {
     store.pasteFragment(fragment, inPlace)
     return true
   }
-  const text = data.getData('text/plain')
-  if (text) {
+  const drawn = parseExcalidraw(text)
+  if (drawn) {
+    const items = fromExcalidraw(drawn)
+    if (items.length) store.pasteFragment({ kind: 'ni-canvas-fragment', source: 'excalidraw', items }, inPlace)
+    else store.notify?.('Nothing in that Excalidraw selection can be placed on a canvas.')
+    return true
+  }
+  const ref = typeof window !== 'undefined' ? recordFromLink(text, window.location.origin) : null
+  if (ref) {
+    insertRecord(store, ref)
+    return true
+  }
+  if (text.trim()) {
     pasteText(store, text)
     return true
   }
   return false
+}
+
+/** The image and video files on a clipboard or in a drop. */
+export function mediaFiles(data: DataTransfer | null): File[] {
+  if (!data) return []
+  return [...data.files].filter((f) => f.type.startsWith('image/') || f.type.startsWith('video/'))
+}
+
+/** Take a paste event's clipboard. Returns true when something was pasted. Files are the caller's (they upload). */
+export function readPaste(store: CanvasStore, data: DataTransfer | null, inPlace: boolean): boolean {
+  if (!data) return false
+  const raw = data.getData(FRAGMENT_MIME)
+  const fragment = raw ? parseFragment(raw) : null
+  if (fragment) {
+    store.pasteFragment(fragment, inPlace)
+    return true
+  }
+  return pasteWords(store, data.getData('text/plain'), inPlace)
 }
 
 /** Copy from the menu: the fragment is kept here, the words go to the system clipboard. */
@@ -70,9 +130,7 @@ export async function menuPaste(store: CanvasStore, inPlace: boolean): Promise<v
   } catch {
     text = ''
   }
-  const fromText = text ? parseFragment(text) : null
-  if (fromText) return store.pasteFragment(fromText, inPlace)
   // The clipboard still holds what this editor put there (or cannot be read): paste the fragment.
   if (mine && (!text || text === (plainOf(mine) || ' '))) return store.pasteFragment(mine, inPlace)
-  if (text) pasteText(store, text)
+  if (text) pasteWords(store, text, inPlace)
 }

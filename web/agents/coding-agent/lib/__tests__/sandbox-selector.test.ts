@@ -39,6 +39,9 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+/** An environment of just these variables (ProcessEnv's NODE_ENV, which Next.js declares required, left out). */
+const testEnv = (vars: Partial<NodeJS.ProcessEnv>) => vars as NodeJS.ProcessEnv
+
 const GATE_TOKEN = 'push.tokenexample'
 
 const SPEC = {
@@ -1142,7 +1145,7 @@ describe('coding-agent sandbox selector — on our own runtime (SANDBOX_RUNTIME_
         fetchEveSpec.mockResolvedValue(spec)
         const mod = await loadSandboxModule()
 
-        const err = await mod.default(selectorCtx as never).then(
+        const err = await Promise.resolve(mod.default(selectorCtx as never)).then(
           () => null,
           (e: unknown) => e as Error,
         )
@@ -1242,14 +1245,14 @@ describe('ownRuntimeSettings', COLD_IMPORT, () => {
     vi.stubEnv('VERCEL', '1')
     mockVercelNoop()
     const mod = await loadSandboxModule()
-    expect(mod.ownRuntimeSettings({ SANDBOX_RUNTIME_API_URL: ' http://10.0.0.1:3000 ', SANDBOX_RUNTIME_TRAFFIC_URL: 'http://10.0.0.1:3002' })).toEqual({
+    expect(mod.ownRuntimeSettings(testEnv({ SANDBOX_RUNTIME_API_URL: ' http://10.0.0.1:3000 ', SANDBOX_RUNTIME_TRAFFIC_URL: 'http://10.0.0.1:3002' }))).toEqual({
       apiUrl: 'http://10.0.0.1:3000',
       trafficUrl: 'http://10.0.0.1:3002',
       template: 'ni-coding-agent',
     })
-    expect(mod.ownRuntimeSettings({})).toBeNull()
-    expect(mod.ownRuntimeSettings({ SANDBOX_RUNTIME_API_URL: ' ', SANDBOX_RUNTIME_TRAFFIC_URL: '\n', SANDBOX_RUNTIME_TEMPLATE: 'x' })).toBeNull()
-    expect(() => mod.ownRuntimeSettings({ SANDBOX_RUNTIME_API_URL: 'http://10.0.0.1:3000' })).toThrow(/SANDBOX_RUNTIME_TRAFFIC_URL not set/)
+    expect(mod.ownRuntimeSettings(testEnv({}))).toBeNull()
+    expect(mod.ownRuntimeSettings(testEnv({ SANDBOX_RUNTIME_API_URL: ' ', SANDBOX_RUNTIME_TRAFFIC_URL: '\n', SANDBOX_RUNTIME_TEMPLATE: 'x' }))).toBeNull()
+    expect(() => mod.ownRuntimeSettings(testEnv({ SANDBOX_RUNTIME_API_URL: 'http://10.0.0.1:3000' }))).toThrow(/SANDBOX_RUNTIME_TRAFFIC_URL not set/)
   })
 })
 
@@ -1258,14 +1261,14 @@ describe('hostedSandboxCredentials', COLD_IMPORT, () => {
     vi.stubEnv('VERCEL', '1')
     mockVercelNoop()
     const mod = await loadSandboxModule()
-    expect(mod.hostedSandboxCredentials({ SANDBOX_ACCESS_TOKEN: ' t ', SANDBOX_TEAM_ID: 'team_x', SANDBOX_PROJECT_ID: 'prj_x' })).toEqual({
+    expect(mod.hostedSandboxCredentials(testEnv({ SANDBOX_ACCESS_TOKEN: ' t ', SANDBOX_TEAM_ID: 'team_x', SANDBOX_PROJECT_ID: 'prj_x' }))).toEqual({
       token: 't',
       teamId: 'team_x',
       projectId: 'prj_x',
     })
-    expect(mod.hostedSandboxCredentials({})).toBeNull()
-    expect(mod.hostedSandboxCredentials({ SANDBOX_ACCESS_TOKEN: ' ', SANDBOX_TEAM_ID: '', SANDBOX_PROJECT_ID: '\n' })).toBeNull()
-    expect(() => mod.hostedSandboxCredentials({ SANDBOX_ACCESS_TOKEN: 't' })).toThrow(/SANDBOX_TEAM_ID, SANDBOX_PROJECT_ID not set/)
+    expect(mod.hostedSandboxCredentials(testEnv({}))).toBeNull()
+    expect(mod.hostedSandboxCredentials(testEnv({ SANDBOX_ACCESS_TOKEN: ' ', SANDBOX_TEAM_ID: '', SANDBOX_PROJECT_ID: '\n' }))).toBeNull()
+    expect(() => mod.hostedSandboxCredentials(testEnv({ SANDBOX_ACCESS_TOKEN: 't' }))).toThrow(/SANDBOX_TEAM_ID, SANDBOX_PROJECT_ID not set/)
   })
 })
 

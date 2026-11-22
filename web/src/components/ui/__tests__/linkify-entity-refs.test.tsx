@@ -75,7 +75,7 @@ describe('Linkify with entityRefs', () => {
   it('without entityRefs, or on a surface with chips off, it is plain text and resolves nothing', () => {
     render(h('p', null, h(Linkify, { text: 'Closed GEN-12.' })))
     expect(chips()).toEqual([])
-    render(h(EntityRefsProvider, { enabled: false }, h('p', null, h(Linkify, { text: 'Closed GEN-12.', entityRefs: true }))))
+    render(h(EntityRefsProvider, { enabled: false, children: h('p', null, h(Linkify, { text: 'Closed GEN-12.', entityRefs: true })) }))
     expect(container.textContent).toBe('Closed GEN-12.')
     expect(chips()).toEqual([])
     expect(resolved).not.toHaveBeenCalled()

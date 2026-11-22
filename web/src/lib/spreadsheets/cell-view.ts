@@ -2,7 +2,7 @@
  * How a cell is drawn: the engine's style as plain values a component turns
  * into CSS. Pure, so it is tested without a browser.
  */
-import type { BorderStyle, CellStyle, Color, Model } from '@ironcalc/wasm'
+import type { BorderStyle, CellStyle, CfDataBar, CfIcon, Color, Model } from '@ironcalc/wasm'
 import { CELL_TYPE } from './workbook'
 
 /** The engine's default font size (points) and what the grid draws it at (pixels). */
@@ -36,8 +36,29 @@ export interface CellView {
   borderBottom: CellBorder | null
   borderLeft: CellBorder | null
   error: boolean
+  /** A conditional-formatting data bar behind the value, or null. */
+  dataBar: CellDataBar | null
+  /** A conditional-formatting icon drawn before the value, or null. */
+  icon: CellIcon | null
   /** Nothing to draw: no text, no fill, no border. */
   blank: boolean
+}
+
+export interface CellDataBar {
+  /** How far the bar reaches, 0 to 1 of the cell's width. */
+  fraction: number
+  color: string
+  negative: boolean
+  /** Where zero sits, 0 to 1 across the cell (the bar grows left of it for a negative value). */
+  axis: number
+  /** False: the number itself is hidden, only the bar shows. */
+  showValue: boolean
+}
+
+export interface CellIcon {
+  kind: string
+  color: string
+  showValue: boolean
 }
 
 const FONT_SCALE = DEFAULT_FONT_PX / DEFAULT_FONT_POINTS
@@ -115,15 +136,40 @@ export function cellView(text: string, type: number, style: CellStyle, resolve: 
     borderBottom: border(style.border?.bottom, resolve),
     borderLeft: border(style.border?.left, resolve),
     error: type === CELL_TYPE.error,
+    dataBar: null,
+    icon: null,
     blank: false,
   }
   view.blank = !text && !fill && !view.borderTop && !view.borderRight && !view.borderBottom && !view.borderLeft
   return view
 }
 
+/** A data bar from the engine's conditional-formatting result, as the grid draws it. */
+function dataBarOf(bar: CfDataBar, resolve: (c: Color) => string): CellDataBar {
+  const value = typeof bar.value === 'number' ? bar.value : 0
+  const negative = value < 0
+  return {
+    fraction: Math.max(0, Math.min(1, Math.abs(value))),
+    color: resolve(negative ? bar.negative_color : bar.positive_color) || '#638EC6',
+    negative,
+    axis: typeof bar.axis_position === 'number' ? Math.max(0, Math.min(1, bar.axis_position)) : 0,
+    showValue: bar.show_value !== false,
+  }
+}
+
+function iconOf(icon: CfIcon, resolve: (c: Color) => string): CellIcon {
+  return { kind: String(icon.icon), color: resolve(icon.color) || 'currentColor', showValue: icon.show_value !== false }
+}
+
 export function readCellView(model: Model, sheet: number, row: number, column: number): CellView {
   const text = model.getFormattedCellValue(sheet, row, column)
-  const style = model.getCellStyle(sheet, row, column).style
+  const ext = model.getCellStyle(sheet, row, column)
   const type = text ? model.getCellType(sheet, row, column) : 0
-  return cellView(text, type, style, (c) => (c === undefined || c === null ? '' : model.resolveColor(c)))
+  const resolve = (c: Color) => (c === undefined || c === null ? '' : model.resolveColor(c))
+  const view = cellView(text, type, ext.style, resolve)
+  if (ext.data_bar) view.dataBar = dataBarOf(ext.data_bar, resolve)
+  if (ext.icon) view.icon = iconOf(ext.icon, resolve)
+  // A data bar or an icon makes a cell worth drawing even if it had no fill or border.
+  if (view.dataBar || view.icon) view.blank = false
+  return view
 }

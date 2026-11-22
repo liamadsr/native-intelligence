@@ -25,7 +25,7 @@ const sections = [
 
 describe('PageLayout', () => {
   it('draws the shared site shell, with the page\'s own sections as its outline', () => {
-    const html = renderToStaticMarkup(createElement(PageLayout, { sections }, createElement('main', null, 'Body')))
+    const html = renderToStaticMarkup(createElement(PageLayout, { sections, children: createElement('main', null, 'Body') }))
     expect(html).toContain('aria-label="Search pages"')
     expect(html).toContain('href="/features/mail"')
     expect(html).toContain('On this page')
@@ -36,7 +36,7 @@ describe('PageLayout', () => {
   })
 
   it('keeps the older frame, without the shell or the mark, for the held name', () => {
-    const html = renderToStaticMarkup(createElement(PageLayout, { sections, brandName: 'Held' }, createElement('main', null, 'Body')))
+    const html = renderToStaticMarkup(createElement(PageLayout, { sections, brandName: 'Held', children: createElement('main', null, 'Body') }))
     expect(html).toContain('data-held-brand')
     expect(html).not.toContain('aria-label="Search pages"')
     expect(html).not.toContain('ni-mark')

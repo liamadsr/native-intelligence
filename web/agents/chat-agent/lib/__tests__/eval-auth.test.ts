@@ -230,7 +230,7 @@ describe('evalRunnerAuth: every switch must be on (fail closed)', () => {
     expect(evalAuthDisabledReason()).toBeNull()
     vi.stubEnv('NODE_ENV', 'development')
     expect(evalAuthDisabledReason()).toBeNull()
-    expect(isNonProductionDeployment({ EVE_DEV: '1' } as NodeJS.ProcessEnv)).toBe(true)
+    expect(isNonProductionDeployment({ EVE_DEV: '1' } as Partial<NodeJS.ProcessEnv> as NodeJS.ProcessEnv)).toBe(true)
     expect(isNonProductionDeployment({} as NodeJS.ProcessEnv)).toBe(false)
   })
 
