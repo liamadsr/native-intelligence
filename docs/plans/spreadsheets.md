@@ -613,6 +613,12 @@ Made without asking, while the owner was away. Each can be changed.
     not rebased around structural edits); `WorkbookExtras` merge per top-level kind. `adopt` clears
     the undo history, because the engine model is replaced and the old step counts no longer match
     it — the one place soundness could not be kept. Bounded retries, then the existing "Not saved".
+    The change sets stay pending until a save lands, so a save refused a second time replays the
+    same work onto the next newer workbook, and merged extras are sent with that save. Known
+    limits: when two people change the same kind of extra (both add a chart, say) between saves,
+    the later saver's set of that kind replaces the other's; and extras ranges, like cell edits,
+    are not moved around the other person's row or column inserts. **Not checked in a browser with
+    two real people**: only in tests, with two engine models and a stubbed server.
 27. **Comment anchors follow row/column inserts and deletes, and move back on undo.** The
     controller emits a structural change (and its inverse on undo/redo) that the editor applies to
     the threads of that sheet, saving the moved anchors. A thread whose cells were wholly deleted
