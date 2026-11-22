@@ -242,6 +242,29 @@ describe('edit_spreadsheet', () => {
     expect(JSON.stringify(rows[0].extras)).toBe(before)
   })
 
+  it('insert_rows logs a structure entry and shifts a validation range so the human merge guard can follow it', async () => {
+    rows[0].extras = {
+      v: 1,
+      validations: [{ sheetId: 1, range: { r1: 1, c1: 1, r2: 1, c2: 1 }, rule: { type: 'list', choices: [{ value: 'Yes' }], reject: true } }],
+      checkboxes: [],
+    }
+    const res = await call('edit_spreadsheet', { id: PLAN, expected_revision: 1, operations: [{ op: 'insert_rows', at: 1, count: 1 }] })
+    expect(res.success, JSON.stringify(res)).toBe(true)
+    const extras = rows[0].extras as { validations: Array<{ range: { r1: number } }>; structure: Array<Record<string, unknown>> }
+    // The validation followed the inserted row (A1 → A2).
+    expect(extras.validations[0].range.r1).toBe(2)
+    // The edit is logged, stamped with the revision it was read at.
+    expect(extras.structure).toEqual([{ base: 1, sheetId: 1, type: 'insertRows', at: 1, count: 1 }])
+  })
+
+  it('a non-structural edit leaves the extras untouched (no structure log, no resave)', async () => {
+    rows[0].extras = { v: 1, validations: [], checkboxes: [] }
+    const before = JSON.stringify(rows[0].extras)
+    const res = await call('edit_spreadsheet', { id: PLAN, expected_revision: 1, operations: [{ op: 'set_cells', start: 'C1', rows: [['hi']] }] })
+    expect(res.success).toBe(true)
+    expect(JSON.stringify(rows[0].extras)).toBe(before)
+  })
+
   it('warns about a cell this call wrote that now shows an error', async () => {
     const res = await call('edit_spreadsheet', { id: PLAN, expected_revision: 1, operations: [{ op: 'set_cells', start: 'A5', rows: [['=1/0']] }] })
     expect(res.success).toBe(true)

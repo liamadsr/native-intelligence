@@ -291,6 +291,78 @@ describe('saving', () => {
   })
 })
 
+describe('the merge guard (structural changes under my edits)', () => {
+  const extrasWith = (structure: Array<Record<string, unknown>>) => ({
+    v: 1, validations: [], checkboxes: [], tables: [], charts: [], images: [], imageBlobs: {}, structure, structureFloor: 0,
+  })
+
+  it('a 409 whose newer workbook inserted a row above my base moves my edit onto the shifted row', async () => {
+    await open()
+    await typeCell('m') // A1 = 'm', made over revision 4
+    current = record({
+      revision: 9,
+      workbook: workbookWith([[1, 1, 'inserted'], [2, 1, 'Role'], [3, 1, 'Designer']]),
+      extras: extrasWith([{ base: 4, sheetId: 1, type: 'insertRows', at: 1, count: 1 }]),
+    })
+    let first = true
+    const ok = patch
+    patch = (body) => {
+      if (first) {
+        first = false
+        return json({ error: 'conflict', code: 'SPREADSHEET_REVISION_CONFLICT' }, 409)
+      }
+      return ok(body)
+    }
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1300)
+    })
+    const retry = patches().at(-1)!
+    expect(retry.body?.base_revision).toBe(9)
+    const sent = loadModel(String(retry.body?.workbook))
+    expect(sent.getCellContent(0, 2, 1)).toBe('m') // my edit followed its row from 1 to 2
+    sent.free()
+    expect(note()).not.toContain('added or removed')
+  })
+
+  it('stops when the newer workbook changed structure under an edit it cannot move: it shows the notice, saves no more, and Load the latest reloads', async () => {
+    await open()
+    act(() => (container.querySelector('[aria-label="Bold"]') as HTMLButtonElement).click()) // an opaque edit on A1
+    current = record({
+      revision: 9,
+      workbook: workbookWith([[1, 1, 'NEW']]),
+      extras: extrasWith([{ base: 4, sheetId: 1, type: 'insertRows', at: 1, count: 1 }]),
+    })
+    patch = () => json({ error: 'conflict', code: 'SPREADSHEET_REVISION_CONFLICT' }, 409)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1300)
+    })
+    expect(note()).toContain('added or removed rows or columns')
+    const sent = patches().length
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6000)
+    })
+    expect(patches().length).toBe(sent) // no further PATCH after the guard
+    await act(async () => {
+      ;([...container.querySelectorAll('button')].find((b) => b.textContent === 'Load the latest') as HTMLButtonElement).click()
+      await vi.advanceTimersByTimeAsync(20)
+    })
+    expect(container.querySelector('[data-cell="A1"]')?.textContent).toBe('NEW')
+  })
+
+  it('a save carrying my own row insert writes a structure entry stamped with its base revision', async () => {
+    await open()
+    act(() => (container.querySelector('.cursor-cell') as Element).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 46 + 10, clientY: 26 + 5, button: 2 })))
+    const item = [...document.querySelectorAll('[role="menuitem"]')].find((i) => i.textContent?.trim().startsWith('Insert row above')) as HTMLElement
+    act(() => item.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1300)
+    })
+    const body = patches()[0].body as { base_revision?: number; extras?: { structure?: Array<Record<string, unknown>> } }
+    expect(body.base_revision).toBe(4)
+    expect(body.extras?.structure).toEqual([{ base: 4, sheetId: 1, type: 'insertRows', at: 1, count: 1 }])
+  })
+})
+
 describe('polling for others’ changes', () => {
   let revisionReply: () => Response
   function withPolling() {

@@ -474,9 +474,11 @@ Not built in this part, said plainly:
   only the seven common ones are.
 - **Import of tables, charts and images from .xlsx is unchanged**: the reader still only warns about
   them (phase 3). Export does not write them either.
-- **An agent edit that inserts or deletes rows/columns does not shift a table's, chart's or image's
-  stored ranges** (the tools write the engine model directly, bypassing `shiftExtras`), the same as
-  for validation and checkboxes in the first part. A person's edits do shift them.
+- **An agent edit that inserts or deletes rows/columns, or deletes a sheet, now shifts the stored
+  ranges** (validation, checkboxes, tables, charts, images) with `shiftExtras`, and logs the edit in
+  the structure log, the same as a person's edit (phase 5, decision 28). So an agent's row/column
+  edit no longer strands a table's or chart's range, and a person editing the same workbook can have
+  their late cell edits moved onto the agent's new layout.
 - **Chart tooltips** are not drawn (the plan left them optional).
 
 ### Phase 5: done
@@ -622,19 +624,72 @@ Made without asking, while the owner was away. Each can be changed.
     at the same moment (a real 409), ended up in both windows and on the server. Also in two windows: both typing into
     the same cell at the same moment (both windows and the server ended on the later save's
     value); a hidden tab (no polls for 12 s, one poll on showing, the other window's change on
-    screen 1.5 s later). **The limit that matters, seen in the browser:** one window inserted a row
-    and saved; the other, not yet updated (its tab was hidden), set a value on what it saw as row 5;
-    the value landed on row 5 of the newer workbook, which was a different item's row, with no
-    warning. The same would happen in the up-to-4-second gap between polls. Fixing it means either
-    a live channel or the server recording row and column inserts per revision, so a late edit can
-    be moved; both need a schema change. **Not checked with two different people**, nor with a
-    private spreadsheet.
+    screen 1.5 s later). **The row/column shift that was wrong, seen in the browser, is now
+    guarded (decision 28).** One window inserted a row and saved; the other, not yet updated, set a
+    value on what it saw as row 5 — before, the value landed on row 5 of the newer workbook, a
+    different item's row, silently. Now the newer workbook carries a structural-edit log in its
+    `extras`, and the editor records what each pending action is; on a merge a plain cell edit is
+    moved through the log onto its true row (and column), and a sheet added, deleted or moved before
+    it is followed by the sheet's stable id, so a late value lands on the right cell or, if its row
+    was deleted, is dropped with a one-sentence note — never placed on a guessed row. What is still
+    imperfect: a formula I typed is replayed as typed and NOT rewritten, so its own cell references
+    are not shifted around the other person's structural edit (the engine parses it against the new
+    layout); when both sides change structure on the same sheet, or an opaque action (a style, sort,
+    sheet op or fill) sits on a sheet the other side changed structurally or moved, the merge STOPS
+    rather than guess — the editor keeps the person's own version, stops autosaving and polling, and
+    shows a calm notice with a "Load the latest" button; and a client that saved before this change
+    wrote no log, so its own structural edits are invisible to the guard EXCEPT that a sheet it
+    added, deleted or moved is still caught by comparing the sheet id→index maps directly (that part
+    needs no log). So the remaining blind spot is a pre-change client's row/column insert or delete:
+    a late cell edit made across it still lands at its absolute row, as before. **Not checked with
+    two different people**, nor with a private spreadsheet, and the guard itself was proven in unit
+    and editor tests, not in two live browsers.
 27. **Comment anchors follow row/column inserts and deletes, and move back on undo.** The
     controller emits a structural change (and its inverse on undo/redo) that the editor applies to
     the threads of that sheet, saving the moved anchors. A thread whose cells were wholly deleted
     survives, clamped to the cut and shown as "its cells were deleted". A sheet delete marks its
     threads the same way, but has no simple inverse, so undo of a sheet delete does not restore
     their anchors (the thread lives on, flagged).
+28. **A merge moves a late cell edit onto the newer layout, or stops — it never lands on a guessed
+    row (the row/column/sheet guard).** `WorkbookExtras` gained a `structure` log
+    (`{ base, sheetId, type, at?, count? }`, `base` = the revision the save was made over) and a
+    `structureFloor` (entries below it were trimmed; ~200 kept). A structural edit is written to the
+    log with the save that carries it: the editor stamps its own unsaved inserts/deletes (and the
+    inverse of any it undid) with each save's `base_revision`, re-stamping on a 409; the agent's
+    `edit_spreadsheet` logs its `insert_rows`/`delete_rows`/`insert_columns`/`delete_columns`/
+    `delete_sheet` (and now runs `shiftExtras` for them too); a version-history restore writes a
+    `reset`. Alongside each pending change set the controller records what the action is — `cells`
+    (typed inputs, a clear), `structure` (my own row/column edit) or `opaque` (everything else,
+    with its sheet noted when single-sheet). On a merge (`rebaseWithLog`): a `cells` action is moved
+    through the newer workbook's relevant log entries (base ≥ my base) for its sheet and re-applied
+    by the engine's input setter on the sheet found by its stable id — an insert at/above shifts it
+    down/right, a delete of its own row/column drops it (counted, with the existing note); a
+    `structure` action applies unless the other side also changed structure on that sheet (then
+    stop); an `opaque` action replays at its absolute address only when its sheet is present at the
+    same index and nothing structural touched it (else stop, or drop when the sheet is gone); a
+    `reset` or a floor above my base stops. The sheet id→index maps of my base and theirs are
+    compared directly, so a sheet added/deleted/moved is handled with or without a log (it covers
+    saves made before this change). Chosen rule: **simple and provably right over clever** — two
+    structural edits on one sheet, or an opaque edit over a changed/moved sheet, STOP rather than
+    attempt a clever transform. The stop path keeps the person's own version, halts autosave and
+    polling, and shows a calm `role="alert"` notice with "Load the latest". Known gaps: a formula's
+    own references are not rewritten (set as typed); a client that saved before this change logs
+    nothing, so its row/column inserts and deletes are invisible to the guard (its sheet
+    adds/deletes/moves are still caught by the map compare). The proper fix for every kind of late
+    edit — not only plain cell inputs — is the open item below.
+
+## Open items
+
+- **The server does not record structural edits authoritatively, and there is no live channel.**
+  The guard rides in the workbook's `extras` jsonb and is written by whoever saves, so a client that
+  saved before this change contributes no log, and even now only plain cell inputs are moved across
+  a merge (a typed formula's references, and anything opaque, are not). The proper follow-up is to
+  have the server record row/column/sheet edits per revision (a small migration: a per-revision
+  structural-delta table, authoritative and independent of what any client writes) or to add a live
+  collaboration channel, so that a late edit of EVERY kind can be transformed instead of only
+  cell inputs, and so a stop becomes a rare last resort rather than the answer for two structural
+  edits on one sheet. Both need a schema change and the owner's word (and the dev project to verify
+  against two live browsers and two different people).
 
 ## Dependencies
 
