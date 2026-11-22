@@ -117,8 +117,8 @@ export const PACKS: Record<AreaKey, PackDefinition> = {
     key: 'documents',
     name: 'Documents',
     feature: 'docs',
-    // Tables (phase 5) are gated with Docs: their page sits with the docs.
-    toolGroups: ['documents', 'tables'],
+    // Tables (phase 5) and spreadsheets (phase 3) are gated with Docs: their pages sit with the docs.
+    toolGroups: ['documents', 'tables', 'spreadsheets'],
     cardKinds: [...entityCards('document'), 'tables', 'spreadsheets'],
   },
   knowledge: {
