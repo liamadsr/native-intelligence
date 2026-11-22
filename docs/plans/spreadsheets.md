@@ -238,6 +238,12 @@ Where upstream differs from Macro's copy (checked by running each):
 - **NOW, TODAY and RAND calculate.** Macro blanks them to `#N/A`. To decide with live
   editing (phase 5); until then they work as in Excel.
 - **A spill that has no room gives `#SPILL!`**, as in Excel.
+- **Two answers that differ from Excel**, found while testing a sample of every category:
+  XLOOKUP over an inline array (`{"a","b"}`) gives `#N/A` (over cells it is right), and
+  TEXTJOIN told to ignore empties keeps a literal `""` argument (empty cells it does ignore).
+  Both are the engine's; neither is patched here.
+- **490 of the 492 names are known to the engine** (`functions.test.ts` runs every name
+  through it). Known is not the same as proven equal to Excel in every corner.
 
 The same engine runs in the browser (the editor) and on the server (the agents' tools,
 import and export), so a tool's edit and a person's edit follow one set of rules.
@@ -308,7 +314,7 @@ right.
 
 Each phase ends with the full test run, a push, and a report with screenshots.
 
-1. **The record and the grid.** Migration 675, the API, the engine in a worker, a virtual
+1. **The record and the grid.** Migration 675, the API, the engine, a virtual
    grid tested at 10,000 rows and more, editing, selection, the formula bar with
    autocomplete and pointing, Go to cell, sheet tabs and their menu, undo and redo, copy and
    paste with Excel and Google Sheets, the fill handle, resize, hide, insert and delete,
@@ -321,6 +327,58 @@ Each phase ends with the full test run, a push, and a report with screenshots.
 4. **Data and objects.** Dropdowns and validation, checkboxes, tables (typed columns,
    filter, group by, totals), conditional formatting, charts, images, Goal Seek.
 5. **Together.** Live editing by several people and presence, comment threads on cells.
+
+## Where it stands
+
+### Phase 1: done
+
+Against the inventory:
+
+| Item | State |
+| --- | --- |
+| Cells and editing | Done. Type to replace; double-click, Enter or F2 to edit in place; one draft shared by the cell and the formula bar; Enter, Shift+Enter, Tab, Shift+Tab, Escape; Alt+Enter for a line break; F4 cycles a reference through `$`. The editor wears the cell's font, color and fill. |
+| Selection | Done. Arrows, Shift, Ctrl/Cmd (edge of a block), Home, End, Page Up and Down, Ctrl/Cmd+A, drag, Shift+click, row and column headers (click, drag, Shift+click), the corner. The range tint leaves the active cell clear. |
+| Fill handle | Done, and past Macro: it continues a series (1, 2 gives 3, 4). Ctrl/Cmd+D and Ctrl/Cmd+R. |
+| Copy and paste | Done. Inside the app formats are kept and formulas shifted; a cut moves. To other apps: tab-separated text and an HTML table. From other apps: either. One cell pasted over a range fills it. A paste is one undo step. Tried in a browser with the real clipboard; not yet tried against Excel or Google Sheets themselves. |
+| Undo and redo | Done. One action, one step (a 60,000-cell paste too). |
+| Resize | Done. Drag a header's edge (all selected columns or rows together), double-click to fit, Resize… box, Fit to data. Rows too, which Macro has no control for. |
+| Hide and unhide | Done, with a marker in the header where something is hidden. |
+| Insert and delete rows and columns | Done. Formulas follow. |
+| Sort a range, sort the sheet | Done from the menus. Formulas move as typed; their references are not rewritten (Macro shifts relative ones). |
+| Formulas, references, other sheets, errors | Done (the engine). |
+| Autocomplete | Done: matching functions with arrows, Tab or Enter; inside a function's brackets, its arguments with the current one in bold. Arguments and a line of help are written for 100 functions; the other 390 complete by name only. |
+| Pointing | Done, on other sheets too. |
+| Sheets | Done: add, rename (double-click, F2, menu), duplicate, delete, move left and right, drag to reorder, the list of all sheets. |
+| Go to cell | Done: a cell, a range, a whole column or row, a cell on a named sheet. |
+| Saving | Done: a little over a second after a change, against the revision loaded; a second editor's save is refused and they are offered the newer version. |
+| Loading and errors | Done: a grid skeleton; a failed load or save can be tried again. |
+| The record | Done: migration 675 (applied to the DEV project), the routes, visibility, archive, delete. |
+| Create dialog, Drive in the rail, the page, search, the `@` picker, private ones fenced in the graph | Done. |
+
+Decided along the way:
+
+- **The engine runs on the page's own thread, not in a worker.** Macro uses a worker. Measured
+  on a sheet of 10,000 rows with 20,000 formulas: a recalculation takes 12 ms and pasting
+  60,000 cells 474 ms in a browser. A worker would make every read of a cell asynchronous for
+  no gain at this size; it is the thing to revisit if recalculations reach a frame's length.
+- **The headers are panes the size of the view**, with their letters and numbers moved under
+  them, not strips as long as the sheet: a blurred strip 250,000 pixels tall cost about
+  40 ms of every scrolled frame in a browser without a GPU.
+
+Not done in phase 1, and where it goes:
+
+- The full toolbar, number and date formats, borders, colors, alignment, find and replace,
+  view options, the phone layout: phase 2. The toolbar has undo, redo, bold, italic,
+  strikethrough and underline so far.
+- Move a range by its border: phase 2.
+- **History and the Recent feed.** The app's activity log needs triggers and a list of kinds
+  in the database for each kind (migration 488's pattern); 675 has none, so a spreadsheet
+  has no activity entries. It needs a migration number of its own.
+- **Copy link.** The app's deep links (`/account?…`) know nothing of spreadsheets yet.
+- **A mention gives an agent the spreadsheet's id only** until the tools of phase 3.
+- **Icon and color:** the `entity-identity` registry is not on `main`. The icon (lucide
+  `Sheet`) is set in the create dialog, the rail, the feed and the command menu; the entry
+  to add when it merges is kind `spreadsheet`, icon `Sheet`.
 
 ## Dependencies
 

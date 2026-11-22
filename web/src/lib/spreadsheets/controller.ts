@@ -965,7 +965,11 @@ export class WorkbookController {
     return `${columnName(column)}${row}`
   }
 
+  disposed = false
+
   dispose(): void {
+    if (this.disposed) return
+    this.disposed = true
     this.listeners.clear()
     this.model.free()
   }

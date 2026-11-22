@@ -173,6 +173,8 @@ export const FINDABLE = {
   sequence: { section: 'sequences', label: 'Sequences', entity: 'sequence', mention: 'sequence', group: 'outreach', order: 150 },
   prospect_list: { section: 'prospect_lists', label: 'Prospect lists', entity: 'prospect_list', mention: 'prospect_list', group: 'outreach', order: 160 },
   data_table: { section: 'tables', label: 'Tables', entity: 'data_table', mention: 'data_table', group: 'crm', order: 170 },
+  // A workbook with formulas (675): found by its title and by its cells' words.
+  spreadsheet: { section: 'spreadsheets', label: 'Spreadsheets', entity: 'spreadsheet', mention: 'spreadsheet', group: 'docs', order: 175 },
   // A row of a table that is not a pipeline (a pipeline's rows are deals).
   data_row: { section: 'rows', label: 'Rows', entity: 'data_row', mention: 'data_row', group: 'crm', order: 180 },
   team_chat_channel: { section: 'channels', label: 'Channels', entity: 'team_chat_channel', mention: 'team_chat_channel', group: 'chats', order: 190 },

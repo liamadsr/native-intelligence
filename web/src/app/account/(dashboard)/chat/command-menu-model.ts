@@ -718,6 +718,7 @@ export function feedEntryRow(entry: FeedEntry): MenuSearchRow | null {
     case 'company':
       return { kind: 'company', company: { id, name: title, domain: null, industry: null, logo_url: null }, score: 0 }
     case 'data_table':
+    case 'spreadsheet':
     case 'data_row':
       return { kind: entry.type, id, title, status: null, parentId: null, score: 0 }
     default:

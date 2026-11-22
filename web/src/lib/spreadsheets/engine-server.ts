@@ -4,7 +4,6 @@
  * tool's edit and a person's edit follow one set of rules.
  */
 import { readFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
 import path from 'node:path'
 import { initSync, Model } from '@ironcalc/wasm'
 import { base64ToBytes } from './workbook'
@@ -13,13 +12,8 @@ let ready = false
 
 /** Where the engine's binary is on disk. The browser fetches it through /api/account/spreadsheets/engine. */
 export function engineBinaryPath(): string {
-  const local = path.join(process.cwd(), 'node_modules', '@ironcalc', 'wasm', 'wasm_bg.wasm')
-  try {
-    readFileSync(local, { flag: 'r' }).subarray(0, 0)
-    return local
-  } catch {
-    return createRequire(path.join(process.cwd(), 'package.json')).resolve('@ironcalc/wasm/wasm_bg.wasm')
-  }
+  // The app always runs from its own directory (next dev, next start, vitest), with node_modules beside it.
+  return path.join(process.cwd(), 'node_modules', '@ironcalc', 'wasm', 'wasm_bg.wasm')
 }
 
 export function ensureEngine(): void {

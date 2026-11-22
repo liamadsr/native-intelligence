@@ -35,8 +35,8 @@ describe('toMentionRecord', () => {
   })
 
   it('covers the kinds the composer lists', () => {
-    expect(COMPOSER_RECORD_KINDS).toEqual(['action', 'document', 'project', 'initiative', 'deal', 'flow', 'attachment', 'calendar_event', 'studio_video', 'studio_project', 'campaign', 'sequence', 'prospect_list', 'data_table', 'data_row', 'team_chat_channel', 'decision', 'team', 'package', 'email_thread', 'conversation'])
-    expect([...UNKEYED_MENTION_TYPES].sort()).toEqual(['campaign', 'conversation', 'data_row', 'data_table', 'decision', 'email_thread', 'knowledge_package', 'prospect_list', 'sequence', 'studio_project', 'team', 'team_chat_channel'])
+    expect(COMPOSER_RECORD_KINDS).toEqual(['action', 'document', 'project', 'initiative', 'deal', 'flow', 'attachment', 'calendar_event', 'studio_video', 'studio_project', 'campaign', 'sequence', 'prospect_list', 'data_table', 'spreadsheet', 'data_row', 'team_chat_channel', 'decision', 'team', 'package', 'email_thread', 'conversation'])
+    expect([...UNKEYED_MENTION_TYPES].sort()).toEqual(['campaign', 'conversation', 'data_row', 'data_table', 'decision', 'email_thread', 'knowledge_package', 'prospect_list', 'sequence', 'spreadsheet', 'studio_project', 'team', 'team_chat_channel'])
   })
 })
 
