@@ -5,9 +5,9 @@
  * opened as the app opens it.
  *
  *   Company         POST /api/account/companies {name, domain?}          → its record
- *   Doc             POST /api/account/documents {title}                   → its record
- *   Table           POST /api/account/tables {name}                       → Tables, on it
- *   Channel         POST /api/account/team-chat/channels {name, topic?}   → Team chat, on it
+ *   Doc             POST /api/account/documents {title, project_id?}      → its record
+ *   Table           POST /api/account/tables {name?, template?}           → Tables, on it
+ *   Channel         POST /api/account/team-chat/channels {name, topic?, teamId?} → Team chat, on it
  *   Knowledge pkg   POST /api/account/knowledge-packages {name}           → Knowledge, on it
  *   Studio project  POST /api/account/studio/campaigns {title}            → the Studio, on it
  */
@@ -17,6 +17,12 @@ import type { CreateQuickTypeId } from '@/lib/create/create-types'
 export interface QuickCreateInput {
   name: string
   secondary: string
+  /** A table's starter (lib/tables/templates.ts): its own name when none is typed. */
+  template?: string | null
+  /** A doc's project (the place it was made in: lib/create/create-context.ts). */
+  projectId?: string | null
+  /** A channel's team (made from a team's channel list). */
+  teamId?: string | null
 }
 
 export interface QuickCreated {
@@ -30,6 +36,8 @@ export interface QuickCreateDef {
   namePlaceholder: string
   /** A second, optional field (one line). */
   secondaryPlaceholder?: string
+  /** True when the name may be left empty (a table from a starter takes the starter's). */
+  nameOptional?: (input: Pick<QuickCreateInput, 'template'>) => boolean
   run: (input: QuickCreateInput, fetcher?: typeof fetch) => Promise<QuickCreated>
 }
 
@@ -62,17 +70,18 @@ export const QUICK_CREATE: Record<CreateQuickTypeId, QuickCreateDef> = {
   },
   document: {
     namePlaceholder: 'Doc title',
-    run: async ({ name }, fetcher = fetch) => {
-      const doc = record(await post(fetcher, '/api/account/documents', { title: name }), 'document')
+    run: async ({ name, projectId }, fetcher = fetch) => {
+      const doc = record(await post(fetcher, '/api/account/documents', { title: name, ...(projectId ? { project_id: projectId } : {}) }), 'document')
       const title = str(doc.title, name)
       return { id: doc.id, title, open: () => void openTarget({ type: 'document', id: doc.id, title }, { from: FROM }) }
     },
   },
   table: {
     namePlaceholder: 'Table name',
-    run: async ({ name }, fetcher = fetch) => {
-      const table = record(await post(fetcher, '/api/account/tables', { name }), 'table')
-      const title = str(table.name, name)
+    nameOptional: ({ template }) => !!template,
+    run: async ({ name, template }, fetcher = fetch) => {
+      const table = record(await post(fetcher, '/api/account/tables', { ...(name ? { name } : {}), ...(template ? { template } : {}) }), 'table')
+      const title = str(table.name, name || 'Table')
       // No openTarget kind for a table: the Tables page's own card, on it (tables-card.tsx).
       return { id: table.id, title, open: () => void openCard({ kind: 'tables', title: 'Tables', target: { type: 'data_table', id: table.id, label: title } }, { from: FROM }) }
     },
@@ -97,8 +106,8 @@ export const QUICK_CREATE: Record<CreateQuickTypeId, QuickCreateDef> = {
   channel: {
     namePlaceholder: 'Channel name',
     secondaryPlaceholder: 'Topic (optional)',
-    run: async ({ name, secondary }, fetcher = fetch) => {
-      const data = await post(fetcher, '/api/account/team-chat/channels', { name, ...(secondary ? { topic: secondary } : {}) })
+    run: async ({ name, secondary, teamId }, fetcher = fetch) => {
+      const data = await post(fetcher, '/api/account/team-chat/channels', { name, ...(secondary ? { topic: secondary } : {}), ...(teamId ? { teamId } : {}) })
       if (typeof data.id !== 'string') throw new Error('Could not create it')
       const id = data.id
       return { id, title: name, open: () => void openTarget({ type: 'team_chat', channelId: id }, { from: FROM }) }

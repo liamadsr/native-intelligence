@@ -41,7 +41,8 @@ import { ListenTarget } from '@/components/read-aloud/listen-target'
 import { emailThreadToSentences, type ThreadSpeechMessage } from '@/lib/read-aloud/email-thread-speech'
 import type { DraftEdits } from '@/lib/email/draft-edits'
 import type { EmailReplyRequest } from '@/lib/email/reply-in-chat'
-import { emailTaskLabel, makeTaskFromEntity } from '@/lib/entities/actions'
+import { emailTaskLabel, taskTitleFor } from '@/lib/entities/actions'
+import { openTaskComposer } from '@/lib/create/open-create'
 import { scheduleSend } from '@/lib/email/send-later'
 import { EmailMessage, type EmailMessageData } from './email-message'
 import { EmailShareDialog, copyEmailShareLink } from './email-share-dialog'
@@ -406,21 +407,14 @@ export function EmailThreadDetail({
     if (!ok) toast.error('Could not delete the email')
   }, [threadId, onClose, onThreadUpdate])
 
-  // A task about this thread: "Follow up: <subject>", else its sender (the
-  // first message that is not a draft), linked 'about' the thread's index row.
-  // The one task path (makeTaskFromEntity: its toast opens the task).
-  const [makingTask, setMakingTask] = useState(false)
-  const handleMakeTask = useCallback(async () => {
-    if (!thread?.indexId || makingTask) return
+  // A task about this thread: the action composer, titled "Follow up: <subject>"
+  // (else its sender, the first message that is not a draft), linked 'about' the
+  // thread's index row when it is made (docs/plans/create-everything.md).
+  const handleMakeTask = useCallback(() => {
+    if (!thread?.indexId) return
     const sender = thread.messages.find((m) => !m.isDraft)?.from ?? null
-    setMakingTask(true)
-    try {
-      // Opened at once: its title carries the mail's subject, and teammates can see the task.
-      await makeTaskFromEntity({ type: 'email_thread', id: thread.indexId, label: emailTaskLabel(thread.subject, sender) }, undefined, { openNow: true })
-    } finally {
-      setMakingTask(false)
-    }
-  }, [thread, makingTask])
+    openTaskComposer({ type: 'email_thread', id: thread.indexId, title: taskTitleFor(emailTaskLabel(thread.subject, sender)) })
+  }, [thread])
 
   // Share to chat (migration 646): the owner shares this thread into a
   // channel or DM, read live there, stored nowhere. The chips under the
@@ -700,9 +694,10 @@ export function EmailThreadDetail({
             <TooltipContent>Delete</TooltipContent>
           </Tooltip>
 
-          {/* Make a task about this thread ("Follow up: <subject>", else its
-              sender), linked to it. Only an indexed thread can be linked; the
-              server checks the mail is the person's own. */}
+          {/* Make a task about this thread: the action composer, prefilled
+              ("Follow up: <subject>", else its sender), linked to it. Only an
+              indexed thread can be linked; the server checks the mail is the
+              person's own. */}
           {thread.indexId && (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -712,7 +707,6 @@ export function EmailThreadDetail({
                   className="h-7 w-7 p-0"
                   aria-label="Make a task"
                   data-make-task=""
-                  disabled={makingTask}
                   onClick={handleMakeTask}
                 >
                   <CircleCheck className="h-3.5 w-3.5" />

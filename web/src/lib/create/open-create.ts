@@ -10,20 +10,42 @@
  * Every opener goes through one document event, as Mail's New email already
  * did (`open-create-email`, kept as it was, and `open-create-contact`):
  * `open-create` with an optional type to start on.
+ *
+ * Owner, 11-22 ("match the macro experience when it comes to creating new
+ * entities"): every page's New button opens it too, preset to its type and
+ * its place (docs/plans/create-everything.md), so creating reads the same
+ * everywhere.
  */
 import type { CreateTypeId } from './create-types'
+import type { CreateContext, CreateSource } from './create-context'
 
 /** Opens the Create dialog: `detail` is an OpenCreateRequest (or nothing). */
 export const OPEN_CREATE_EVENT = 'open-create'
 
 export interface OpenCreateRequest {
-  /** The type the dialog opens on. Absent: Action. */
+  /**
+   * The type whose composer opens. Absent: the Create menu (every type, type
+   * to filter), as C and the rail's + open it (owner, 11-22: Macro's one
+   * Create menu). A page's New button names its own type.
+   */
   type?: CreateTypeId
+  /** Where it was opened: "Create in <name>", prefills, the record a task links back to (create-context.ts). */
+  context?: CreateContext
 }
 
 export function openCreateDialog(request: OpenCreateRequest = {}): void {
   if (typeof document === 'undefined') return
   document.dispatchEvent(new CustomEvent<OpenCreateRequest>(OPEN_CREATE_EVENT, { detail: request }))
+}
+
+/**
+ * "Make a task" from an email thread or a team-chat message: the action
+ * composer, its title prefilled ("Follow up: …"), the task linked back to
+ * its source on create (the actions route's `about`). The person can change
+ * the title and set its properties before it is made.
+ */
+export function openTaskComposer(source: CreateSource): void {
+  openCreateDialog({ type: 'action', context: { source } })
 }
 
 /**

@@ -38,6 +38,21 @@ describe('quick create: each feature’s own route, then the thing opened', () =
     expect(openCard).toHaveBeenCalledWith({ kind: 'tables', title: 'Tables', target: { type: 'data_table', id: 't1', label: 'Vendors' } }, { from: 'create' })
   })
 
+  it('a doc made in a project lands in it', async () => {
+    const f = fetcherFor({ document: { id: 'd2', title: 'Spec' } })
+    await QUICK_CREATE.document.run({ name: 'Spec', secondary: '', projectId: 'p-1' }, f)
+    expect(sent(f).body).toEqual({ title: 'Spec', project_id: 'p-1' })
+  })
+
+  it('a table from a starter sends its template, and may go unnamed', async () => {
+    expect(QUICK_CREATE.table.nameOptional?.({ template: 'pipeline' })).toBe(true)
+    expect(QUICK_CREATE.table.nameOptional?.({ template: null })).toBe(false)
+    const f = fetcherFor({ table: { id: 't2', name: 'Pipeline' } })
+    const made = await QUICK_CREATE.table.run({ name: '', secondary: '', template: 'pipeline' }, f)
+    expect(sent(f).body).toEqual({ template: 'pipeline' })
+    expect(made.title).toBe('Pipeline')
+  })
+
   it('a spreadsheet opens the Spreadsheets page on it', async () => {
     const f = fetcherFor({ spreadsheet: { id: 's1', title: 'Hiring plan' } })
     ;(await QUICK_CREATE.spreadsheet.run({ name: 'Hiring plan', secondary: '' }, f)).open()

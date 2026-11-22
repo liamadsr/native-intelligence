@@ -107,21 +107,22 @@ it('shows no Undo to a reader who can’t change the table', async () => {
   expect([...document.querySelectorAll('button')].filter((b) => b.textContent?.trim() === 'Undo')).toHaveLength(0)
 })
 
-it('makes a table by name and opens it', async () => {
+it('New table opens the Create composer on Table, and takes in a table made there', async () => {
+  const asked: unknown[] = []
+  const onAsk = (e: Event) => asked.push((e as CustomEvent).detail)
+  document.addEventListener('open-create', onAsk)
   await act(async () => root.render(<TablesView />))
   await flush()
   await act(async () => button('New table').click())
-  const input = container.querySelector<HTMLInputElement>('input[aria-label="Table name"]')!
+  document.removeEventListener('open-create', onAsk)
+  expect(asked).toEqual([{ type: 'table' }])
+  expect(calls.some((c) => c.init?.method === 'POST')).toBe(false)
+  const reads = calls.filter((c) => c.url === '/api/account/tables').length
   await act(async () => {
-    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
-    setter.call(input, 'Hires')
-    input.dispatchEvent(new Event('input', { bubbles: true }))
+    window.dispatchEvent(new CustomEvent('ni:entity-created', { detail: { entityType: 'table', entity: { id: 'new' } } }))
   })
-  await act(async () => button('Make table').click())
   await flush()
-  const post = calls.find((c) => c.init?.method === 'POST')!
-  expect(JSON.parse(String(post.init?.body))).toEqual({ name: 'Hires' })
-  expect(calls.some((c) => c.url === '/api/account/tables/new')).toBe(true)
+  expect(calls.filter((c) => c.url === '/api/account/tables').length).toBe(reads + 1)
 })
 
 it('in a card: New table, then the table’s breadcrumb and its actions are the card header’s, no title row in the page (Liam, 11-22)', async () => {

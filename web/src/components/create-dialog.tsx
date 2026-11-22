@@ -80,6 +80,10 @@ import {
   type CreateTypeId,
 } from '@/lib/create/create-types'
 import { openPageCreate } from '@/lib/create/page-create'
+import { containerApplies, containerLabel, contextDefaults, type CreateContext } from '@/lib/create/create-context'
+import { composerKeyIntent } from '@/lib/create/create-keys'
+import { CreateMenu } from '@/components/create/create-menu'
+import { tableTemplates } from '@/lib/tables/templates'
 import { openCard } from '@/lib/chat-cards/open-card'
 import { pagesFor } from '@/lib/chat-cards/page-menu'
 import { useIsWorkspaceGuest, useWorkspaceEdition } from '@/app/account/workspace-switcher'
@@ -88,7 +92,7 @@ import { EntityIcon } from '@/components/entities/entity-icon'
 import { CreateTypePicker, type CreateTypeOption } from '@/components/create/create-type-picker'
 import { QUICK_CREATE } from '@/components/create/quick-create'
 import { useTeams } from '@/app/account/teams-context'
-import { openTarget } from '@/lib/chat-cards/open-card'
+import { openTarget, type OpenTarget } from '@/lib/chat-cards/open-card'
 import { useTeamCalls } from '@/components/team-calls/team-calls-provider'
 import { toast } from 'sonner'
 import { PRIORITY_OPTIONS } from '@/lib/views/property-options'
@@ -150,6 +154,35 @@ function openPageType(id: CreateTypeId): void {
       openPageCreate('studio_video', 'studio')
       return
   }
+}
+
+/** ↵: create and open it; ⌘/Ctrl ↵: create and stay for another (lib/create/create-keys.ts). */
+type CreateMode = 'open' | 'another'
+
+/** Where a form type's new record opens, as the app opens it (null: nothing to open, an email sent). */
+export function createdTarget(type: CreateTypeId, made: Record<string, unknown>): OpenTarget | null {
+  const id = typeof made.id === 'string' ? made.id : null
+  if (!id) return null
+  const name = (k: string) => (typeof made[k] === 'string' && made[k] ? (made[k] as string) : null)
+  switch (type) {
+    case 'action':
+      return { type: 'action', id, title: name('identifier') ?? name('title') }
+    case 'project':
+      return { type: 'project', id, title: name('name') }
+    case 'initiative':
+      return { type: 'initiative', id, title: name('name') }
+    case 'contact':
+      return { type: 'contact', id, title: name('full_name') }
+    case 'event':
+      return { type: 'calendar-event', id, title: name('title'), start: name('start_time') ?? name('start') }
+    default:
+      return null
+  }
+}
+
+function openCreated(type: CreateTypeId, made: Record<string, unknown>): void {
+  const target = createdTarget(type, made)
+  if (target) openTarget(target, { from: 'create' })
 }
 
 // ── Shared Types ────────────────────────────────────────
@@ -262,7 +295,17 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
   const modKey = useModKeyLabel()
   const [entityType, setEntityType] = useState<CreateEntityType>('action')
   const [creating, setCreating] = useState(false)
-  const [createMore, setCreateMore] = useState(false)
+  // The Create menu (every type, C and the rail's +) or a type's composer
+  // (a page's New button, a pick from the menu, C then a letter).
+  const [stage, setStage] = useState<'menu' | 'compose'>('compose')
+  const [menuOpenedAt, setMenuOpenedAt] = useState(0)
+  // Where it was opened (lib/create/create-context.ts): "Create in <name>",
+  // the record a task links back to. Cleared with the form.
+  const [context, setContext] = useState<CreateContext | null>(null)
+  // A table's starter (lib/tables/templates.ts); null: blank.
+  const [tableTemplate, setTableTemplate] = useState<string | null>(null)
+  // Who sees a new channel: one team, or (null) everyone in the workspace.
+  const [channelTeamId, setChannelTeamId] = useState<string | null>(null)
 
   // ── Shared fields ──
   const [title, setTitle] = useState('')
@@ -379,7 +422,52 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
       return
     }
     setEntityType(id)
+    setStage('compose')
+    applyContext(id, context)
     setTimeout(() => titleRef.current?.focus(), 50)
+  }
+
+  /**
+   * What the place it was opened in gives this type (create-context.ts):
+   * an action's project or team, a project's initiative, a contact's
+   * company, a doc's project; and the prefills. The person can change each.
+   */
+  function applyContext(type: CreateTypeId, ctx: CreateContext | null) {
+    if (!ctx) return
+    const d = contextDefaults(type, ctx)
+    if (d.projectId) setProjectId(d.projectId)
+    if (d.teamId) setTeamId(d.teamId)
+    if (d.initiativeId) setInitiativeId(d.initiativeId)
+    if (d.companyId) setCompanyId(d.companyId)
+    if (type === 'channel' && d.teamId) setChannelTeamId(d.teamId)
+    const prefill = ctx.title ?? ctx.source?.title
+    if (prefill) {
+      setTitle(prefill)
+    }
+    if (ctx.description) {
+      setDescription(ctx.description)
+    }
+    if (type === 'table' && ctx.template !== undefined) setTableTemplate(ctx.template ?? null)
+  }
+
+  /** The Create menu: every type, type to filter, C then a letter (create-menu.tsx). */
+  function openMenu(ctx: CreateContext | null = null) {
+    resetForm()
+    setContext(ctx)
+    setStage('menu')
+    setMenuOpenedAt(Date.now())
+    setOpen(true)
+  }
+
+  /** A type's composer, preset to where it was opened (a page's New button). */
+  function openComposer(type: CreateTypeId, ctx: CreateContext | null = null) {
+    // Mail keeps an unsent email between opens (closing it keeps the draft).
+    if (type !== 'email' || entityType !== 'email') resetForm()
+    setContext(ctx)
+    setEntityType(type)
+    setStage('compose')
+    applyContext(type, ctx)
+    setOpen(true)
   }
 
   // Resolve effective team
@@ -394,23 +482,27 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
   // `open-create-contact` on Contact, as before.
   const openRef = useRef(open)
   openRef.current = open
+  const openMenuRef = useRef(openMenu)
+  openMenuRef.current = openMenu
+  const openComposerRef = useRef(openComposer)
+  openComposerRef.current = openComposer
   useEffect(() => {
     function handleOpen(e: Event) {
-      const type = (e as CustomEvent<OpenCreateRequest | null>).detail?.type
+      const detail = (e as CustomEvent<OpenCreateRequest | null>).detail
+      const type = detail?.type
+      const ctx = detail?.context ?? null
       if (type && isCreateTypeId(type) && createTypeDef(type).mode === 'page') {
         openPageType(type)
         return
       }
-      setEntityType(type && isCreateTypeId(type) ? type : 'action')
-      setOpen(true)
+      if (type && isCreateTypeId(type)) openComposerRef.current(type, ctx)
+      else openMenuRef.current(ctx)
     }
     function handleOpenEmail() {
-      setEntityType('email')
-      setOpen(true)
+      openComposerRef.current('email')
     }
     function handleOpenContact() {
-      setEntityType('contact')
-      setOpen(true)
+      openComposerRef.current('contact')
     }
     document.addEventListener(OPEN_CREATE_EVENT, handleOpen)
     document.addEventListener('open-create-email', handleOpenEmail)
@@ -422,7 +514,8 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
     }
   }, [])
 
-  // `c`, anywhere in the app: not while typing (the helper skips fields and
+  // `c`, anywhere in the app, opens the Create menu (C then a letter: the
+  // menu reads the letter, create-menu.tsx). Not while typing (the helper skips fields and
   // contenteditables), nor while another dialog or menu has the focus
   // (createKeyAllowed). Not prevented: Mail's own `c`, a window listener that
   // runs after this one and skips a prevented key, then opens it on Email, so
@@ -433,8 +526,7 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
       preventDefault: false,
       handler: (e) => {
         if (openRef.current || !createKeyAllowed(e.target)) return
-        setEntityType('action')
-        setOpen(true)
+        openMenuRef.current()
       },
     },
   ])
@@ -561,9 +653,10 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
   useEffect(() => {
     if (!open) return
     function handleKeyDown(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      // ⌘/Ctrl ↵: create, and keep the composer for another (email: its composer's own Send).
+      if (stage === 'compose' && entityType !== 'email' && composerKeyIntent(e, 'other') === 'create-another') {
         e.preventDefault()
-        handleCreate()
+        handleCreate('another')
       }
     }
     document.addEventListener('keydown', handleKeyDown)
@@ -586,6 +679,9 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
     setTitle('')
     setDescription('')
     setQuickSecondary('')
+    setTableTemplate(null)
+    setChannelTeamId(null)
+    setContext(null)
     // Action
     setTeamId(null)
     setStatusId(null)
@@ -675,6 +771,10 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
       milestone_id: milestoneId || undefined,
       estimate: estimate ? parseFloat(estimate) : undefined,
     }
+    // The record it was made from or on (a deal, a company, an email, a
+    // message): linked by the route, which checks the person can see it.
+    const about = contextDefaults('action', context).about
+    if (about) body.about = about
 
     const res = await fetch('/api/account/actions', {
       method: 'POST',
@@ -930,17 +1030,24 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
   // A quick type: its own route (quick-create.ts), then the new thing opened
   // as the app opens it, the dialog closed. With Create more: the dialog stays
   // for the next one, and the toast opens this one.
-  async function handleCreateQuick(type: CreateQuickTypeId) {
+  async function handleCreateQuick(type: CreateQuickTypeId, mode: CreateMode) {
     const name = title.trim()
-    if (!name) return
+    const template = type === 'table' ? tableTemplate : null
+    if (!name && !QUICK_CREATE[type].nameOptional?.({ template })) return
     setCreating(true)
     const label = typeLabel(type)
     try {
-      const made = await QUICK_CREATE[type].run({ name, secondary: quickSecondary.trim() })
+      const made = await QUICK_CREATE[type].run({
+        name,
+        secondary: quickSecondary.trim(),
+        template,
+        projectId: type === 'document' ? projectId : null,
+        teamId: type === 'channel' ? channelTeamId : null,
+      })
       const entity = { id: made.id, name: made.title, title: made.title }
       onCreated?.(entity)
       window.dispatchEvent(new CustomEvent('ni:entity-created', { detail: { entityType: type, entity } }))
-      if (createMore) {
+      if (mode === 'another') {
         toast(`${label} created`, { description: made.title, action: { label: 'Open', onClick: () => { resetForm(); setOpen(false); made.open() } } })
         setTitle('')
         setQuickSecondary('')
@@ -958,7 +1065,12 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
     }
   }
 
-  async function handleCreate() {
+  /**
+   * ↵ (the button, the title's Enter): create, then open what was made.
+   * ⌘/Ctrl ↵: create, and keep the composer for another, the place and the
+   * picked properties kept (the title and description cleared).
+   */
+  async function handleCreate(mode: CreateMode = 'open') {
     if (creating) return
 
     // Validate based on entity type
@@ -969,12 +1081,14 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
       return
     } else if (entityType === 'event') {
       if (!title.trim() || !eventStart || !eventEnd) return
+    } else if (isQuickType(entityType)) {
+      if (!title.trim() && !QUICK_CREATE[entityType].nameOptional?.({ template: entityType === 'table' ? tableTemplate : null })) return
     } else {
       if (!title.trim()) return
     }
 
     if (isQuickType(entityType)) {
-      await handleCreateQuick(entityType)
+      await handleCreateQuick(entityType, mode)
       return
     }
 
@@ -1017,7 +1131,7 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
 
       const entityLabel = typeLabel(entityType)
 
-      if (createMore) {
+      if (mode === 'another') {
         const displayTitle = entityType === 'contact'
           ? (result.full_name as string) || title.trim()
           : (result.title as string) || (result.name as string) || title.trim()
@@ -1025,12 +1139,12 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
 
         toast(`${entityLabel} created`, {
           description: identifier ? `${identifier} — ${displayTitle}` : displayTitle,
-          action: entityType === 'action' ? {
-            label: `View ${entityLabel.toLowerCase()}`,
+          action: createdTarget(entityType, result) ? {
+            label: 'Open',
             onClick: () => {
               resetForm()
               setOpen(false)
-              openTarget({ type: 'action', id: result!.id as string, title: identifier || displayTitle }, { from: 'create' })
+              openCreated(entityType, result!)
             },
           } : undefined,
         })
@@ -1055,6 +1169,8 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
         })
         resetForm()
         setOpen(false)
+        // ↵ opens what was made, as everything opens it (an email is sent: nothing to open).
+        openCreated(entityType, result)
       }
     } catch {
       toast.error('Something went wrong. Please try again.')
@@ -1094,7 +1210,13 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
     ? false
     : entityType === 'event'
     ? (title.trim() && eventStart && eventEnd)
+    : isQuickType(entityType)
+    ? (title.trim() || QUICK_CREATE[entityType].nameOptional?.({ template: entityType === 'table' ? tableTemplate : null }))
     : title.trim()
+
+  // "Create in <name>": shown where the place links this type (create-context.ts).
+  const shownContainer = context?.container && containerApplies(entityType, context) ? context.container : null
+  const templates = entityType === 'table' ? tableTemplates() : []
 
   return (
     <DialogPrimitive.Root open={open} onOpenChange={(v) => {
@@ -1112,8 +1234,12 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
           data-create-dialog=""
           className="fixed left-[50%] top-[25%] z-50 w-full max-w-[680px] translate-x-[-50%] translate-y-0 overflow-hidden rounded-lg border bg-background shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=open]:slide-in-from-left-1/2"
         >
-          <VisuallyHidden.Root><DialogPrimitive.Title>Create new {currentEntityOption.label.toLowerCase()}</DialogPrimitive.Title></VisuallyHidden.Root>
+          <VisuallyHidden.Root><DialogPrimitive.Title>{stage === 'menu' ? 'Create' : `Create new ${currentEntityOption.label.toLowerCase()}`}</DialogPrimitive.Title></VisuallyHidden.Root>
 
+          {stage === 'menu' ? (
+            <CreateMenu options={typeOptions} onPick={pickType} openedAt={menuOpenedAt} container={context?.container ?? null} />
+          ) : (
+          <>
           {/* Header: entity type selector > team selector (action only) + close */}
           <div className="flex items-center gap-2 px-4 py-3">
             <div className="flex flex-1 items-center gap-1.5 text-sm">
@@ -1134,6 +1260,32 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
                 </>
               ) : (
                 <CreateTypePicker options={typeOptions} value={entityType} onChange={pickType} />
+              )}
+
+              {/* "Create in <name>": the place it was opened in, linked (create-context.ts). × makes it without. */}
+              {shownContainer && !showSubActionForm && (
+                <span
+                  data-create-container={shownContainer.kind}
+                  className="inline-flex h-7 max-w-[220px] shrink-0 items-center gap-1 rounded-full border border-border bg-muted/40 pl-3 pr-1 text-xs text-foreground"
+                >
+                  <span className="truncate">{containerLabel(shownContainer)}</span>
+                  <button
+                    type="button"
+                    aria-label="Make it without this place"
+                    onClick={() => {
+                      const d = contextDefaults(entityType, { container: shownContainer })
+                      if (d.projectId && projectId === d.projectId) setProjectId(null)
+                      if (d.teamId && teamId === d.teamId) setTeamId(null)
+                      if (d.teamId && channelTeamId === d.teamId) setChannelTeamId(null)
+                      if (d.initiativeId && initiativeId === d.initiativeId) setInitiativeId(null)
+                      if (d.companyId && companyId === d.companyId) setCompanyId(null)
+                      setContext((c) => (c ? { ...c, container: null } : c))
+                    }}
+                    className="flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
               )}
 
               {/* Team selector (action) — appears to the right of entity type */}
@@ -1249,9 +1401,9 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
                         setTitle(e.target.value)
                       }}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey && canCreate) {
+                        if (composerKeyIntent(e.nativeEvent, 'title') === 'create-open' && canCreate) {
                           e.preventDefault()
-                          handleCreate()
+                          handleCreate('open')
                         }
                       }}
                       placeholder="First name"
@@ -1261,9 +1413,9 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
                       value={lastName}
                       onChange={(e) => setLastName(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey && canCreate) {
+                        if (composerKeyIntent(e.nativeEvent, 'title') === 'create-open' && canCreate) {
                           e.preventDefault()
-                          handleCreate()
+                          handleCreate('open')
                         }
                       }}
                       placeholder="Last name"
@@ -1276,9 +1428,9 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey && title.trim()) {
+                      if (composerKeyIntent(e.nativeEvent, 'title') === 'create-open' && canCreate) {
                         e.preventDefault()
-                        handleCreate()
+                        handleCreate('open')
                       }
                     }}
                     placeholder={titlePlaceholder}
@@ -1291,9 +1443,9 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
                       value={quickSecondary}
                       onChange={(e) => setQuickSecondary(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey && title.trim()) {
+                        if (composerKeyIntent(e.nativeEvent, 'title') === 'create-open' && canCreate) {
                           e.preventDefault()
-                          handleCreate()
+                          handleCreate('open')
                         }
                       }}
                       placeholder={QUICK_CREATE[entityType].secondaryPlaceholder}
@@ -1312,6 +1464,41 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
                 )}
               </div>
             </>
+          )}
+
+          {/* A table's starters (lib/tables/templates.ts), a choice in the composer: Blank, or one of them. */}
+          {entityType === 'table' && templates.length > 0 && (
+            <div className="px-4 pb-3" data-create-templates="">
+              <p className="mb-1.5 text-[11px] text-muted-foreground">Start from</p>
+              <div className="flex flex-wrap gap-1.5">
+                {[{ id: null as string | null, name: 'Blank', description: 'A Name column and three empty rows' }, ...templates.map((t) => ({ id: t.id as string | null, name: t.name, description: t.description }))].map((t) => (
+                  <button
+                    key={t.id ?? 'blank'}
+                    type="button"
+                    data-template={t.id ?? 'blank'}
+                    aria-pressed={tableTemplate === t.id}
+                    title={t.description}
+                    onClick={() => {
+                      setTableTemplate(t.id)
+                      titleRef.current?.focus()
+                    }}
+                    className={cn(
+                      'inline-flex h-7 items-center rounded-full border px-3 text-xs transition-colors',
+                      tableTemplate === t.id
+                        ? 'border-foreground/40 bg-muted text-foreground'
+                        : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground',
+                    )}
+                  >
+                    {t.name}
+                  </button>
+                ))}
+              </div>
+              {tableTemplate && (
+                <p className="mt-1.5 text-[11px] text-muted-foreground">
+                  {templates.find((t) => t.id === tableTemplate)?.description} Leave the name empty to use the starter’s.
+                </p>
+              )}
+            </div>
           )}
 
           {/* ═══════ Property pills — vary by entity type (hidden for email) ═══════ */}
@@ -1571,6 +1758,36 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
                   </PopoverContent>
                 </Popover>
               </>
+            )}
+
+            {/* A channel's visibility: everyone, or one team (as team chat's own New channel had it). */}
+            {entityType === 'channel' && teams.length > 0 && (
+              <PropertyPill
+                icon={<Users className="h-3 w-3 text-muted-foreground" />}
+                label={channelTeamId ? `Only ${teams.find((t) => t.id === channelTeamId)?.name ?? 'the team'}` : 'Everyone in the workspace'}
+              >
+                {(close) => (
+                  <Command>
+                    <CommandInput placeholder="Who can see it..." />
+                    <CommandList>
+                      <CommandGroup>
+                        <CommandItem value="Everyone in the workspace" onSelect={() => { setChannelTeamId(null); close() }}>
+                          <Users className="mr-2 h-3 w-3" />
+                          Everyone in the workspace
+                          {!channelTeamId && <Check className="ml-auto h-3 w-3" />}
+                        </CommandItem>
+                        {teams.map((t) => (
+                          <CommandItem key={t.id} value={`Only the ${t.name} team`} onSelect={() => { setChannelTeamId(t.id); close() }}>
+                            <Users className="mr-2 h-3 w-3" />
+                            Only the {t.name} team
+                            {channelTeamId === t.id && <Check className="ml-auto h-3 w-3" />}
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                )}
+              </PropertyPill>
             )}
 
             {entityType === 'project' && (
@@ -2236,15 +2453,21 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
               </button>
             )}
             <div className="flex items-center gap-3">
+              {/* ⌘↵ makes this one and keeps the composer for the next (Create more, as a key). */}
               {entityType !== 'email' && (
-              <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
-                <Switch
-                  checked={createMore}
-                  onCheckedChange={setCreateMore}
-                  className="h-4 w-8 [&>span]:h-3 [&>span]:w-3 [&>span[data-state=checked]]:translate-x-4"
-                />
-                Create more
-              </label>
+                <button
+                  type="button"
+                  data-create-another=""
+                  disabled={!canCreate || creating}
+                  onClick={() => handleCreate('another')}
+                  className="flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+                >
+                  <span>Create another</span>
+                  <span className="flex items-center gap-0.5">
+                    <kbd className="inline-flex h-5 min-w-5 items-center justify-center rounded border bg-muted px-1 text-[10px] font-medium">{modKey}</kbd>
+                    <kbd className="inline-flex h-5 min-w-5 items-center justify-center rounded border bg-muted px-1 text-[10px] font-medium">↵</kbd>
+                  </span>
+                </button>
               )}
               <TooltipProvider delayDuration={300}>
                 <Tooltip>
@@ -2254,15 +2477,14 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
                       size="sm"
                       className="h-8 px-4"
                       disabled={!canCreate || creating}
-                      onClick={handleCreate}
+                      onClick={() => handleCreate('open')}
                     >
                       {creating ? 'Creating...' : `Create ${currentEntityOption.label.toLowerCase()}`}
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent side="top" className="flex items-center gap-2 bg-popover text-popover-foreground border shadow-md">
-                    <span>{`Create ${currentEntityOption.label.toLowerCase()}`}</span>
+                    <span>Create and open it</span>
                     <span className="flex items-center gap-0.5">
-                      <kbd className="inline-flex h-5 min-w-5 items-center justify-center rounded border bg-muted px-1 text-[10px] font-medium text-muted-foreground">{modKey}</kbd>
                       <kbd className="inline-flex h-5 min-w-5 items-center justify-center rounded border bg-muted px-1 text-[10px] font-medium text-muted-foreground">↵</kbd>
                     </span>
                   </TooltipContent>
@@ -2270,6 +2492,8 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
               </TooltipProvider>
             </div>
           </div>
+          </>
+          )}
         {/* Hidden file input for action attachments */}
         <input
           ref={fileInputRef}

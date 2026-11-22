@@ -50,6 +50,7 @@ import { createClient } from '@/lib/supabase/client'
 import { cachedJson } from '@/lib/cached-fetch'
 import { useWorkspaceId } from '@/app/account/workspace-switcher'
 import { useTeams } from '@/app/account/teams-context'
+import { openCreateDialog, openTaskComposer } from '@/lib/create/open-create'
 import { useAssistantName } from '@/lib/voice/assistant-name-store'
 import { ChatInput, type ChatInputUnavailable, type ChatInputVoice } from '@/app/account/(dashboard)/chat/chat-input'
 import type { ChatFileAttachment } from '@/app/account/(dashboard)/chat/chat-panel'
@@ -99,7 +100,7 @@ import { EmailShareCards } from '@/components/email/email-share-card'
 import { isDefaultShareBody } from '@/lib/email-share/types'
 import { emailShareUnboundToast } from '@/lib/email-share/links'
 import { toast } from 'sonner'
-import { makeTaskFromEntity, messageTaskLabel } from '@/lib/entities/actions'
+import { messageTaskLabel, taskTitleFor } from '@/lib/entities/actions'
 import { MENTION_PICKER_KINDS, menuRowMention, type MenuSearchRow } from '@/lib/search/menu-search'
 import { parseSharedRecords, toastSharedRecords } from '@/lib/entity-access/share-toast'
 import { useTeamCalls } from '@/components/team-calls/team-calls-provider'
@@ -227,9 +228,6 @@ export function TeamChatView({
   const teamCalls = useTeamCalls()
   const [openThread, setOpenThread] = useState<{ channelId: string; rootId: string } | null>(null)
   const [waitingOnAgent, setWaitingOnAgent] = useState<Record<string, number>>({})
-  const [newChannelOpen, setNewChannelOpen] = useState(false)
-  // The team the New channel dialog opens with picked (the sub-nav's Team channels +); null: the whole workspace.
-  const [newChannelTeam, setNewChannelTeam] = useState<string | null>(null)
   const [newDmOpen, setNewDmOpen] = useState(false)
   const [newMeetingOpen, setNewMeetingOpen] = useState(false)
   // A meeting just made: the meetings section asks again.
@@ -828,6 +826,24 @@ export function TeamChatView({
     setSelectedId(id)
     setOpened(true)
   }, [])
+
+  // New channel opens the one Create composer on Channel (docs/plans/create-everything.md):
+  // started from a team's list, "Create in <team>" and only that team sees it.
+  const startNewChannel = useCallback(
+    (teamId?: string | null) => {
+      const team = teamId ? teamsById.get(teamId) : null
+      openCreateDialog({ type: 'channel', ...(team ? { context: { container: { kind: 'team', id: team.id, name: team.name } } } : {}) })
+    },
+    [teamsById],
+  )
+  // A channel made there: the list takes it in (the composer opens it).
+  useEffect(() => {
+    const onCreated = (e: Event) => {
+      if ((e as CustomEvent<{ entityType?: string }>).detail?.entityType === 'channel') void loadChannels()
+    }
+    window.addEventListener('ni:entity-created', onCreated)
+    return () => window.removeEventListener('ni:entity-created', onCreated)
+  }, [loadChannels])
   // What the card has and where it is, for the page's sub-nav (Liam, 11-11):
   // the conversations as this list draws them (current with every realtime
   // change), the one on screen, and its moves: the same openChannel, the
@@ -866,17 +882,14 @@ export function TeamChatView({
       pending,
       openId: onScreen,
       open: openChannel,
-      newChannel: (teamId) => {
-        setNewChannelTeam(teamId)
-        setNewChannelOpen(true)
-      },
+      newChannel: (teamId) => startNewChannel(teamId),
       newDm: () => setNewDmOpen(true),
       newMeeting: teamCalls.available ? () => setNewMeetingOpen(true) : null,
       meetingsKey,
       liveMeetings: liveMeetingChannels,
       show: () => onShowCardRef.current?.(),
     })
-  }, [cardId, channels, workspaceId, panelConversations, onScreen, openChannel, teamCalls.available, meetingsKey, liveMeetingChannels])
+  }, [cardId, channels, workspaceId, panelConversations, onScreen, openChannel, startNewChannel, teamCalls.available, meetingsKey, liveMeetingChannels])
   useEffect(() => {
     if (!cardId) return
     return () => unpublishTeamChatCard(cardId)
@@ -1020,11 +1033,11 @@ export function TeamChatView({
       <div className={cn('min-h-0 flex-1 overflow-y-auto px-2 pb-4', inCard && 'pt-2')}>
         {/* On a phone the list stands alone: a failed load says so here, not only in the hidden pane. */}
         {narrow && error && <p className="px-3 py-1.5 text-xs text-destructive">{error}</p>}
-        <SectionHeading label="Channels" onAdd={() => setNewChannelOpen(true)} addLabel="New channel" />
+        <SectionHeading label="Channels" onAdd={() => startNewChannel()} addLabel="New channel" />
         {channels === null ? (
           <p className="px-3 py-2 text-sm text-muted-foreground">Loading…</p>
         ) : channelList.length === 0 ? (
-          <button type="button" onClick={() => setNewChannelOpen(true)} className="flex h-10 w-full items-center rounded-xl px-3 text-left text-sm text-muted-foreground hover:bg-accent/60">
+          <button type="button" onClick={() => startNewChannel()} className="flex h-10 w-full items-center rounded-xl px-3 text-left text-sm text-muted-foreground hover:bg-accent/60">
             Start your first channel
           </button>
         ) : (
@@ -1083,7 +1096,7 @@ export function TeamChatView({
       {!showChannel ? null : error && !selected ? (
         <p className="py-10 text-center text-sm text-destructive">{error}</p>
       ) : !selected ? (
-        channels === null ? null : <EmptyState onCreate={() => setNewChannelOpen(true)} />
+        channels === null ? null : <EmptyState onCreate={() => startNewChannel()} />
       ) : (
         <div className="flex h-full min-h-0">
           {/* With a thread open where there's no room beside it, the thread takes the channel's place (Back returns). */}
@@ -1182,21 +1195,6 @@ export function TeamChatView({
         </ResizablePanel>
       </ResizablePanelGroup>
 
-      <NewChannelDialog
-        open={newChannelOpen}
-        onOpenChange={(open) => {
-          setNewChannelOpen(open)
-          if (!open) setNewChannelTeam(null)
-        }}
-        teamId={newChannelTeam}
-        teams={teams.map((t) => ({ id: t.id, name: t.name }))}
-        onCreated={async (id) => {
-          setNewChannelOpen(false)
-          setNewChannelTeam(null)
-          await loadChannels()
-          openChannel(id)
-        }}
-      />
       <NewDmDialog open={newDmOpen} onOpenChange={setNewDmOpen} members={members} meId={meId} onPick={openDm} />
       {teamCalls.available && (
         <NewMeetingDialog
@@ -2067,12 +2065,12 @@ function MessageRow({
               <MessageSquareReply className="h-3.5 w-3.5" />
             </button>
           )}
-          {/* A task about this message, anyone's ("Follow up: <its first line>"), linked to it, opened at once so its title can be checked; the server checks the person reads its channel.
+          {/* A task about this message, anyone's: the action composer, titled "Follow up: <its first line>", linked to it when made; the server checks the person reads its channel.
               Never a meeting guest's: it is no record (670), and its words would become the task's title. */}
           {!isGuest && (
             <button
               type="button"
-              onClick={() => void makeTaskFromEntity({ type: 'team_chat_message', id: message.id, label: messageTaskLabel(message.body) }, undefined, { openNow: true })}
+              onClick={() => openTaskComposer({ type: 'team_chat_message', id: message.id, title: taskTitleFor(messageTaskLabel(message.body)) })}
               aria-label="Make a task"
               title="Make a task"
               className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -2344,97 +2342,6 @@ function Composer({
         autoFocus={autoFocus}
       />
     </div>
-  )
-}
-
-function NewChannelDialog({
-  open,
-  onOpenChange,
-  teamId: pickedTeam = null,
-  teams,
-  onCreated,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  /** The team picked when it opens (the sub-nav's Team channels +); null: everyone in the workspace. */
-  teamId?: string | null
-  teams: Array<{ id: string; name: string }>
-  onCreated: (id: string) => void | Promise<void>
-}) {
-  const [name, setName] = useState('')
-  const [topic, setTopic] = useState('')
-  const [teamId, setTeamId] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [saving, setSaving] = useState(false)
-  useEffect(() => {
-    if (open) {
-      setName('')
-      setTopic('')
-      setTeamId(pickedTeam && teams.some((t) => t.id === pickedTeam) ? pickedTeam : '')
-      setError(null)
-    }
-    // Only as it opens: the person's own pick stands after that.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
-  const create = async () => {
-    if (!name.trim() || saving) return
-    setSaving(true)
-    setError(null)
-    const res = await fetch('/api/account/team-chat/channels', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ name, topic, teamId: teamId || null }),
-    })
-    setSaving(false)
-    if (res.status === 409) return setError('A channel with that name already exists.')
-    if (!res.ok) return setError('Could not create the channel.')
-    const json = (await res.json()) as { id?: string }
-    if (json.id) await onCreated(json.id)
-  }
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>New channel</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3">
-          <label className="block space-y-1">
-            <span className="text-xs font-medium text-muted-foreground">Name</span>
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. launch" maxLength={80} autoFocus onKeyDown={(e) => e.key === 'Enter' && void create()} />
-          </label>
-          <label className="block space-y-1">
-            <span className="text-xs font-medium text-muted-foreground">Topic (optional)</span>
-            <Input value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="What it's for" maxLength={250} />
-          </label>
-          {teams.length > 0 && (
-            <label className="block space-y-1">
-              <span className="text-xs font-medium text-muted-foreground">Who can see it</span>
-              <select
-                value={teamId}
-                onChange={(e) => setTeamId(e.target.value)}
-                className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-              >
-                <option value="">Everyone in the workspace</option>
-                {teams.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    Only the {t.name} team
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          {error && <p className="text-xs text-destructive">{error}</p>}
-        </div>
-        <DialogFooter>
-          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button size="sm" onClick={() => void create()} disabled={!name.trim() || saving}>
-            Create channel
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   )
 }
 

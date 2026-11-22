@@ -20,6 +20,7 @@ import { isComputedType, type DataChange, type DataColumn, type DataRow } from '
 import { CellDisplay, CellEditor, ColumnLabel, type Member } from './cells'
 import { ComputedCell, readColumn } from './computed-cells'
 import { RowFiles } from './row-files'
+import { CreateHereButton } from '@/components/create/create-here-button'
 
 export function RowPanel({
   row,
@@ -71,6 +72,10 @@ export function RowPanel({
             <p className="text-lg font-semibold">{row.title || 'Untitled'}</p>
           )}
           {cellErrors.get(`${row.id}:title`) && <p className="text-xs text-destructive">{cellErrors.get(`${row.id}:title`)}</p>}
+          {/* A task about this row (a deal, a hire, an order): the Create composer, "Create in <row>". */}
+          <div className="flex justify-end">
+            <CreateHereButton container={{ kind: 'row', id: row.id, name: row.title || 'this row' }} types={['action']} />
+          </div>
         </SheetHeader>
         <div className="space-y-2 px-2 py-3">
           <PropertyGroup>

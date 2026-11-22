@@ -12,14 +12,15 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { isMacPlatform } from '@/lib/hotkeys'
-import { GO_TO, SHORTCUTS_BESIDES_GO_TO, goToKeys, keysChips, type ShortcutDef, type ShortcutSection } from '@/lib/shortcuts'
+import { CREATE_SHORTCUTS, GO_TO, SHORTCUTS_BESIDES_GO_TO, goToKeys, keysChips, type ShortcutDef, type ShortcutSection } from '@/lib/shortcuts'
 import { pagesFor } from '@/lib/chat-cards/page-menu'
+import { availableCreateTypes } from '@/lib/create/create-types'
 import { useIsDesktop } from '@/components/desktop-titlebar'
 import { useIsWorkspaceGuest, useWorkspaceEdition } from '@/app/account/workspace-switcher'
 import { PAGE_GROUPS } from '../rail/page-groups'
 import { OPEN_SHORTCUTS_SHEET_EVENT } from './open-shortcuts-sheet'
 
-const SECTIONS: readonly ShortcutSection[] = ['General', 'Go to', 'Lists', 'Tasks', 'Mail']
+const SECTIONS: readonly ShortcutSection[] = ['General', 'Go to', 'Create', 'Lists', 'Tasks', 'Mail']
 
 export const KBD_CHIP =
   'inline-flex h-5 min-w-5 items-center justify-center rounded-[5px] border border-border bg-muted/60 px-1 font-sans text-[11px] font-medium text-muted-foreground'
@@ -81,7 +82,10 @@ export function ShortcutsSheet() {
       }
       return [{ id: `go-${g.letter}`, keys: [goToKeys(g.letter)], label, section: 'Go to', scope: 'global' }]
     })
-    return [...SHORTCUTS_BESIDES_GO_TO.filter((s) => s.section === 'General'), ...goTo, ...SHORTCUTS_BESIDES_GO_TO.filter((s) => s.section !== 'General')]
+    // Create: C then a letter for the types this workspace can make (as the Create menu lists them).
+    const creatable = new Set(availableCreateTypes(offered.keys()).map((t) => t.id))
+    const create = CREATE_SHORTCUTS.filter((s) => !s.createType || creatable.has(s.createType))
+    return [...SHORTCUTS_BESIDES_GO_TO.filter((s) => s.section === 'General'), ...goTo, ...create, ...SHORTCUTS_BESIDES_GO_TO.filter((s) => s.section !== 'General')]
   }, [edition, desktop, guest])
 
   const q = query.trim().toLowerCase()
@@ -92,7 +96,7 @@ export function ShortcutsSheet() {
       <DialogContent data-shortcuts-sheet="" className="flex max-h-[min(640px,calc(100vh-4rem))] max-w-lg flex-col gap-3 p-0">
         <DialogHeader className="px-5 pt-5">
           <DialogTitle>Keyboard shortcuts</DialogTitle>
-          <DialogDescription>Press G, then a letter, to go to a page. Shortcuts wait while you type.</DialogDescription>
+          <DialogDescription>Press G, then a letter, to go to a page; C, then a letter, to make something. Shortcuts wait while you type.</DialogDescription>
         </DialogHeader>
         <div className="px-5">
           <input

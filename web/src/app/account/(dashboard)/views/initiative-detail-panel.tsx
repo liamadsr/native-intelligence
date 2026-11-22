@@ -53,6 +53,7 @@ import { PRIORITY_OPTIONS } from '@/lib/views/property-options'
 import { EntityTitleInput } from '@/components/views/entity-title-input'
 import { usePropertiesVisible } from '@/components/views/use-properties-visible'
 import { WindowProperties, WindowActions } from '@/components/views/window-properties'
+import { CreateHereButton } from '@/components/create/create-here-button'
 import { UnifiedViewLayout, useIsWindowFocused } from '@/components/views/unified-view-layout'
 import { PropertyGroup } from '@/components/views/property-group'
 import { MemberPanelField, DatePanelField, EnumPanelField, type MemberOption } from '@/components/views/properties'
@@ -554,6 +555,8 @@ export function InitiativeDetailPanel({
               <AlarmClock className="h-3.5 w-3.5 text-muted-foreground" />
             </PreferenceActionButton>
           </ReminderPickerPopover>
+          {/* New project in this initiative, or an action about it: the Create composer, "Create in <initiative>". */}
+          {initiative && <CreateHereButton container={{ kind: 'initiative', id: initiativeId, name: initiative.name }} types={['project', 'action']} />}
           {/* More, last (docs/plans/properties-panels.md): the kind's menu, then
                     Move to workspace (same post-move handling as delete: the
                     initiative leaves this workspace's lists either way) and Delete. */}

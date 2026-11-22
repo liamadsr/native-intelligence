@@ -4,7 +4,7 @@
  * team-chat one look like this"; ../../page-panel/team-chat-panel.tsx). The
  * view in a card says what it has (team-chat-card-controls.ts): its
  * conversations as its own list titles them, the one on screen, and its
- * moves (open one, its own New channel and New message dialogs).
+ * moves (open one, New channel through the Create composer, its own New message dialog).
  *
  * Full screen from `md` up the sub-nav is its one list (Liam, 11-11: "did you
  * actually clean up the old one and remove it from the panel complely or did
@@ -189,24 +189,19 @@ describe('team chat’s card, for its sub-nav', () => {
     expect(container.querySelector('section')!.textContent).toContain('Rosa Lind')
   })
 
-  it('opens its own dialogs, kept in the view with no list of its own: New channel (a team picked when asked), New message', async () => {
+  it('New channel opens the Create composer on Channel (in the team when asked); New message is its own dialog', async () => {
     await render()
     expect(aside()).toBeNull()
+    const asked: unknown[] = []
+    const onAsk = (e: Event) => asked.push((e as CustomEvent).detail)
+    document.addEventListener('open-create', onAsk)
     await act(async () => teamChatCardFor(CARD)!.newChannel('team-eng'))
-    await settle()
-    expect(document.body.textContent).toContain('New channel')
-    expect(document.querySelector<HTMLSelectElement>('[role="dialog"] select')!.value).toBe('team-eng')
-    await act(async () => {
-      document.querySelector<HTMLElement>('[role="dialog"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
-    })
-    await settle()
     await act(async () => teamChatCardFor(CARD)!.newChannel(null))
-    await settle()
-    expect(document.querySelector<HTMLSelectElement>('[role="dialog"] select')!.value).toBe('')
-    await act(async () => {
-      document.querySelector<HTMLElement>('[role="dialog"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
-    })
-    await settle()
+    document.removeEventListener('open-create', onAsk)
+    expect(asked).toEqual([
+      { type: 'channel', context: { container: expect.objectContaining({ kind: 'team', id: 'team-eng' }) } },
+      { type: 'channel' },
+    ])
     await act(async () => teamChatCardFor(CARD)!.newDm())
     await settle()
     expect(document.querySelector('[role="dialog"]')!.textContent).toContain('New message')

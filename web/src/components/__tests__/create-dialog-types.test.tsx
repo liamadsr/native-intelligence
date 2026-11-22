@@ -55,7 +55,7 @@ afterEach(() => {
 const q = <T extends Element = HTMLElement>(sel: string) => document.body.querySelector<T>(sel)
 
 async function openAndList() {
-  await act(async () => void document.dispatchEvent(new CustomEvent('open-create')))
+  await act(async () => void document.dispatchEvent(new CustomEvent('open-create', { detail: { type: 'action' } })))
   await act(async () => q('[data-create-type-trigger]')!.dispatchEvent(new MouseEvent('click', { bubbles: true })))
 }
 
