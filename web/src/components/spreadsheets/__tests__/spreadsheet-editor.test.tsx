@@ -50,6 +50,7 @@ beforeAll(() => {
   HTMLElement.prototype.setPointerCapture = () => {}
   HTMLElement.prototype.hasPointerCapture = () => false
   HTMLElement.prototype.releasePointerCapture = () => {}
+  HTMLElement.prototype.scrollIntoView = () => {}
   globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => setTimeout(() => cb(0), 0)) as never
   globalThis.cancelAnimationFrame = ((id: number) => clearTimeout(id)) as never
 })
@@ -395,7 +396,7 @@ describe('the full toolbar', () => {
       'Bold', 'Italic', 'Strikethrough', 'Underline',
       'Undo', 'Redo', 'Format as currency', 'Format as percent', 'Decrease decimal places', 'Increase decimal places', 'Wrap text',
       'Find and replace',
-      'Number format', 'Font', 'Text color', 'Fill color', 'Borders', 'Horizontal alignment', 'Vertical alignment', 'Functions', 'Paste special', 'View options', 'Format and data',
+      'Number format', 'Font', 'Text color', 'Fill color', 'Borders', 'Horizontal alignment', 'Vertical alignment', 'Functions', 'Paste special', 'Insert', 'View options', 'Format and data',
     ])
   })
 
@@ -515,6 +516,37 @@ describe('find and replace', () => {
     key('f', grid(), { ctrlKey: true })
     key('Escape', container.querySelector('[aria-label="Find"]') as Element)
     expect(container.querySelector('[role="search"]')).toBeNull()
+  })
+})
+
+describe('phase 4 data', () => {
+  const openMenu = (label: string) =>
+    act(() => {
+      const trigger = container.querySelector(`[aria-label="${label}"]`) as HTMLElement
+      trigger.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }))
+      trigger.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }))
+    })
+  const menuItem = (text: string) => [...document.querySelectorAll('[role="menuitem"]')].find((i) => i.textContent?.trim() === text) as HTMLElement
+
+  it('Insert → Checkbox makes a checkbox and the next save carries the extras', async () => {
+    await open()
+    openMenu('Insert')
+    act(() => menuItem('Checkbox').dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    expect(container.querySelector('[data-checkbox="A1"]')).not.toBeNull()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1300)
+    })
+    const body = patches()[0].body as { extras?: { checkboxes?: unknown[] } }
+    expect(body.extras?.checkboxes).toHaveLength(1)
+  })
+
+  it('an ordinary edit does not resend the extras', async () => {
+    await open()
+    await typeCell('9')
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1300)
+    })
+    expect(patches()[0].body?.extras).toBeUndefined()
   })
 })
 

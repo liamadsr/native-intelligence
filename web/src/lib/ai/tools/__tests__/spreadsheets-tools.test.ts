@@ -234,6 +234,14 @@ describe('edit_spreadsheet', () => {
     expect(rows[0].workbook).toBe(before)
   })
 
+  it('keeps the record’s existing extras (an agent save must not wipe validation or checkboxes)', async () => {
+    rows[0].extras = { v: 1, validations: [{ sheetId: 0, range: { r1: 1, c1: 1, r2: 1, c2: 1 }, rule: { type: 'list', choices: [{ value: 'Yes' }], reject: true } }], checkboxes: [] }
+    const before = JSON.stringify(rows[0].extras)
+    const res = await call('edit_spreadsheet', { id: PLAN, expected_revision: 1, operations: [{ op: 'set_cells', start: 'C1', rows: [['hi']] }] })
+    expect(res.success).toBe(true)
+    expect(JSON.stringify(rows[0].extras)).toBe(before)
+  })
+
   it('warns about a cell this call wrote that now shows an error', async () => {
     const res = await call('edit_spreadsheet', { id: PLAN, expected_revision: 1, operations: [{ op: 'set_cells', start: 'A5', rows: [['=1/0']] }] })
     expect(res.success).toBe(true)

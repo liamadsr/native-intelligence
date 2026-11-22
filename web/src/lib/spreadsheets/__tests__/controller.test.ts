@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { MAX_CELL_CHARS } from '../a1'
+import { readCellView } from '../cell-view'
 import { START_COLUMNS, START_ROWS, WorkbookController, indexAt } from '../controller'
 import { loadModel, newModel } from '../engine-server'
 
@@ -591,5 +592,142 @@ describe('the toolbar’s formats', () => {
     wb.select(9, 9)
     wb.insertFunction('MAX')
     expect(wb.editing?.draft).toBe('=MAX(')
+  })
+})
+
+describe('data validation', () => {
+  it('a list rule shows its choices, accepts a listed value and refuses another when rejecting', () => {
+    const wb = open()
+    wb.selectRange({ r1: 1, c1: 1, r2: 3, c2: 1 })
+    expect(wb.setListValidation({ choices: [{ value: 'Open' }, { value: 'Done', color: '#1E8E3E' }], reject: true })).toEqual({ ok: true })
+    const view = wb.validationView(1, 1)!
+    expect(view.isList).toBe(true)
+    expect(view.choices.map((c) => c.value)).toEqual(['Open', 'Done'])
+    expect(wb.setCell(1, 1, 'Done')).toEqual({ ok: true })
+    expect(wb.validationView(1, 1)!.chipColor).toBe('#1E8E3E')
+    expect(wb.setCell(2, 1, 'Nope')).toMatchObject({ ok: false, message: expect.stringMatching(/A2 only takes/) })
+    expect(wb.text(2, 1)).toBe('')
+  })
+
+  it('a non-rejecting rule accepts an outside value but marks it with a warning', () => {
+    const wb = open()
+    wb.select(1, 1)
+    wb.setListValidation({ choices: [{ value: 'A' }], reject: false })
+    expect(wb.setCell(1, 1, 'B')).toEqual({ ok: true })
+    expect(wb.validationView(1, 1)!.warn).toBe(true)
+  })
+
+  it('reads choices live from a source range', () => {
+    const wb = open([[1, 3, 'Red'], [2, 3, 'Green'], [3, 3, 'Red']])
+    wb.select(1, 1)
+    wb.setListValidation({ source: 'Sheet1!C1:C3' })
+    expect(wb.listChoicesAt(1, 1).map((c) => c.value)).toEqual(['Red', 'Green'])
+  })
+
+  it('a new rule carves the old one, and a value becomes one undo step', () => {
+    const wb = open()
+    wb.selectRange({ r1: 1, c1: 1, r2: 1, c2: 1 })
+    wb.setListValidation({ choices: [{ value: 'x' }] })
+    wb.chooseValue(1, 1, 'x')
+    expect(wb.text(1, 1)).toBe('x')
+    wb.undo()
+    expect(wb.text(1, 1)).toBe('')
+    wb.clearValidation({ r1: 1, c1: 1, r2: 1, c2: 1 })
+    expect(wb.validationView(1, 1)).toBeNull()
+  })
+
+  it('a paste into a rejecting list cell is refused whole, naming the first bad cell', () => {
+    const wb = open()
+    wb.selectRange({ r1: 1, c1: 1, r2: 2, c2: 1 })
+    wb.setListValidation({ choices: [{ value: 'Yes' }], reject: true })
+    wb.select(1, 1)
+    expect(wb.pasteValues([['Yes'], ['Maybe']])).toMatchObject({ ok: false, message: expect.stringMatching(/A2 only takes/) })
+    expect(wb.text(1, 1)).toBe('')
+  })
+
+  it('a formula is not pre-checked against a list rule', () => {
+    const wb = open([[5, 1, '7']])
+    wb.select(1, 1)
+    wb.setListValidation({ choices: [{ value: 'Yes' }], reject: true })
+    expect(wb.setCell(1, 1, '=1+1')).toEqual({ ok: true })
+  })
+
+  it('a number rule rejects a value outside its bounds', () => {
+    const wb = open()
+    wb.select(1, 1)
+    wb.setValidationRule({ r1: 1, c1: 1, r2: 1, c2: 1 }, { type: 'number', operator: 'between', min: '1', max: '10', reject: true })
+    expect(wb.setCell(1, 1, '5')).toEqual({ ok: true })
+    expect(wb.setCell(1, 1, '50')).toMatchObject({ ok: false })
+    expect(wb.text(1, 1)).toBe('5')
+  })
+})
+
+describe('checkboxes', () => {
+  it('turns blanks into FALSE, toggles as a boolean, and removes', () => {
+    const wb = open([[1, 1, 'TRUE']])
+    wb.selectRange({ r1: 1, c1: 1, r2: 2, c2: 1 })
+    expect(wb.insertCheckboxes()).toEqual({ ok: true })
+    expect(wb.isCheckboxCell(1, 1)).toBe(true)
+    expect(wb.checkboxChecked(1, 1)).toBe(true)
+    expect(wb.text(2, 1)).toBe('FALSE')
+    expect(wb.checkboxChecked(2, 1)).toBe(false)
+    wb.toggleCheckbox(2, 1)
+    expect(wb.checkboxChecked(2, 1)).toBe(true)
+    // the value is a real boolean in a formula
+    wb.setCell(3, 1, '=IF(A2, 100, 0)')
+    expect(wb.text(3, 1)).toBe('100')
+    wb.toggleCheckbox(2, 1)
+    expect(wb.text(3, 1)).toBe('0')
+    wb.removeCheckboxes({ r1: 1, c1: 1, r2: 2, c2: 1 })
+    expect(wb.isCheckboxCell(1, 1)).toBe(false)
+  })
+
+  it('a checkbox follows an inserted row and is one undo step', () => {
+    const wb = open()
+    wb.select(2, 1)
+    wb.insertCheckboxes({ r1: 2, c1: 1, r2: 2, c2: 1 })
+    expect(wb.isCheckboxCell(2, 1)).toBe(true)
+    wb.insertRows(1, 1)
+    expect(wb.isCheckboxCell(3, 1)).toBe(true)
+    wb.undo()
+    expect(wb.isCheckboxCell(2, 1)).toBe(true)
+    wb.undo()
+    expect(wb.isCheckboxCell(2, 1)).toBe(false)
+  })
+})
+
+describe('conditional formatting', () => {
+  it('adds a rule the engine applies to the winning cells, and lists it', () => {
+    const wb = open([[1, 1, '10'], [2, 1, '40'], [3, 1, '60']])
+    wb.addConditionalRule(
+      { r1: 1, c1: 1, r2: 3, c2: 1 },
+      { type: 'CellIs', operator: 'GreaterThan', formula: '30', formula2: null, format: { fill: { color: '#FFEEEE' }, font: { b: true } }, stop_if_true: false },
+    )
+    expect(wb.conditionalRules()).toHaveLength(1)
+    // getCellStyle carries the winning rule's format.
+    expect(wb.style(1, 1).fill.color).toBeFalsy()
+    expect(wb.style(2, 1).fill.color).toBe('#FFEEEE')
+    expect(wb.style(2, 1).font.b).toBe(true)
+    wb.undo()
+    expect(wb.conditionalRules()).toHaveLength(0)
+  })
+
+  it('draws a data bar and an icon through the cell view', () => {
+    const wb = open([[1, 1, '10'], [2, 1, '50']])
+    wb.addConditionalRule({ r1: 1, c1: 1, r2: 2, c2: 1 }, { type: 'DataBar', min: null, max: null, positive_color: '#638EC6', negative_color: '#FF0000', is_gradient: true, show_value: true })
+    const view = readCellView(wb.model, wb.sheet, 2, 1)
+    expect(view.dataBar).not.toBeNull()
+    expect(view.dataBar!.fraction).toBeGreaterThan(0)
+  })
+
+  it('deletes and reorders rules', () => {
+    const wb = open([[1, 1, '5']])
+    const dxf = { fill: { color: '#EEE' } }
+    wb.addConditionalRule({ r1: 1, c1: 1, r2: 1, c2: 1 }, { type: 'CellIs', operator: 'GreaterThan', formula: '1', formula2: null, format: dxf, stop_if_true: false })
+    wb.addConditionalRule({ r1: 1, c1: 1, r2: 1, c2: 1 }, { type: 'CellIs', operator: 'LessThan', formula: '9', formula2: null, format: dxf, stop_if_true: false })
+    expect(wb.conditionalRules()).toHaveLength(2)
+    const first = wb.conditionalRules()[0].index
+    wb.deleteConditionalRule(first)
+    expect(wb.conditionalRules()).toHaveLength(1)
   })
 })

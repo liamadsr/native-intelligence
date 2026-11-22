@@ -417,6 +417,26 @@ Not in phase 2, said plainly:
 Not done: comments (phase 5, with the threads on cells), sharing with one person (decision 5),
 the activity log and copy link (they need database triggers and deep-link handling).
 
+### Phase 4 (first part): done
+
+Dropdowns and validation, checkboxes, conditional formatting and Goal Seek. Tables (typed
+columns, filter, group by, totals), charts and images are the rest of phase 4 and are **not**
+in this part.
+
+| Item | State |
+| --- | --- |
+| Extras foundation | Done. A typed, versioned `WorkbookExtras` (`lib/spreadsheets/extras.ts`: `{ v: 1, validations, checkboxes, charts, images, tables }`, a tolerant `readExtras` that drops what it does not understand and a 1 MB size guard) is held by the controller and changed only through `act`, so a change to the extras is ONE undo step together with any engine change in the same action (the undo stack carries an extras before/after beside the engine step count; undo and redo restore both). It is in `snapshot()` and bumps `dataVersion`. Ranges are keyed by the engine's stable `sheet_id`, never an index or name. `shiftExtras` moves them when rows or columns are inserted or deleted and when a sheet is deleted or duplicated (shift, shrink or drop), wired into those controller methods. The editor loads `record.extras` into the controller and sends `extras` with a save only when they changed; an agent's save (which sends no extras) leaves the record's extras untouched. |
+| Data validation — dropdowns | Done. "Dropdown…" from Format and data and from the cell menu opens a dialog: the range (prefilled from the selection), choices typed one per line OR a source range (`Sheet1!A2:A20`, read live, deduped), "Reject other values" (default on), and a palette color per choice shown as a chip in the cell. A cell has one rule; a new rule carves its range out of overlapping ones. A list cell draws a dropdown arrow; clicking it or Alt+Down opens a listbox (arrow keys, Enter, Escape, type-to-filter); choosing writes the value as one undo step. A rejecting rule refuses a typed value not in the list with a sentence (the cell keeps its old value); a non-rejecting rule accepts it and shows a warning corner with a tooltip. "Remove dropdown" / clear validation from the menus. |
+| Data validation — other kinds | Done in the model and enforcement (for imports later), not in the dialog: number, date and text-length rules (min/max, between, equal, and the rest). A typed value is pre-checked; a formula is not (its result is not known until it calculates). Number and text-length enforce exactly; a date rule compares the cell's displayed value as a number, which is best-effort. |
+| Paste and fill | Done. Both go through the same rejecting-rule check: a paste or a fill that would put a forbidden value in a rejecting cell is refused whole, naming the first bad cell, and nothing is written. |
+| Checkboxes | Done. Insert checkbox / Remove checkbox from the cell menu and a new "Insert" toolbar menu (between Paste special and View options, "Checkbox" for now). A blank becomes FALSE; a checkbox cell draws a centered box (checked for TRUE) instead of its text; a click or Space on the active cell toggles TRUE/FALSE as one undo step; the value is a real boolean in formulas. Which cells are checkboxes is stored in extras (ranges per sheet) and follows the same shift rules. |
+| Conditional formatting — drawing | Done. The grid draws what the engine computes: the winning rule's `style` (verified by a test), the `data_bar` (a bar behind the value, positive/negative colors, respecting show_value) and the `icon` (the 20 kinds as small lucide/CSS glyphs — our own drawings) in `cell-view.ts` and `sheet-grid.tsx`. |
+| Conditional formatting — editor | Done, and past Macro (which only keeps imported rules; the plan allows this). A side panel (Format and data → "Conditional formatting…") lists the sheet's rules in priority order with their range and a plain description, and adds, edits, deletes and reorders them, for: cell value (greater than, less than, between, equal, not equal), text contains / starts with / ends with, is blank / not blank, is an error, duplicate / unique values, above / below average, a custom formula, and a 2- or 3-color scale. The format is fill color, text color, bold and italic. All through the engine's own calls, each one undo step. |
+| Goal Seek | Done. Format and data → "Goal Seek…": Set cell (prefilled with the active cell), To value, By changing cell. The search (`lib/spreadsheets/goal-seek.ts`, a pure function) is a secant step then a bracketing bisection, run on a throwaway copy of the model read through a scratch cell, never on the open workbook. It shows the result ("B2 = 1,250 makes D9 = 5,000") or says plainly it found none; Apply writes the found value as one undo step. A quadratic with two roots finds whichever it brackets first; a non-numeric set cell is refused. |
+
+Not in this part, said plainly: tables (typed columns, filter, group by, totals), charts and
+images. They are the rest of phase 4.
+
 ## Decisions to review
 
 Made without asking, while the owner was away. Each can be changed.
@@ -455,6 +475,26 @@ Made without asking, while the owner was away. Each can be changed.
 12. **Pushes went out before the full test run finished**, several times: the session's
     stop hook requires unpushed commits to be pushed. The managing session was told each
     time to hold until the run's result, and merged only on its own evidence.
+13. **Validation, checkboxes and the conditional-formatting editor live in `extras`**, the
+    record's jsonb column, not in the engine (the engine evaluates conditional formatting
+    but has no data-validation or checkbox model). A change to them is one undo step with
+    the engine, and the ranges are keyed by `sheet_id` so they follow reorders, renames,
+    inserts and deletes. The conditional-formatting editor goes past Macro, which the plan
+    allows.
+14. **A rejecting validation rule pre-checks only a typed, non-formula value.** A formula
+    is allowed through (its result is not known until it calculates); a paste or fill is
+    re-checked after the write and rolled back whole if a rejecting cell ends up forbidden.
+    So a formula whose result is not in a list is not caught. The other choice is to check
+    every cell's computed value on each recalculation and mark it, which is heavier.
+15. **A date validation rule compares the cell's displayed value as a number** (best-effort),
+    since the engine gives no raw numeric read; number and text-length rules are exact. The
+    dialog only makes list rules, so this matters only for imported rules later.
+16. **Goal Seek is a secant step then a bracketing bisection** over a throwaway copy, read
+    through a scratch cell in General format. It finds whichever root it brackets first for
+    a function with several, and gives up after a fixed number of tries. A tighter solver
+    (Brent) or a user-set tolerance could replace it.
+17. **A dropdown's source range is read live from the displayed values**, deduped, in order,
+    capped at 5,000 rows. A very long source is cut; blanks are skipped.
 
 ## Dependencies
 

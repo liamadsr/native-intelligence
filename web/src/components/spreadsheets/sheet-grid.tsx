@@ -15,6 +15,7 @@
  * controller (src/lib/spreadsheets/controller.ts).
  */
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { AlertTriangle, Check, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { columnName, type CellRange, type CellRef } from '@/lib/spreadsheets/a1'
 import { readCellView, type CellBorder, type CellView } from '@/lib/spreadsheets/cell-view'
@@ -22,6 +23,7 @@ import { parseTableHtml, sameClipboardText, tableHtml } from '@/lib/spreadsheets
 import { indexAt, type InternalClipboard, type SheetLayout, type WorkbookController } from '@/lib/spreadsheets/controller'
 import { expectsReference, insertReference, isFormula, referenceText } from '@/lib/spreadsheets/formula-edit'
 import { parseTsv, toTsv } from '@/components/grid/tsv'
+import { CfGlyph } from './cf-glyph'
 import { useWorkbook } from './use-workbook'
 
 export const ROW_HEADER_WIDTH = 46
@@ -91,6 +93,15 @@ interface Window2D {
 
 function borderCss(b: CellBorder | null): string | undefined {
   return b ? `${b.width}px ${b.style} ${b.color}` : undefined
+}
+
+/** Where a conditional-formatting data bar sits in a cell: left and width in px, from the axis. */
+function dataBarStyle(bar: NonNullable<CellView['dataBar']>, width: number): CSSProperties {
+  const inner = Math.max(0, width - 4)
+  const axisPx = bar.axis * inner
+  const barWidth = Math.max(1, Math.round(bar.fraction * inner))
+  const left = bar.negative ? Math.max(0, axisPx - barWidth) : axisPx
+  return { left: left + 2, width: Math.min(barWidth, inner - (left)), backgroundColor: bar.color, opacity: 0.55 }
 }
 
 function cellStyle(view: CellView, left: number, top: number, width: number, height: number, overflowTo: number | null): CSSProperties {
@@ -190,13 +201,17 @@ const Cells = memo(function Cells({ workbook, sheet, layout, window: w, dataVers
       if (width <= 0) continue
       if (c < w.c1 && (view.align !== 'left' || view.wrap || view.fill)) continue
       if (hide === `${r}:${c}`) continue
+      // A checkbox cell draws its box through the controls overlay, not its TRUE/FALSE text here.
+      const checkbox = workbook.isCheckboxCell(r, c, sheet)
       // Text that does not fit runs over the empty cells to its right, up to the next filled one.
       let overflowTo: number | null = null
-      if (view.text && view.align === 'left' && !view.wrap && !view.fill) {
+      if (view.text && view.align === 'left' && !view.wrap && !view.fill && !view.dataBar && !view.icon) {
         const next = i + 1 < filled.length ? filled[i + 1] : layout.columns + 1
         const limit = Math.min(next, c + 40, layout.columns + 1)
         if (limit > c + 1) overflowTo = columnStarts[limit - 1] - left
       }
+      // A rule's data bar or icon can hide the value (show_value false).
+      const hideText = checkbox || (view.dataBar !== null && !view.dataBar.showValue) || (view.icon !== null && !view.icon.showValue)
       nodes.push(
         <div
           key={id}
@@ -208,16 +223,206 @@ const Cells = memo(function Cells({ workbook, sheet, layout, window: w, dataVers
             'pointer-events-none box-border flex overflow-hidden px-1.5 text-foreground',
             view.wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre',
             view.error && !view.color && 'text-destructive',
+            (view.dataBar || view.icon) && 'relative',
           )}
           style={cellStyle(view, left, top, width, height, overflowTo)}
         >
-          {view.wrap ? view.text : <span className="min-w-0 overflow-hidden text-clip">{view.text}</span>}
+          {view.dataBar && <span aria-hidden data-data-bar className="pointer-events-none absolute bottom-0.5 top-0.5 rounded-sm" style={dataBarStyle(view.dataBar, width)} />}
+          {view.icon && (
+            <span aria-hidden data-cf-icon className="pointer-events-none relative z-[1] mr-1 inline-flex shrink-0 items-center">
+              <CfGlyph kind={view.icon.kind} color={view.icon.color} />
+            </span>
+          )}
+          {!hideText && (view.wrap ? <span className="relative z-[1]">{view.text}</span> : <span className="relative z-[1] min-w-0 overflow-hidden text-clip">{view.text}</span>)}
         </div>,
       )
     }
   }
   return <>{nodes}</>
 })
+
+interface ControlsProps {
+  workbook: WorkbookController
+  sheet: number
+  layout: SheetLayout
+  window: Window2D
+  dataVersion: number
+  onToggle: (row: number, column: number) => void
+  onOpenList: (row: number, column: number) => void
+}
+
+/**
+ * The interactive marks over the cells that data holds but the engine's style
+ * does not: a checkbox, a dropdown arrow, a choice's color chip, a warning
+ * corner. Drawn for the validated and checkbox cells in view (nothing when the
+ * sheet has none), so an empty cell under a rule still shows its arrow.
+ */
+const GridControls = memo(function GridControls({ workbook, sheet, layout, window: w, onToggle, onOpenList }: ControlsProps) {
+  const sheetId = workbook.sheetIdAt(sheet)
+  const extras = workbook.extras
+  const hasValidations = extras.validations.some((v) => v.sheetId === sheetId)
+  const hasCheckboxes = extras.checkboxes.some((b) => b.sheetId === sheetId)
+  if (!hasValidations && !hasCheckboxes) return null
+  const { rowStarts, columnStarts } = layout
+  const nodes: React.ReactNode[] = []
+  for (let r = w.r1; r <= w.r2; r++) {
+    const top = rowStarts[r - 1]
+    const height = rowStarts[r] - top
+    if (height <= 0) continue
+    for (let c = w.c1; c <= w.c2; c++) {
+      const left = columnStarts[c - 1]
+      const width = columnStarts[c] - left
+      if (width <= 0) continue
+      if (hasCheckboxes && workbook.isCheckboxCell(r, c, sheet)) {
+        const checked = workbook.checkboxChecked(r, c, sheet)
+        nodes.push(
+          <button
+            key={`cb${r}:${c}`}
+            type="button"
+            role="checkbox"
+            aria-checked={checked}
+            aria-label={`${columnName(c)}${r} checkbox`}
+            data-checkbox={`${columnName(c)}${r}`}
+            className="absolute flex items-center justify-center bg-background"
+            style={{ left, top, width, height }}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation()
+              onToggle(r, c)
+            }}
+          >
+            <span className={cn('flex h-3.5 w-3.5 items-center justify-center rounded-[3px] border', checked ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/60')}>
+              {checked && <Check className="h-2.5 w-2.5" strokeWidth={3} />}
+            </span>
+          </button>,
+        )
+        continue
+      }
+      if (!hasValidations) continue
+      const vv = workbook.validationView(r, c, sheet)
+      if (!vv) continue
+      if (vv.chipColor) {
+        nodes.push(<span key={`chip${r}:${c}`} aria-hidden className="pointer-events-none absolute z-[2] rounded-full" style={{ left: left + 3, top: top + height / 2 - 4, width: 8, height: 8, backgroundColor: vv.chipColor }} />)
+      }
+      if (vv.warn) {
+        nodes.push(
+          <span key={`warn${r}:${c}`} aria-hidden data-validation-warning={`${columnName(c)}${r}`} title="This value is not one the rule allows." className="pointer-events-none absolute z-[2] text-amber-500" style={{ left: left + width - 12, top: top + 1 }}>
+            <AlertTriangle className="h-2.5 w-2.5" fill="currentColor" />
+          </span>,
+        )
+      }
+      if (vv.isList) {
+        nodes.push(
+          <button
+            key={`dd${r}:${c}`}
+            type="button"
+            aria-label={`Open the list for ${columnName(c)}${r}`}
+            data-dropdown-arrow={`${columnName(c)}${r}`}
+            className="absolute flex items-center justify-center rounded-l-sm bg-background/80 text-muted-foreground hover:text-foreground"
+            style={{ left: left + width - 16, top: top + 1, width: 15, height: height - 2 }}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation()
+              onOpenList(r, c)
+            }}
+          >
+            <ChevronDown className="h-3 w-3" />
+          </button>,
+        )
+      }
+    }
+  }
+  return <>{nodes}</>
+})
+
+/**
+ * The list a dropdown cell opens: its choices under the cell, moved through
+ * with the arrows, chosen with Enter, closed with Escape, narrowed by typing.
+ */
+function DropdownListbox({
+  workbook,
+  cell,
+  layout,
+  onClose,
+  onMessage,
+}: {
+  workbook: WorkbookController
+  cell: CellRef
+  layout: SheetLayout
+  onClose: () => void
+  onMessage?: (message: string) => void
+}) {
+  const choices = workbook.listChoicesAt(cell.row, cell.column)
+  const [filter, setFilter] = useState('')
+  const [active, setActive] = useState(0)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    ref.current?.focus()
+  }, [])
+  const visible = filter ? choices.filter((c) => c.value.toLowerCase().includes(filter.toLowerCase())) : choices
+  const at = Math.min(active, Math.max(0, visible.length - 1))
+  const rect = rectOf(layout, { r1: cell.row, c1: cell.column, r2: cell.row, c2: cell.column })
+  const choose = (value: string) => {
+    const result = workbook.chooseValue(cell.row, cell.column, value)
+    if (!result.ok && result.message) onMessage?.(result.message)
+    onClose()
+  }
+  return (
+    <div
+      ref={ref}
+      role="listbox"
+      tabIndex={0}
+      aria-label="Choices"
+      data-dropdown-list
+      className="absolute z-30 max-h-56 min-w-[120px] overflow-y-auto rounded-md border border-border/70 bg-background py-1 shadow-lg outline-none"
+      style={{ left: rect.left, top: rect.top + rect.height, maxWidth: 240, minWidth: Math.max(120, rect.width) }}
+      onPointerDown={(event) => event.stopPropagation()}
+      onKeyDown={(event) => {
+        if (event.key === 'ArrowDown') {
+          event.preventDefault()
+          setActive((a) => Math.min(visible.length - 1, a + 1))
+        } else if (event.key === 'ArrowUp') {
+          event.preventDefault()
+          setActive((a) => Math.max(0, a - 1))
+        } else if (event.key === 'Enter') {
+          event.preventDefault()
+          if (visible[at]) choose(visible[at].value)
+        } else if (event.key === 'Escape') {
+          event.preventDefault()
+          event.stopPropagation()
+          onClose()
+        } else if (event.key === 'Backspace') {
+          event.preventDefault()
+          setFilter((f) => f.slice(0, -1))
+          setActive(0)
+        } else if (event.key.length === 1 && !event.metaKey && !event.ctrlKey) {
+          event.preventDefault()
+          setFilter((f) => f + event.key)
+          setActive(0)
+        }
+      }}
+    >
+      {visible.length === 0 ? (
+        <div className="px-2 py-1 text-[12px] text-muted-foreground">No matches</div>
+      ) : (
+        visible.map((choice, i) => (
+          <div
+            key={`${choice.value}:${i}`}
+            role="option"
+            aria-selected={i === at}
+            className={cn('flex cursor-pointer items-center gap-1.5 px-2 py-1 text-[12.5px] text-foreground', i === at && 'bg-accent')}
+            onPointerDown={(event) => event.preventDefault()}
+            onClick={() => choose(choice.value)}
+            onMouseEnter={() => setActive(i)}
+          >
+            {choice.color && <span aria-hidden className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: choice.color }} />}
+            <span className="truncate">{choice.value}</span>
+          </div>
+        ))
+      )}
+    </div>
+  )
+}
 
 function rectOf(layout: SheetLayout, range: CellRange): { left: number; top: number; width: number; height: number } {
   const r1 = Math.min(range.r1, layout.rows)
@@ -243,11 +448,20 @@ export function SheetGrid({ workbook, caret, showGridlines = true, showFormulas 
   const [scroll, setScroll] = useState({ left: 0, top: 0, width: 0, height: 0 })
   const [fillPreview, setFillPreview] = useState<CellRange | null>(null)
   const [pointing, setPointing] = useState<{ sheet: number; range: CellRange } | null>(null)
+  const [listCell, setListCell] = useState<CellRef | null>(null)
   const drag = useRef<null | { kind: 'select' | 'rows' | 'columns' | 'fill' | 'point' | 'resize-column' | 'resize-row'; from: CellRef; index?: number; start?: number; size?: number }>(null)
   const frame = useRef(0)
   const say = useCallback((result: { ok: boolean; message?: string }) => {
     if (!result.ok && result.message) onMessage?.(result.message)
   }, [onMessage])
+  const toggleCheckbox = useCallback((row: number, column: number) => {
+    workbook.select(row, column)
+    say(workbook.toggleCheckbox(row, column))
+  }, [workbook, say])
+  const openList = useCallback((row: number, column: number) => {
+    workbook.select(row, column)
+    setListCell({ row, column })
+  }, [workbook])
 
   const { rowStarts, columnStarts } = layout
   const totalWidth = columnStarts[layout.columns]
@@ -368,6 +582,7 @@ export function SheetGrid({ workbook, caret, showGridlines = true, showFormulas 
 
   useEffect(() => {
     if (!editing) setPointing(null)
+    else setListCell(null)
   }, [editing])
 
   // ── The mouse ────────────────────────────────────────────────────────────
@@ -559,6 +774,18 @@ export function SheetGrid({ workbook, caret, showGridlines = true, showFormulas 
     const mod = event.metaKey || event.ctrlKey
     const key = event.key
     const arrows: Record<string, 'up' | 'down' | 'left' | 'right'> = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' }
+    const active = workbook.selection()
+    // Alt+Down opens the dropdown under the active cell; Space toggles a checkbox there.
+    if (event.altKey && key === 'ArrowDown' && workbook.listChoicesAt(active.row, active.column).length > 0) {
+      event.preventDefault()
+      openList(active.row, active.column)
+      return
+    }
+    if (key === ' ' && !mod && !event.altKey && !workbook.readOnly && workbook.isCheckboxCell(active.row, active.column)) {
+      event.preventDefault()
+      toggleCheckbox(active.row, active.column)
+      return
+    }
     if (arrows[key]) {
       event.preventDefault()
       workbook.move(arrows[key], { extend: event.shiftKey, edge: mod })
@@ -908,6 +1135,9 @@ export function SheetGrid({ workbook, caret, showGridlines = true, showFormulas 
             hide={editorCell && editing?.source === 'cell' ? `${editorCell.row}:${editorCell.column}` : null}
           />
 
+          {/* Checkboxes, dropdown arrows, choice chips and warning corners. */}
+          <GridControls workbook={workbook} sheet={sheet} layout={layout} window={view} dataVersion={workbook.dataVersion} onToggle={toggleCheckbox} onOpenList={openList} />
+
           {/* The selected range: a tint that leaves the active cell clear. */}
           {!single && rangeRect.width > 0 && rangeRect.height > 0 && (
             <div
@@ -991,6 +1221,20 @@ export function SheetGrid({ workbook, caret, showGridlines = true, showFormulas 
               onDoubleClick={(event) => event.stopPropagation()}
               onFocus={() => {
                 if (workbook.editing && workbook.editing.source !== 'cell') workbook.setDraft(workbook.editing.draft, 'cell')
+              }}
+            />
+          )}
+
+          {/* The dropdown's choices, under the cell. */}
+          {listCell && !editing && (
+            <DropdownListbox
+              workbook={workbook}
+              cell={listCell}
+              layout={layout}
+              onMessage={onMessage}
+              onClose={() => {
+                setListCell(null)
+                host.current?.focus({ preventScroll: true })
               }}
             />
           )}

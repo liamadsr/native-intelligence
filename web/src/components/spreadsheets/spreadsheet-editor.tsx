@@ -16,9 +16,13 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { WorkbookController } from '@/lib/spreadsheets/controller'
 import { openModel } from '@/lib/spreadsheets/engine-client'
+import { readExtras } from '@/lib/spreadsheets/extras'
 import type { SpreadsheetRecord, SpreadsheetSummary } from '@/lib/spreadsheets/types'
+import { ConditionalFormat } from './conditional-format'
+import { DataValidationDialog } from './data-validation'
 import { FindReplace } from './find-replace'
 import { FormulaBar } from './formula-bar'
+import { GoalSeekDialog } from './goal-seek-dialog'
 import { FormulaSuggest, type FormulaSuggestHandle } from './formula-suggest'
 import { GridMenu, type GridCommands, type GridMenuState } from './grid-menu'
 import { ImportExport } from './import-export'
@@ -65,7 +69,7 @@ export function SpreadsheetEditor({ spreadsheetId, onBack, onOpen }: Spreadsheet
           model.free()
           return
         }
-        made = new WorkbookController(model, { readOnly: json.spreadsheet.status === 'archived' })
+        made = new WorkbookController(model, { readOnly: json.spreadsheet.status === 'archived', extras: readExtras(json.spreadsheet.extras) })
         setLoaded({ record: json.spreadsheet, workbook: made })
       } catch (e) {
         if (live) setError(e instanceof Error ? e.message : 'Could not load the spreadsheet')
@@ -130,6 +134,8 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
   const [view, setView] = useState<ViewOptions>({ formulaBar: true, formulas: false })
   const [finding, setFinding] = useState(false)
   const [history, setHistory] = useState(false)
+  const [dialog, setDialog] = useState<'dropdown' | 'goalSeek' | null>(null)
+  const [conditional, setConditional] = useState(false)
   const [resizing, setResizing] = useState<{ axis: 'row' | 'column'; from: number; to: number; value: string } | null>(null)
   const caret = useRef<CaretState>({ start: 0, end: 0, pointed: null })
   const suggest = useRef<FormulaSuggestHandle | null>(null)
@@ -149,11 +155,13 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
     saving.current = true
     setSave('saving')
     const snapshot = workbook.snapshot()
+    // Send the extras only when they changed, so an ordinary edit does not rewrite them.
+    const extrasDirty = workbook.extrasDirty
     try {
       const res = await fetch(`/api/account/spreadsheets/${loaded.record.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ base_revision: revision.current, workbook: snapshot.workbook }),
+        body: JSON.stringify({ base_revision: revision.current, workbook: snapshot.workbook, ...(extrasDirty ? { extras: snapshot.extras } : {}) }),
       })
       const json = (await res.json().catch(() => ({}))) as { spreadsheet?: SpreadsheetSummary; error?: string; code?: string }
       if (res.status === 409) {
@@ -164,7 +172,7 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
       if (!res.ok || !json.spreadsheet) throw new Error(json.error || 'Could not save')
       revision.current = json.spreadsheet.revision
       setRecord((prev) => ({ ...prev, ...json.spreadsheet }))
-      workbook.markSaved(snapshot.version)
+      workbook.markSaved(snapshot.version, snapshot.extras)
       setSave(workbook.dirty ? 'unsaved' : 'saved')
     } catch {
       setSave('failed')
@@ -194,7 +202,7 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
         void fetch(`/api/account/spreadsheets/${loaded.record.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ base_revision: revision.current, workbook: snapshot.workbook }),
+          body: JSON.stringify({ base_revision: revision.current, workbook: snapshot.workbook, ...(workbook.extrasDirty ? { extras: snapshot.extras } : {}) }),
         }).catch(() => undefined)
       }
     }
@@ -266,6 +274,7 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
       const starts = axis === 'column' ? layout.columnStarts : layout.rowStarts
       setResizing({ axis, from, to, value: String(Math.round(starts[from] - starts[from - 1])) })
     },
+    dropdown: () => setDialog('dropdown'),
   }
 
   return (
@@ -323,6 +332,9 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
         onPaste={(valuesOnly) => commands.paste(valuesOnly)}
         onMessage={onMessage}
         focusGrid={focusGrid}
+        onDropdown={() => setDialog('dropdown')}
+        onConditionalFormatting={() => setConditional(true)}
+        onGoalSeek={() => setDialog('goalSeek')}
       />
 
       {view.formulaBar && <FormulaBar workbook={workbook} caret={caret} suggest={suggest} onCaret={() => setCaretTick((n) => n + 1)} onMessage={onMessage} focusGrid={focusGrid} />}
@@ -366,6 +378,16 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
             }}
           />
         )}
+        {conditional && (
+          <ConditionalFormat
+            workbook={workbook}
+            onMessage={onMessage}
+            onClose={() => {
+              setConditional(false)
+              focusGrid()
+            }}
+          />
+        )}
       </div>
 
       <SheetTabs
@@ -386,6 +408,28 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
         commands={commands}
         onMessage={onMessage}
       />
+      {dialog === 'dropdown' && (
+        <DataValidationDialog
+          workbook={workbook}
+          onMessage={onMessage}
+          focusGrid={focusGrid}
+          onClose={() => {
+            setDialog(null)
+            focusGrid()
+          }}
+        />
+      )}
+      {dialog === 'goalSeek' && (
+        <GoalSeekDialog
+          workbook={workbook}
+          onMessage={onMessage}
+          focusGrid={focusGrid}
+          onClose={() => {
+            setDialog(null)
+            focusGrid()
+          }}
+        />
+      )}
       {resizing && (
         <ResizeBox
           state={resizing}

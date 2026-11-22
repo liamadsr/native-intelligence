@@ -8,7 +8,7 @@
  * counts the engine's own steps so Undo takes back the whole action, tells
  * the listeners, and marks the workbook as needing a save.
  */
-import type { Area, BorderArea, CellStyle, Model } from '@ironcalc/wasm'
+import type { Area, BorderArea, CellStyle, CfRuleInput, ConditionalFormattingView, Model } from '@ironcalc/wasm'
 import {
   MAX_CELL_CHARS,
   MAX_COLUMNS,
@@ -16,12 +16,31 @@ import {
   MAX_SHEETS,
   cellName,
   columnName,
+  parseSheetRange,
   rangeCellCount,
   sheetNameProblem,
   type CellRange,
   type CellRef,
 } from './a1'
 import { DEFAULT_FONT_POINTS } from './cell-view'
+import {
+  addCheckboxes,
+  clearValidationIn,
+  describeValidation,
+  emptyExtras,
+  isCheckbox as extrasIsCheckbox,
+  listChoiceValues,
+  passesBound,
+  putValidation,
+  removeCheckboxesIn,
+  shiftExtras,
+  validationAt,
+  type ExtrasChange,
+  type Validation,
+  type ValidationChoice,
+  type ValidationSpec,
+  type WorkbookExtras,
+} from './extras'
 import { GENERAL, PLAIN_TEXT, changeDecimals, clampFontSize } from './formats'
 import { CELL_TYPE, listSheets, saveWorkbook, usedRange, type SheetInfo } from './workbook'
 
@@ -69,6 +88,30 @@ export interface SheetLayout {
 
 export type ActionResult = { ok: true } | { ok: false; message: string }
 
+/**
+ * One entry on the undo stack: how many engine history steps the action took,
+ * and, when the action also changed the extras (validation, checkboxes), the
+ * extras before and after, so undo and redo restore both together.
+ */
+interface HistoryEntry {
+  steps: number
+  extrasBefore: WorkbookExtras | null
+  extrasAfter: WorkbookExtras | null
+}
+
+/** What a cell's validation rule lets the grid draw: the choices, a chip, a warning. */
+export interface ValidationView {
+  rule: ValidationSpec
+  /** For a list rule: its choices (from the typed list or read live from a source range). */
+  choices: ValidationChoice[]
+  /** True when the cell has a list rule (so the grid draws a dropdown arrow). */
+  isList: boolean
+  /** The palette color of the choice the cell's value matches, if any. */
+  chipColor: string | null
+  /** A non-rejecting rule the cell's current value breaks: draw a warning corner. */
+  warn: boolean
+}
+
 const OK: ActionResult = { ok: true }
 const no = (message: string): ActionResult => ({ ok: false, message })
 
@@ -79,6 +122,12 @@ function engineMessage(error: unknown, fallback: string): string {
 
 function area(sheet: number, range: CellRange): Area {
   return { sheet, row: range.r1, column: range.c1, width: range.c2 - range.c1 + 1, height: range.r2 - range.r1 + 1 }
+}
+
+/** A number read out of a displayed value, ignoring currency symbols, separators and the like. NaN when there is none. */
+function numericFrom(text: string): number {
+  const cleaned = text.replace(/[^0-9.eE+-]/g, '')
+  return cleaned === '' ? NaN : Number(cleaned)
 }
 
 /** The last entry at or before `offset` (a binary search over starts). */
@@ -100,6 +149,9 @@ export class WorkbookController {
   readonly model: Model
   readOnly: boolean
 
+  /** What the engine does not hold (validation, checkboxes); changed only through `act`, one undo step with the engine. */
+  extras: WorkbookExtras
+
   /** Moves on any change a view should redraw for (a selection too). */
   version = 0
   /** Moves when cells, formats, layout or sheets changed: what is saved. */
@@ -110,16 +162,19 @@ export class WorkbookController {
   editing: EditState | null = null
 
   private listeners = new Set<() => void>()
-  private undoSteps: number[] = []
-  private redoSteps: number[] = []
+  private undoStack: HistoryEntry[] = []
+  private redoStack: HistoryEntry[] = []
   private steps = 0
+  private savedExtras: WorkbookExtras
   private extents = new Map<number, { rows: number; columns: number }>()
   private layouts = new Map<number, { at: number; layout: SheetLayout }>()
   private layoutVersion = 0
 
-  constructor(model: Model, options: { readOnly?: boolean } = {}) {
+  constructor(model: Model, options: { readOnly?: boolean; extras?: WorkbookExtras } = {}) {
     this.model = model
     this.readOnly = options.readOnly ?? false
+    this.extras = options.extras ?? emptyExtras()
+    this.savedExtras = this.extras
     // A workbook saved while a hidden sheet was selected opens on a sheet a person can see.
     const sheets = listSheets(model)
     const selected = model.getSelectedSheet()
@@ -148,13 +203,19 @@ export class WorkbookController {
     return this.dataVersion !== this.savedVersion
   }
 
-  /** The workbook as it is saved, and the version that save will have covered. */
-  snapshot(): { workbook: string; version: number } {
-    return { workbook: saveWorkbook(this.model), version: this.dataVersion }
+  /** Whether the extras have changed since the last save (so the editor sends them). */
+  get extrasDirty(): boolean {
+    return this.extras !== this.savedExtras
   }
 
-  markSaved(version: number) {
+  /** The workbook and its extras as they are saved, and the version that save will have covered. */
+  snapshot(): { workbook: string; extras: WorkbookExtras; version: number } {
+    return { workbook: saveWorkbook(this.model), extras: this.extras, version: this.dataVersion }
+  }
+
+  markSaved(version: number, extras?: WorkbookExtras) {
     this.savedVersion = version
+    if (extras) this.savedExtras = extras
     this.emit()
   }
 
@@ -166,6 +227,11 @@ export class WorkbookController {
 
   sheets(): SheetInfo[] {
     return listSheets(this.model)
+  }
+
+  /** The stable id of a sheet by its index (extras refer to sheets by id, never index). */
+  sheetIdAt(index = this.sheet): number {
+    return this.sheets()[index]?.id ?? index
   }
 
   selectSheet(index: number): void {
@@ -200,8 +266,10 @@ export class WorkbookController {
     if (sheets.filter((s) => !s.hidden && s.index !== index).length === 0) {
       return no('A workbook keeps at least one sheet.')
     }
+    const sheetId = this.sheetIdAt(index)
     return this.act(() => {
       this.mut(() => this.model.deleteSheet(index))
+      this.extras = shiftExtras(this.extras, { type: 'deleteSheet', sheetId })
       const left = this.sheets()
       const stay = Math.min(index, left.length - 1)
       const visible = left[stay] && !left[stay].hidden ? stay : (left.find((s) => !s.hidden)?.index ?? 0)
@@ -213,9 +281,12 @@ export class WorkbookController {
     const sheets = this.sheets()
     if (!sheets[index]) return no('That sheet is gone.')
     if (sheets.length >= MAX_SHEETS) return no(`A workbook holds ${MAX_SHEETS} sheets at most.`)
+    const fromId = this.sheetIdAt(index)
     return this.act(() => {
       this.mut(() => this.model.duplicateSheet(index))
       const copy = Math.min(index + 1, this.sheets().length - 1)
+      const toId = this.sheetIdAt(copy)
+      this.extras = shiftExtras(this.extras, { type: 'duplicateSheet', fromId, toId })
       this.model.setSelectedSheet(copy)
     }, { structure: true })
   }
@@ -477,6 +548,9 @@ export class WorkbookController {
   setCell(row: number, column: number, input: string, sheet = this.sheet): ActionResult {
     if (input.length > MAX_CELL_CHARS) return no(`A cell holds ${MAX_CELL_CHARS.toLocaleString('en-US')} characters at most.`)
     if (row > MAX_ROWS || column > MAX_COLUMNS) return no('That cell is past the edge of the sheet.')
+    // A rejecting validation rule refuses a typed value that is not allowed; the cell keeps what it had.
+    const refusal = this.typedValueRefusal(sheet, row, column, input)
+    if (refusal) return no(refusal)
     this.reach(sheet, row, column)
     // A cell formatted as plain text keeps what is typed as text: a formula stays a formula's
     // words and 007 keeps its zeros (the engine's quote prefix, which a person can also type).
@@ -503,27 +577,29 @@ export class WorkbookController {
   // ── History ──────────────────────────────────────────────────────────────
 
   canUndo(): boolean {
-    return !this.readOnly && this.undoSteps.length > 0
+    return !this.readOnly && this.undoStack.length > 0
   }
 
   canRedo(): boolean {
-    return !this.readOnly && this.redoSteps.length > 0
+    return !this.readOnly && this.redoStack.length > 0
   }
 
   undo(): ActionResult {
     if (!this.canUndo()) return OK
-    const steps = this.undoSteps.pop() as number
-    for (let i = 0; i < steps && this.model.canUndo(); i++) this.model.undo()
-    this.redoSteps.push(steps)
+    const entry = this.undoStack.pop() as HistoryEntry
+    for (let i = 0; i < entry.steps && this.model.canUndo(); i++) this.model.undo()
+    if (entry.extrasBefore) this.extras = entry.extrasBefore
+    this.redoStack.push(entry)
     this.afterHistory()
     return OK
   }
 
   redo(): ActionResult {
     if (!this.canRedo()) return OK
-    const steps = this.redoSteps.pop() as number
-    for (let i = 0; i < steps && this.model.canRedo(); i++) this.model.redo()
-    this.undoSteps.push(steps)
+    const entry = this.redoStack.pop() as HistoryEntry
+    for (let i = 0; i < entry.steps && this.model.canRedo(); i++) this.model.redo()
+    if (entry.extrasAfter) this.extras = entry.extrasAfter
+    this.undoStack.push(entry)
     this.afterHistory()
     return OK
   }
@@ -554,6 +630,7 @@ export class WorkbookController {
     if (this.readOnly) return no('You can view this spreadsheet but not change it.')
     const outer = this.steps
     this.steps = 0
+    const extrasBefore = this.extras
     let failure: string | null = null
     this.model.pauseEvaluation()
     try {
@@ -562,6 +639,7 @@ export class WorkbookController {
       failure = engineMessage(error, 'That change could not be made.')
       for (let i = 0; i < this.steps && this.model.canUndo(); i++) this.model.undo()
       this.steps = 0
+      this.extras = extrasBefore
     } finally {
       this.model.resumeEvaluation()
     }
@@ -572,9 +650,10 @@ export class WorkbookController {
       this.emit()
       return no(failure)
     }
-    if (made > 0) {
-      this.undoSteps.push(made)
-      this.redoSteps = []
+    const extrasChanged = this.extras !== extrasBefore
+    if (made > 0 || extrasChanged) {
+      this.undoStack.push({ steps: made, extrasBefore: extrasChanged ? extrasBefore : null, extrasAfter: extrasChanged ? this.extras : null })
+      this.redoStack = []
       this.dataVersion += 1
     }
     this.model.evaluate()
@@ -592,8 +671,11 @@ export class WorkbookController {
     const extent = this.extent(this.sheet)
     if (extent.rows + count > MAX_ROWS) return no(`A sheet holds ${MAX_ROWS.toLocaleString('en-US')} rows at most.`)
     const sheet = this.sheet
-    const result = this.act(() => this.mut(() => this.model.insertRows(sheet, at, count)), { structure: true })
-    return result
+    const sheetId = this.sheetIdAt(sheet)
+    return this.act(() => {
+      this.mut(() => this.model.insertRows(sheet, at, count))
+      this.extras = shiftExtras(this.extras, { type: 'insertRows', sheetId, at, count })
+    }, { structure: true })
   }
 
   insertColumns(at: number, count = 1): ActionResult {
@@ -601,19 +683,31 @@ export class WorkbookController {
     const extent = this.extent(this.sheet)
     if (extent.columns + count > MAX_COLUMNS) return no(`A sheet holds ${MAX_COLUMNS.toLocaleString('en-US')} columns at most.`)
     const sheet = this.sheet
-    return this.act(() => this.mut(() => this.model.insertColumns(sheet, at, count)), { structure: true })
+    const sheetId = this.sheetIdAt(sheet)
+    return this.act(() => {
+      this.mut(() => this.model.insertColumns(sheet, at, count))
+      this.extras = shiftExtras(this.extras, { type: 'insertColumns', sheetId, at, count })
+    }, { structure: true })
   }
 
   deleteRows(at: number, count = 1): ActionResult {
     if (count < 1) return OK
     const sheet = this.sheet
-    return this.act(() => this.mut(() => this.model.deleteRows(sheet, at, count)), { structure: true })
+    const sheetId = this.sheetIdAt(sheet)
+    return this.act(() => {
+      this.mut(() => this.model.deleteRows(sheet, at, count))
+      this.extras = shiftExtras(this.extras, { type: 'deleteRows', sheetId, at, count })
+    }, { structure: true })
   }
 
   deleteColumns(at: number, count = 1): ActionResult {
     if (count < 1) return OK
     const sheet = this.sheet
-    return this.act(() => this.mut(() => this.model.deleteColumns(sheet, at, count)), { structure: true })
+    const sheetId = this.sheetIdAt(sheet)
+    return this.act(() => {
+      this.mut(() => this.model.deleteColumns(sheet, at, count))
+      this.extras = shiftExtras(this.extras, { type: 'deleteColumns', sheetId, at, count })
+    }, { structure: true })
   }
 
   setColumnWidth(from: number, to: number, width: number): ActionResult {
@@ -737,6 +831,8 @@ export class WorkbookController {
       this.reach(sheet, to, range.c2)
       return this.act(() => {
         this.mut(() => this.model.autoFillRows(source, to))
+        const refusal = this.rangeValueRefusal(sheet, { r1: Math.min(range.r1, to), c1: range.c1, r2: Math.max(range.r2, to), c2: range.c2 })
+        if (refusal) throw new Error(refusal)
         this.model.setSelectedCell(row, column)
         this.model.setSelectedRange(Math.min(range.r1, to), range.c1, Math.max(range.r2, to), range.c2)
       })
@@ -745,6 +841,8 @@ export class WorkbookController {
     this.reach(sheet, range.r2, to)
     return this.act(() => {
       this.mut(() => this.model.autoFillColumns(source, to))
+      const refusal = this.rangeValueRefusal(sheet, { r1: range.r1, c1: Math.min(range.c1, to), r2: range.r2, c2: Math.max(range.c2, to) })
+      if (refusal) throw new Error(refusal)
       this.model.setSelectedCell(row, column)
       this.model.setSelectedRange(range.r1, Math.min(range.c1, to), range.r2, Math.max(range.c2, to))
     })
@@ -795,8 +893,11 @@ export class WorkbookController {
     const width = Math.abs(c2 - c1) + 1
     if (row + height - 1 > MAX_ROWS || column + width - 1 > MAX_COLUMNS) return no('That does not fit: it runs past the edge of the sheet.')
     this.reach(this.sheet, row + height - 1, column + width - 1)
+    const sheet = this.sheet
     return this.act(() => {
       this.mut(() => this.model.pasteFromClipboard(clip.sheet, clip.range, clip.data, options.cut ?? false))
+      const refusal = this.rangeValueRefusal(sheet, { r1: row, c1: column, r2: row + height - 1, c2: column + width - 1 })
+      if (refusal) throw new Error(refusal)
       this.model.setSelectedCell(row, column)
       this.model.setSelectedRange(row, column, row + height - 1, column + width - 1)
     }, { layout: true })
@@ -824,6 +925,15 @@ export class WorkbookController {
     if (top + outRows - 1 > MAX_ROWS || left + outColumns - 1 > MAX_COLUMNS) return no('That does not fit: it runs past the edge of the sheet.')
     if (outRows * outColumns > 500_000) return no('That is more than can be pasted at once.')
     for (const line of block) for (const value of line) if (value.length > MAX_CELL_CHARS) return no(`A cell holds ${MAX_CELL_CHARS.toLocaleString('en-US')} characters at most.`)
+    // A rejecting rule refuses the whole paste, naming the first bad cell.
+    for (let r = 0; r < outRows; r++) {
+      for (let c = 0; c < outColumns; c++) {
+        const value = block[r % rows][c % columns] ?? ''
+        if (value === '') continue
+        const refusal = this.typedValueRefusal(sheet, top + r, left + c, value)
+        if (refusal) return no(refusal)
+      }
+    }
     this.reach(sheet, top + outRows - 1, left + outColumns - 1)
     return this.act(() => {
       for (let r = 0; r < outRows; r++) {
@@ -1098,6 +1208,218 @@ export class WorkbookController {
   selectionName(): string {
     const { row, column } = this.selection()
     return `${columnName(column)}${row}`
+  }
+
+  // ── Data validation ────────────────────────────────────────────────────────
+
+  /** Every validation rule on a sheet (for an import, a test, or a panel). */
+  validations(sheet = this.sheet): Validation[] {
+    const id = this.sheetIdAt(sheet)
+    return this.extras.validations.filter((v) => v.sheetId === id)
+  }
+
+  /** The values a list rule allows: its typed choices, or the live values of its source range. */
+  private ruleChoices(rule: ValidationSpec): ValidationChoice[] {
+    if (rule.type !== 'list') return []
+    if (!rule.source) return rule.choices
+    return this.sourceValues(rule.source).map((value) => ({ value }))
+  }
+
+  /** The distinct, non-empty values a source range (`Sheet1!A2:A20`) shows, in order. */
+  private sourceValues(source: string): string[] {
+    const parsed = parseSheetRange(source)
+    if (!parsed) return []
+    const sheets = this.sheets()
+    const target = parsed.sheet ? sheets.find((s) => s.name.toLowerCase() === parsed.sheet!.toLowerCase()) : sheets[this.sheet]
+    if (!target) return []
+    const range = parsed.range
+    const out: string[] = []
+    const seen = new Set<string>()
+    for (let r = range.r1; r <= Math.min(range.r2, range.r1 + 5000); r++) {
+      for (let c = range.c1; c <= range.c2; c++) {
+        const text = this.model.getFormattedCellValue(target.index, r, c)
+        if (text !== '' && !seen.has(text)) {
+          seen.add(text)
+          out.push(text)
+        }
+      }
+    }
+    return out
+  }
+
+  /** What a cell's validation lets a view draw (choices, a chip, a warning), or null. */
+  validationView(row: number, column: number, sheet = this.sheet): ValidationView | null {
+    const id = this.sheetIdAt(sheet)
+    const found = validationAt(this.extras, id, row, column)
+    if (!found) return null
+    const choices = this.ruleChoices(found.rule)
+    const value = this.text(row, column, sheet)
+    const valid = this.valuePasses(found.rule, choices, value)
+    const chip = found.rule.type === 'list' ? found.rule.choices.find((c) => c.color && c.value === value)?.color ?? null : null
+    return { rule: found.rule, choices, isList: found.rule.type === 'list', chipColor: chip, warn: !found.rule.reject && value !== '' && !valid }
+  }
+
+  /** The choices for a cell's dropdown (value and chip color). Empty when the cell has no list rule. */
+  listChoicesAt(row: number, column: number, sheet = this.sheet): ValidationChoice[] {
+    const id = this.sheetIdAt(sheet)
+    const found = validationAt(this.extras, id, row, column)
+    return found && found.rule.type === 'list' ? this.ruleChoices(found.rule) : []
+  }
+
+  /** Whether a displayed value is allowed by a rule (an empty cell always is). */
+  private valuePasses(rule: ValidationSpec, choices: ValidationChoice[], value: string): boolean {
+    if (value === '') return true
+    if (rule.type === 'list') return choices.some((c) => c.value === value)
+    const quantity = rule.type === 'textLength' ? value.length : numericFrom(value)
+    if (!Number.isFinite(quantity)) return false
+    return passesBound(quantity, rule)
+  }
+
+  /** A refusal for a value TYPED into a cell under a rejecting rule, or null. Formulas are not pre-checked. */
+  private typedValueRefusal(sheet: number, row: number, column: number, input: string): string | null {
+    if (input === '' || input.startsWith('=') || input.startsWith("'")) return null
+    const id = this.sheetIdAt(sheet)
+    const found = validationAt(this.extras, id, row, column)
+    if (!found || !found.rule.reject) return null
+    const quantity = found.rule.type === 'textLength' ? input.length : found.rule.type !== 'list' ? numericFrom(input) : 0
+    const ok = found.rule.type === 'list' ? this.ruleChoices(found.rule).some((c) => c.value === input) : Number.isFinite(quantity) && passesBound(quantity, found.rule)
+    return ok ? null : `${cellName(row, column)} only takes ${describeValidation(found.rule)}.`
+  }
+
+  /** The first cell in a range whose current value a rejecting rule forbids (for a paste or a fill), or null. */
+  private rangeValueRefusal(sheet: number, range: CellRange): string | null {
+    const id = this.sheetIdAt(sheet)
+    if (!this.extras.validations.some((v) => v.sheetId === id && v.rule.reject)) return null
+    for (let r = range.r1; r <= range.r2; r++) {
+      for (let c = range.c1; c <= range.c2; c++) {
+        const found = validationAt(this.extras, id, r, c)
+        if (!found || !found.rule.reject) continue
+        const value = this.text(r, c, sheet)
+        if (!this.valuePasses(found.rule, this.ruleChoices(found.rule), value)) {
+          return `${cellName(r, c)} only takes ${describeValidation(found.rule)}.`
+        }
+      }
+    }
+    return null
+  }
+
+  /** A list ("Dropdown…") rule on a range, carving it out of any rule it overlaps. */
+  setListValidation(options: { range?: CellRange; choices?: ValidationChoice[]; source?: string; reject?: boolean }): ActionResult {
+    const source = options.source?.trim()
+    const choices = (options.choices ?? []).filter((c) => c.value.trim() !== '').map((c) => ({ value: c.value, ...(c.color ? { color: c.color } : {}) }))
+    if (!source && choices.length === 0) return no('Type at least one choice, or give a source range.')
+    if (source && !parseSheetRange(source)) return no(`"${source}" is not a range (e.g. Sheet1!A2:A20).`)
+    const rule: ValidationSpec = { type: 'list', choices: source ? [] : choices, ...(source ? { source } : {}), reject: options.reject !== false }
+    return this.setValidationRule(options.range ?? this.selection().range, rule)
+  }
+
+  /** Any validation rule on a range (list, number, date, text length). One undo step. */
+  setValidationRule(range: CellRange, rule: ValidationSpec): ActionResult {
+    const id = this.sheetIdAt(this.sheet)
+    return this.act(() => {
+      this.extras = putValidation(this.extras, id, { ...range }, rule)
+    })
+  }
+
+  /** Remove validation from a range (Remove dropdown / clear validation). */
+  clearValidation(range = this.selection().range): ActionResult {
+    const id = this.sheetIdAt(this.sheet)
+    if (!this.extras.validations.some((v) => v.sheetId === id && rangeCellCount({ r1: Math.max(v.range.r1, range.r1), c1: Math.max(v.range.c1, range.c1), r2: Math.min(v.range.r2, range.r2), c2: Math.min(v.range.c2, range.c2) }) > 0)) {
+      return OK
+    }
+    return this.act(() => {
+      this.extras = clearValidationIn(this.extras, id, range)
+    })
+  }
+
+  /** Write a chosen value into a cell as one undo step (from the dropdown listbox). */
+  chooseValue(row: number, column: number, value: string): ActionResult {
+    return this.setCell(row, column, value)
+  }
+
+  // ── Checkboxes ───────────────────────────────────────────────────────────
+
+  isCheckboxCell(row: number, column: number, sheet = this.sheet): boolean {
+    return extrasIsCheckbox(this.extras, this.sheetIdAt(sheet), row, column)
+  }
+
+  /** Whether a checkbox cell shows as checked (its value is TRUE). */
+  checkboxChecked(row: number, column: number, sheet = this.sheet): boolean {
+    return this.model.getFormattedCellValue(sheet, row, column).toUpperCase() === 'TRUE'
+  }
+
+  /** Make the range's cells checkboxes; a blank becomes FALSE. One undo step. */
+  insertCheckboxes(range = this.selection().range): ActionResult {
+    if (rangeCellCount(range) > 50_000) return no('That is too many cells for checkboxes at once.')
+    const sheet = this.sheet
+    const id = this.sheetIdAt(sheet)
+    return this.act(() => {
+      for (let r = range.r1; r <= range.r2; r++) {
+        for (let c = range.c1; c <= range.c2; c++) {
+          if (this.model.getCellContent(sheet, r, c) === '') this.mut(() => this.model.setUserInput(sheet, r, c, 'FALSE'))
+        }
+      }
+      this.extras = addCheckboxes(this.extras, id, { ...range })
+    })
+  }
+
+  /** Stop the range's cells being checkboxes; their values stay. */
+  removeCheckboxes(range = this.selection().range): ActionResult {
+    const id = this.sheetIdAt(this.sheet)
+    return this.act(() => {
+      this.extras = removeCheckboxesIn(this.extras, id, range)
+    })
+  }
+
+  /** Flip a checkbox between TRUE and FALSE as one undo step (a click, or Space). */
+  toggleCheckbox(row: number, column: number): ActionResult {
+    const sheet = this.sheet
+    const now = this.checkboxChecked(row, column, sheet)
+    return this.act(() => this.mut(() => this.model.setUserInput(sheet, row, column, now ? 'FALSE' : 'TRUE')))
+  }
+
+  // ── Conditional formatting ─────────────────────────────────────────────────
+  // The engine evaluates these; the controller only wraps its calls so each is
+  // one undo step. The winning rule's format is already in getCellStyle (drawn
+  // by the grid); data bars and icon sets come back on getCellStyle too.
+
+  /** The sheet's rules, in the engine's priority order; `index` addresses one in the other calls. */
+  conditionalRules(sheet = this.sheet): ConditionalFormattingView[] {
+    return this.model.getConditionalFormattingList(sheet)
+  }
+
+  addConditionalRule(range: CellRange, rule: CfRuleInput): ActionResult {
+    const sheet = this.sheet
+    const text = this.rangeAddress(range)
+    return this.act(() => this.mut(() => this.model.addConditionalFormatting(sheet, text, rule)), { layout: true })
+  }
+
+  updateConditionalRule(index: number, range: CellRange, rule: CfRuleInput): ActionResult {
+    const sheet = this.sheet
+    const text = this.rangeAddress(range)
+    return this.act(() => this.mut(() => this.model.updateConditionalFormatting(sheet, index, text, rule)), { layout: true })
+  }
+
+  deleteConditionalRule(index: number): ActionResult {
+    const sheet = this.sheet
+    return this.act(() => this.mut(() => this.model.deleteConditionalFormatting(sheet, index)), { layout: true })
+  }
+
+  raiseConditionalRule(index: number): ActionResult {
+    const sheet = this.sheet
+    return this.act(() => this.mut(() => this.model.raiseConditionalFormattingPriority(sheet, index)), { layout: true })
+  }
+
+  lowerConditionalRule(index: number): ActionResult {
+    const sheet = this.sheet
+    return this.act(() => this.mut(() => this.model.lowerConditionalFormattingPriority(sheet, index)), { layout: true })
+  }
+
+  /** `A1:C9`, or `A1` for a single cell (the string the engine's CF calls take). */
+  private rangeAddress(range: CellRange): string {
+    const a = cellName(range.r1, range.c1)
+    const b = cellName(range.r2, range.c2)
+    return a === b ? a : `${a}:${b}`
   }
 
   disposed = false

@@ -14,7 +14,7 @@ import { useState } from 'react'
 import {
   AlignCenter, AlignLeft, AlignRight, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, AlignVerticalJustifyStart,
   Baseline, Bold, ChevronDown, ClipboardPaste, DollarSign, Eye, Grid2x2, Italic, Minus, PaintBucket, Percent, Plus, Redo2,
-  Search, Sigma, SlidersHorizontal, Strikethrough, Type, Underline, Undo2, WrapText,
+  Search, SquareCheck, SquarePlus, Sigma, SlidersHorizontal, Strikethrough, Type, Underline, Undo2, WrapText,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
@@ -47,6 +47,12 @@ interface Props {
   onPaste: (valuesOnly?: boolean) => void
   onMessage: (message: string) => void
   focusGrid: () => void
+  /** Open the Dropdown… dialog. */
+  onDropdown: () => void
+  /** Open the conditional-formatting panel. */
+  onConditionalFormatting: () => void
+  /** Open the Goal Seek… dialog. */
+  onGoalSeek: () => void
 }
 
 const ICON = 'h-3.5 w-3.5'
@@ -126,7 +132,7 @@ function Swatches({ label, current, onPick, onClear, clearLabel }: { label: stri
   )
 }
 
-export function Toolbar({ workbook, view, onView, onFind, onPaste, onMessage, focusGrid }: Props) {
+export function Toolbar({ workbook, view, onView, onFind, onPaste, onMessage, focusGrid, onDropdown, onConditionalFormatting, onGoalSeek }: Props) {
   const readOnly = workbook.readOnly
   const { row, column } = workbook.selection()
   const style = workbook.style(row, column)
@@ -304,6 +310,16 @@ export function Toolbar({ workbook, view, onView, onFind, onPaste, onMessage, fo
         </DropdownMenuContent>
       </DropdownMenu>
 
+      {/* Insert */}
+      <DropdownMenu>
+        <MenuButton label="Insert" disabled={readOnly}><SquarePlus className={ICON} /></MenuButton>
+        <DropdownMenuContent align="start" className="w-44" {...after}>
+          <DropdownMenuItem onSelect={() => run(workbook.insertCheckboxes())}>
+            <SquareCheck className="mr-2 h-3.5 w-3.5" /> Checkbox
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
       {/* View options */}
       <DropdownMenu>
         <MenuButton label="View options"><Eye className={ICON} /></MenuButton>
@@ -321,6 +337,10 @@ export function Toolbar({ workbook, view, onView, onFind, onPaste, onMessage, fo
           <DropdownMenuItem onSelect={() => run(workbook.sortRange(workbook.selection().range.c1))}>Sort range A to Z</DropdownMenuItem>
           <DropdownMenuItem onSelect={() => run(workbook.sortRange(workbook.selection().range.c1, true))}>Sort range Z to A</DropdownMenuItem>
           <DropdownMenuItem onSelect={() => run(workbook.trimWhitespace())}>Trim whitespace</DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={onDropdown}>Dropdown…</DropdownMenuItem>
+          <DropdownMenuItem onSelect={onConditionalFormatting}>Conditional formatting…</DropdownMenuItem>
+          <DropdownMenuItem onSelect={onGoalSeek}>Goal Seek…</DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => run(workbook.fillDown())}>Fill down</DropdownMenuItem>
           <DropdownMenuItem onSelect={() => run(workbook.fillRight())}>Fill right</DropdownMenuItem>
