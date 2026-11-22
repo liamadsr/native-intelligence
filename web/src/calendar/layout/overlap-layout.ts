@@ -30,6 +30,11 @@
  *     blocks in this order, so a later-starting event is never under an
  *     earlier one, and a shorter one is never under a longer one that it
  *     shares most of its time with.
+ *  3b. A long event beside shorter ones that start with it is not a sliver
+ *     for its whole length: it takes the full width underneath them (they
+ *     are painted on top, in their own lanes), so it shows at lane width
+ *     while they last and at full width once they have ended. `clear` says
+ *     how much of its width is its own at the top, where its title goes.
  *  4. A very short event counts as `MIN_VISUAL_MINUTES` long, the height it is
  *     drawn at, so two back-to-back five-minute events don't draw over each
  *     other.
@@ -41,6 +46,8 @@
 export const SIDE_BY_SIDE_MINUTES = 15
 /** The shortest an event is drawn, and so the shortest it counts as for overlap. */
 export const MIN_VISUAL_MINUTES = 15
+/** A long event widens under the shorter ones beside it only when it runs on at least this long after the last of them. */
+export const UNDERLAP_MIN_MINUTES = 30
 /** How far each layer is indented, as a fraction of the column. */
 export const LAYER_INDENT = 0.1
 /** However deep the layers go, the indents together never take more than this much of the column. */
@@ -65,6 +72,12 @@ export interface LayoutBox {
   lanes: number
   /** Its layer's paint order (depth + 1): higher is on top. */
   zIndex: number
+  /**
+   * How much of its width, from the left, is its own at its top (0-1). Below 1
+   * when it runs on under shorter events that start with it (rule 3b): its
+   * title keeps to this part, the rest shows once they have ended.
+   */
+  clear: number
   /** Its place in the column's paint order, 0 at the bottom: later start higher; same start, the shorter higher. */
   order: number
 }
@@ -174,10 +187,29 @@ export function layoutDayEvents(inputs: readonly LayoutInput[]): Map<string, Lay
         lane: item.lane,
         lanes,
         zIndex: depths[g] + 1,
+        clear: 1,
         order: 0,
       })
     }
   })
+  // Rule 3b: a long event beside shorter ones that start with it (or after it) takes the column's
+  // full width underneath them, so it is a sliver only while they last, not for its whole length.
+  groups.forEach((group) => {
+    for (const item of group) {
+      const box = boxes.get(item.id)!
+      const beside = group.filter((other) => other.lane > item.lane && overlaps(item, other))
+      if (beside.length === 0) continue
+      // Only under events painted after it (none started before it), and only when it clearly outlasts them all.
+      if (beside.some((other) => other.start < item.start)) continue
+      const lastBeside = beside.reduce((end, other) => Math.max(end, other.visualEnd), 0)
+      if (item.visualEnd - lastBeside < UNDERLAP_MIN_MINUTES) continue
+      const full = 1 - box.left
+      if (full <= box.width + 1e-9) continue
+      box.clear = box.width / full
+      box.width = full
+    }
+  })
+
   // Rule 2c: one paint order for the whole column. Later start on top; same start, the shorter on top.
   const byPaint = [...items].sort((a, b) => a.start - b.start || b.visualEnd - a.visualEnd || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   byPaint.forEach((item, i) => {

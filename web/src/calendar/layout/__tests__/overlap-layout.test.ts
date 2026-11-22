@@ -121,8 +121,11 @@ describe('layoutDayEvents', () => {
     // a 9:00-9:15 and b 9:05-9:15 side by side; c 9:14-10:00 joins the group in lane 2... make lane 1 free for a later one.
     const boxes = layoutDayEvents([ev('a', at(9), at(10)), ev('b', at(9, 5), at(9, 20)), ev('c', at(9, 10), at(9, 25))])
     expect(box(boxes, 'a').lanes).toBe(3)
-    // c is in the last lane; b has c to its right; a has b to its right.
-    expect(box(boxes, 'a').width).toBeCloseTo(1 / 3)
+    // c is in the last lane; b has c to its right; a has b to its right while they last,
+    // and runs on long after both: its own lane at the top, the full width underneath them (rule 3b).
+    expect(box(boxes, 'a').width * box(boxes, 'a').clear).toBeCloseTo(1 / 3)
+    expect(box(boxes, 'a').width).toBeCloseTo(1)
+    expect(box(boxes, 'b').width).toBeCloseTo(1 / 3)
     expect(right(box(boxes, 'c'))).toBeCloseTo(1)
   })
 
@@ -191,8 +194,18 @@ describe('layoutDayEvents', () => {
         const bb = box(boxes, b.id)
         // Overlapping in time: either on different layers, or apart horizontally.
         if (ba.depth === bb.depth) {
-          const apart = right(ba) <= bb.left + 1e-9 || right(bb) <= ba.left + 1e-9
+          // Each one's own part at the top (its lane) is apart from the other's...
+          const own = (x: typeof ba) => ({ left: x.left, width: x.width * x.clear })
+          const apart = right(own(ba)) <= own(bb).left + 1e-9 || right(own(bb)) <= own(ba).left + 1e-9
           expect(apart).toBe(true)
+          // ...and where one runs on under the other (rule 3b), the one on top is the later in paint order and did not start before it.
+          const overlapping = !(right(ba) <= bb.left + 1e-9 || right(bb) <= ba.left + 1e-9)
+          if (overlapping) {
+            const [under, top, eu, et] = ba.clear < 1 && ba.left <= bb.left ? [ba, bb, a, b] : [bb, ba, b, a]
+            expect(under.clear).toBeLessThan(1)
+            expect(top.order).toBeGreaterThan(under.order)
+            expect(et.start).toBeGreaterThanOrEqual(eu.start)
+          }
         }
       }
     }
@@ -216,11 +229,42 @@ describe('layoutDayEvents', () => {
       expect(long).toMatchObject({ left: 0, width: 1, depth: 0 })
     })
 
-    it('puts a short event that starts with the long one beside it, not under it', () => {
+    it('lays a short event that starts with the long one on top of it, in its own lane; the long one takes the full width underneath', () => {
       const boxes = layoutDayEvents([ev('long', at(6), at(14)), ev('short', at(6), at(7))])
-      expect(horizontallyOver(box(boxes, 'short'), box(boxes, 'long'))).toBe(false)
-      // Same start: the shorter is the later in paint order.
-      expect(box(boxes, 'short').order).toBeGreaterThan(box(boxes, 'long').order)
+      const long = box(boxes, 'long')
+      const short = box(boxes, 'short')
+      // Same start: the shorter is the later in paint order, so it is the one on top.
+      expect(short.order).toBeGreaterThan(long.order)
+      // The long one is the whole column wide: a sliver only while the short one lasts.
+      expect(long).toMatchObject({ left: 0, width: 1 })
+      // Its own part at the top is the left half, exactly where the short one isn't.
+      expect(long.clear).toBeCloseTo(0.5)
+      expect(short.left).toBeCloseTo(long.left + long.width * long.clear)
+      expect(right(short)).toBeCloseTo(1)
+      expect(short.clear).toBe(1)
+    })
+
+    it('widens the long one under several short ones, and leaves equals and near-equals side by side', () => {
+      const three = layoutDayEvents([ev('long', at(9), at(17)), ev('a', at(9), at(10)), ev('b', at(9), at(9, 45))])
+      expect(box(three, 'long')).toMatchObject({ left: 0, width: 1 })
+      expect(box(three, 'long').clear).toBeCloseTo(1 / 3)
+      // The middle one doesn't outlast its neighbour by enough to be worth running under it.
+      expect(box(three, 'a').clear).toBe(1)
+
+      const equals = layoutDayEvents([ev('a', at(13), at(14)), ev('b', at(13), at(14))])
+      expect(box(equals, 'a')).toMatchObject({ left: 0, width: 0.5, clear: 1 })
+      const nearly = layoutDayEvents([ev('a', at(13), at(14, 15)), ev('b', at(13), at(14))])
+      expect(box(nearly, 'a')).toMatchObject({ left: 0, width: 0.5, clear: 1 })
+    })
+
+    it('never widens an event under one that started before it', () => {
+      // 'late' takes lane 0 again after 'first' ends, while 'other' (started earlier) still runs in lane 1.
+      const boxes = layoutDayEvents([ev('first', at(9), at(9, 20)), ev('other', at(9, 5), at(10)), ev('late', at(9, 25), at(13))])
+      const late = box(boxes, 'late')
+      const other = box(boxes, 'other')
+      if (late.lanes === other.lanes && late.lane < other.lane) expect(late.clear).toBe(1)
+      const over = late.left < right(other) - 1e-9 && other.left < right(late) - 1e-9
+      if (over) expect(late.order).toBeGreaterThan(other.order)
     })
 
     it('puts a short event beside a longer one that starts later and would cover most of it', () => {
@@ -256,7 +300,9 @@ describe('layoutDayEvents', () => {
             const inTime = under.start < top.end && top.start < under.end
             if (!inTime || !horizontallyOver(bt, bu) || bt.order <= bu.order) continue
             // `top` is painted over part of `under`.
-            expect(top.start).toBeGreaterThan(under.start)
+            // Later start on top; started together, the shorter one (the long one runs on underneath).
+            expect(top.start).toBeGreaterThanOrEqual(under.start)
+            if (top.start === under.start) expect(top.end).toBeLessThan(under.end)
             const clear = top.start - under.start
             const covered = under.end - top.start
             // Either it keeps half its height above the one on top, or the one on top is no longer than it (a short one over a long one).

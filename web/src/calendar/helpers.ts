@@ -132,7 +132,7 @@ export function positionDayEvents(dayEvents: IEvent[], day: Date, visibleHoursRa
   const painted = [...timed].sort((a, b) => (boxes.get(a.event.id)?.order ?? 0) - (boxes.get(b.event.id)?.order ?? 0));
 
   return painted.map(({ event, start, end }) => {
-    const box = boxes.get(event.id) ?? { left: 0, width: 1 };
+    const box: { left: number; width: number; clear?: number } = boxes.get(event.id) ?? { left: 0, width: 1 };
     const style = {
       top: `${((start - visibleStart) / visibleRange) * 100}%`,
       height: `${(Math.max(end - start, MIN_VISUAL_MINUTES) / 60) * HOUR_HEIGHT_PX}px`,
@@ -141,6 +141,8 @@ export function positionDayEvents(dayEvents: IEvent[], day: Date, visibleHoursRa
       // One layer for all of them: the document order above IS the paint order (later start on top),
       // which a per-group layer could contradict where groups interleave.
       "--event-z": 1,
+      // The part of its width that is its own at the top (the layout's rule 3b): where its title keeps to.
+      ...(box.clear !== undefined && box.clear < 1 ? { "--event-clear": box.clear } : {}),
     } as CSSProperties;
     return { event, style };
   });

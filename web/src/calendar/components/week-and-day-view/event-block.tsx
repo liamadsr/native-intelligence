@@ -19,6 +19,10 @@ import type { IEvent } from "@/calendar/interfaces";
 const eventBlockClass =
   "flex select-none flex-col overflow-hidden rounded-md px-1.5 py-[3px] text-xs leading-tight focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
 
+const CLEAR_WIDTH = { maxWidth: "calc(var(--event-clear, 1) * 100%)" } as const;
+/** The Start button's place: the top-right corner of the part of the block that is clear at the top. */
+const CLEAR_RIGHT = { right: "calc((1 - var(--event-clear, 1)) * 100% + 2px)" } as const;
+
 interface IProps extends HTMLAttributes<HTMLDivElement> {
   event: IEvent;
   /** Read-only presentation: no grab cursor, no resize handle. Used by the
@@ -83,7 +87,9 @@ export const EventBlock = memo(function EventBlock({ event, className, readOnly 
         },
       })}
     >
-      <div className="flex min-w-0 items-center gap-1.5">
+      {/* The title and time keep to the part of the block that is its own at the top: a long event
+          runs on under shorter ones that start with it (the layout's rule 3b, --event-clear). */}
+      <div className="flex min-w-0 items-center gap-1.5" style={CLEAR_WIDTH}>
         {["mixed", "dot"].includes(badgeVariant) && (
           <svg width="8" height="8" viewBox="0 0 8 8" className="cal-dot shrink-0">
             <circle cx="4" cy="4" r="4" />
@@ -99,7 +105,7 @@ export const EventBlock = memo(function EventBlock({ event, className, readOnly 
         )}
       </div>
 
-      {!short && <p className="truncate text-[11px] tabular-nums opacity-80">{compactTimeRange(start, end)}</p>}
+      {!short && <p className="truncate text-[11px] tabular-nums opacity-80" style={CLEAR_WIDTH}>{compactTimeRange(start, end)}</p>}
 
       {/* Start-capture button — reveals on hover, always visible while the
           meeting is happening now. Shows "Recording" when a linked capture
@@ -109,7 +115,7 @@ export const EventBlock = memo(function EventBlock({ event, className, readOnly 
           whole block starts it instead). Action pseudo-events (due-date
           pills) are not meetings — no button. */}
       {event.isAction || clickStarts ? null : capturing ? (
-        <span className="absolute right-1 top-1 z-20 inline-flex h-5 items-center gap-1 rounded-full border border-red-500/30 bg-red-500/10 px-1.5 text-[10px] font-medium text-red-600 dark:text-red-400">
+        <span style={CLEAR_RIGHT} className="absolute top-1 z-20 inline-flex h-5 items-center gap-1 rounded-full border border-red-500/30 bg-red-500/10 px-1.5 text-[10px] font-medium text-red-600 dark:text-red-400">
           <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-500" />
           Recording
         </span>
@@ -122,8 +128,9 @@ export const EventBlock = memo(function EventBlock({ event, className, readOnly 
           }}
           disabled={starting || isRecording}
           title={isRecording ? "A capture is already in progress" : "Start a linked capture"}
+          style={CLEAR_RIGHT}
           className={cn(
-            "absolute right-0.5 top-0.5 z-20 inline-flex h-[18px] items-center gap-1 rounded-full border border-border bg-white px-1.5 text-[10px] font-medium shadow-sm transition-all dark:bg-black dark:shadow-none",
+            "absolute top-0.5 z-20 inline-flex h-[18px] items-center gap-1 rounded-full border border-border bg-white px-1.5 text-[10px] font-medium shadow-sm transition-all dark:bg-black dark:shadow-none",
             "text-sidebar-foreground/70 hover:bg-muted hover:text-sidebar-foreground",
             "disabled:cursor-not-allowed disabled:opacity-50",
             live ? "opacity-100" : "opacity-0 group-hover/event:opacity-100 focus-visible:opacity-100",
