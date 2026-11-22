@@ -43,7 +43,7 @@ function render(fenced: boolean, surface: Record<string, () => void>) {
     root.render(
       h(CardHeaderSlotsProvider, { value: { left: null, right: header } },
         h('div', { 'data-surface': '', ...surface },
-          h(CardHeaderSlot, { side: 'right' }, fenced ? h(HeaderFence, null, control) : control),
+          h(CardHeaderSlot, { side: 'right', children: fenced ? h(HeaderFence, null, control) : control }),
         ),
       ),
     )
