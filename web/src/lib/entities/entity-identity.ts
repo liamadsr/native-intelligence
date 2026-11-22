@@ -40,6 +40,7 @@ import {
   Film,
   FlaskConical,
   FolderKanban,
+  FolderTree,
   Gavel,
   Handshake,
   Hash,
@@ -143,7 +144,7 @@ export interface EntityIdentity {
 }
 
 /** What is drawn as a kind and is no registered entity or found kind. */
-type ExtraIdentityKind = 'skill' | 'dm' | 'booking_link'
+type ExtraIdentityKind = 'skill' | 'dm' | 'booking_link' | 'drive_folder'
 
 /** Every kind with an identity. */
 export type EntityIdentityKind = EntityType | FindableKind | ExtraIdentityKind
@@ -191,6 +192,8 @@ export const ENTITY_IDENTITIES: Record<EntityIdentityKind, EntityIdentity> = {
   data_row: { icon: Rows3, color: 'lime', label: 'Row' },
   // A workbook of free cells and formulas (675): beside tables, and green as spreadsheets are everywhere.
   spreadsheet: { icon: Sheet, color: 'green', label: 'Spreadsheet' },
+  // A Drive folder (690): the Folders page's glyph.
+  drive_folder: { icon: FolderTree, color: 'blue', label: 'Folder' },
   // ── Chats ───────────────────────────────────────────────────────────────
   team_chat_channel: { icon: Hash, color: 'slate', label: 'Channel' },
   dm: { icon: MessageCircle, color: 'slate', label: 'Direct message' },
@@ -236,6 +239,7 @@ const ALIASES: Record<string, EntityIdentityKind> = {
   meeting: 'capture',
   person: 'contact',
   table: 'data_table',
+  folder: 'drive_folder',
   row: 'data_row',
   channel: 'team_chat_channel',
   message: 'team_chat_message',

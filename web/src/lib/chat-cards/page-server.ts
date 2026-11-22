@@ -49,7 +49,7 @@ import {
   type PagePlaceType,
 } from './pages'
 import { TARGET_SOURCE, type CheckedPageInput } from './page-validate'
-import { evalCaseFence, recipeVisible, scrubHiddenBots, visiblePackages, visibleTeams, type FenceScope } from './page-fences'
+import { evalCaseFence, memberOf, recipeVisible, scrubHiddenBots, visiblePackages, visibleTeams, type FenceScope } from './page-fences'
 import { compactValue, rowLabel, type RowLabel } from './rows'
 import { resolveNamedValues } from './server'
 import { isUuid, type Checked } from './validate'
@@ -141,6 +141,8 @@ async function candidates(scope: PageScope, type: PagePlaceType, resolved: Resol
       return (await visibleCanvases(scope)).map((c) => ({ id: c.id, name: c.name, type }))
     case 'spreadsheet':
       return (await visibleSpreadsheets(scope)).map((s) => ({ id: s.id, name: s.title, type }))
+    case 'drive_folder':
+      return (await visibleFolders(scope)).map((f) => ({ id: f.id, name: f.name, type }))
     case 'studio_project':
     case 'studio_video': {
       // The workspace's own, out of the trash, by title (Studio, migration 620).
@@ -185,6 +187,65 @@ async function visibleCanvases(scope: PageScope): Promise<Array<{ id: string; na
   const all = await listCanvases(scope.supabase, scope.workspaceId)
   const seen = await visiblePrivateKindIds(scope.supabase, 'canvas', scope.userId, all.map((c) => c.id), scope.workspaceId, scope.grants === false ? { grants: false } : {})
   return all.filter((c) => seen.has(c.id)).map((c) => ({ id: c.id, name: c.title }))
+}
+
+/**
+ * Drive folders (690) as the person sees them: every folder of the workspace
+ * (none for a guest, as the database has it), and in one folder the filed
+ * records they may open. This reads with the page's own client and fences by
+ * hand, as the rest of this file does: a doc shows when it is the
+ * workspace's or their own (a doc shared with them alone stays out here), the
+ * other kinds through their private-kind fence.
+ */
+async function visibleFolders(scope: PageScope): Promise<Array<{ id: string; name: string; parent_id: string | null }>> {
+  const me = await memberOf(scope)
+  if (!me) return []
+  const { data: who } = await scope.supabase.from('member').select('role').eq('id', me.id).maybeSingle()
+  if ((who as { role?: string } | null)?.role === 'guest') return []
+  const { data, error } = await scope.supabase.from('drive_folder').select('id, name, parent_id').eq('workspace_id', scope.workspaceId).order('name').limit(2000)
+  if (error) return []
+  return (data ?? []) as Array<{ id: string; name: string; parent_id: string | null }>
+}
+
+async function visibleFolderItems(scope: PageScope, folderId: string): Promise<Array<{ id: string; title: string; kind: string }>> {
+  const me = await memberOf(scope)
+  if (!me) return []
+  const { data } = await scope.supabase.from('drive_folder_item').select('item_type, item_id').eq('workspace_id', scope.workspaceId).eq('folder_id', folderId).limit(2000)
+  const rows = (data ?? []) as Array<{ item_type: string; item_id: string }>
+  const idsOf = (t: string) => rows.filter((r) => r.item_type === t).map((r) => r.item_id)
+  const out: Array<{ id: string; title: string; kind: string }> = []
+  const docs = idsOf('document')
+  if (docs.length) {
+    const { data: d } = await scope.supabase
+      .from('document')
+      .select('id, title, visibility, created_by, status')
+      .eq('workspace_id', scope.workspaceId)
+      .in('id', docs)
+    for (const r of (d ?? []) as Array<{ id: string; title: string | null; visibility: string; created_by: string | null; status: string | null }>) {
+      if (r.status === 'archived') continue
+      if (r.visibility === 'workspace' || r.created_by === me.id) out.push({ id: r.id, title: r.title || 'Untitled', kind: 'doc' })
+    }
+  }
+  const others: Array<{ type: 'data_table' | 'spreadsheet' | 'canvas'; table: string; title: string; kind: string; live: (r: Record<string, unknown>) => boolean }> = [
+    { type: 'data_table', table: 'data_table', title: 'name', kind: 'table', live: (r) => r.archived_at == null },
+    { type: 'spreadsheet', table: 'spreadsheet', title: 'title', kind: 'spreadsheet', live: (r) => r.status !== 'archived' },
+    { type: 'canvas', table: 'canvas', title: 'title', kind: 'canvas', live: (r) => r.archived_at == null },
+  ]
+  for (const o of others) {
+    const ids = idsOf(o.type)
+    if (!ids.length) continue
+    const seen = await visiblePrivateKindIds(scope.supabase, o.type, scope.userId, ids, scope.workspaceId, scope.grants === false ? { grants: false } : {})
+    const { data: d } = await scope.supabase
+      .from(o.table)
+      .select(o.type === 'spreadsheet' ? 'id, title, status' : `id, ${o.title}, archived_at`)
+      .eq('workspace_id', scope.workspaceId)
+      .in('id', ids)
+    for (const r of (d ?? []) as unknown as Array<Record<string, unknown>>) {
+      if (!seen.has(String(r.id)) || !o.live(r)) continue
+      out.push({ id: String(r.id), title: String(r[o.title] ?? '') || 'Untitled', kind: o.kind })
+    }
+  }
+  return out
 }
 
 /**
@@ -332,6 +393,11 @@ async function checkPlace(scope: PageScope, kind: PageKind, place: PagePlace): P
       if (kind !== 'canvases') return null
       const canvas = (await visibleCanvases(scope)).find((c) => c.id === place.id)
       return canvas ? ok(canvas.name) : null
+    }
+    case 'drive_folder': {
+      if (kind !== 'folders' || !isUuid(place.id)) return null
+      const folder = (await visibleFolders(scope)).find((f) => f.id === place.id)
+      return folder ? ok(folder.name) : null
     }
     case 'spreadsheet': {
       if (kind !== 'spreadsheets' || !isUuid(place.id)) return null
@@ -570,6 +636,17 @@ export async function readPageRows(
         return { count: one ? 1 : 0, rows: one ? [{ id: one.id, title: one.name }] : [], noun: 'canvases' }
       }
       return { count: canvases.length, rows: canvases.slice(0, limit).map((c) => ({ id: c.id, title: c.name })), noun: 'canvases' }
+    }
+    case 'folders': {
+      // One folder: its subfolders, then the records in it the person may
+      // open. The top level: the top folders.
+      const folders = await visibleFolders(scope)
+      const at = place?.type === 'drive_folder' ? place.id : null
+      if (at && !folders.some((f) => f.id === at)) return { count: 0, rows: [], noun: 'folders' }
+      const subs = folders.filter((f) => (f.parent_id ?? null) === at).map((f) => ({ id: f.id, title: f.name, kind: 'folder' }))
+      const items = at ? await visibleFolderItems(scope, at) : []
+      const all = [...subs, ...items]
+      return { count: all.length, rows: all.slice(0, limit), noun: at ? 'items' : 'folders' }
     }
     case 'spreadsheets': {
       const sheets = await visibleSpreadsheets(scope)

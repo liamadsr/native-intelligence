@@ -38,6 +38,7 @@ export const PAGE_KIND_NAMES = [
   'spreadsheets',
   'pipelines',
   'canvases',
+  'folders',
   'knowledge',
   'knowledge_library',
   'library',
@@ -84,6 +85,7 @@ export const PAGE_PLACE_TYPES = [
   'data_row',
   'spreadsheet',
   'canvas',
+  'drive_folder',
   'studio_project',
   'studio_video',
   'seo_audit',
@@ -232,6 +234,16 @@ export const PAGE_KINDS: Record<PageKind, PageKindDef> = {
     rows: 'canvases',
     view: 'docs',
     target: { types: ['canvas'] },
+  },
+  // Drive folders (migration 690; docs/plans/create-everything.md): the top
+  // folders, or one folder (`target`) with its subfolders and the docs,
+  // tables, spreadsheets and canvases filed in it. Gated with Docs, in the
+  // Drive group.
+  folders: {
+    label: 'Folders',
+    rows: 'folders',
+    view: 'docs',
+    target: { types: ['drive_folder'] },
   },
   // Knowledge is the claims alone (Liam, 11-21: "split the Knowledge page
   // into two pages"): the graph, its list and board, and Promote. What its
@@ -404,6 +416,7 @@ export const PLACE_NOUN: Record<PagePlaceType, string> = {
   data_row: 'row',
   spreadsheet: 'spreadsheet',
   canvas: 'canvas',
+  drive_folder: 'folder',
   studio_project: 'Studio project',
   studio_video: 'video',
   seo_audit: 'site audit',

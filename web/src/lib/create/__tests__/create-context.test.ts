@@ -43,3 +43,18 @@ describe('what a place gives a new record', () => {
     expect(containerLabel({ ...project, name: ' ' })).toBe('Create in this project')
   })
 })
+
+describe('in a folder (Drive folders, migration 690)', () => {
+  const folder = { kind: 'folder' as const, id: 'f-1', name: 'Clients' }
+  it('a doc, table, spreadsheet, canvas or folder lands in it; nothing else does', () => {
+    for (const type of ['document', 'table', 'spreadsheet', 'canvas', 'folder'] as const) {
+      expect(contextDefaults(type, { container: folder }), type).toEqual({ folderId: 'f-1' })
+      expect(containerApplies(type, { container: folder }), type).toBe(true)
+    }
+    for (const type of ['action', 'project', 'contact', 'company', 'channel'] as const) {
+      expect(containerApplies(type, { container: folder }), type).toBe(false)
+    }
+    expect(containerLabel(folder)).toBe('Create in Clients')
+  })
+})
+
