@@ -98,7 +98,16 @@ export function SharedEmailThreadDialog({ threadIndexId, onClose }: { threadInde
               }}
             />
           ) : (
-            <EmailShareMessages thread={state.view} images={state.images} onLoadImages={() => void load(true)} />
+            <EmailShareMessages
+              thread={state.view}
+              images={state.images}
+              onLoadImages={() => void load(true)}
+              attachmentHref={(messageId, key) =>
+                shareIdRef.current
+                  ? `/api/account/email/thread-shares/${encodeURIComponent(shareIdRef.current)}/attachment?message=${encodeURIComponent(messageId)}&key=${encodeURIComponent(key)}`
+                  : null
+              }
+            />
           )}
         </div>
       </DialogContent>

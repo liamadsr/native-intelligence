@@ -1,6 +1,7 @@
 import { FINDABLE } from '@/lib/search/findable-registry'
 import type { MentionableType } from '@/lib/entity-links/mentionable'
 import { notifyDocumentMentions } from '@/lib/documents/mention-notifications'
+import { shareMentionedMail } from '@/lib/email-share/share-on-mention'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { ENTITY_REF_PATTERN } from '@/components/entity-refs/types'
 import { MAX_MENTIONED_RECORDS, syncMentions, type MentionRef } from '@/lib/entity-links/mentions'
@@ -166,6 +167,20 @@ export async function syncDocumentLinks(
   // A teammate newly @-mentioned is told, once (docs/plans/mentions-everywhere.md, decision 4).
   const people = (result.fresh ?? []).filter((r) => r.type === 'contact').map((r) => r.id)
   if (people.length && memberId) await notifyDocumentMentions(supabase, { workspaceId, documentId, authorMemberId: memberId, contactIds: people })
+
+  // The author's OWN mail thread, mentioned beside a teammate in this document,
+  // is shared with that teammate (decision 1), by the same rule as comments.
+  // Only pairs new since `previousMarkdown` are shared (no provider call on an
+  // unchanged re-save). Removing the mention later does NOT revoke the share —
+  // only the owner's explicit revoke does. `editor` is the author's user id.
+  await shareMentionedMail(supabase, {
+    workspaceId,
+    authorUserId: editor,
+    authorMemberId: memberId,
+    mentions: chips,
+    previousMentions: previousMarkdown ? parseDocumentMentions(previousMarkdown) : null,
+    source: { type: 'document', id: documentId },
+  })
 
   return { resolved: resolved.size, unresolved }
 }

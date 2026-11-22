@@ -19,6 +19,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { toast } from 'sonner'
+import { AllThreadMentionShares } from '@/components/email/thread-mention-shares'
 
 interface UserProfile {
   id: string
@@ -316,6 +317,16 @@ export function ProfileView() {
               </div>
             ))
           )}
+        </div>
+      </div>
+
+      {/* Emails shared by mention (migration 673, decision 1): the person's own
+          live shares, each with Stop sharing. Removing the mention does not end
+          a share; this is where it ends. */}
+      <div>
+        <h3 className="mb-3 text-sm font-medium text-muted-foreground">Shared emails</h3>
+        <div className="overflow-hidden rounded-xl border border-border bg-card">
+          <AllThreadMentionShares />
         </div>
       </div>
 
