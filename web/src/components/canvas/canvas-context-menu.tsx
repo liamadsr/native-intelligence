@@ -29,6 +29,7 @@ export function CanvasContextMenu({ children }: { children: React.ReactNode }) {
   const only = selection.length === 1 ? scene.items[selection[0]] : undefined
   const image = only?.kind === 'image' ? only : undefined
   const record = only?.kind === 'record' ? only : undefined
+  const artifact = only?.kind === 'artifact' ? only : undefined
   const imageUrl = image ? (image.path ? canvasMediaUrl(store.canvasId, image.path) : image.src) : undefined
   const copyImage = async () => {
     if (!imageUrl) return
@@ -94,6 +95,13 @@ export function CanvasContextMenu({ children }: { children: React.ReactNode }) {
                 <ContextMenuItem disabled={!image.path} onSelect={saveImage}>
                   Save image
                 </ContextMenuItem>
+                <ContextMenuSeparator />
+              </>
+            ) : null}
+            {artifact ? (
+              <>
+                <ContextMenuItem onSelect={() => store.present?.(artifact.id)}>Present from here</ContextMenuItem>
+                <ContextMenuItem onSelect={() => store.editArtifact?.(artifact.id)}>Edit page…</ContextMenuItem>
                 <ContextMenuSeparator />
               </>
             ) : null}

@@ -472,3 +472,53 @@ describe('saving', () => {
     sync.stop()
   })
 })
+
+describe('artifacts', () => {
+  const art = (id: string, x: number): CanvasItem => ({ id, kind: 'artifact', parentId: null, sortKey: `a${id}`, x, y: 100, w: 200, h: 150, rotation: 0, style: { opacity: 1 }, html: '<p>Hi</p>' }) as CanvasItem
+  const open = () => store.getState().opened
+
+  beforeEach(() => {
+    store = new CanvasStore('canvas-1', [art('a', 100), art('b', 500)])
+    store.setViewport(1000, 800)
+    ix = new Interaction(store)
+  })
+
+  it('a click selects an artifact and a drag moves it: its page does not have the pointer', () => {
+    click(150, 150)
+    expect(store.getState().selection).toEqual(['a'])
+    expect(open()).toBeNull()
+    drag([150, 150], [250, 150])
+    expect(store.getState().scene.items.a.x).toBe(200)
+  })
+
+  it('a double-click hands the pointer to its page; Escape takes it back and keeps the selection', () => {
+    ix.doubleClick(P(150, 150))
+    expect(open()).toBe('a')
+    expect(store.getState().selection).toEqual(['a'])
+    expect(ix.keyDown(key('Escape'))).toBe(true)
+    expect(open()).toBeNull()
+    expect(store.getState().selection).toEqual(['a'])
+  })
+
+  it('a press on the canvas, another selection or another tool takes the pointer back', () => {
+    ix.doubleClick(P(150, 150))
+    click(900, 700)
+    expect(open()).toBeNull()
+    ix.doubleClick(P(150, 150))
+    store.select(['b'])
+    expect(open()).toBeNull()
+    ix.doubleClick(P(150, 150))
+    store.setTool('rectangle')
+    expect(open()).toBeNull()
+  })
+
+  it('opens for someone who can only look, and only an artifact can be opened', () => {
+    store = new CanvasStore('canvas-1', [art('a', 100)], { readOnly: true })
+    store.setViewport(1000, 800)
+    ix = new Interaction(store)
+    ix.doubleClick(P(150, 150))
+    expect(open()).toBe('a')
+    store.setOpened('nope')
+    expect(open()).toBe('a')
+  })
+})

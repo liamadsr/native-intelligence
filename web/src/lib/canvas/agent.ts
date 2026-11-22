@@ -8,7 +8,8 @@
 import type { CanvasItem, CanvasStyle, ConnectorEnd, ConnectorHead, ConnectorItem, ConnectorRoute, StrokeStyle } from './types'
 import { isThemeColor, parseHex, THEME_COLORS } from './engine/colors'
 import { isBindable, settleConnectors } from './engine/connectors'
-import { DEFAULT_LABEL_STYLE, DEFAULT_LINE_STYLE, DEFAULT_SHAPE_STYLE, itemText, LIMITS, makeConnector, makeShape, makeText } from './engine/defaults'
+import { ARTIFACT_DEFAULT_SIZE, ARTIFACT_LIMITS, artifactTitle } from './engine/artifact'
+import { DEFAULT_LABEL_STYLE, DEFAULT_LINE_STYLE, DEFAULT_SHAPE_STYLE, itemText, LIMITS, makeArtifact, makeConnector, makeShape, makeText } from './engine/defaults'
 import { round } from './engine/geometry'
 import { diffScenes, type Step } from './engine/history'
 import { deleteItems, groupItems, moveItems, reorderItems, setPose, setStyle, ungroupItems, type OrderMove } from './engine/ops'
@@ -38,6 +39,8 @@ export interface AgentItem {
   stroke?: string
   /** A record card's record. */
   record?: { type: string; id: string }
+  /** An artifact: how long its page is (its title is `text`). */
+  html_chars?: number
 }
 
 const colorName = (c: string | undefined): string | undefined => (!c || c === 'transparent' ? undefined : c.startsWith('theme:') ? c.slice(6) : c)
@@ -64,6 +67,7 @@ export function describeCanvas(items: readonly CanvasItem[]): { items: AgentItem
       row.heads = `${it.startHead}>${it.endHead}`
     }
     if (it.kind === 'record') row.record = { type: it.ref.type, id: it.ref.id }
+    if (it.kind === 'artifact') row.html_chars = it.html.length
     const fill = colorName(it.style.fill)
     const stroke = colorName(it.style.stroke)
     if (fill) row.fill = fill
@@ -88,6 +92,8 @@ export type AgentOp =
   | { op: 'ungroup'; ids: string[] }
   | { op: 'order'; ids: string[]; to: OrderMove }
   | { op: 'delete'; ids: string[] }
+  | { op: 'create_artifact'; key?: string; x: number; y: number; w?: number; h?: number; html: string; title?: string }
+  | { op: 'set_artifact'; id: string; html?: string; title?: string }
 
 export const AGENT_COLOR_NAMES = THEME_COLORS.map((c) => c.id)
 
@@ -342,8 +348,35 @@ export function applyAgentOps(items: readonly CanvasItem[], ops: readonly AgentO
           scene = deleteItems(scene, ids)
           break
         }
+        case 'create_artifact': {
+          if (!num(op.x) || !num(op.y) || !inWorld(op.x, op.y)) return fail('x and y are numbers')
+          if (typeof op.html !== 'string' || !op.html.trim()) return fail('html is the page: markup, with its styles and scripts written in it')
+          if (op.html.length > ARTIFACT_LIMITS.html) return fail(`html is at most ${ARTIFACT_LIMITS.html} characters`)
+          const w = clamp(num(op.w) ? op.w : ARTIFACT_DEFAULT_SIZE.w, ARTIFACT_LIMITS.minW, 20000)
+          const h = clamp(num(op.h) ? op.h : ARTIFACT_DEFAULT_SIZE.h, ARTIFACT_LIMITS.minH, 20000)
+          const item = makeArtifact({ x: op.x, y: op.y, w, h }, frontKey(scene), op.html, artifactTitle(op.title))
+          scene = patchScene(scene, [item])
+          remember(op.key, index, item.id)
+          break
+        }
+        case 'set_artifact': {
+          const id = typeof op.id === 'string' ? resolve(op.id) : null
+          const it = id ? scene.items[id] : null
+          if (!it || it.kind !== 'artifact') return fail(`no artifact ${JSON.stringify(op.id)} on this canvas`)
+          if (op.html === undefined && op.title === undefined) return fail('give html, title or both')
+          if (op.html !== undefined && (typeof op.html !== 'string' || !op.html.trim())) return fail('html is the page: markup, with its styles and scripts written in it')
+          if (typeof op.html === 'string' && op.html.length > ARTIFACT_LIMITS.html) return fail(`html is at most ${ARTIFACT_LIMITS.html} characters`)
+          const next = { ...it, ...(op.html !== undefined ? { html: op.html } : {}) }
+          if (op.title !== undefined) {
+            const title = artifactTitle(op.title)
+            if (title) next.title = title
+            else delete next.title
+          }
+          scene = patchScene(scene, [next])
+          break
+        }
         default:
-          return fail('not an operation: use create_shape, create_text, connect, move, resize, style, set_text, group, ungroup, order or delete')
+          return fail('not an operation: use create_shape, create_text, connect, move, resize, style, set_text, group, ungroup, order, delete, create_artifact or set_artifact')
       }
       done++
     } catch (e) {

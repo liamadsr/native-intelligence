@@ -10,6 +10,7 @@ import type {
   EllipseItem,
   MediaItem,
   PencilItem,
+  ArtifactItem,
   RecordItem,
   RectangleItem,
   TextItem,
@@ -157,6 +158,10 @@ export function makeMedia(
     ...(media.path ? { path: media.path } : {}),
     ...(media.name ? { name: media.name } : {}),
   }
+}
+
+export function makeArtifact(box: Box, sortKey: string, html: string, title?: string): ArtifactItem {
+  return { ...base(box, sortKey), kind: 'artifact', style: { opacity: 1 }, html, ...(title ? { title } : {}) }
 }
 
 export function makeRecord(center: Point, sortKey: string, ref: RecordItem['ref']): RecordItem {

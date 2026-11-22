@@ -2,6 +2,7 @@ import { tool } from 'ai'
 import { z } from 'zod'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { AGENT_COLOR_NAMES, AGENT_LIMITS, applyAgentOps, describeCanvas, type AgentOp } from '@/lib/canvas/agent'
+import { ARTIFACT_LIMITS } from '@/lib/canvas/engine/artifact'
 import { syncCanvasRecordLinks } from '@/lib/canvas/links'
 import { createCanvas, listItems, writeItems } from '@/lib/canvas/store'
 import { itemToRow, rowToItem, type CanvasItem } from '@/lib/canvas/types'
@@ -36,6 +37,8 @@ const operation = z.discriminatedUnion('op', [
   z.object({ op: z.literal('ungroup'), ids }),
   z.object({ op: z.literal('order'), ids, to: z.enum(['front', 'back', 'forward', 'backward']) }),
   z.object({ op: z.literal('delete'), ids }),
+  z.object({ op: z.literal('create_artifact'), key: z.string().max(40).optional(), x: z.number(), y: z.number(), w: z.number().optional().describe('Default 480.'), h: z.number().optional().describe('Default 320.'), html: z.string().min(1).max(ARTIFACT_LIMITS.html).describe('The page: markup for the body, with its styles and scripts written in it.'), title: z.string().max(ARTIFACT_LIMITS.title).optional() }),
+  z.object({ op: z.literal('set_artifact'), id: z.string().min(1).max(64), html: z.string().min(1).max(ARTIFACT_LIMITS.html).optional(), title: z.string().max(ARTIFACT_LIMITS.title).optional().describe('Empty takes the title off.') }),
 ])
 
 export function createCanvasTools(
@@ -93,7 +96,7 @@ export function createCanvasTools(
 
     edit_canvas: tool({
       description:
-        `Add to a canvas or rearrange it, with up to ${AGENT_LIMITS.ops} operations in one batch: create_shape (a rectangle or ellipse, with an optional label), create_text, connect (an arrow between two items or points), move, resize, style, set_text, group, ungroup, order and delete. Give a new item a "key" to use it as an id later in the same batch (make two boxes, then connect them). Units are canvas units with y down; a typical box is 320 by 80, and leave about 80 between things. Read the canvas first to place things around what is there. An operation that cannot be applied is refused with its reason and the rest still apply. People with the canvas open see the change as it lands.`,
+        `Add to a canvas or rearrange it, with up to ${AGENT_LIMITS.ops} operations in one batch: create_shape (a rectangle or ellipse, with an optional label), create_text, connect (an arrow between two items or points), move, resize, style, set_text, group, ungroup, order, delete, and create_artifact / set_artifact. An artifact is a small self-contained page drawn on the canvas (a chart, a calculator, a slide): write its body markup with styles and scripts inline. It runs with no network and no access to the app, so images and fonts must be data: URLs and it cannot fetch anything. Several artifacts can be presented full-screen one after another, in reading order. Give a new item a "key" to use it as an id later in the same batch (make two boxes, then connect them). Units are canvas units with y down; a typical box is 320 by 80, and leave about 80 between things. Read the canvas first to place things around what is there. An operation that cannot be applied is refused with its reason and the rest still apply. People with the canvas open see the change as it lands.`,
       inputSchema: z.object({
         canvas_id: z.string().describe('The canvas to change.'),
         operations: z.array(operation).min(1).max(AGENT_LIMITS.ops),

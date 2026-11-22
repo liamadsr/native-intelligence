@@ -12,7 +12,7 @@ import * as React from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 import type { ArtifactItem } from '@/lib/canvas/types'
-import { ARTIFACT_SANDBOX, artifactDocument } from '@/lib/canvas/engine/artifact'
+import { ARTIFACT_LIMITS, ARTIFACT_SANDBOX, artifactDocument } from '@/lib/canvas/engine/artifact'
 import { cn } from '@/lib/utils'
 
 /** Whether the app is in its dark theme, following the switch. */
@@ -152,6 +152,55 @@ export function PresentArtifacts({ artifacts, start, onClose }: { artifacts: rea
       <button type="button" aria-label="Stop presenting" onClick={onClose} className={cn(btn, 'absolute right-3 top-3')}>
         <X className="h-5 w-5" />
       </button>
+    </div>,
+    document.body,
+  )
+}
+
+/** Change an artifact's page and title: its markup as text, saved as one undo step. */
+export function ArtifactEditor({ item, onSave, onClose }: { item: ArtifactItem; onSave: (next: { html: string; title: string }) => void; onClose: () => void }) {
+  const [title, setTitle] = React.useState(item.title ?? '')
+  const [html, setHtml] = React.useState(item.html)
+  const tooLong = html.length > ARTIFACT_LIMITS.html
+  return createPortal(
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Edit artifact"
+      data-canvas-artifact-editor
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/30 p-4"
+      onPointerDown={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+      onKeyDown={(e) => {
+        e.stopPropagation()
+        if (e.key === 'Escape') onClose()
+      }}
+    >
+      <div className="flex max-h-full w-full max-w-2xl flex-col gap-3 rounded-xl border border-border bg-background p-4 shadow-xl">
+        <input aria-label="Title" value={title} maxLength={ARTIFACT_LIMITS.title} placeholder="Title" onChange={(e) => setTitle(e.target.value)} className="h-9 rounded-md border border-border/60 bg-transparent px-2.5 text-sm text-foreground outline-none focus:border-foreground/30" />
+        <textarea
+          aria-label="Page"
+          value={html}
+          autoFocus
+          spellCheck={false}
+          onChange={(e) => setHtml(e.target.value)}
+          placeholder="<h1>Hello</h1>"
+          className="min-h-64 flex-1 resize-none rounded-md border border-border/60 bg-transparent p-2.5 font-mono text-xs leading-relaxed text-foreground outline-none focus:border-foreground/30"
+        />
+        <p className="text-[11px] text-muted-foreground">
+          The page runs on its own: no network, and nothing of the app. Images and fonts go in as data: URLs.
+          {tooLong ? <span className="text-red-500"> Too long by {html.length - ARTIFACT_LIMITS.html} characters.</span> : null}
+        </p>
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="h-8 rounded-md px-3 text-xs text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground">
+            Cancel
+          </button>
+          <button type="button" disabled={tooLong} onClick={() => onSave({ html, title })} className="h-8 rounded-md bg-foreground px-3 text-xs font-medium text-background disabled:opacity-40">
+            Save
+          </button>
+        </div>
+      </div>
     </div>,
     document.body,
   )

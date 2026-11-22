@@ -146,3 +146,47 @@ describe('an agent reads a canvas', () => {
     expect(read.omitted).toBe(100)
   })
 })
+
+describe('an agent makes and changes artifacts', () => {
+  it('creates one at a default size, with a tidy title, and reads it back by title and length', () => {
+    const r = applyAgentOps([], [{ op: 'create_artifact', key: 'chart', x: 40, y: 60, html: '<h1>Q4</h1><script>document.title = 1</script>', title: '  Q4\n numbers ' }])
+    expect(r.errors).toEqual([])
+    const item = r.scene.items[r.created.chart]
+    expect(item).toMatchObject({ kind: 'artifact', x: 40, y: 60, w: 480, h: 320, title: 'Q4 numbers' })
+    const read = describeCanvas(Object.values(r.scene.items))
+    expect(read.items[0]).toMatchObject({ kind: 'artifact', text: 'Q4 numbers', html_chars: 46 })
+    expect(JSON.stringify(read)).not.toContain('<h1>')
+  })
+
+  it('changes the page or the title, and takes an emptied title off', () => {
+    const made = applyAgentOps([], [{ op: 'create_artifact', x: 0, y: 0, html: '<p>one</p>', title: 'First' }])
+    const id = Object.keys(made.scene.items)[0]
+    const r = applyAgentOps(Object.values(made.scene.items), [
+      { op: 'set_artifact', id, html: '<p>two</p>' },
+      { op: 'set_artifact', id, title: ' ' },
+    ])
+    expect(r.errors).toEqual([])
+    expect(r.scene.items[id]).toMatchObject({ html: '<p>two</p>' })
+    expect('title' in r.scene.items[id]).toBe(false)
+  })
+
+  it('refuses a page with nothing in it, one that is too long, and a change to something that is not an artifact', () => {
+    const box = applyAgentOps([], [{ op: 'create_shape', key: 'b', shape: 'rectangle', x: 0, y: 0 }])
+    const boxId = box.created.b
+    const r = applyAgentOps(Object.values(box.scene.items), [
+      { op: 'create_artifact', x: 0, y: 0, html: '   ' },
+      { op: 'create_artifact', x: 0, y: 0, html: 'x'.repeat(200_001) },
+      { op: 'create_artifact', x: Number.NaN, y: 0, html: '<p>ok</p>' },
+      { op: 'set_artifact', id: boxId, html: '<p>ok</p>' },
+      { op: 'set_artifact', id: 'nope', title: 'T' },
+    ])
+    expect(r.done).toBe(0)
+    expect(r.errors.map((e) => e.index)).toEqual([0, 1, 2, 3, 4])
+    expect(Object.keys(r.scene.items)).toEqual([boxId])
+  })
+
+  it('clamps a size to something that can be seen', () => {
+    const r = applyAgentOps([], [{ op: 'create_artifact', key: 'a', x: 0, y: 0, w: 1, h: 1, html: '<p>ok</p>' }])
+    expect(r.scene.items[r.created.a]).toMatchObject({ w: 120, h: 80 })
+  })
+})

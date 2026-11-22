@@ -298,6 +298,17 @@ Built and checked in a browser against the dev project (50 scripted checks):
   header with the count of open threads, a panel, and a pin on each item that
   has an open thread. Other people's comments arrive live. Without 682 the
   comment routes answer 503 and the button is not shown.
+- **Artifacts and Present.** An artifact is a small page drawn as an item, in
+  a frame with no origin (`sandbox="allow-scripts"` and nothing else) behind a
+  policy of its own that turns the network off. A click selects it and a drag
+  moves it; a double-click hands the pointer to its page, and Escape or a
+  press on the canvas takes it back. "Present" in the canvas menu (and
+  "Present from here" on an artifact) shows them full-screen one at a time, in
+  reading order, with the arrow keys. Agents make and change them
+  (`create_artifact`, `set_artifact` in `edit_canvas`); a person changes one's
+  markup from its menu ("Edit page…"). Not built: Macro's per-canvas library
+  of named styles and components, and a person making an artifact from
+  nothing (the insert menu has Macro's three choices).
 - **A canvas deleted for good takes its files** out of storage (archiving,
   which is what the editor's Delete does, keeps them).
 - **Phase 4:** `read_canvas`, `edit_canvas`, `create_canvas` in the tool
@@ -308,7 +319,6 @@ Built and checked in a browser against the dev project (50 scripted checks):
 
 Not built yet:
 
-- **Artifacts** (sandboxed HTML items and "Present").
 - **Dragging a record from the app** onto the canvas (paste its link or use
   Reference today), and video play controls in the inspector.
 - **Ghost cursors for an agent's edits** (the edits themselves arrive live).
@@ -421,4 +431,18 @@ Made without asking, while working through the night of 2026-11-22.
 9. **`canvas_comment_is_thread` is security definer.** It answers one yes or
    no ("is this id the first comment of a thread on this canvas"), and the
    insert policy calls it only after checking the caller can open that canvas.
-
+10. **Artifacts are on for agents, with no flag** (Macro keeps them behind
+    one). What a page can do is fenced: no origin, so none of the app's
+    cookies, storage or DOM; no fetch, no frames, no forms, no popups, no top
+    navigation; images and fonts only as data: URLs. **What is left:** a frame
+    can still send itself to another address (`location = …`), which carries
+    whatever its own script chose to put in the URL. The page has nothing of
+    the app's to give away, but it does have anything a person typed INTO it
+    once they opened it. So an agent that was talked into it could draw a page
+    that asks for something and then leaves with it. The view takes down a
+    frame that loads a second time, which is after the fact. To close it for
+    good: serve artifacts from a separate origin whose own headers forbid
+    navigation, or leave script off. To turn agent artifacts off: remove the
+    two operations from `operation` in `src/lib/ai/tools/canvas.ts`.
+11. **An artifact opens for someone who can only view the canvas** (a page is
+    there to be used); they cannot change it.
