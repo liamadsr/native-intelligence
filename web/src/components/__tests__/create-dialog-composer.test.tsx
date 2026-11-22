@@ -190,3 +190,13 @@ describe('a table’s starters, in the composer', () => {
     expect(openCard).toHaveBeenCalledWith({ kind: 'tables', title: 'Tables', target: { type: 'data_table', id: 't-1', label: 'Pipeline' } }, { from: 'create' })
   })
 })
+
+describe('from a list group’s +', () => {
+  it('the action starts on the group’s project and priority', async () => {
+    await open({ type: 'action', context: { preset: { projectId: PROJECT, priority: 'high' } } })
+    await act(async () => setValue(titleInput(), 'In the group'))
+    await key(titleInput(), 'Enter')
+    await flush()
+    expect(posts()[0].body).toMatchObject({ title: 'In the group', project_id: PROJECT, priority: 'high' })
+  })
+})

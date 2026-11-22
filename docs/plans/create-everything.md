@@ -138,8 +138,11 @@ No route itself changed.
    Each could move later.
 9. **The entity menu's "Make a task" stays one click.** The email and chat buttons, which
    the owner named, open the composer instead.
-10. **The group header's inert `+`** in list views is left alone. Wiring it to the composer
-    with the group's value (a status, a project) is a natural next step.
+10. **The group header's `+` in list views opens the composer** (on branch
+    `claude/create-everything-2`). It makes a record of the list's kind, and an action starts
+    in the group: its status (and that status's team), priority, project or assignee
+    (`lib/create/group-create.ts`), and an outer group's value is kept in a subgroup. A list
+    of something the composer doesn't make, such as captures, shows no `+`.
 11. **Email is Mail's composer.** Resolved on 11-22: mail phase 3 (#228) put
     `components/email/email-composer.tsx`, with Send later, Save draft, Undo and files,
     into the Create dialog's Email entry. C then M and the Create menu open it. Its own

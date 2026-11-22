@@ -51,6 +51,20 @@ export interface CreateContext {
   description?: string
   /** A table's starter (lib/tables/templates.ts), picked before opening. */
   template?: string | null
+  /**
+   * An action's chips, picked before opening: the list group whose + it came
+   * from (a status column, a priority, a project, an assignee; group-create.ts).
+   */
+  preset?: ActionPreset | null
+}
+
+export interface ActionPreset {
+  statusId?: string
+  /** The status's team (a workflow state is one team's). */
+  teamId?: string
+  priority?: string
+  projectId?: string
+  assigneeId?: string
 }
 
 /** A record an action can be `about` (lib/entities/task-about.ts). */

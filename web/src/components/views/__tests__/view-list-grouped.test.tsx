@@ -413,3 +413,39 @@ describe('ViewList grouped rendering — compose', () => {
     expect(composeReceived).toEqual([['sub-2', true]])
   })
 })
+
+describe('ViewList grouped rendering — a group’s +', () => {
+  const asked: unknown[] = []
+  const onAsk = (e: Event) => asked.push((e as CustomEvent).detail)
+  beforeEach(() => {
+    asked.length = 0
+    document.addEventListener('open-create', onAsk)
+  })
+  afterEach(() => document.removeEventListener('open-create', onAsk))
+
+  const renderActions = (field: string) =>
+    act(() => {
+      root.render(
+        h(ViewList, {
+          entityType: 'action',
+          data: [makeGroup('high', 'High', 2), makeGroup('__none__', 'No priority', 1)],
+          loading: false,
+          config: { ...baseConfig(), grouping: { field, direction: 'asc' } } as ViewConfig,
+          selectedItemId: null,
+          onItemSelect: () => {},
+        }),
+      )
+    })
+
+  it('opens the Create composer on the list’s kind, in the group (priority High)', () => {
+    renderActions('priority')
+    act(() => container.querySelector<HTMLButtonElement>('[data-group-create="high"]')!.click())
+    act(() => container.querySelector<HTMLButtonElement>('[data-group-create="__none__"]')!.click())
+    expect(asked).toEqual([{ type: 'action', context: { preset: { priority: 'high' } } }, { type: 'action' }])
+  })
+
+  it('offers no + on a list of something the composer doesn’t make (captures)', () => {
+    renderGrouped([makeGroup('2026-11-20', 'Thursday', 1)])
+    expect(container.querySelector('[data-group-create]')).toBeNull()
+  })
+})
