@@ -761,7 +761,7 @@ export function EmailThreadDetail({
 
       {/* Subject + meta: the subject large, its "…" menu beside it, and
           under it one row of pill chips (tags, then the people). */}
-      <div className="shrink-0 px-6 pt-3 pb-4">
+      <div className="mx-auto w-full max-w-3xl shrink-0 px-6 pt-3 pb-4">
         <div className="flex items-start gap-2">
           <h2 className="min-w-0 flex-1 select-text text-2xl font-semibold leading-tight tracking-tight">
             {thread.subject || '(no subject)'}
