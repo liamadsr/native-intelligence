@@ -298,6 +298,29 @@ Built and checked in a browser against the dev project (50 scripted checks):
   header with the count of open threads, a panel, and a pin on each item that
   has an open thread. Other people's comments arrive live. Without 682 the
   comment routes answer 503 and the button is not shown.
+- **Artifacts and Present.** An artifact is a small page drawn as an item, in
+  a frame with no origin (`sandbox="allow-scripts"` and nothing else) behind a
+  policy of its own that turns the network off. A click selects it and a drag
+  moves it; a double-click hands the pointer to its page, and Escape or a
+  press on the canvas takes it back. "Present" in the canvas menu (and
+  "Present from here" on an artifact) shows them full-screen one at a time, in
+  reading order, with the arrow keys. Agents make and change them
+  (`create_artifact`, `set_artifact` in `edit_canvas`) only where
+  `CANVAS_AGENT_ARTIFACTS=1`, off by default; a person changes one's
+  markup from its menu ("Edit page…"). Not built: Macro's per-canvas library
+  of named styles and components, and a person making an artifact from
+  nothing (the insert menu has Macro's three choices).
+- **Unsent edits survive a reload.** What the server does not have yet is
+  kept in the browser (localStorage), per canvas and per person, from the
+  moment an edit is made until its write is answered. Opening the canvas again
+  lays it over the server's items, says so, and sends it. Entries older than
+  two weeks, or over about 3 MB, are not kept.
+- **A record's link dragged onto the canvas** lands as its card where it is
+  dropped (from the address bar, or any link in the app). The app's own lists
+  are not drag sources today, so a row cannot be dragged yet: that is a change
+  to the views, not to the canvas.
+- **Play and pause for a video**, in the inspector (so for people who can
+  edit; the inspector is not shown to viewers).
 - **A canvas deleted for good takes its files** out of storage (archiving,
   which is what the editor's Delete does, keeps them).
 - **Phase 4:** `read_canvas`, `edit_canvas`, `create_canvas` in the tool
@@ -308,12 +331,11 @@ Built and checked in a browser against the dev project (50 scripted checks):
 
 Not built yet:
 
-- **Artifacts** (sandboxed HTML items and "Present").
-- **Dragging a record from the app** onto the canvas (paste its link or use
-  Reference today), and video play controls in the inspector.
 - **Ghost cursors for an agent's edits** (the edits themselves arrive live).
-- **Unsent edits kept across a reload** (they are kept and retried while the
-  page is open).
+  A saved row does not say an agent wrote it, and an agent's tool call has no
+  place in the presence room, so there is nothing true to draw a cursor from.
+  It needs either a mark on the write (a column, so a migration) or the
+  server saying so on the room.
 - Per-person grants and public links: not now (the owner, 2026-11-22).
 - In comments: @-mentions and notifications, editing a comment's words in the
   panel (the route and the guard allow it), and comments in the agent tools.
@@ -331,7 +353,7 @@ Things to know:
   canvas pans about 6 ms a frame slower than that one. It has not been measured
   in a production build on real hardware.
 
-## Migration 682: comments and private presence
+## Migrations 682 and 686: comments and private presence
 
 `web/supabase/migrations/682_canvas_comments_presence.sql`. New table, three new
 functions, six new policies; nothing existing is redefined.
@@ -374,6 +396,14 @@ files 676 and 682 applied twice each without error, then as three people:
 | Resolve as oneself; the author edits their own words | allowed |
 | Delete another's comment / one's own thread | 0 rows / deleted, its reply with it |
 
+Checked in a browser on the dev server (no 682 there), 21 scripted checks:
+artifacts (a page's script runs; it is refused cookies, storage, the app's
+page, a fetch and an image from the app), opening and closing one, Present and
+its keys, editing a page, an unsent edit kept across a reload and then saved, a
+record link dropped in, and that without 682 the comments button is absent and
+nothing throws. That pass found one bug, fixed: Present did not hear its keys
+after being opened from the menu.
+
 Not proven anywhere: the policies against a real Realtime server (the rehearsal
 stands in for `realtime.topic()`), and the comments panel in a browser.
 
@@ -381,7 +411,9 @@ stands in for `realtime.topic()`), and the comments panel in a browser.
 
 Made without asking, while working through the night of 2026-11-22.
 
-1. **The dev project was used after the instruction not to.** The instruction
+1. **The dev project was used after the instruction not to** (the managing
+   session has since said the test account on the dev server is fine: the
+   rule was about approval prompts and schema changes). The instruction
    ("don't use the Supabase connector or the dev project") was sent at 09:15 UTC
    and read at 10:15. In between, browser checks of rich text and media ran
    against the dev project through the app's dev server (reads and writes of
@@ -421,4 +453,40 @@ Made without asking, while working through the night of 2026-11-22.
 9. **`canvas_comment_is_thread` is security definer.** It answers one yes or
    no ("is this id the first comment of a thread on this canvas"), and the
    insert policy calls it only after checking the caller can open that canvas.
+   Migration 686 makes it check that itself too (the managing session's
+   review): called directly, it says no for a canvas the caller cannot open.
+   682's file is as released in f08a5af0 and is not edited again. **Running
+   682 a second time after 686 puts the wider function back, so run 686 after
+   it** (rehearsed in that order: 682, 686, 682, 686).
+10. **Artifacts are OFF for agents unless `CANVAS_AGENT_ARTIFACTS=1`** (the
+    managing session's direction, 2026-11-22, until the owner decides; Macro
+    keeps them behind a flag too). With it off, `create_artifact` and
+    `set_artifact` are refused with the reason and the rest of the batch still
+    applies; a person makes, edits, opens and presents artifacts either way.
+    It is an env setting because a workspace setting would need a migration:
+    a line in the server's `deploy/app/.env`, listed in `.env.example` and
+    `check_settings.py`. What a page can do is fenced: the frame's sandbox is
+    `allow-scripts` and nothing else (no `allow-same-origin`, no
+    `allow-top-navigation*`, no `allow-popups`, no `allow-forms`, no
+    downloads), so none of the app's cookies, storage or DOM; and its own
+    policy allows no fetch, frames or form posts, and images and fonts only as
+    data: URLs (checked in a browser). **What is left:** a frame can still send
+    itself to another address (`location = …`), carrying whatever its script
+    put in the URL, which includes anything a person typed INTO the page once
+    they opened it. So an agent that was talked into it could plant a page
+    that asks for something and then leaves with it. The view takes down a
+    frame that loads a second time, which is after the fact. To close it for
+    good: serve artifacts from a separate origin whose headers forbid
+    navigation, or leave script off.
+11. **An artifact opens for someone who can only view the canvas** (a page is
+    there to be used); they cannot change it.
+12. **Unsent edits restored after a reload overwrite what others saved to the
+    same items meanwhile** (the same last-write-wins as live editing), and an
+    item someone else deleted comes back if it was among them. They are kept
+    in localStorage, readable by anything running on the app's origin in that
+    browser, like the rest of the page's data; they are keyed by the person's
+    id, so the next person to sign in on that browser does not get them, but
+    signing out does not erase them.
+13. **The canvas's GET now also returns `viewer`** (the caller's own user id),
+    for that key.
 

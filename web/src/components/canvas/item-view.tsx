@@ -4,6 +4,7 @@
  * One item on the canvas, drawn in world units inside the camera's layer.
  * Memoized on the item itself: a drag re-renders only what it moves.
  */
+import { ArtifactView } from './artifact-view'
 import * as React from 'react'
 import type { CanvasItem, CanvasTextStyle, ConnectorItem, FontFamily, StrokeStyle } from '@/lib/canvas/types'
 import { cssColor } from '@/lib/canvas/engine/colors'
@@ -48,6 +49,8 @@ export interface ItemViewProps {
   dim?: boolean
   /** Its text is open for typing: the words are drawn by the editor instead. */
   editing?: boolean
+  /** An artifact whose page has the pointer. */
+  open?: boolean
   /** Zoomed far out: leave the words out. */
   far?: boolean
   /** Report a text box's real size after layout. */
@@ -243,6 +246,7 @@ function ItemViewInner(props: ItemViewProps) {
   }
   if (item.kind === 'image' || item.kind === 'video') return <MediaView item={item} dim={dim} />
   if (item.kind === 'record') return <RecordView item={item} dim={dim} />
+  if (item.kind === 'artifact' && !far) return <ArtifactView item={item} frame={frameStyle(item, dim)} open={!!props.open} />
   return (
     <div data-canvas-item={item.id} style={frameStyle(item, dim)} className="flex items-center justify-center rounded-lg border border-dashed border-border bg-background/60 text-xs text-muted-foreground">
       {item.kind === 'artifact' ? (item.title ?? 'Artifact') : null}

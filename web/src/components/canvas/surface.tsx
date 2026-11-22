@@ -47,6 +47,7 @@ function ItemsLayer({ onMeasure }: { onMeasure: (id: string, w: number, h: numbe
   const cull = useCanvas((s) => s.cull)
   const erasing = useCanvas((s) => s.overlay.erasing)
   const editing = useCanvas((s) => s.editing)
+  const opened = useCanvas((s) => s.opened)
   const far = useCanvas((s) => s.far)
   const list = React.useMemo(() => {
     const all = painted(scene)
@@ -68,6 +69,7 @@ function ItemsLayer({ onMeasure }: { onMeasure: (id: string, w: number, h: numbe
           endTarget={item.kind === 'connector' && item.end.bind ? scene.items[item.end.bind.id] : undefined}
           dim={dim.has(item.id)}
           editing={editing === item.id}
+          open={opened === item.id}
           far={far}
           onMeasure={item.kind === 'text' ? onMeasure : undefined}
         />

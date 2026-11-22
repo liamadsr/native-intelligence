@@ -472,3 +472,85 @@ describe('saving', () => {
     sync.stop()
   })
 })
+
+describe('artifacts', () => {
+  const art = (id: string, x: number): CanvasItem => ({ id, kind: 'artifact', parentId: null, sortKey: `a${id}`, x, y: 100, w: 200, h: 150, rotation: 0, style: { opacity: 1 }, html: '<p>Hi</p>' }) as CanvasItem
+  const open = () => store.getState().opened
+
+  beforeEach(() => {
+    store = new CanvasStore('canvas-1', [art('a', 100), art('b', 500)])
+    store.setViewport(1000, 800)
+    ix = new Interaction(store)
+  })
+
+  it('a click selects an artifact and a drag moves it: its page does not have the pointer', () => {
+    click(150, 150)
+    expect(store.getState().selection).toEqual(['a'])
+    expect(open()).toBeNull()
+    drag([150, 150], [250, 150])
+    expect(store.getState().scene.items.a.x).toBe(200)
+  })
+
+  it('a double-click hands the pointer to its page; Escape takes it back and keeps the selection', () => {
+    ix.doubleClick(P(150, 150))
+    expect(open()).toBe('a')
+    expect(store.getState().selection).toEqual(['a'])
+    expect(ix.keyDown(key('Escape'))).toBe(true)
+    expect(open()).toBeNull()
+    expect(store.getState().selection).toEqual(['a'])
+  })
+
+  it('a press on the canvas, another selection or another tool takes the pointer back', () => {
+    ix.doubleClick(P(150, 150))
+    click(900, 700)
+    expect(open()).toBeNull()
+    ix.doubleClick(P(150, 150))
+    store.select(['b'])
+    expect(open()).toBeNull()
+    ix.doubleClick(P(150, 150))
+    store.setTool('rectangle')
+    expect(open()).toBeNull()
+  })
+
+  it('opens for someone who can only look, and only an artifact can be opened', () => {
+    store = new CanvasStore('canvas-1', [art('a', 100)], { readOnly: true })
+    store.setViewport(1000, 800)
+    ix = new Interaction(store)
+    ix.doubleClick(P(150, 150))
+    expect(open()).toBe('a')
+    store.setOpened('nope')
+    expect(open()).toBe('a')
+  })
+})
+
+describe('a record dragged onto the canvas', () => {
+  const origin = 'https://app.example.test'
+  const id = '3f2b8c1e-5a4d-4e6f-9a7b-0c1d2e3f4a5b'
+  const drop = (data: Record<string, string>) => ({ getData: (t: string) => data[t] ?? '' })
+
+  it('reads the record from the drag\'s link, or from its plain text', async () => {
+    const { recordFromDrop, dragHasLink } = await import('../clipboard')
+    expect(recordFromDrop(drop({ 'text/uri-list': `# a comment\r\n${origin}/account?document=${id}\r\n${origin}/account?action=${id}` }), origin)).toEqual({ type: 'document', id })
+    expect(recordFromDrop(drop({ 'text/plain': `${origin}/account?contact=${id}` }), origin)).toEqual({ type: 'contact', id })
+    expect(dragHasLink(['text/html', 'text/uri-list'])).toBe(true)
+    expect(dragHasLink(['Files'])).toBe(false)
+  })
+
+  it('takes nothing from another site\'s link, plain words, or an empty drag', async () => {
+    const { recordFromDrop } = await import('../clipboard')
+    expect(recordFromDrop(drop({ 'text/uri-list': `https://elsewhere.example.test/account?document=${id}` }), origin)).toBeNull()
+    expect(recordFromDrop(drop({ 'text/plain': 'just some words' }), origin)).toBeNull()
+    expect(recordFromDrop(drop({}), origin)).toBeNull()
+    expect(recordFromDrop(null, origin)).toBeNull()
+  })
+
+  it('puts the card where it was dropped, in front and selected', async () => {
+    const { insertRecord } = await import('../clipboard')
+    insertRecord(store, { type: 'document', id }, { x: 400, y: 300 })
+    const card = items().at(-1)!
+    expect(card.kind).toBe('record')
+    expect(card.x + card.w / 2).toBe(400)
+    expect(card.y + card.h / 2).toBe(300)
+    expect(store.getState().selection).toEqual([card.id])
+  })
+})

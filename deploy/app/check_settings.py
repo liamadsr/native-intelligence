@@ -93,6 +93,7 @@ MAY_BE_EMPTY = {
     "GATEWAY_USER_TAGGING": "empty: no per-person tags in the AI Gateway's report",
     "AGENT_AUTO_ATTEMPT_ENABLED": "a switch: empty is off",
     "AGE_OUT_ENABLED": "a switch: empty is off",
+    "CANVAS_AGENT_ARTIFACTS": "a switch: empty is off (agents cannot make or change canvas artifacts)",
     "RECONCILER_ENABLED": "a switch: empty is off",
     "NI_FORWARD_OLD_DOMAIN": "a switch: empty is off (the forward from dial8.ai; only after the address moves)",
     # Until the app makes calls (../livekit; ../README.md step 23). All three or none.

@@ -89,6 +89,8 @@ export interface CanvasState {
   toolLock: boolean
   /** The item whose text is being edited. */
   editing: string | null
+  /** The artifact that has the pointer: its page takes clicks and keys until it is closed. */
+  opened: string | null
   history: History
   defaults: StyleDefaults
   prefs: Prefs
@@ -126,7 +128,7 @@ export class CanvasStore {
   /** Open the insert menu at a screen point (set by the editor). */
   openInsert: ((at: Point) => void) | null = null
   /** The editor's hands: how to say something, open a record, open the insert menu. Null takes one back. */
-  setHooks(hooks: Partial<Pick<CanvasStore, 'notify' | 'openRecord' | 'openInsert'>>): void {
+  setHooks(hooks: Partial<Pick<CanvasStore, 'notify' | 'openRecord' | 'openInsert' | 'present' | 'editArtifact'>>): void {
     Object.assign(this, hooks)
   }
   private fragment: Fragment | null = null
@@ -142,6 +144,7 @@ export class CanvasStore {
       tool: 'select',
       toolLock: false,
       editing: null,
+      opened: null,
       history: EMPTY_HISTORY,
       defaults: INITIAL_DEFAULTS,
       prefs: { grid: opts.grid ?? true, snapObjects: true, gridSnap: 'none' },
@@ -324,7 +327,7 @@ export class CanvasStore {
     const next = selectionRoots(this.state.scene, ids)
     const cur = this.state.selection
     if (next.length === cur.length && next.every((id, i) => id === cur[i])) return
-    this.set({ selection: next })
+    this.set({ selection: next, ...(this.state.opened && !next.includes(this.state.opened) ? { opened: null } : {}) })
   }
   /** What clicking an item selects: the group it is in, or the item itself with `deep`. */
   targetOf(id: string, deep = false): string {
@@ -338,7 +341,7 @@ export class CanvasStore {
   setTool(tool: ToolId): void {
     if (this.state.readOnly && tool !== 'select' && tool !== 'hand') return
     if (tool === this.state.tool) return
-    this.set({ tool, ...(tool !== 'select' ? { selection: [], editing: null } : {}) })
+    this.set({ tool, ...(tool !== 'select' ? { selection: [], editing: null, opened: null } : {}) })
   }
   /** After a drawing tool has drawn: back to Select, unless the tool is kept. */
   toolDone(created: readonly string[]): void {
@@ -346,6 +349,15 @@ export class CanvasStore {
     else this.set({ tool: 'select', selection: selectionRoots(this.state.scene, created) })
   }
   setToolLock = (toolLock: boolean): void => this.set({ toolLock })
+  /** Hand the pointer to an artifact's page (null takes it back). */
+  setOpened(opened: string | null): void {
+    if (opened !== null && this.state.scene.items[opened]?.kind !== 'artifact') return
+    if (opened !== this.state.opened) this.set({ opened })
+  }
+  /** Show the artifacts full-screen, from this one. Set by the editor. */
+  present: ((from?: string | null) => void) | null = null
+  /** Change an artifact's page and title. Set by the editor. */
+  editArtifact: ((id: string) => void) | null = null
   setEditing(editing: string | null): void {
     if (editing !== this.state.editing) this.set({ editing })
   }

@@ -6,7 +6,7 @@
  * page card (components/chat-cards/pages/canvases-card.tsx).
  */
 import * as React from 'react'
-import { ArrowLeft, CopyPlus, Download, SlidersHorizontal, Link2, Loader2, Lock, MoreHorizontal, Paperclip, Pencil, Trash2, Users } from 'lucide-react'
+import { ArrowLeft, CopyPlus, Download, SlidersHorizontal, Link2, Loader2, Lock, MoreHorizontal, Paperclip, Pencil, Presentation, Trash2, Users } from 'lucide-react'
 import { FLOATING_CARD_CLASS } from '@/components/attention/card-skin'
 import {
   DropdownMenu,
@@ -24,7 +24,7 @@ import { THEME_COLORS } from '@/lib/canvas/engine/colors'
 import { ordered } from '@/lib/canvas/engine/scene'
 import { cn } from '@/lib/utils'
 import { CanvasContextMenu } from './canvas-context-menu'
-import { insertRecord, mediaFiles, readPaste, writeCopy } from './clipboard'
+import { dragHasLink, insertRecord, mediaFiles, readPaste, recordFromDrop, writeCopy } from './clipboard'
 import { InsertMenu, MediaPicker, ReferencePicker, type InsertChoice } from './insert-menu'
 import { insertMediaFiles, uploadTo } from './media-client'
 import { entityOpenTarget } from '@/lib/entity-links/open-entity'
@@ -40,6 +40,10 @@ import { CanvasSync } from './sync'
 import { PeerList, PresenceRoom, PresenceSender, RemoteChanges, peerColor, type RoomClient } from './live'
 import { PeerFaces, PresenceLayer, usePeers } from './presence-layer'
 import { CommentPins, CommentsButton, CommentsPanel, useCanvasComments } from './comments-panel'
+import { ArtifactEditor, PresentArtifacts } from './artifact-view'
+import { browserStorage, Outbox, withUnsent, type Unsent } from './outbox'
+import { artifactTitle, isArtifact, presentOrder } from '@/lib/canvas/engine/artifact'
+import { patchScene } from '@/lib/canvas/engine/scene'
 import { createClient } from '@/lib/supabase/client'
 import { CanvasToolbar } from './toolbar'
 import { CanvasContext, useCanvas } from './use-canvas'
@@ -55,6 +59,9 @@ interface Loaded {
   canvas: CanvasRecord
   items: CanvasItem[]
   canEdit: boolean
+  outbox: Outbox | null
+  /** Left unsent by an earlier visit: already in `items`, still to be sent. */
+  unsent: Unsent | null
 }
 
 /** The palette as CSS variables, light and dark, scoped to the editor. */
@@ -100,6 +107,32 @@ function SelectionActions({ styleOpen, onStyle }: { styleOpen: boolean; onStyle:
   )
 }
 
+/** The artifacts full-screen, and the dialog that changes one: both read the live scene. */
+function ArtifactLayers({ presenting, editing, onStopPresenting, onStopEditing }: { presenting: { from: string | null } | null; editing: string | null; onStopPresenting: () => void; onStopEditing: () => void }) {
+  const store = React.useContext(CanvasContext)!
+  const scene = useCanvas((s) => s.scene)
+  const artifacts = React.useMemo(() => (presenting ? presentOrder(scene) : []), [presenting, scene])
+  const item = editing ? scene.items[editing] : undefined
+  return (
+    <>
+      {presenting ? <PresentArtifacts artifacts={artifacts} start={presenting.from} onClose={onStopPresenting} /> : null}
+      {isArtifact(item) ? (
+        <ArtifactEditor
+          key={item.id}
+          item={item}
+          onClose={onStopEditing}
+          onSave={({ html, title }) => {
+            const { title: _old, ...rest } = item
+            const t = artifactTitle(title)
+            store.apply((s) => patchScene(s, [{ ...rest, html, ...(t ? { title: t } : {}) }]))
+            onStopEditing()
+          }}
+        />
+      ) : null}
+    </>
+  )
+}
+
 /**
  * What the save says: only when it went wrong. Saving runs on its own, so
  * Saved, Saving… and Editing… are not shown (Liam, 11-22: "we don't need to
@@ -115,6 +148,7 @@ function Header({
   onRename,
   onVisibility,
   onDownload,
+  onPresent,
   onCopyLink,
   onDelete,
   peers,
@@ -126,11 +160,14 @@ function Header({
   onRename: (title: string) => void
   onVisibility: (v: 'workspace' | 'private') => void
   onDownload: () => void
+  /** Only when there is an artifact to present. */
+  onPresent?: () => void
   onCopyLink: () => void
   onDelete: () => void
   peers: React.ReactNode
 }) {
   const save = React.useSyncExternalStore(sync.subscribe, sync.getState, sync.getState)
+  const hasArtifacts = useCanvas((s) => Object.values(s.scene.items).some((it) => it.kind === 'artifact'))
   const [title, setTitle] = React.useState(canvas.title)
   React.useEffect(() => setTitle(canvas.title), [canvas.title])
   const inputRef = React.useRef<HTMLInputElement>(null)
@@ -197,6 +234,11 @@ function Header({
         <DropdownMenuItem onSelect={onCopyLink}>
           <Link2 className="mr-2 h-4 w-4" /> Copy link to this view
         </DropdownMenuItem>
+        {onPresent && hasArtifacts ? (
+          <DropdownMenuItem onSelect={onPresent}>
+            <Presentation className="mr-2 h-4 w-4" /> Present
+          </DropdownMenuItem>
+        ) : null}
         <DropdownMenuItem onSelect={onDownload}>
           <Download className="mr-2 h-4 w-4" /> Download
         </DropdownMenuItem>
@@ -296,12 +338,17 @@ export default function CanvasEditor({ canvasId, onBack, onTitle }: CanvasEditor
     fetch(`/api/account/canvases/${canvasId}`)
       .then(async (r) => {
         if (!r.ok) throw new Error(r.status === 404 || r.status === 403 ? 'This canvas is gone, or it is not shared with you.' : 'This canvas could not be opened.')
-        return (await r.json()) as { canvas: CanvasRecord; items: CanvasItemRow[]; can_edit?: boolean }
+        return (await r.json()) as { canvas: CanvasRecord; items: CanvasItemRow[]; can_edit?: boolean; viewer?: string }
       })
       .then((j) => {
         if (!live) return
         const items = (j.items ?? []).map(rowToItem).filter((it): it is CanvasItem => !!it)
-        setLoaded({ canvas: j.canvas, items, canEdit: j.can_edit !== false })
+        const canEdit = j.can_edit !== false
+        // What an earlier visit could not send is put back over what the server has, and sent again.
+        const outbox = canEdit && j.viewer ? new Outbox(browserStorage(), canvasId, j.viewer) : null
+        const unsent = outbox?.read() ?? null
+        if (unsent) setNotice('Changes that had not been saved were restored.')
+        setLoaded({ canvas: j.canvas, items: withUnsent(items, unsent), canEdit, outbox, unsent })
       })
       .catch((e: Error) => live && setError(e.message))
     return () => {
@@ -328,7 +375,8 @@ export default function CanvasEditor({ canvasId, onBack, onTitle }: CanvasEditor
         keepalive: keepalive && JSON.stringify(body).length < 60_000,
       })
       return r.ok
-    })
+    }, 500, loaded.outbox)
+    if (loaded.unsent) sync.restore(loaded.unsent)
     return { store, interaction, sync }
     // A reload of the same canvas makes a new session on purpose.
   }, [canvasId, loaded])
@@ -494,6 +542,8 @@ export default function CanvasEditor({ canvasId, onBack, onTitle }: CanvasEditor
     [session, canvasId],
   )
   const [insertAt, setInsertAt] = React.useState<{ x: number; y: number } | null>(null)
+  const [presenting, setPresenting] = React.useState<{ from: string | null } | null>(null)
+  const [artifactEdit, setArtifactEdit] = React.useState<string | null>(null)
   const [panel, setPanel] = React.useState<'media' | 'reference' | null>(null)
   const fileInput = React.useRef<HTMLInputElement>(null)
   const [styleSheet, setStyleSheet] = React.useState(false)
@@ -513,8 +563,10 @@ export default function CanvasEditor({ canvasId, onBack, onTitle }: CanvasEditor
         insertWorld.current = toWorld(store.camera, at)
         setInsertAt(at)
       },
+      present: (from) => setPresenting({ from: from ?? null }),
+      editArtifact: (id) => setArtifactEdit(id),
     })
-    return () => store.setHooks({ notify: null, openRecord: null, openInsert: null })
+    return () => store.setHooks({ notify: null, openRecord: null, openInsert: null, present: null, editArtifact: null })
   }, [session])
 
   // Copy, cut, paste: the browser's own events, while the canvas has the focus.
@@ -646,15 +698,26 @@ export default function CanvasEditor({ canvasId, onBack, onTitle }: CanvasEditor
           }}
           onPointerLeave={() => presence.current?.update({ cursor: null })}
           onDragOver={(e) => {
-            if (loaded.canEdit && [...e.dataTransfer.types].includes('Files')) e.preventDefault()
+            const types = [...e.dataTransfer.types]
+            // The canvas's own drags (none today) aside: files, or a link that may be a record's.
+            if (loaded.canEdit && (types.includes('Files') || dragHasLink(types))) e.preventDefault()
           }}
           onDrop={(e) => {
             if (!loaded.canEdit) return
-            const files = mediaFiles(e.dataTransfer)
-            if (!files.length) return
-            e.preventDefault()
             const rect = e.currentTarget.getBoundingClientRect()
-            void addFiles(files, toWorld(store.camera, { x: e.clientX - rect.left, y: e.clientY - rect.top }))
+            const at = toWorld(store.camera, { x: e.clientX - rect.left, y: e.clientY - rect.top })
+            const files = mediaFiles(e.dataTransfer)
+            if (files.length) {
+              e.preventDefault()
+              void addFiles(files, at)
+              return
+            }
+            // A record's link, dragged in from the app: its card, where it was dropped.
+            const ref = recordFromDrop(e.dataTransfer, window.location.origin)
+            if (!ref) return
+            e.preventDefault()
+            insertRecord(store, ref, at)
+            refocus()
           }}
         >
           <input
@@ -684,6 +747,7 @@ export default function CanvasEditor({ canvasId, onBack, onTitle }: CanvasEditor
                   }}
                   onVisibility={(visibility) => void patch({ visibility })}
                   onDownload={download}
+                  onPresent={() => setPresenting({ from: null })}
                   onCopyLink={copyLink}
                   peers={
                     <>
@@ -773,6 +837,7 @@ export default function CanvasEditor({ canvasId, onBack, onTitle }: CanvasEditor
                     }}
                   />
                 ) : null}
+                <ArtifactLayers presenting={presenting} editing={artifactEdit} onStopPresenting={() => { setPresenting(null); refocus() }} onStopEditing={() => { setArtifactEdit(null); refocus() }} />
                 {notice ? (
                   <div data-canvas-chrome role="status" className={cn(FLOATING_CARD_CLASS, 'absolute left-1/2 top-4 z-30 -translate-x-1/2 px-3 py-2 text-xs text-foreground')}>
                     {notice}
