@@ -95,6 +95,18 @@ export type AgentOp =
   | { op: 'create_artifact'; key?: string; x: number; y: number; w?: number; h?: number; html: string; title?: string }
   | { op: 'set_artifact'; id: string; html?: string; title?: string }
 
+/**
+ * Whether an agent may make or change artifacts: off unless the server's
+ * CANVAS_AGENT_ARTIFACTS is exactly "1". An artifact's page cannot reach the
+ * app or the network, but its frame can send itself to another address with
+ * whatever a person typed into it; an agent that was talked into it could
+ * plant such a page. People make and open artifacts either way.
+ */
+export function agentArtifactsEnabled(env: Record<string, string | undefined> = process.env): boolean {
+  return env.CANVAS_AGENT_ARTIFACTS === '1'
+}
+export const AGENT_ARTIFACTS_OFF = 'artifacts are turned off for agents in this workspace: a person can make one on the canvas, and you can use shapes and text instead'
+
 export const AGENT_COLOR_NAMES = THEME_COLORS.map((c) => c.id)
 
 /** A color an agent named: a palette name, a hex, or "none". Null when it is neither. */
@@ -148,7 +160,7 @@ const WORLD = 1_000_000
  * a reason; the rest still apply. An id may be a real item id or the `key` an
  * earlier op in the same batch gave what it created.
  */
-export function applyAgentOps(items: readonly CanvasItem[], ops: readonly AgentOp[]): AgentEditResult {
+export function applyAgentOps(items: readonly CanvasItem[], ops: readonly AgentOp[], opts: { artifacts?: boolean } = {}): AgentEditResult {
   const before = settleConnectors(sceneFromItems(items))
   let scene = before
   const created: Record<string, string> = {}
@@ -349,6 +361,7 @@ export function applyAgentOps(items: readonly CanvasItem[], ops: readonly AgentO
           break
         }
         case 'create_artifact': {
+          if (!opts.artifacts) return fail(AGENT_ARTIFACTS_OFF)
           if (!num(op.x) || !num(op.y) || !inWorld(op.x, op.y)) return fail('x and y are numbers')
           if (typeof op.html !== 'string' || !op.html.trim()) return fail('html is the page: markup, with its styles and scripts written in it')
           if (op.html.length > ARTIFACT_LIMITS.html) return fail(`html is at most ${ARTIFACT_LIMITS.html} characters`)
@@ -360,6 +373,7 @@ export function applyAgentOps(items: readonly CanvasItem[], ops: readonly AgentO
           break
         }
         case 'set_artifact': {
+          if (!opts.artifacts) return fail(AGENT_ARTIFACTS_OFF)
           const id = typeof op.id === 'string' ? resolve(op.id) : null
           const it = id ? scene.items[id] : null
           if (!it || it.kind !== 'artifact') return fail(`no artifact ${JSON.stringify(op.id)} on this canvas`)

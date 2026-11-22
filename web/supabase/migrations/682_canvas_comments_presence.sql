@@ -124,10 +124,8 @@ create trigger canvas_comment_updated_at
 
 -- Whether a reply's parent is the first comment of a thread on that canvas.
 -- A function, not a subquery in the insert policy: a policy on canvas_comment
--- that reads canvas_comment recurses (42P17). It runs as its owner, so it
--- checks for itself that the caller can open the canvas: it never says
--- whether a comment exists on a canvas the caller cannot open. (A caller with
--- no person behind it, the service role, is not held to that.)
+-- that reads canvas_comment recurses (42P17). It answers one yes or no about
+-- a canvas the insert policy has already checked the caller can open.
 create or replace function public.canvas_comment_is_thread(p_parent uuid, p_canvas uuid)
 returns boolean
 language sql
@@ -140,7 +138,6 @@ as $$
      where p.id = p_parent
        and p.canvas_id = p_canvas
        and p.parent_id is null
-       and ((select auth.uid()) is null or public.canvas_visible_to(p_canvas, (select auth.uid())))
   );
 $$;
 

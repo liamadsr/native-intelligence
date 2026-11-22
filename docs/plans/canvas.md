@@ -305,7 +305,8 @@ Built and checked in a browser against the dev project (50 scripted checks):
   press on the canvas takes it back. "Present" in the canvas menu (and
   "Present from here" on an artifact) shows them full-screen one at a time, in
   reading order, with the arrow keys. Agents make and change them
-  (`create_artifact`, `set_artifact` in `edit_canvas`); a person changes one's
+  (`create_artifact`, `set_artifact` in `edit_canvas`) only where
+  `CANVAS_AGENT_ARTIFACTS=1`, off by default; a person changes one's
   markup from its menu ("Edit page…"). Not built: Macro's per-canvas library
   of named styles and components, and a person making an artifact from
   nothing (the insert menu has Macro's three choices).
@@ -352,7 +353,7 @@ Things to know:
   canvas pans about 6 ms a frame slower than that one. It has not been measured
   in a production build on real hardware.
 
-## Migration 682: comments and private presence
+## Migrations 682 and 686: comments and private presence
 
 `web/supabase/migrations/682_canvas_comments_presence.sql`. New table, three new
 functions, six new policies; nothing existing is redefined.
@@ -452,24 +453,31 @@ Made without asking, while working through the night of 2026-11-22.
 9. **`canvas_comment_is_thread` is security definer.** It answers one yes or
    no ("is this id the first comment of a thread on this canvas"), and the
    insert policy calls it only after checking the caller can open that canvas.
-   Since f08a5af0 it also checks that itself (the managing session's review):
-   called directly, it says no for a canvas the caller cannot open. **This is
-   an edit to 682's file after f08a5af0**: whoever applies 682 should apply
-   the file as it is on this branch, or apply it again afterwards (it is
-   `create or replace`, and safe to run twice).
-10. **Artifacts are on for agents, with no flag** (Macro keeps them behind
-    one). What a page can do is fenced: no origin, so none of the app's
-    cookies, storage or DOM; no fetch, no frames, no forms, no popups, no top
-    navigation; images and fonts only as data: URLs. **What is left:** a frame
-    can still send itself to another address (`location = …`), which carries
-    whatever its own script chose to put in the URL. The page has nothing of
-    the app's to give away, but it does have anything a person typed INTO it
-    once they opened it. So an agent that was talked into it could draw a page
+   Migration 686 makes it check that itself too (the managing session's
+   review): called directly, it says no for a canvas the caller cannot open.
+   682's file is as released in f08a5af0 and is not edited again. **Running
+   682 a second time after 686 puts the wider function back, so run 686 after
+   it** (rehearsed in that order: 682, 686, 682, 686).
+10. **Artifacts are OFF for agents unless `CANVAS_AGENT_ARTIFACTS=1`** (the
+    managing session's direction, 2026-11-22, until the owner decides; Macro
+    keeps them behind a flag too). With it off, `create_artifact` and
+    `set_artifact` are refused with the reason and the rest of the batch still
+    applies; a person makes, edits, opens and presents artifacts either way.
+    It is an env setting because a workspace setting would need a migration:
+    a line in the server's `deploy/app/.env`, listed in `.env.example` and
+    `check_settings.py`. What a page can do is fenced: the frame's sandbox is
+    `allow-scripts` and nothing else (no `allow-same-origin`, no
+    `allow-top-navigation*`, no `allow-popups`, no `allow-forms`, no
+    downloads), so none of the app's cookies, storage or DOM; and its own
+    policy allows no fetch, frames or form posts, and images and fonts only as
+    data: URLs (checked in a browser). **What is left:** a frame can still send
+    itself to another address (`location = …`), carrying whatever its script
+    put in the URL, which includes anything a person typed INTO the page once
+    they opened it. So an agent that was talked into it could plant a page
     that asks for something and then leaves with it. The view takes down a
     frame that loads a second time, which is after the fact. To close it for
-    good: serve artifacts from a separate origin whose own headers forbid
-    navigation, or leave script off. To turn agent artifacts off: remove the
-    two operations from `operation` in `src/lib/ai/tools/canvas.ts`.
+    good: serve artifacts from a separate origin whose headers forbid
+    navigation, or leave script off.
 11. **An artifact opens for someone who can only view the canvas** (a page is
     there to be used); they cannot change it.
 12. **Unsent edits restored after a reload overwrite what others saved to the

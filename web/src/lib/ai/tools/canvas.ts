@@ -1,7 +1,7 @@
 import { tool } from 'ai'
 import { z } from 'zod'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { AGENT_COLOR_NAMES, AGENT_LIMITS, applyAgentOps, describeCanvas, type AgentOp } from '@/lib/canvas/agent'
+import { AGENT_COLOR_NAMES, AGENT_LIMITS, agentArtifactsEnabled, applyAgentOps, describeCanvas, type AgentOp } from '@/lib/canvas/agent'
 import { ARTIFACT_LIMITS } from '@/lib/canvas/engine/artifact'
 import { syncCanvasRecordLinks } from '@/lib/canvas/links'
 import { createCanvas, listItems, writeItems } from '@/lib/canvas/store'
@@ -96,7 +96,7 @@ export function createCanvasTools(
 
     edit_canvas: tool({
       description:
-        `Add to a canvas or rearrange it, with up to ${AGENT_LIMITS.ops} operations in one batch: create_shape (a rectangle or ellipse, with an optional label), create_text, connect (an arrow between two items or points), move, resize, style, set_text, group, ungroup, order, delete, and create_artifact / set_artifact. An artifact is a small self-contained page drawn on the canvas (a chart, a calculator, a slide): write its body markup with styles and scripts inline. It runs with no network and no access to the app, so images and fonts must be data: URLs and it cannot fetch anything. Several artifacts can be presented full-screen one after another, in reading order. Give a new item a "key" to use it as an id later in the same batch (make two boxes, then connect them). Units are canvas units with y down; a typical box is 320 by 80, and leave about 80 between things. Read the canvas first to place things around what is there. An operation that cannot be applied is refused with its reason and the rest still apply. People with the canvas open see the change as it lands.`,
+        `Add to a canvas or rearrange it, with up to ${AGENT_LIMITS.ops} operations in one batch: create_shape (a rectangle or ellipse, with an optional label), create_text, connect (an arrow between two items or points), move, resize, style, set_text, group, ungroup, order, delete, and create_artifact / set_artifact. An artifact is a small self-contained page drawn on the canvas (a chart, a calculator, a slide): write its body markup with styles and scripts inline. It runs with no network and no access to the app, so images and fonts must be data: URLs and it cannot fetch anything. Several artifacts can be presented full-screen one after another, in reading order. Artifacts may be turned off for agents, in which case those two operations are refused and say so. Give a new item a "key" to use it as an id later in the same batch (make two boxes, then connect them). Units are canvas units with y down; a typical box is 320 by 80, and leave about 80 between things. Read the canvas first to place things around what is there. An operation that cannot be applied is refused with its reason and the rest still apply. People with the canvas open see the change as it lands.`,
       inputSchema: z.object({
         canvas_id: z.string().describe('The canvas to change.'),
         operations: z.array(operation).min(1).max(AGENT_LIMITS.ops),
@@ -105,7 +105,7 @@ export function createCanvasTools(
         try {
           const found = await open(canvas_id, true)
           if (!found.ok) return { success: false, error: found.error }
-          const result = applyAgentOps(await load(canvas_id), operations as AgentOp[])
+          const result = applyAgentOps(await load(canvas_id), operations as AgentOp[], { artifacts: agentArtifactsEnabled() })
           if (!result.step.length) {
             return { success: result.errors.length === 0, applied: result.done, ...(result.errors.length ? { refused: result.errors } : {}), message: 'Nothing changed.' }
           }
