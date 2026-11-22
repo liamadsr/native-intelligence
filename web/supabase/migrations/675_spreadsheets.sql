@@ -263,7 +263,7 @@ create or replace function public.spreadsheet_comment_guard()
 returns trigger
 language plpgsql
 set search_path = public, pg_temp
-as $
+as $$
 declare
   v_me uuid;
 begin
@@ -289,7 +289,7 @@ begin
   end if;
   return new;
 end;
-$;
+$$;
 
 drop trigger if exists spreadsheet_comment_guard on public.spreadsheet_comment;
 create trigger spreadsheet_comment_guard

@@ -25,6 +25,21 @@ describe('migration 675: spreadsheets', () => {
     expect(readFileSync(join(process.cwd(), 'supabase/migrations', FILE), 'utf8')).not.toContain('\\')
   })
 
+  it('every function body is dollar-quoted on both ends (a lone dollar sign does not parse, and psql stops the whole file)', () => {
+    const raw = readFileSync(join(process.cwd(), 'supabase/migrations', FILE), 'utf8').split('\n')
+    const DOLLAR = String.fromCharCode(36)
+    const OPEN = `as ${DOLLAR}${DOLLAR}`
+    const CLOSE = `${DOLLAR}${DOLLAR};`
+    const functions = raw.filter((line) => line.startsWith('create or replace function ')).length
+    expect(functions).toBe(4)
+    // Each body opens, then closes, one function after the other.
+    const marks = raw.flatMap((line) => (line === OPEN ? ['open'] : line === CLOSE ? ['close'] : []))
+    expect(marks).toEqual(Array.from({ length: functions }, () => ['open', 'close']).flat())
+    // Nothing else in the statements carries a dollar sign: no half-quoted body, no other tag.
+    const stray = raw.filter((line) => line.includes(DOLLAR) && line !== OPEN && line !== CLOSE && !line.trimStart().startsWith('--'))
+    expect(stray).toEqual([])
+  })
+
   it('is safe to run twice', () => {
     expect(sql.match(/create table (?!if not exists)/gi)).toBeNull()
     expect(sql.match(/create index (?!if not exists)/gi)).toBeNull()
