@@ -102,10 +102,10 @@ describe('migration 675: spreadsheets', () => {
 
   it('a member cannot take a spreadsheet over: for a client, who made it never changes and only its maker changes who sees it', () => {
     const start = sql.indexOf('function public.spreadsheet_before_write')
-    const header = sql.slice(start, sql.indexOf('$', start))
+    const header = sql.slice(start, sql.indexOf('$$', start))
     // current_user must be the caller's role, so the guard is not a definer.
     expect(header).not.toMatch(/security definer/i)
-    const body = sql.slice(start, sql.indexOf('$;', start)).replace(/\s+/g, ' ')
+    const body = sql.slice(start, sql.indexOf('$$;', start)).replace(/\s+/g, ' ')
     const guard = body.slice(body.indexOf("if current_user in ('authenticated', 'anon') then"))
     expect(guard.length).toBeGreaterThan(100)
     expect(guard).toMatch(/if new\.created_by is distinct from old\.created_by then raise exception '[^']+' using errcode = '42501';/)
@@ -118,9 +118,9 @@ describe('migration 675: spreadsheets', () => {
   it('a reader cannot rewrite another person’s comment: its place and author never change, its words are its author’s, a resolve is signed as oneself', () => {
     const start = sql.indexOf('function public.spreadsheet_comment_guard')
     expect(start).toBeGreaterThan(0)
-    const header = sql.slice(start, sql.indexOf('$', start))
+    const header = sql.slice(start, sql.indexOf('$$', start))
     expect(header).not.toMatch(/security definer/i)
-    const body = sql.slice(start, sql.indexOf('$;', start)).replace(/\s+/g, ' ')
+    const body = sql.slice(start, sql.indexOf('$$;', start)).replace(/\s+/g, ' ')
     expect(body).toContain("if current_user not in ('authenticated', 'anon') then return new; end if;")
     for (const column of ['spreadsheet_id', 'workspace_id', 'author_id', 'parent_id', 'created_at']) {
       expect(body, column).toContain(`new.${column} is distinct from old.${column}`)
