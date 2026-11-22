@@ -884,7 +884,7 @@ export function SheetGrid({ workbook, caret, showGridlines = true, showFormulas 
        <div style={{ width: totalWidth + ROW_HEADER_WIDTH, height: totalHeight + COLUMN_HEADER_HEIGHT, position: 'relative' }}>
         {/* The cells. */}
         <div
-          className="absolute cursor-cell"
+          className="absolute cursor-cell select-none"
           style={{ left: ROW_HEADER_WIDTH, top: COLUMN_HEADER_HEIGHT, width: totalWidth, height: totalHeight }}
           onPointerDown={onCellsPointerDown}
           onPointerMove={onPointerMove}

@@ -382,3 +382,138 @@ describe('sheet tabs', () => {
     expect(container.querySelector('[data-cell="A1"]')?.textContent).toBe('40')
   })
 })
+
+describe('the full toolbar', () => {
+  const press = (label: string) => act(() => (container.querySelector(`[aria-label="${label}"]`) as HTMLButtonElement).click())
+  const a1 = () => container.querySelector('[data-cell="A1"]') as HTMLElement
+
+  it('has every control of the formatting row, in order', async () => {
+    await open()
+    const labels = [...container.querySelectorAll('[role="toolbar"] [aria-label]')].map((el) => el.getAttribute('aria-label'))
+    expect(labels).toEqual([
+      'Decrease font size', 'Font size', 'Increase font size',
+      'Bold', 'Italic', 'Strikethrough', 'Underline',
+      'Undo', 'Redo', 'Format as currency', 'Format as percent', 'Decrease decimal places', 'Increase decimal places', 'Wrap text',
+      'Find and replace',
+      'Number format', 'Font', 'Text color', 'Fill color', 'Borders', 'Horizontal alignment', 'Vertical alignment', 'Functions', 'Paste special', 'View options', 'Format and data',
+    ])
+  })
+
+  it('formats as currency and percent, and steps the decimal places', async () => {
+    current = record({ workbook: workbookWith([[1, 1, '1234.5']]) })
+    await open()
+    press('Format as currency')
+    expect(a1().textContent).toBe('$1,234.50')
+    expect(container.querySelector('[aria-label="Format as currency"]')?.getAttribute('aria-pressed')).toBe('true')
+    press('Increase decimal places')
+    expect(a1().textContent).toBe('$1,234.500')
+    press('Decrease decimal places')
+    press('Decrease decimal places')
+    expect(a1().textContent).toBe('$1,234.5')
+    press('Format as percent')
+    expect(a1().textContent).toBe('123450.00%')
+  })
+
+  it('steps the font size and takes one typed into the box', async () => {
+    await open()
+    const box = container.querySelector('[aria-label="Font size"]') as HTMLInputElement
+    expect(box.value).toBe('12')
+    press('Increase font size')
+    press('Increase font size')
+    expect(box.value).toBe('14')
+    press('Decrease font size')
+    expect(box.value).toBe('13')
+    await act(async () => {
+      box.focus()
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(box, '24')
+      box.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    key('Enter', box)
+    expect(a1().style.fontSize).toBe('26px')
+  })
+
+  it('wraps text and strikes it through', async () => {
+    await open()
+    press('Wrap text')
+    expect(a1().className).toContain('whitespace-pre-wrap')
+    press('Strikethrough')
+    expect(a1().style.textDecoration).toContain('line-through')
+    expect(container.querySelector('[aria-label="Wrap text"]')?.getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('is off for a view-only spreadsheet, but find still opens', async () => {
+    current = record({ status: 'archived' })
+    await open()
+    for (const label of ['Bold', 'Format as currency', 'Wrap text', 'Increase font size', 'Number format', 'Borders']) {
+      expect((container.querySelector(`[aria-label="${label}"]`) as HTMLButtonElement).disabled, label).toBe(true)
+    }
+    press('Find and replace')
+    expect(container.querySelector('[role="search"]')).not.toBeNull()
+    expect((container.querySelector('[aria-label="Replace with"]') as HTMLInputElement).disabled).toBe(true)
+  })
+})
+
+describe('find and replace', () => {
+  const type = async (label: string, text: string) => {
+    const el = container.querySelector(`[aria-label="${label}"]`) as HTMLInputElement
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(el, text)
+      el.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    return el
+  }
+  const sheet = () => workbookWith([[1, 1, 'red pen'], [2, 1, 'Red ink'], [3, 2, 'blue'], [4, 1, '="red"&"dy"']])
+
+  it('Ctrl+F opens it; it counts the matches and walks them with Enter and Shift+Enter', async () => {
+    current = record({ workbook: sheet() })
+    await open()
+    key('f', grid(), { ctrlKey: true })
+    const find = await type('Find', 'red')
+    expect(container.querySelector('[role="search"] [aria-live="polite"]')?.textContent).toBe('1 of 3')
+    expect(grid().getAttribute('data-active-cell')).toBe('A1')
+    key('Enter', find)
+    expect(grid().getAttribute('data-active-cell')).toBe('A2')
+    key('Enter', find)
+    key('Enter', find)
+    expect(grid().getAttribute('data-active-cell')).toBe('A1')
+    key('Enter', find, { shiftKey: true })
+    expect(grid().getAttribute('data-active-cell')).toBe('A4')
+  })
+
+  it('says when nothing matches, and narrows with match case', async () => {
+    current = record({ workbook: sheet() })
+    await open()
+    key('f', grid(), { ctrlKey: true })
+    await type('Find', 'green')
+    expect(container.querySelector('[role="search"] [aria-live="polite"]')?.textContent).toBe('No matches')
+    await type('Find', 'Red')
+    const box = [...container.querySelectorAll('[role="search"] label')].find((l) => l.textContent === 'Match case')?.querySelector('input') as HTMLInputElement
+    act(() => box.click())
+    expect(container.querySelector('[role="search"] [aria-live="polite"]')?.textContent).toBe('1 of 1')
+  })
+
+  it('replaces the match it is on, then all of them as one step', async () => {
+    current = record({ workbook: sheet() })
+    await open()
+    key('f', grid(), { ctrlKey: true })
+    await type('Find', 'red')
+    await type('Replace with', 'green')
+    const buttons = [...container.querySelectorAll('[role="search"] button')] as HTMLButtonElement[]
+    act(() => buttons.find((b) => b.textContent === 'Replace')?.click())
+    expect(container.querySelector('[data-cell="A1"]')?.textContent).toBe('green pen')
+    expect(container.querySelector('[data-cell="A2"]')?.textContent).toBe('Red ink')
+    act(() => buttons.find((b) => b.textContent === 'All')?.click())
+    expect(container.querySelector('[data-cell="A2"]')?.textContent).toBe('green ink')
+    expect(container.querySelector('[data-cell="A4"]')?.textContent).toBe('greendy')
+    act(() => (container.querySelector('[aria-label="Undo"]') as HTMLButtonElement).click())
+    expect(container.querySelector('[data-cell="A2"]')?.textContent).toBe('Red ink')
+    expect(container.querySelector('[data-cell="A1"]')?.textContent).toBe('green pen')
+  })
+
+  it('Escape closes it', async () => {
+    await open()
+    key('f', grid(), { ctrlKey: true })
+    key('Escape', container.querySelector('[aria-label="Find"]') as Element)
+    expect(container.querySelector('[role="search"]')).toBeNull()
+  })
+})
