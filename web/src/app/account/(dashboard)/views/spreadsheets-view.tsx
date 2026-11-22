@@ -8,7 +8,6 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Lock, Plus, Sheet } from 'lucide-react'
-import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { SpreadsheetEditor } from '@/components/spreadsheets/spreadsheet-editor'
 import { CardHeaderSlot } from '@/components/chat-cards/card-header-slot'
@@ -18,6 +17,7 @@ import { useEntityListSync } from '@/hooks/use-entity-sync'
 import { relativeTime } from '@/lib/work/presentation'
 import { cn } from '@/lib/utils'
 import type { SpreadsheetSummary } from '@/lib/spreadsheets/types'
+import { openCreateDialog } from '@/lib/create/open-create'
 import { ViewHeader } from './view-header'
 
 async function readJson<T>(res: Response): Promise<T> {
@@ -36,7 +36,6 @@ export function SpreadsheetsView({ onCount, card }: { onCount?: (count: number) 
   const [sheets, setSheets] = useState<SpreadsheetSummary[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [ownOpenId, setOwnOpenId] = useState<string | null>(null)
-  const [creating, setCreating] = useState(false)
   const openId = card ? card.openId : ownOpenId
   const setOpenId = (id: string | null, name?: string) => {
     if (card) card.onOpen(id, name ?? sheets?.find((s) => s.id === id)?.title)
@@ -68,25 +67,16 @@ export function SpreadsheetsView({ onCount, card }: { onCount?: (count: number) 
   // rename shows.
   useEntityListSync(['spreadsheet'], () => void load())
 
-  const create = async () => {
-    if (creating) return
-    setCreating(true)
-    try {
-      const json = await readJson<{ spreadsheet: SpreadsheetSummary }>(
-        await fetch('/api/account/spreadsheets', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({}),
-        }),
-      )
-      setSheets((prev) => [json.spreadsheet, ...(prev ?? [])])
-      setOpenId(json.spreadsheet.id, json.spreadsheet.title)
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Could not create the spreadsheet')
-    } finally {
-      setCreating(false)
+  // New spreadsheet opens the one Create composer on Spreadsheet (a name first;
+  // docs/plans/create-everything.md); the list takes in what is made there.
+  const create = () => openCreateDialog({ type: 'spreadsheet' })
+  useEffect(() => {
+    const onCreated = (e: Event) => {
+      if ((e as CustomEvent<{ entityType?: string }>).detail?.entityType === 'spreadsheet') void load()
     }
-  }
+    window.addEventListener('ni:entity-created', onCreated)
+    return () => window.removeEventListener('ni:entity-created', onCreated)
+  }, [load])
 
   if (openId) {
     return (
@@ -114,8 +104,7 @@ export function SpreadsheetsView({ onCount, card }: { onCount?: (count: number) 
         <CardHeaderSlot side="right">
           <button
             type="button"
-            onClick={() => void create()}
-            disabled={creating}
+            onClick={create}
             data-new-spreadsheet=""
             className={CARD_HEADER_PILL_BUTTON}
           >
@@ -127,7 +116,7 @@ export function SpreadsheetsView({ onCount, card }: { onCount?: (count: number) 
         <ViewHeader
           title="Spreadsheets"
           actions={
-            <Button size="sm" onClick={() => void create()} disabled={creating}>
+            <Button size="sm" onClick={create}>
               <Plus className="h-3.5 w-3.5" />
               New spreadsheet
             </Button>
@@ -148,7 +137,7 @@ export function SpreadsheetsView({ onCount, card }: { onCount?: (count: number) 
               <p className="text-sm font-medium text-foreground">No spreadsheets yet</p>
               <p className="mt-1 text-sm text-muted-foreground">A spreadsheet is a grid of cells with formulas: a budget, a forecast, a model.</p>
             </div>
-            <Button size="sm" variant="outline" onClick={() => void create()} disabled={creating}>
+            <Button size="sm" variant="outline" onClick={create}>
               <Plus className="h-3.5 w-3.5" />
               New spreadsheet
             </Button>

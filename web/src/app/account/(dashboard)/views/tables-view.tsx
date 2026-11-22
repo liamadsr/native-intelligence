@@ -12,8 +12,8 @@
  * one with its stages and system columns (/api/account/pipelines).
  */
 import { EntityIcon } from '@/components/entities/entity-icon'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ClipboardList, HandCoins, KanbanSquare, ListChecks, Lock, Package, Plus, Table2, Users, Wrench, type LucideIcon } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { HandCoins, Lock, Plus, Table2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { TableDetail } from '@/components/tables/table-detail'
@@ -22,7 +22,7 @@ import { CARD_HEADER_PILL_BUTTON } from '@/components/chat-cards/card-header-but
 import { relativeTime } from '@/lib/work/presentation'
 import { cn } from '@/lib/utils'
 import type { DataTable } from '@/lib/tables/types'
-import { tableTemplates, type TemplateId } from '@/lib/tables/templates'
+import { openCreateDialog } from '@/lib/create/open-create'
 import { ViewHeader } from './view-header'
 
 const NEW_TABLE_LABEL = 'New table'
@@ -81,6 +81,20 @@ export function TablesView({ onCount, card, pipelines = false }: { onCount?: (co
     void load()
   }, [load])
 
+  // A table made in the Create composer (its New table, C then T): the list
+  // takes it in (the composer opens it on its own).
+  useEffect(() => {
+    const onCreated = (e: Event) => {
+      if ((e as CustomEvent<{ entityType?: string }>).detail?.entityType === 'table') void load()
+    }
+    window.addEventListener('ni:entity-created', onCreated)
+    return () => window.removeEventListener('ni:entity-created', onCreated)
+  }, [load])
+
+  // New table opens the one Create composer on Table, its starters a choice
+  // in it (docs/plans/create-everything.md); New pipeline keeps its own form.
+  const startCreate = () => (pipelines ? setCreating(true) : openCreateDialog({ type: 'table' }))
+
   if (openId) {
     return (
       <TableDetail
@@ -103,7 +117,7 @@ export function TablesView({ onCount, card, pipelines = false }: { onCount?: (co
         // pipelines), so the page draws no title of its own; New table or New
         // pipeline goes there (Liam, 11-22: every control in the header).
         <CardHeaderSlot side="right">
-          <button type="button" onClick={() => setCreating(true)} data-new-table="" className={CARD_HEADER_PILL_BUTTON}>
+          <button type="button" onClick={startCreate} data-new-table="" className={CARD_HEADER_PILL_BUTTON}>
             <Plus className="size-3.5" strokeWidth={1.75} aria-hidden />
             {pipelines ? NEW_PIPELINE_LABEL : NEW_TABLE_LABEL}
           </button>
@@ -112,7 +126,7 @@ export function TablesView({ onCount, card, pipelines = false }: { onCount?: (co
         <ViewHeader
           title={pipelines ? 'Pipelines' : 'Tables'}
           actions={
-            <Button size="sm" onClick={() => setCreating(true)}>
+            <Button size="sm" onClick={startCreate}>
               <Plus className="h-3.5 w-3.5" />
               {pipelines ? NEW_PIPELINE_LABEL : NEW_TABLE_LABEL}
             </Button>
@@ -132,22 +146,12 @@ export function TablesView({ onCount, card, pipelines = false }: { onCount?: (co
             }}
           />
         )}
-        {creating && !pipelines && (
-          <NewTableForm
-            onCancel={() => setCreating(false)}
-            onCreated={(table) => {
-              setCreating(false)
-              setTables((prev) => [...(prev ?? []), table])
-              setOpenId(table.id)
-            }}
-          />
-        )}
         {tables === null ? (
           <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>
         ) : error ? (
           <p className="py-10 text-center text-sm text-destructive">{error}</p>
         ) : tables.length === 0 ? (
-          !creating && <EmptyState pipelines={pipelines} onCreate={() => setCreating(true)} />
+          !creating && <EmptyState pipelines={pipelines} onCreate={startCreate} />
         ) : (
           <ul className="divide-y divide-border">
             {tables.map((t) => (
@@ -256,98 +260,3 @@ function NewPipelineForm({ onCancel, onCreated }: { onCancel: () => void; onCrea
   )
 }
 
-/** What each starter's card shows (lib/tables/templates.ts). */
-const TEMPLATE_ICONS: Record<TemplateId | 'blank', LucideIcon> = {
-  blank: Table2,
-  list: ListChecks,
-  pipeline: KanbanSquare,
-  inventory: Package,
-  jobs: Wrench,
-  contacts: Users,
-  quotes: ClipboardList,
-}
-
-/**
- * A new table: a name (optional for a starter, which has its own), then a
- * blank table or one of the starters (phase 6): columns, views and example
- * rows to delete. Nothing to set beyond that.
- */
-export function NewTableForm({ onCancel, onCreated }: { onCancel: () => void; onCreated: (table: DataTable) => void }) {
-  const [name, setName] = useState('')
-  const [saving, setSaving] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const templates = useMemo(() => tableTemplates(), [])
-
-  const make = async (template: TemplateId | null) => {
-    if (saving) return
-    if (!template && !name.trim()) return setError('Name the table, or start from one below.')
-    setSaving(template ?? 'blank')
-    setError(null)
-    try {
-      const json = await readJson<{ table: DataTable }>(
-        await fetch('/api/account/tables', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: name.trim() || undefined, ...(template ? { template } : {}) }),
-        }),
-      )
-      onCreated(json.table)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not make the table')
-      setSaving(null)
-    }
-  }
-
-  return (
-    <div className="space-y-3 py-3" data-new-table="">
-      <form
-        onSubmit={(e) => {
-          e.preventDefault()
-          void make(null)
-        }}
-        className="flex flex-wrap items-center gap-2"
-      >
-        <Input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Name the table" maxLength={200} className="h-8 max-w-xs" aria-label="Table name" />
-        <Button size="sm" type="submit" disabled={!name.trim() || !!saving}>
-          {saving === 'blank' ? 'Making…' : 'Make table'}
-        </Button>
-        <Button size="sm" type="button" variant="ghost" onClick={onCancel}>
-          Cancel
-        </Button>
-      </form>
-      <div>
-        <p className="mb-2 text-xs text-muted-foreground">Or start from</p>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {templates.map((t) => {
-            const Icon = TEMPLATE_ICONS[t.id]
-            return (
-              <button
-                key={t.id}
-                type="button"
-                disabled={!!saving}
-                onClick={() => void make(t.id)}
-                className="flex min-w-0 flex-col gap-1.5 rounded-lg border border-border bg-background p-3 text-left transition-colors hover:border-foreground/25 hover:bg-muted/30 disabled:opacity-60"
-                data-template={t.id}
-              >
-                <span className="flex items-center gap-2">
-                  <Icon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-                  <span className="truncate text-sm font-medium text-foreground">{saving === t.id ? 'Making…' : t.name}</span>
-                </span>
-                <span className="line-clamp-2 text-xs text-muted-foreground">{t.description}</span>
-                <span className="flex flex-wrap items-center gap-1 pt-0.5">
-                  {t.columns.slice(0, 4).map((c) => (
-                    <span key={c.key} className="rounded-full border border-border/70 px-1.5 py-px text-[10px] text-muted-foreground">
-                      {c.label}
-                    </span>
-                  ))}
-                  {t.columns.length > 4 && <span className="px-1 text-[10px] text-muted-foreground">+{t.columns.length - 4}</span>}
-                </span>
-              </button>
-            )
-          })}
-        </div>
-      </div>
-      {error && <p className="text-xs text-destructive">{error}</p>}
-    </div>
-  )
-}

@@ -16,6 +16,7 @@ import { Archive, MoreHorizontal, Pencil, Plus, Shapes } from 'lucide-react'
 import { FLOATING_CARD_CLASS } from '@/components/attention/card-skin'
 import { CardHeaderSlot } from '../card-header-slot'
 import { CARD_HEADER_PILL_BUTTON } from '../card-header-button'
+import { openCreateDialog } from '@/lib/create/open-create'
 import { usePagePlace, type PageCardProps } from './page-card'
 
 const CanvasEditor = React.lazy(() => import('@/components/canvas/canvas-editor'))
@@ -53,7 +54,6 @@ function Loading() {
 
 function CanvasList({ onOpen, onCount }: { onOpen: (id: string, title?: string) => void; onCount?: (count: number | null) => void }) {
   const [rows, setRows] = React.useState<CanvasRow[] | null>(null)
-  const [busy, setBusy] = React.useState(false)
   const [menuFor, setMenuFor] = React.useState<string | null>(null)
   const [renaming, setRenaming] = React.useState<string | null>(null)
 
@@ -74,17 +74,17 @@ function CanvasList({ onOpen, onCount }: { onOpen: (id: string, title?: string) 
     void load()
   }, [load])
 
-  const create = async () => {
-    if (busy) return
-    setBusy(true)
-    try {
-      const res = await fetch('/api/account/canvases', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) })
-      const json = (res.ok ? await res.json() : null) as { canvas?: CanvasRow } | null
-      if (json?.canvas) onOpen(json.canvas.id, json.canvas.title)
-    } finally {
-      setBusy(false)
+  // New canvas opens the one Create composer on Canvas (docs/plans/create-everything.md);
+  // the list takes in what is made there, and the composer opens it.
+  const create = () => openCreateDialog({ type: 'canvas' })
+  React.useEffect(() => {
+    const onCreated = (e: Event) => {
+      if ((e as CustomEvent<{ entityType?: string }>).detail?.entityType === 'canvas') void load()
     }
-  }
+    window.addEventListener('ni:entity-created', onCreated)
+    return () => window.removeEventListener('ni:entity-created', onCreated)
+  }, [load])
+
 
   const archive = async (id: string) => {
     setMenuFor(null)
@@ -105,7 +105,7 @@ function CanvasList({ onOpen, onCount }: { onOpen: (id: string, title?: string) 
       {/* The card's header names the page (Liam, 11-22: one title, its
           controls in the header); New canvas goes there. */}
       <CardHeaderSlot side="right">
-        <button type="button" onClick={create} disabled={busy} data-new-canvas="" className={CARD_HEADER_PILL_BUTTON}>
+        <button type="button" onClick={create} data-new-canvas="" className={CARD_HEADER_PILL_BUTTON}>
           <Plus className="size-3.5" strokeWidth={1.75} aria-hidden />
           New canvas
         </button>
@@ -117,7 +117,7 @@ function CanvasList({ onOpen, onCount }: { onOpen: (id: string, title?: string) 
         <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground">
           <Shapes className="h-8 w-8 opacity-50" />
           <p>No canvases yet.</p>
-          <button type="button" onClick={create} disabled={busy} className="text-xs font-medium text-primary hover:underline disabled:opacity-50">
+          <button type="button" onClick={create} className="text-xs font-medium text-primary hover:underline">
             Make your first canvas
           </button>
         </div>

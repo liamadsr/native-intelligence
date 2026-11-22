@@ -20,12 +20,14 @@
  *
  * Client-safe and pure.
  */
+import { CREATE_TYPES, type CreateTypeId } from './create/create-types'
+import { CREATE_LETTERS } from './create/create-keys'
 
 /** Where a shortcut can fire: anywhere in the app, or only on one page or panel. */
-export type ShortcutScope = 'global' | 'mail' | 'list' | 'task' | 'page-card' | 'palette'
+export type ShortcutScope = 'global' | 'mail' | 'list' | 'task' | 'page-card' | 'palette' | 'create-menu' | 'composer'
 
 /** The sheet's sections, in its order. */
-export type ShortcutSection = 'General' | 'Go to' | 'Lists' | 'Tasks' | 'Mail'
+export type ShortcutSection = 'General' | 'Go to' | 'Create' | 'Lists' | 'Tasks' | 'Mail'
 
 /**
  * One shortcut's keys, as the sheet writes them: `mod+k` (⌘K on a Mac, Ctrl+K
@@ -47,6 +49,14 @@ export interface ShortcutDef {
    * allowed overlap.
    */
   overrides?: string
+  /**
+   * A key read by what another shortcut opened (C then A: the A is read by
+   * the Create menu C opened): the id of that shortcut. Its keys start with
+   * that shortcut's, on purpose, so the pair is not a conflict.
+   */
+  continues?: string
+  /** For the sheet: the Create type it makes (shown only while the workspace offers it). */
+  createType?: CreateTypeId
 }
 
 // ── G then a letter ────────────────────────────────────────
@@ -161,12 +171,32 @@ export const SHORTCUTS_BESIDES_GO_TO: readonly ShortcutDef[] = [
   { id: 'mail-unread', keys: ['u'], label: 'Mark unread', section: 'Mail', scope: 'mail' },
 ]
 
+// ── C then a letter, and a composer's keys ─────────────────
+
+/**
+ * C then a letter: straight to a type's composer (lib/create/create-keys.ts
+ * has the letters and why), read by the Create menu C opens; and the keys
+ * every composer answers (docs/plans/create-everything.md).
+ */
+export const CREATE_SHORTCUTS: readonly ShortcutDef[] = [
+  ...CREATE_TYPES.flatMap((t): ShortcutDef[] => {
+    const letter = CREATE_LETTERS[t.id]
+    return letter
+      ? [{ id: `create-${t.id}`, keys: [`c ${letter}`], label: `New ${t.label.toLowerCase()}`, section: 'Create', scope: 'create-menu', continues: 'create', createType: t.id }]
+      : []
+  }),
+  { id: 'composer-create-open', keys: ['enter'], label: 'Create and open it (in the title)', section: 'Create', scope: 'composer' },
+  { id: 'composer-create-another', keys: ['mod+enter'], label: 'Create and start another', section: 'Create', scope: 'composer' },
+  { id: 'composer-cancel', keys: ['escape'], label: 'Cancel', section: 'Create', scope: 'composer' },
+]
+
 /** Every shortcut: the go-to letters, then the rest. */
 export const SHORTCUTS: readonly ShortcutDef[] = [
   ...GO_TO.map(
     (g): ShortcutDef => ({ id: `go-${g.letter}`, keys: [goToKeys(g.letter)], label: g.label, section: 'Go to', scope: 'global' }),
   ),
   ...SHORTCUTS_BESIDES_GO_TO,
+  ...CREATE_SHORTCUTS,
 ]
 
 /**
@@ -270,6 +300,13 @@ function scopesMeet(a: ShortcutScope, b: ShortcutScope): boolean {
   return SCOPES_THAT_MEET.some(([x, y]) => (x === a && y === b) || (x === b && y === a))
 }
 
+/** Is `later` a key read by what `first` opened (or by a page's own key standing in for it)? */
+function continuesFrom(later: ShortcutDef, first: ShortcutDef, all: readonly ShortcutDef[]): boolean {
+  if (!later.continues) return false
+  if (later.continues === first.id) return true
+  return first.overrides === later.continues && all.some((s) => s.id === later.continues)
+}
+
 export interface ShortcutConflict {
   keys: string
   ids: [string, string]
@@ -294,6 +331,8 @@ export function findShortcutConflicts(
       const b = flat[j]
       if (a.s.id === b.s.id || !scopesMeet(a.s.scope, b.s.scope)) continue
       if (a.s.overrides === b.s.id || b.s.overrides === a.s.id) continue
+      // C then A is read by the menu C opened (and by Mail's C standing in for it).
+      if (continuesFrom(a.s, b.s, shortcuts) || continuesFrom(b.s, a.s, shortcuts)) continue
       if (a.keys === b.keys) out.push({ keys: a.keys, ids: [a.s.id, b.s.id], why: 'same keys' })
       else if (b.keys.startsWith(`${a.keys} `) || a.keys.startsWith(`${b.keys} `)) out.push({ keys: a.keys, ids: [a.s.id, b.s.id], why: 'one starts the other' })
     }
