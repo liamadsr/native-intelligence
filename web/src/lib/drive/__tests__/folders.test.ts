@@ -68,6 +68,13 @@ describe('migration 690', () => {
     }
   })
 
+  it('a filed row is seen, moved and unfiled only by someone who can open its record', () => {
+    for (const cmd of ['select', 'update', 'delete']) {
+      const policy = sql.match(new RegExp(`create policy drive_folder_item_${cmd}[\\s\\S]*?;`))?.[0] ?? ''
+      expect(policy, cmd).toMatch(/drive_folder_item_readable\(item_type, item_id, workspace_id\)/)
+    }
+  })
+
   it('names the same kinds the app files', () => {
     const check = sql.match(/item_type in \(([^)]*)\)/)?.[1] ?? ''
     expect([...check.matchAll(/'([a-z_]+)'/g)].map((m) => m[1])).toEqual([...FOLDER_ITEM_TYPES])

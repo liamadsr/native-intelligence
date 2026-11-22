@@ -192,6 +192,22 @@ begin
   perform pg_temp.expect('a member unfiles a record',
     pg_temp.attempt(u_bob, format('delete from public.drive_folder_item where item_type = %L and item_id = %L', 'document', d_shared)), 'rows=1');
 
+  -- The row of Alice's filed private doc: hers alone to see, move and unfile.
+  perform pg_temp.expect('a member does not see the row of another''s filed private doc',
+    pg_temp.read_as(u_bob, format('select count(*)::text from public.drive_folder_item where item_id = %L', d_private)), '0');
+  perform pg_temp.expect('nor unfiles it',
+    pg_temp.attempt(u_bob, format('delete from public.drive_folder_item where item_id = %L', d_private)), 'rows=0');
+  perform pg_temp.expect('nor moves it',
+    pg_temp.attempt(u_bob, format('update public.drive_folder_item set folder_id = %L where item_id = %L', f_top, d_private)), 'rows=0');
+  perform pg_temp.expect('even an admin does not see it',
+    pg_temp.read_as(u_dana, format('select count(*)::text from public.drive_folder_item where item_id = %L', d_private)), '0');
+  perform pg_temp.expect('its maker sees it',
+    pg_temp.read_as(u_alice, format('select count(*)::text from public.drive_folder_item where item_id = %L', d_private)), '1');
+  perform pg_temp.expect('and moves it',
+    pg_temp.attempt(u_alice, format('update public.drive_folder_item set folder_id = %L where item_id = %L', f_top, d_private)), 'rows=1');
+  perform pg_temp.expect('and unfiles it',
+    pg_temp.attempt(u_alice, format('delete from public.drive_folder_item where item_id = %L', d_private)), 'rows=1');
+
   -- A folder's contents, read the way the app reads them (the records under
   -- the reader's own row security): Bob sees nothing of Alice's private doc.
   perform pg_temp.expect('a private doc in a folder shows to its maker',

@@ -192,11 +192,12 @@ left out of all of it.
 | Rename or move one | a member |
 | Delete one | its maker, or an owner or admin |
 | File a record, or move it to another folder | a member who can open the record |
-| Unfile a record | a member |
+| See a record's place in a folder, or unfile it | a member who can open the record |
 
-- **A private record stays private in a folder.** A filed row carries only a kind, an id and a
-  folder. A folder's contents are read by joining the records under the reader's own row
-  security, so a private doc its maker filed shows to no one else.
+- **A private record stays private in a folder.** Its filed row is seen, moved and unfiled only
+  by someone who can open the record. Every policy on `drive_folder_item` asks
+  `drive_folder_item_readable` under the reader's own row security, so another member doesn't
+  learn its id, its folder or who filed it, and can't unfile it. (Found in review, 11-22.)
 - **Deleting a folder** deletes its subfolders, and unfiles the records in them. No record is
   deleted.
 - **A record deleted for good** leaves its filed row behind until its folder goes: 690 adds no
@@ -232,6 +233,17 @@ These are before-write triggers, not definers. They hold a client's own token; t
   - `GET`, `POST /api/account/folders`
   - `GET`, `PATCH`, `DELETE /api/account/folders/[id]`
   - `POST`, `DELETE /api/account/folders/[id]/items`
+
+### For the owner to decide
+
+These are kept as built, to keep folders simple and shared:
+
+- **(a) Any member can rename or move any folder**, including one someone else made. Only
+  deleting is limited (to its maker, or an owner or admin). The alternative is to limit renames
+  and moves to the maker and admins.
+- **(b) Deleting a folder deletes every subfolder in it**, including ones other people made. The
+  records in them are only unfiled, never deleted. The alternative is to refuse the delete while
+  it holds someone else's subfolder, or to move such subfolders up a level.
 
 ### Not in this
 

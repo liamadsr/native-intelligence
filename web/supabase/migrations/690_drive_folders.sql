@@ -37,11 +37,13 @@
 --                       moves it; its maker, or an owner or admin, deletes
 --                       it. Deleting one deletes its subfolders, and the
 --                       records in them are unfiled, never deleted.
---   a record's place    a member reads the rows (an id and a folder, never
---                       the record: a list joins the records under the
---                       reader's own row security, so a private record shows
---                       to no one else), files and moves a record they can
---                       read, and unfiles one.
+--   a record's place    a member reads, moves and unfiles the row of a
+--                       record they can open, and files a record they can
+--                       open. The row of someone else's private record is
+--                       not even seen (it would tell its id, its folder and
+--                       who filed it), let alone unfiled: every policy on it
+--                       asks drive_folder_item_readable, under the reader's
+--                       own row security.
 --
 -- A record deleted for good leaves its row behind until its folder goes: no
 -- trigger is added to the records' tables. Lists skip a row whose record they
@@ -283,7 +285,10 @@ create policy drive_folder_delete on public.drive_folder
 drop policy if exists drive_folder_item_select on public.drive_folder_item;
 create policy drive_folder_item_select on public.drive_folder_item
   for select to authenticated
-  using (public.drive_folder_member(workspace_id));
+  using (
+    public.drive_folder_member(workspace_id)
+    and public.drive_folder_item_readable(item_type, item_id, workspace_id)
+  );
 
 drop policy if exists drive_folder_item_insert on public.drive_folder_item;
 create policy drive_folder_item_insert on public.drive_folder_item
@@ -293,13 +298,19 @@ create policy drive_folder_item_insert on public.drive_folder_item
 drop policy if exists drive_folder_item_update on public.drive_folder_item;
 create policy drive_folder_item_update on public.drive_folder_item
   for update to authenticated
-  using (public.drive_folder_member(workspace_id))
+  using (
+    public.drive_folder_member(workspace_id)
+    and public.drive_folder_item_readable(item_type, item_id, workspace_id)
+  )
   with check (public.drive_folder_member(workspace_id));
 
 drop policy if exists drive_folder_item_delete on public.drive_folder_item;
 create policy drive_folder_item_delete on public.drive_folder_item
   for delete to authenticated
-  using (public.drive_folder_member(workspace_id));
+  using (
+    public.drive_folder_member(workspace_id)
+    and public.drive_folder_item_readable(item_type, item_id, workspace_id)
+  );
 
 revoke all on public.drive_folder, public.drive_folder_item from anon;
 grant select, insert, update, delete on public.drive_folder, public.drive_folder_item to authenticated, service_role;
