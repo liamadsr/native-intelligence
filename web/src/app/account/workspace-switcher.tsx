@@ -992,7 +992,9 @@ export function WorkspaceSwitcher({
     // The header's far left: the workspace's thumbnail (its logo, else its
     // letter) and name (Liam, 11-09: "add the workspace name back in"), a
     // round hover (the rail's: "the hover states should be circle"); the
-    // menu drops below it, at its left.
+    // menu drops below it, at its left. 9px after the name: with the header's
+    // 2px gap and Search's own inset, the name sits 20.5px from Search's icon,
+    // the header's gap between every two icons (Liam, 11-21).
     return (
       <div ref={rootRef} className="relative min-w-0">
         <button
@@ -1003,7 +1005,7 @@ export function WorkspaceSwitcher({
           aria-haspopup="menu"
           aria-label="Workspace and account menu"
           className={cn(
-            'flex h-8 min-w-0 max-w-[200px] items-center gap-2 rounded-full pl-1 pr-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none',
+            'flex h-8 min-w-0 max-w-[200px] items-center gap-2 rounded-full pl-1 pr-[9px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none',
             open ? 'bg-foreground/[0.08]' : 'hover:bg-foreground/[0.05]',
           )}
         >

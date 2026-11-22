@@ -20,12 +20,20 @@
  * of small round dots is exactly the kind that turns to fuzz under a 3–6×
  * bilinear upscale.
  *
- * So this draws the SAME geometry at its true pixel size through the package's
- * `engine` entry — a documented public surface whose painters take the size as
- * an argument. Drawing big is what that geometry was built for: per its own
- * source, "dot radii were tuned for a 300pt frame", and the shipped presets
- * scale DOWN from there. We take the 64px preset's mode, speed and dot profile
- * and hand the painter the size we actually want.
+ * So this draws at its true pixel size through the package's `engine` entry, a
+ * documented public surface whose painters take the size as an argument.
+ *
+ * WHICH TUNING, AND WHY IT IS NOT THE 64px PRESET (Liam, 11-21: "it looks
+ * warped")
+ *
+ * The presets scale DOWN from base profiles authored for a 300pt frame: the
+ * 64px one keeps about half the dots and fattens them. Drawn at 300–400px,
+ * that tuning gave the right dot sizes but half the dots, so the orb broke up
+ * into a sparse scatter. The braid ('weaving') made it worse: its three strands
+ * reach the poles but only sometimes the sides, and its faint ghost sphere is
+ * all but invisible at this size, so the outline read as a lumpy egg that
+ * wobbled as it turned. Now: the globe, whose outline is always a circle, at
+ * its 300pt base profile, turning slowly. One design, so no `state` prop.
  *
  * WHAT IS RE-IMPLEMENTED FROM THE COMPONENT, AND WHY ONLY THIS MUCH
  *  - Theme resolution and the reduced-motion still frame: both change what is
@@ -36,7 +44,7 @@
  *    the animation anyway, because the browser stops serving rAF.
  */
 
-import { MODE_DRAWS, resolvePreset, type OrbState } from 'thinking-orbs/engine'
+import { MODE_DRAWS, type ModeOpts } from 'thinking-orbs/engine'
 import { useEffect, useRef, useState } from 'react'
 
 /**
@@ -62,10 +70,36 @@ const FILL_FRACTION = 0.6
  */
 const SIZE_STEP = 8
 
+/**
+ * The globe's base profile from `thinking-orbs` 0.3.1 (`BASE_PROFILES.globe`,
+ * which the package does not export), tuned for a 300pt frame: a full grid of
+ * small dots at any page size. `dimBase` is the 64px preset's: dots the scan
+ * has not reached sit at 45%, so the orb is soft rather than a bright ball.
+ * `scanMul` stays at the base 1; the preset's 4.08 sweeps the whole face in
+ * under a second: lively at 64px, a strobe at 400px.
+ */
+const PAGE_GLOBE: ModeOpts = {
+  latRings: 17,
+  lonDensity: 44,
+  rBase: 0.6,
+  rDepth: 1.7,
+  rBoost: 1,
+  inkFar: 0.62,
+  inkSpan: 0.54,
+  rsPow: 0.6,
+  rMin: 0.3,
+  scanMul: 1,
+  dimBase: 0.45,
+}
+/**
+ * Animation time per second. The 64px preset runs at ~2; at page size the
+ * same angular speed moves the front dots ~6× as many pixels per second, so
+ * this is slower: a turn every ~10s, a highlight sweep every ~7s.
+ */
+const PAGE_GLOBE_SPEED = 1.2
+
 export interface PageLoadingOrbProps {
-  /** Which animation. Defaults to the state the Knowledge surfaces use. */
-  state?: OrbState
-  /** Announced to screen readers in place of the per-state default. */
+  /** Announced to screen readers. */
   label?: string
   className?: string
 }
@@ -75,11 +109,7 @@ export interface PageLoadingOrbProps {
  * `<div className="h-full"><PageLoadingOrb /></div>`, or drop it into an
  * `absolute inset-0` overlay.
  */
-export function PageLoadingOrb({
-  state = 'weaving',
-  label = 'Loading…',
-  className,
-}: PageLoadingOrbProps) {
+export function PageLoadingOrb({ label = 'Loading…', className }: PageLoadingOrbProps) {
   const boxRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const size = useFittedSize(boxRef)
@@ -98,15 +128,12 @@ export function PageLoadingOrb({
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    // The 64px preset, drawn at `size`: its mode and speed are what the state
-    // means, and its dot profile is the denser of the two shipped tunings.
-    const { mode, speed, opts } = resolvePreset(state, 64)
-    const draw = MODE_DRAWS[mode]
+    const draw = MODE_DRAWS.globe
 
     const paintAt = (t: number) => {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       ctx.clearRect(0, 0, size, size)
-      draw(ctx, size, t, dark, opts)
+      draw(ctx, size, t, dark, PAGE_GLOBE)
     }
 
     // Reduced motion gets one representative frame, at the same phase the
@@ -118,12 +145,12 @@ export function PageLoadingOrb({
 
     let raf = 0
     const loop = () => {
-      paintAt((performance.now() / 1000) * speed)
+      paintAt((performance.now() / 1000) * PAGE_GLOBE_SPEED)
       raf = requestAnimationFrame(loop)
     }
     raf = requestAnimationFrame(loop)
     return () => cancelAnimationFrame(raf)
-  }, [state, size, dark, reduced])
+  }, [size, dark, reduced])
 
   return (
     <div

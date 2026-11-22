@@ -31,6 +31,7 @@ vi.mock('@/components/agents/agent-editor', () => ({
     ? <div role="dialog" data-agent-editor={agentId ?? ''}>Editor for {agentId}<button onClick={onClose}>Close editor</button></div> : null,
 }))
 import { AgentsView } from '../agents-view'
+import { CardHeaderSlotsProvider } from '@/components/chat-cards/card-header-slot'
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 let container: HTMLDivElement
 let root: Root
@@ -80,4 +81,23 @@ it('a built-in agent opens its detail, and an agent of the workspace replaces it
   await visit('a')
   expect(container.querySelector('[data-detail]')).toBeNull()
   expect(dialog()?.getAttribute('data-agent-editor')).toBe('a')
+})
+
+it('in a card: the type picker, search and New are the card header’s, no title row in the page (Liam, 11-22)', async () => {
+  const right = document.createElement('div')
+  document.body.appendChild(right)
+  await act(async () =>
+    root.render(
+      <CardHeaderSlotsProvider value={{ left: null, right }}>
+        <AgentsView card={{ type: 'skill', onType: () => {} }} />
+      </CardHeaderSlotsProvider>,
+    ),
+  )
+  const controls = right.querySelector('[data-library-header-controls]')!
+  expect(controls.textContent).toContain('Skills')
+  expect(controls.textContent).toContain('Import')
+  expect(controls.querySelector('[data-new-library-item]')?.textContent).toBe('New skill')
+  expect(container.querySelector('h1')).toBeNull()
+  expect(container.querySelector('[aria-label="New skill"]')).toBeNull()
+  right.remove()
 })

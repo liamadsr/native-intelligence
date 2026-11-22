@@ -4,7 +4,7 @@
  * chip markup is REPLACED by the shared <WorkResources> from agent-run-ui, which
  * adds per-type icons and click-to-open. These tests pin the card-side wiring:
  *   • the shared chips render (icon + label) in the expanded details;
- *   • a resource chip opens a card (P5): a package → the Knowledge card on it;
+ *   • a resource chip opens a card (P5): a package → the Library card on it (11-21);
  *     an entity → its record card;
  *   • every card carries the card's workspace (item.workspace_id) — including
  *     on a card from ANOTHER workspace, which used to render its chips static.
@@ -121,13 +121,13 @@ describe('AttentionCard — Will use resources (shared WorkResources)', () => {
     expect(container.querySelectorAll('svg').length).toBeGreaterThanOrEqual(3)
   })
 
-  it('opens a package chip as the Knowledge card on it', () => {
+  it('opens a package chip as the Library card on it (Liam, 11-21: Knowledge split in two)', () => {
     renderCard(workItem())
     expandDetails()
     const btn = chipButton('GA onboarding pack')
     expect(btn).toBeTruthy()
     act(() => btn!.dispatchEvent(new MouseEvent('click', { bubbles: true })))
-    expect(opened.at(-1)).toMatchObject({ workspaceId: 'ws-1', spec: { kind: 'knowledge', target: { type: 'package', id: 'pkg-9' } } })
+    expect(opened.at(-1)).toMatchObject({ workspaceId: 'ws-1', spec: { kind: 'knowledge_library', target: { type: 'package', id: 'pkg-9' } } })
   })
 
   it('opens an entity chip as its record card', () => {

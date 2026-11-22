@@ -59,7 +59,8 @@ export const CREATE_TYPES: ReadonlyArray<CreateTypeDef> = [
   { id: 'canvas', label: 'Canvas', group: 'work', mode: 'quick', page: 'canvases', keywords: ['whiteboard', 'draw', 'diagram', 'board'] },
   { id: 'event', label: 'Event', group: 'work', mode: 'form', keywords: ['meeting', 'calendar'] },
   { id: 'booking_link', label: 'Booking link', group: 'work', mode: 'page', page: 'availability', opensPage: true, keywords: ['scheduling', 'availability', 'calendar'] },
-  { id: 'package', label: 'Knowledge package', group: 'work', mode: 'quick', page: 'knowledge', keywords: ['context', 'knowledge'] },
+  // A package lives on the Library (Liam, 11-21), where the new one opens.
+  { id: 'package', label: 'Knowledge package', group: 'work', mode: 'quick', page: 'library', keywords: ['context', 'knowledge', 'library'] },
   // Customers
   { id: 'contact', label: 'Contact', group: 'customers', mode: 'form', keywords: ['person', 'crm', 'lead'] },
   { id: 'company', label: 'Company', group: 'customers', mode: 'quick', page: 'companies', keywords: ['account', 'organization', 'crm'] },

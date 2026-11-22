@@ -61,15 +61,12 @@
 import { EntityIcon } from '@/components/entities/entity-icon'
 import * as React from 'react'
 import { createPortal } from 'react-dom'
-import { toast } from 'sonner'
-import { Bookmark, CalendarDays, ChevronRight, Clapperboard, LayoutList, Mail, Maximize2, Minimize2, X } from 'lucide-react'
+import { CalendarDays, ChevronRight, Clapperboard, LayoutList, Mail, Maximize2, Minimize2, X } from 'lucide-react'
 import type { CardOpenRecord } from './card-storage'
 import { cn } from '@/lib/utils'
 import { countLabel, type CardSpec } from '@/lib/chat-cards/kinds'
 import type { EditionDefinition } from '@/lib/editions/manifest'
 import { useWorkspaceEdition } from '@/app/account/workspace-switcher'
-import type { ViewConfig } from '@/components/views/hooks/use-view'
-import { announceViewsChanged } from '@/lib/views/views-changed'
 import { ListenFramePulseHere, ListenFrameRegistry } from '@/components/read-aloud/listen-frame'
 import { ListenModeToggle } from '@/components/read-aloud/listen-mode-toggle'
 import { useChatCardHost } from './card-host'
@@ -77,13 +74,13 @@ import { CARD_FRAME_ATTR } from './card-frame-attr'
 import { FULL_SCREEN_CONTROL_ATTR, isOutsideCardPress, isOutsideDockPress, popoverLayerOpen } from './outside-card-press'
 import { ChatCardStore } from './card-store'
 import { CardHistoryButtons, CardHistoryProvider, cardOwnsHistoryKeys, isHistoryKey } from './card-history'
-import { CardHeaderSlotsProvider, type CardHeaderSlots } from './card-header-slot'
+import { CardHeaderSlotsProvider, type CardHeaderBack, type CardHeaderSlots } from './card-header-slot'
 import { CARD_HEADER_ICON_BUTTON } from './card-header-button'
 import { useLiveCaptureDockSlot } from './card-dock-slot'
 import { CARD_GLASS_FRAME, CardGlass } from './card-glass'
 import { COLUMN_CARD_SKIN } from '@/components/attention/card-skin'
 import { frontCard, holdFrontCard } from './front-card'
-import { besideAppRail, minimizeCard, minimizeSoon, minimizedCard, minimizedFlightKey, recheckMinimized, subscribeMinimized } from './minimized-card'
+import { besideAppRail, minimizeCard, minimizeSoon, minimizedCard, minimizedFlightKey, recheckMinimized, subscribeBesideAppRail, subscribeMinimized } from './minimized-card'
 import { landTileFlight } from '@/lib/chat/tile-flight'
 import { PANEL_GUTTER_PX } from '@/app/account/(dashboard)/side-panels/space-plan'
 
@@ -198,20 +195,6 @@ function anotherLayerOpen(): boolean {
   )
 }
 
-function HeaderButton({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={label}
-      title={label}
-      className={`inline-flex size-7 items-center justify-center ${CARD_HEADER_ICON_BUTTON}`}
-    >
-      {children}
-    </button>
-  )
-}
-
 /**
  * The card's own big controls, round and dark over its corner (Liam's
  * reference), so that a card can be opened full screen, or put away, reads at
@@ -315,6 +298,16 @@ const FULL_SCREEN_PAGE = fullScreenSizes('calc(100cqh - 1rem)')
  * before today, whatever those variables say.
  */
 const CARD_PANEL_TOP_VAR = '--card-panel-top'
+/**
+ * The layer's left padding beside the rail (the className): its usual 10px,
+ * or what clears the rail's header (its right edge on <html>,
+ * rail/app-rail.tsx) by a panel's gutter (12px, PANEL_GUTTER_PX), the larger.
+ * The second wins only while the Recent panel is closed and the layer reaches
+ * under that header. So the page, and its header island over it, always start
+ * after the header, edge to edge with each other (Liam, 11-22: the island
+ * "always the same size as the view it's sitting on"). In the class, like
+ * every use of --page-panel-w: from `md` up beside the rail only.
+ */
 const FULL_SCREEN_LAYER_STYLE = {
   // `left` is on the className: past the page panel only from `md` up beside
   // the rail (an inline style would hold below `md` too).
@@ -360,79 +353,6 @@ function FullScreenInteractive() {
     >
       <ListenModeToggle />
     </div>
-  )
-}
-
-/** Save the card as a named saved view: the person's page, with their changes. */
-function SaveAsView({ spec, configRef }: { spec: CardSpec; configRef: React.RefObject<ViewConfig | null> }) {
-  const [naming, setNaming] = React.useState(false)
-  const [name, setName] = React.useState(spec.title)
-  const [saving, setSaving] = React.useState(false)
-  if (spec.kind !== 'list') return null
-
-  const save = async () => {
-    const trimmed = name.trim()
-    if (!trimmed || saving) return
-    setSaving(true)
-    const c = configRef.current
-    const body = {
-      name: trimmed,
-      entity_type: spec.entity_type,
-      visibility: 'personal',
-      layout: c?.layout ?? spec.layout ?? 'list',
-      filters: c?.filters ?? spec.filters.map((f, i) => ({ id: `card-${i}`, ...f })),
-      grouping: c ? c.grouping : (spec.grouping ?? null),
-      ordering: c?.ordering ?? spec.ordering ?? [],
-      ...(c?.display_properties ? { display_properties: c.display_properties } : spec.columns ? { display_properties: spec.columns } : {}),
-      // The completed-items setting the person sees.
-      ...(c ? { completed_filter: c.completed_filter, show_completed: c.show_completed } : {}),
-    }
-    try {
-      const res = await fetch('/api/account/views', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-      if (!res.ok) throw new Error(String(res.status))
-      toast.success(`Saved as view “${trimmed}”`)
-      // The card's views menu (and any page's tabs) pick the new view up.
-      announceViewsChanged()
-      setNaming(false)
-    } catch {
-      toast.error('Could not save the view. Try again.')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  if (!naming) {
-    return (
-      <HeaderButton label="Save as view" onClick={() => setNaming(true)}>
-        <Bookmark className="size-3.5" strokeWidth={1.75} />
-      </HeaderButton>
-    )
-  }
-  return (
-    <form
-      className="flex items-center gap-1"
-      onSubmit={(e) => {
-        e.preventDefault()
-        void save()
-      }}
-    >
-      <input
-        autoFocus
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Escape') {
-            e.stopPropagation()
-            setNaming(false)
-          }
-        }}
-        aria-label="View name"
-        className="h-6 w-40 rounded-md border bg-background px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
-      />
-      <button type="submit" disabled={saving || !name.trim()} className="h-6 rounded-md px-2 text-xs font-medium hover:bg-muted disabled:opacity-50">
-        Save
-      </button>
-    </form>
   )
 }
 
@@ -602,7 +522,6 @@ export function ShowToolCard({
   // A kept card has no inline frame: out of full screen it is put away.
   const collapsed = kept ? !fullScreen : host.wide ? store.isCollapsed(toolCallId) : !fullScreen
   const [liveCount, setLiveCount] = React.useState<number | null>(shownCount)
-  const configRef = React.useRef<ViewConfig | null>(null)
   const frameRef = React.useRef<HTMLDivElement>(null)
   // The full-screen card's own frame (header and page): a press anywhere
   // else on its layer, but a control, puts it back (isOutsideCardPress).
@@ -797,10 +716,23 @@ export function ShowToolCard({
     () => history.read<CardOpenRecord | null>('open', () => store.state(toolCallId).open ?? null),
     () => null,
   )
-  // The header's slots for the page's own controls (the Properties button).
-  const [slots, setSlots] = React.useState<CardHeaderSlots>({ left: null, right: null })
+  // The header's slots for the page's own controls (the Properties button),
+  // and a place inside the page after the title (CardHeaderTrail), whose
+  // `back` makes the title the way back to the page.
+  const [back, setBack] = React.useState<CardHeaderBack | null>(null)
+  const [slots, setSlots] = React.useState<CardHeaderSlots>(() => ({ left: null, right: null, trail: null, setBack }))
   const leftSlotRef = React.useCallback((left: HTMLElement | null) => setSlots((s) => (s.left === left ? s : { ...s, left })), [])
   const rightSlotRef = React.useCallback((right: HTMLElement | null) => setSlots((s) => (s.right === right ? s : { ...s, right })), [])
+  const trailSlotRef = React.useCallback((trail: HTMLElement | null) => setSlots((s) => (s.trail === trail ? s : { ...s, trail })), [])
+
+  // Full screen beside the rail, the header is an island of its own (Liam,
+  // 11-21: "a standalone island for the header controls … it should hover
+  // over the main content area"): in the top bar's row, level with the rail's
+  // header, as wide as the page under it (11-22: "always the same size as the
+  // view it's sitting on"; the layer starts the page after the rail's header,
+  // its left padding, by FULL_SCREEN_LAYER_STYLE); the page starts with its content.
+  const besideRail = React.useSyncExternalStore(subscribeBesideAppRail, besideAppRail, () => false)
+  const headerIsland = shownFullScreen && besideRail
 
   // A card that goes full screen takes the keyboard: its frame gets the
   // focus (unless something inside it already has it). Keys belong to where
@@ -904,6 +836,7 @@ export function ShowToolCard({
     return holdFrontCard({
       id: toolCallId,
       spec,
+      history,
       close: () => {
         if (store.fullScreen() === toolCallId) store.exitFullScreen()
       },
@@ -946,9 +879,6 @@ export function ShowToolCard({
   // redraws this card (`drawn`): the frame's own changes (its count, near or
   // far, dormant) leave a heavy page be, mid-scroll too.
   const focused = fullScreen || focusWithin
-  const onConfig = React.useCallback((c: ViewConfig) => {
-    configRef.current = c
-  }, [])
   const onClose = React.useCallback(() => store.collapse(toolCallId), [store, toolCallId])
   const body = React.useMemo(
     () => (
@@ -962,7 +892,6 @@ export function ShowToolCard({
           fullScreen={fullScreen}
           focused={focused}
           onCount={setLiveCount}
-          onConfig={onConfig}
           onClose={onClose}
         />
         </CardHeaderSlotsProvider>
@@ -970,7 +899,7 @@ export function ShowToolCard({
       </React.Suspense>
     ),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `drawn`: the page redraws whenever the card would have
-    [history, slots, toolCallId, spec, store, fullScreen, focused, onConfig, onClose, drawn],
+    [history, slots, toolCallId, spec, store, fullScreen, focused, onClose, drawn],
   )
 
   // The page's React home, which never moves: its node is moved instead
@@ -991,15 +920,34 @@ export function ShowToolCard({
   // notes): closed from its header. A card from the chat closes with its
   // Minimize, under it: back into its message.
   const pageClose = kept && shownFullScreen && !dockMatch
-  const header = (
+  const renderHeader = (island: boolean) => (
     // The title and the controls only: the count and the card's number are
     // the agent's business (its note), not the reader's. A container, for the
     // page's own controls in its slots.
-    // Back and Forward lead it, as they led a window's header.
-    <div data-card-header="" className="@container relative z-10 flex h-10 shrink-0 items-center gap-2 border-b px-4">
-      <div className="flex shrink-0 items-center">
-        <CardHistoryButtons history={history} />
-      </div>
+    // Back and Forward lead it, as they led a window's header; full screen
+    // beside the rail they are the rail header's, for the page in front
+    // (Liam, 11-21), so not here too.
+    // As an island (headerIsland): a capsule in the rail header's skin, 42px
+    // like it, its bottom 5px over the page's top (the gap under the rail's
+    // header), edge to edge with the page; a press on it is the
+    // card's, never an outside press. The title first, the page's controls
+    // and Close at its far end.
+    <div
+      data-card-header=""
+      {...(island ? { 'data-card-header-island': '', [FULL_SCREEN_CONTROL_ATTR]: '' } : {})}
+      className={
+        island
+          ? // 18px in: its icon on the page's leading line, over the tab pills and a row's checkbox, its title on the content line, over a list's rows (view-toolbar.tsx alignToContent).
+            // A container, as the inline header is, so a page's controls can shed as it narrows (the calendar's).
+            cn('@container absolute inset-x-0 bottom-[calc(100%+5px)] z-10 flex h-[42px] items-center gap-2 rounded-full border border-border/60 py-1 pl-[18px] pr-1', COLUMN_CARD_SKIN)
+          : '@container relative z-10 flex h-10 shrink-0 items-center gap-2 border-b px-4'
+      }
+    >
+      {!island && (
+        <div className={cn('flex shrink-0 items-center', shownFullScreen && 'md:[html[data-app-rail]_&]:hidden')}>
+          <CardHistoryButtons history={history} />
+        </div>
+      )}
       <div ref={leftSlotRef} data-card-header-slot="left" className="flex shrink-0 items-center empty:hidden" />
       <KindIcon spec={spec} className="size-3.5 shrink-0 text-muted-foreground" />
       {openRecord?.label ? (
@@ -1012,12 +960,32 @@ export function ShowToolCard({
           <span className="min-w-0 truncate font-medium">{openRecord.label}</span>
         </div>
       ) : (
-        <span className="min-w-[6rem] flex-1 truncate text-[13px] font-medium sm:flex-none">{spec.title}</span>
+        // In the island the title gives way (truncates) before the controls do: they keep the far end.
+        // A place inside the page (CardHeaderTrail) follows it, the title then the way back to the page.
+        <div data-card-header-title="" className={cn('flex items-center gap-1.5 text-[13px]', island ? 'min-w-0' : 'min-w-[6rem] flex-1 sm:flex-none')}>
+          {back ? (
+            <button
+              type="button"
+              onClick={back.go}
+              aria-label={back.label}
+              title={back.label}
+              data-card-header-back=""
+              className="max-w-[12rem] shrink-0 truncate rounded text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+            >
+              {spec.title}
+            </button>
+          ) : (
+            <span className="min-w-0 truncate font-medium">{spec.title}</span>
+          )}
+          {back && <ChevronRight aria-hidden className="size-3.5 shrink-0 text-muted-foreground/60" strokeWidth={1.75} />}
+          <div ref={trailSlotRef} data-card-header-slot="trail" className="flex min-w-0 items-center gap-1.5 empty:hidden" />
+        </div>
       )}
       <div className="ml-auto flex items-center gap-0.5">
+        {/* No Save as view here (Liam, 11-21: "remove this save button from
+            every page"): a list's changes are saved from its toolbar (Save
+            as new view, view-toolbar.tsx). */}
         <div ref={rightSlotRef} data-card-header-slot="right" className="flex shrink-0 items-center empty:hidden" />
-        {/* Saving a view saves the list: not while a record is open over it. */}
-        {!openRecord && <SaveAsView spec={spec} configRef={configRef} />}
         {/* The live capture's notepad: Full screen here in its header, not
             round over its corner (Liam, 11-20: nothing floats at the foot of
             the capture's page; its corner sat on the page's last row). */}
@@ -1053,6 +1021,9 @@ export function ShowToolCard({
       </div>
     </div>
   )
+  // One header drawn at a time (its slots are one pair of hosts): the island
+  // full screen beside the rail, else the row at the card's top.
+  const header = renderHeader(false)
 
   const pill = (
     <button
@@ -1103,8 +1074,10 @@ export function ShowToolCard({
             // the person is in keeps its edge of the window (--call-dock-w
             // at the right, --call-dock-b at the bottom: src/lib/team-calls/
             // call-place.ts; Liam, 11-18), and the layer ends there, its
-            // wide side padding given up beside the call's column.
-            className="card-focus-backdrop card-page-layer fixed top-0 bottom-[var(--call-dock-b,0px)] right-[var(--call-dock-w,0px)] z-50 flex flex-col items-center px-4 pb-6 pt-14 outline-none sm:px-16 sm:[html[data-call-dock]_&]:px-4 md:pt-2 md:[html[data-app-rail]_&]:[--card-layer-top:min(var(--app-header-bottom,0px),var(--card-panel-top))] md:[html[data-app-rail]_&]:pt-[calc(var(--card-panel-top)_-_var(--card-layer-top))] left-[var(--app-rail-w,0px)] md:[html[data-app-rail]_&]:left-[calc(var(--app-rail-w,0px)_+_var(--page-panel-w,0px))] md:[html[data-app-rail]_&]:bottom-[calc(var(--composer-reserve,0px)_+_var(--call-dock-b,0px))]"
+            // wide side padding given up beside the call's column. Beside the
+            // rail the card takes the room too, a panel's gap from each side
+            // (Liam, 11-21: "the width of the entire panel could be larger").
+            className="card-focus-backdrop card-page-layer fixed top-0 bottom-[var(--call-dock-b,0px)] right-[var(--call-dock-w,0px)] z-50 flex flex-col items-center px-4 pb-6 pt-14 outline-none sm:px-16 sm:[html[data-call-dock]_&]:px-4 md:[html[data-app-rail]_&]:px-2.5 md:[html[data-app-rail]_&]:pl-[max(0.625rem,calc(var(--app-header-right,0px)_+_12px_-_var(--app-rail-w,0px)_-_var(--page-panel-w,0px)))] md:pt-2 md:[html[data-app-rail]_&]:[--card-layer-top:min(var(--app-header-bottom,0px),var(--card-panel-top))] md:[html[data-app-rail]_&]:pt-[calc(var(--card-panel-top)_-_var(--card-layer-top))] left-[var(--app-rail-w,0px)] md:[html[data-app-rail]_&]:left-[calc(var(--app-rail-w,0px)_+_var(--page-panel-w,0px))] md:[html[data-app-rail]_&]:bottom-[calc(var(--composer-reserve,0px)_+_var(--call-dock-b,0px))]"
             style={FULL_SCREEN_LAYER_STYLE}
             // A press anywhere outside the card (the space all round, beside
             // the button under it) puts it back in its message. From `md` up
@@ -1123,10 +1096,11 @@ export function ShowToolCard({
                 under it, and either with Esc or a press outside it. */}
             <FullScreenInteractive />
             <div className={FULL_SCREEN_STAGE}>
-            <div className={FULL_SCREEN_COLUMN} style={sizes.column}>
+            <div className={cn(FULL_SCREEN_COLUMN, 'relative')} style={sizes.column}>
+              {headerIsland && renderHeader(true)}
               <div ref={fullScreenFrameRef} {...{ [CARD_FRAME_ATTR]: '' }} className={cn('relative flex w-full flex-col overflow-hidden shadow-2xl', CARD_GLASS_FRAME)} style={sizes.frame}>
                 <CardGlass />
-                {header}
+                {!headerIsland && header}
                 <BodySlot host={bodyHost} className="relative z-10 min-h-0 flex-1" />
                 {pulse}
               </div>

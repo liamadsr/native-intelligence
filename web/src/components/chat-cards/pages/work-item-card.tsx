@@ -7,7 +7,9 @@
  * no Assistant known. It used to open over the inbox card, which went with
  * the notifications page (docs/plans/retire-notifications-page.md). Only the
  * person opens one (show doesn't offer it); what the panel opens (its output,
- * its run) opens where those open, as cards of their own.
+ * its run) opens where those open, as cards of their own. The card's header
+ * is its title, and Stop and Open run are at its right (Liam, 11-22): the
+ * panel draws neither again.
  */
 import * as React from 'react'
 import { WorkItemDetailPanel } from '@/components/work/work-item-detail-panel'
@@ -18,7 +20,7 @@ export default function WorkItemCard({ spec }: PageCardProps) {
   if (!itemId) return <PageCardNotice text="This work item can’t open." />
   return (
     <div className="h-full min-h-0">
-      <WorkItemDetailPanel key={itemId} itemId={itemId} embedded />
+      <WorkItemDetailPanel key={itemId} itemId={itemId} embedded titleShown={spec.title} verbsInHeader />
     </div>
   )
 }

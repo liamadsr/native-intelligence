@@ -899,9 +899,11 @@ export function DocumentDetailPanel({
           api={createAuthenticatedAPI('document', documentId, commentIdentity as Extract<CommentIdentity, { mode: 'authenticated' }>)}
         >
           <div ref={panelBodyRef} className={cn('flex flex-1 min-h-0 justify-center', activeSection !== 'overview' && 'hidden')}>
-            <div className="w-full max-w-[736px] min-w-0 mx-auto">
-            <ScrollArea className="h-full">
-              <div className="px-8 pb-28">
+            {/* The whole card's width scrolls, with no bar drawn; the reading
+                column stays centred in it (Liam, 11-21). */}
+            <div className="w-full min-w-0">
+            <ScrollArea scrollbar={false} className="h-full">
+              <div className="mx-auto w-full max-w-[736px] px-8 pb-28">
                 <AnnotatedContent section="document">
                   <div className="pt-6 pb-2 space-y-2">
                     {editingTitle ? (
@@ -1095,7 +1097,7 @@ export function DocumentDetailPanel({
       ) : (
         <div className={cn('flex flex-1 min-h-0', activeSection !== 'overview' && 'hidden')}>
           <div className="flex-1 min-w-0">
-          <ScrollArea className="h-full">
+          <ScrollArea scrollbar={false} className="h-full">
             <div className="max-w-2xl mx-auto px-8 pb-28">
               <div className="pt-6 pb-2 space-y-2">
                 {editingTitle ? (

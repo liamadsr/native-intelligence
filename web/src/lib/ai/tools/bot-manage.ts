@@ -330,7 +330,7 @@ export function createBotManageTools(
           approval_id: held.approval_id,
           message: held.ok
             ? `Nothing is deleted yet. The person has a card to delete ${name}, in the chat right under your message; it is deleted only if they accept. Tell them it is waiting there; do not call delete_bot again. ${NAMES_NOTE}`
-            : `Nothing was deleted, and no card could be made: ${held.error ?? 'unknown error'} Tell the person; they can delete it from the Library's Agents & skills.`,
+            : `Nothing was deleted, and no card could be made: ${held.error ?? 'unknown error'} Tell the person; they can delete it from Agents & skills.`,
         }
       },
     }),

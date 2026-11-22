@@ -30,6 +30,8 @@ import { Mail, Pencil, RefreshCw } from 'lucide-react'
 import { fillHeaders, withCachedHeaders } from '@/lib/email/header-cache'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { CardHeaderSlot } from '@/components/chat-cards/card-header-slot'
+import { CARD_HEADER_ICON_BUTTON } from '@/components/chat-cards/card-header-button'
 import {
   Select,
   SelectContent,
@@ -996,9 +998,9 @@ export function EmailLayout({ onReplyRequest, card }: EmailLayoutProps) {
     />
   ) : null
 
-  // A card in the chat: its own slim row (the card's header is its title), no
-  // saved views; inline one pane (the list, or the open thread), full screen
-  // the page's two panes.
+  // A card in the chat: its controls in the card's header (its title is
+  // there), no saved views; inline one pane (the list, or the open thread),
+  // full screen the page's two panes.
   // `ph-no-capture` on both roots: PostHog session replay blocks the whole
   // subtree (rrweb blockClass) and autocapture skips it. Native Intelligence never stores
   // mail text, and a replay would.
@@ -1013,29 +1015,43 @@ export function EmailLayout({ onReplyRequest, card }: EmailLayoutProps) {
     // on the left, the panel closed, or the card opened from home (Recent
     // beside it), they are the card's own again. Inline in the chat (no
     // sub-nav beside it) they are the card's own, as always.
-    const ownNav = card?.fullScreen && mailSubnavShown ? 'contents md:hidden' : 'contents'
+    const ownNavHidden = !!card?.fullScreen && mailSubnavShown
     return (
       <div ref={rootRef} className="ph-no-capture flex h-full flex-col" data-mail-card="">
-        <div className="flex h-9 shrink-0 items-center gap-1.5 px-3">
-          <div data-mail-own-nav="" className={ownNav}>
-            {accountFilter}
-            {folderSelect}
+        {/* Unread, search and New email are the header's, as every page's
+            controls are (Liam, 11-22: "howcome mail isn't updated yet"). */}
+        <CardHeaderSlot side="right">
+          <div data-mail-header-controls="" className="flex items-center gap-1.5">
+            <button
+              type="button"
+              aria-pressed={unreadOnly}
+              data-unread-toggle=""
+              onClick={() => setUnreadOnly((v) => !v)}
+              className={cn(
+                'h-7 shrink-0 rounded-full px-3 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none',
+                unreadOnly ? 'bg-foreground/[0.1] font-medium text-foreground' : 'bg-foreground/[0.05] text-muted-foreground hover:bg-foreground/[0.1] hover:text-foreground',
+              )}
+            >
+              Unread
+            </button>
+            {searchBox}
+            <button
+              type="button"
+              aria-label="New email"
+              title="New email"
+              onClick={() => document.dispatchEvent(new Event('open-create-email'))}
+              className={cn('grid size-7 shrink-0 place-items-center', CARD_HEADER_ICON_BUTTON)}
+            >
+              <Pencil className="size-3.5" strokeWidth={1.75} />
+            </button>
           </div>
-          <button
-            type="button"
-            aria-pressed={unreadOnly}
-            data-unread-toggle=""
-            onClick={() => setUnreadOnly((v) => !v)}
-            className={cn(
-              'h-7 rounded-full border px-2.5 text-xs transition-colors',
-              unreadOnly ? 'border-foreground/20 bg-foreground/10 font-medium text-foreground' : 'border-border text-muted-foreground hover:bg-muted/50',
-            )}
-          >
-            Unread
-          </button>
-          <div className="flex-1" />
-          {searchBox}
-          {composeButton}
+        </CardHeaderSlot>
+        {/* The account and the folder: the Mail sub-nav beside the rail's
+            while it shows (from `md` up, in CSS so nothing shows then goes),
+            the card's own row otherwise (inline in the chat, a phone). */}
+        <div data-mail-own-nav="" className={cn('h-9 shrink-0 items-center gap-1.5 px-3', ownNavHidden ? 'flex md:hidden' : 'flex')}>
+          {accountFilter}
+          {folderSelect}
         </div>
         {card?.fullScreen ? (
           <ResizablePanelGroup orientation="horizontal" className="flex-1 min-h-0">

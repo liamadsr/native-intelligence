@@ -21,7 +21,7 @@ import type { CompletedFilter } from '@/lib/views/completed-window'
 import type { GroupConfig, SortConfig, ViewEntityType, FilterOperator, FilterValue } from '@/lib/views/types'
 import type { EditionDefinition } from '@/lib/editions/manifest'
 import { pageWords, termWords } from '@/lib/editions/words'
-import { PAGE_KIND_NAMES, PAGE_KINDS, isPageCardSpec, isPageKind, type PageCardSpec, type PageKind } from './pages'
+import { PAGE_KIND_NAMES, PAGE_KINDS, isPageCardSpec, isPageKind, upgradeSavedPageSpec, type PageCardSpec, type PageKind } from './pages'
 
 /**
  * The kinds `show` takes. `board` is a list drawn as a board; it normalizes to
@@ -266,15 +266,17 @@ export function isCardSpec(value: unknown): value is CardSpec {
  * The card a `show` result describes, or null when it failed or is not one.
  * `number` is the card's number in the conversation ("card 3"), stamped by the
  * chat-agent's show proxy and stable for the conversation; null when the result
- * carries none.
+ * carries none. A card saved before a page split opens where it lives now
+ * (upgradeSavedPageSpec).
  */
 export function cardFromShowOutput(output: unknown): { spec: CardSpec; count: number | null; number: number | null } | null {
   if (!output || typeof output !== 'object') return null
   const o = output as Record<string, unknown>
-  if (o.success !== true || !isCardSpec(o.card)) return null
+  const card = upgradeSavedPageSpec(o.card)
+  if (o.success !== true || !isCardSpec(card)) return null
   const n = o.card_number
   return {
-    spec: o.card,
+    spec: card,
     count: typeof o.count === 'number' ? o.count : null,
     number: typeof n === 'number' && Number.isInteger(n) && n > 0 ? n : null,
   }

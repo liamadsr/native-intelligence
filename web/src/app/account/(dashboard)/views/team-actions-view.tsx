@@ -40,6 +40,8 @@ import { celebrate } from '@/components/celebration/celebrate'
 import { useEntityListSync } from '@/hooks/use-entity-sync'
 import { useTeams } from '../../teams-context'
 import { UnifiedViewLayout } from '@/components/views/unified-view-layout'
+import { CardHeaderSlot, CardHeaderTrail, useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
+import { CARD_HEADER_ICON_BUTTON, CARD_HEADER_PILL_BUTTON } from '@/components/chat-cards/card-header-button'
 import { ViewHeader } from './view-header'
 
 interface Cycle {
@@ -65,6 +67,7 @@ export function TeamActionsView({
   onOpenTeamSettings,
   onVisibleItemsChange,
   obscured = false,
+  onBack,
 }: {
   teamId: string
   teamName: string
@@ -84,8 +87,15 @@ export function TeamActionsView({
    *  including this view's OWN header (team switcher, cycles), which would
    *  otherwise stay tab-reachable behind the opaque overlay. */
   obscured?: boolean
+  /**
+   * In a card, where the board opened over another page (the Teams page): back
+   * to it. The board is then a place in the card's header, "Teams › Design
+   * board", the card's title the way back.
+   */
+  onBack?: () => void
 }) {
   const { teams } = useTeams()
+  const inCard = useCardHeaderSlots() !== null
   const [cyclesDialogOpen, setCyclesDialogOpen] = useState(false)
 
   // Cycles state
@@ -298,105 +308,158 @@ export function TeamActionsView({
     return `${s.toLocaleDateString('en-US', opts)} – ${e.toLocaleDateString('en-US', opts)}`
   }
 
+  // The team switcher: a pill with the team's name, when there is another team to switch to.
+  const teamPicker =
+    onSelectTeam && teams.length > 1 ? (
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          className={
+            inCard
+              ? cn(CARD_HEADER_PILL_BUTTON, 'gap-1 data-[state=open]:bg-foreground/[0.1]')
+              : 'inline-flex h-7 shrink-0 items-center gap-1 rounded-full border border-border px-3 text-xs font-semibold text-foreground shadow-sm transition-colors hover:bg-muted data-[state=open]:bg-muted dark:shadow-none'
+          }
+          title={inCard ? 'Switch team' : undefined}
+        >
+          <span className="max-w-[140px] truncate">{teamName}</span>
+          <ChevronsUpDown className="h-3 w-3 opacity-50" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align={inCard ? 'end' : 'start'} className="w-56">
+          {teams.map((team) => {
+            const isSelected = team.id === teamId
+            return (
+              <DropdownMenuItem
+                key={team.id}
+                onSelect={(e) => e.preventDefault()}
+                onClick={() => {
+                  if (team.id !== teamId) onSelectTeam(team.id, team.name)
+                }}
+                className="gap-2"
+              >
+                <div className={cn(
+                  'flex h-4 w-4 items-center justify-center rounded-sm border border-primary',
+                  isSelected ? 'bg-primary text-primary-foreground' : 'opacity-50',
+                )}>
+                  {isSelected && <Check className="h-3 w-3" />}
+                </div>
+                <div className="flex min-w-0 flex-col">
+                  <span className="truncate text-sm">{team.name}</span>
+                  {team.issue_prefix && (
+                    <span className="text-[10px] text-muted-foreground">{team.issue_prefix}</span>
+                  )}
+                </div>
+              </DropdownMenuItem>
+            )
+          })}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    ) : null
+
+  const headerIconButton = inCard
+    ? cn('grid size-7 shrink-0 place-items-center', CARD_HEADER_ICON_BUTTON)
+    : 'h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground'
+
+  const teamSettingsButton = onOpenTeamSettings ? (
+    inCard ? (
+      <button type="button" className={headerIconButton} onClick={() => onOpenTeamSettings(teamId)} title="Team settings" aria-label="Team settings">
+        <Settings2 className="size-3.5" strokeWidth={1.75} />
+      </button>
+    ) : (
+      <Button variant="ghost" size="icon" className={headerIconButton} onClick={() => onOpenTeamSettings(teamId)} title="Team settings">
+        <Settings2 className="h-3.5 w-3.5" />
+      </Button>
+    )
+  ) : null
+
+  const allTeamsButton = onViewAllTeams ? (
+    inCard ? (
+      <button type="button" className={headerIconButton} onClick={onViewAllTeams} title="View all teams" aria-label="View all teams">
+        <LayoutGrid className="size-3.5" strokeWidth={1.75} />
+      </button>
+    ) : (
+      <Button variant="ghost" size="icon" className={headerIconButton} onClick={onViewAllTeams} title="View all teams">
+        <LayoutGrid className="h-3.5 w-3.5" />
+      </Button>
+    )
+  ) : null
+
+  // Cycles control. When a sprint is active it expands into a pill showing the
+  // cycle name + progress (replaces the old full-width banner); otherwise it
+  // stays a bare icon button.
+  const cyclesControl = activeCycle ? (
+    <button
+      type="button"
+      onClick={() => setCyclesDialogOpen(true)}
+      title={`${activeCycle.name} · ${formatDateRange(activeCycle.start_date, activeCycle.end_date)}`}
+      className={
+        inCard
+          ? CARD_HEADER_PILL_BUTTON
+          : 'inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-border px-2.5 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-muted dark:shadow-none'
+      }
+    >
+      <span className="relative flex h-1.5 w-1.5">
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+        <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+      </span>
+      <span className="max-w-[120px] truncate">{activeCycle.name}</span>
+      <span className="text-muted-foreground tabular-nums">
+        {activeCycle.completed_actions}/{activeCycle.total_actions}
+      </span>
+    </button>
+  ) : inCard ? (
+    <button type="button" className={headerIconButton} onClick={() => setCyclesDialogOpen(true)} title="Cycles" aria-label="Cycles">
+      <RefreshCw className="size-3.5" strokeWidth={1.75} />
+    </button>
+  ) : (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="h-8 w-8"
+      onClick={() => setCyclesDialogOpen(true)}
+      title="Cycles"
+    >
+      <RefreshCw className="h-4 w-4" />
+    </Button>
+  )
+
   return (
     <div className="flex h-full flex-col" inert={obscured || undefined} aria-hidden={obscured || undefined}>
-      <ViewHeader className="gap-3">
-        <PageTitle label="Team" as="h1" />
-        {onSelectTeam && teams.length > 1 ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full border border-border px-3 text-xs font-semibold text-foreground shadow-sm transition-colors hover:bg-muted data-[state=open]:bg-muted dark:shadow-none">
-              <span className="max-w-[140px] truncate">{teamName}</span>
-              <ChevronsUpDown className="h-3 w-3 opacity-50" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-56">
-              {teams.map((team) => {
-                const isSelected = team.id === teamId
-                return (
-                  <DropdownMenuItem
-                    key={team.id}
-                    onSelect={(e) => e.preventDefault()}
-                    onClick={() => {
-                      if (team.id !== teamId) onSelectTeam(team.id, team.name)
-                    }}
-                    className="gap-2"
-                  >
-                    <div className={cn(
-                      'flex h-4 w-4 items-center justify-center rounded-sm border border-primary',
-                      isSelected ? 'bg-primary text-primary-foreground' : 'opacity-50',
-                    )}>
-                      {isSelected && <Check className="h-3 w-3" />}
-                    </div>
-                    <div className="flex min-w-0 flex-col">
-                      <span className="truncate text-sm">{team.name}</span>
-                      {team.issue_prefix && (
-                        <span className="text-[10px] text-muted-foreground">{team.issue_prefix}</span>
-                      )}
-                    </div>
-                  </DropdownMenuItem>
-                )
-              })}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : (
-          <span className="text-sm font-semibold">{teamName}</span>
-        )}
+      {inCard ? (
+        // In a card its header is the board's (Liam, 11-22): the card's title
+        // names the team (or, over the Teams page, the board is a place after
+        // it), and the switcher, settings and cycles are at the header's end.
+        // Nothing while something is open over the board: the header is that
+        // record's then.
+        !obscured && (
+          <>
+            {onBack && (
+              <CardHeaderTrail onBack={onBack} backLabel="Back to teams">
+                <span data-team-board-crumb="" className="min-w-0 truncate font-medium">{teamName} board</span>
+              </CardHeaderTrail>
+            )}
+            <CardHeaderSlot side="right">
+              <div data-team-board-header-controls="" className="flex items-center gap-1">
+                {teamPicker}
+                {teamSettingsButton}
+                {allTeamsButton}
+                {cyclesControl}
+              </div>
+            </CardHeaderSlot>
+          </>
+        )
+      ) : (
+        <ViewHeader className="gap-3">
+          <PageTitle label="Team" as="h1" />
+          {teamPicker ?? <span className="text-sm font-semibold">{teamName}</span>}
 
-        {/* Team configuration affordances next to the name: this team's
-            settings (gear) first, then view-all-teams (grid). */}
-        {onOpenTeamSettings && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
-            onClick={() => onOpenTeamSettings(teamId)}
-            title="Team settings"
-          >
-            <Settings2 className="h-3.5 w-3.5" />
-          </Button>
-        )}
-        {onViewAllTeams && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
-            onClick={onViewAllTeams}
-            title="View all teams"
-          >
-            <LayoutGrid className="h-3.5 w-3.5" />
-          </Button>
-        )}
+          {/* Team configuration affordances next to the name: this team's
+              settings (gear) first, then view-all-teams (grid). */}
+          {teamSettingsButton}
+          {allTeamsButton}
 
-        <div className="flex-1" />
-        {/* Cycles control. When a sprint is active it expands into a pill
-            showing the cycle name + progress (replaces the old full-width
-            banner); otherwise it stays a bare icon button. */}
-        {activeCycle ? (
-          <button
-            onClick={() => setCyclesDialogOpen(true)}
-            title={`${activeCycle.name} · ${formatDateRange(activeCycle.start_date, activeCycle.end_date)}`}
-            className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-border px-2.5 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-muted dark:shadow-none"
-          >
-            <span className="relative flex h-1.5 w-1.5">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
-            </span>
-            <span className="max-w-[120px] truncate">{activeCycle.name}</span>
-            <span className="text-muted-foreground tabular-nums">
-              {activeCycle.completed_actions}/{activeCycle.total_actions}
-            </span>
-          </button>
-        ) : (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={() => setCyclesDialogOpen(true)}
-            title="Cycles"
-          >
-            <RefreshCw className="h-4 w-4" />
-          </Button>
-        )}
-      </ViewHeader>
+          <div className="flex-1" />
+          {cyclesControl}
+        </ViewHeader>
+      )}
 
       <div className="flex-1 min-h-0 overflow-hidden">
         <UnifiedViewLayout

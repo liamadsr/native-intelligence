@@ -23,9 +23,11 @@ import { MapPin } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PageTitle } from '@/components/views/page-title'
 import type { LocalRankGridDetail, TrackedBusinessView } from '@/lib/seo/local/view'
+import { cn } from '@/lib/utils'
 import { ViewHeader } from '../../views/view-header'
 import { CenteredError, CenteredLoader } from '../load-states'
 import { SeoDataNotice, SeoSpendLine, buyBlockedReason, useSeoData, type SeoDataState } from '../shared/data-status'
+import { SeoHeaderAction, useInCard } from '../shared/header-controls'
 import { fetchBusinesses, type BusinessListPayload } from './api'
 import { AddBusinessDialog } from './add-business'
 import { BusinessDetail } from './business-detail'
@@ -68,6 +70,9 @@ export function LocalPage(props: LocalPageProps) {
 const anyLive = (payload: BusinessListPayload) => !!liveScanOf(payload.grids)
 
 function BusinessIndex({ seo, onOpenBusiness, onCount }: { seo: SeoDataState } & Pick<LocalPageProps, 'onOpenBusiness' | 'onCount'>) {
+  // In a card its header names the page and takes Add business (Liam, 11-22):
+  // no row of the page's own above the list.
+  const inCard = useInCard()
   const [payload, setPayload] = React.useState<BusinessListPayload | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -111,7 +116,7 @@ function BusinessIndex({ seo, onOpenBusiness, onCount }: { seo: SeoDataState } &
 
   if (!payload) {
     return (
-      <div className="flex h-full min-h-0 flex-col">
+      <div className={cn('flex h-full min-h-0 flex-col', inCard && 'pt-2')}>
         <ViewHeader title={<PageTitle label="Local" as="h1" />} />
         {error && !loading ? <CenteredError text={error} onRetry={() => void load()} /> : <CenteredLoader />}
       </div>
@@ -126,7 +131,7 @@ function BusinessIndex({ seo, onOpenBusiness, onCount }: { seo: SeoDataState } &
     blocked ?? (atCap ? `A workspace can follow ${payload.limits.max_businesses} businesses. Remove one to add another.` : 'Find a business on Google Maps and follow it')
 
   return (
-    <div data-seo-index="" className="flex h-full min-h-0 flex-col">
+    <div data-seo-index="" className={cn('flex h-full min-h-0 flex-col', inCard && 'pt-2')}>
       <ViewHeader
         title={<PageTitle label="Local" as="h1" />}
         actions={
@@ -134,9 +139,9 @@ function BusinessIndex({ seo, onOpenBusiness, onCount }: { seo: SeoDataState } &
             <SeoSpendLine view={view} className="mr-2" />
             {/* With no business the first-run block carries the button. */}
             {!empty && (
-              <Button size="sm" className="h-8" data-seo-add-business="" disabled={!!blocked || atCap} title={addTitle} onClick={() => setDialogOpen(true)}>
+              <SeoHeaderAction data-seo-add-business="" disabled={!!blocked || atCap} title={addTitle} onClick={() => setDialogOpen(true)}>
                 Add business
-              </Button>
+              </SeoHeaderAction>
             )}
           </>
         }

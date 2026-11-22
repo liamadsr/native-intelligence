@@ -16,26 +16,28 @@
  *              Queries, Pages (./performance-tab.tsx), Opportunities
  *              (./opportunities-tab.tsx) and Analytics (./analytics-tab.tsx,
  *              optional, with its own small setup block).
- *   Header     the period (7 days to 12 months, default 28) and the "…" menu:
- *              change the site, change the Analytics property, stop reading
- *              this site (ConfirmDialog).
+ *   Header     the period (7 days to 12 months, default 28) and the "…" menu
+ *              (in a card, at the card header's right): change the site,
+ *              change the Analytics property, stop reading this site
+ *              (ConfirmDialog).
  *
  * Connecting goes through the app's one connect flow (useConnectProvider);
  * its return re-reads the status. A read that finds the choice gone
  * (NOT_CONNECTED, NO_SOURCE) re-reads it too.
  */
 import * as React from 'react'
-import { ArrowLeftRight, BarChart3, MoreHorizontal, Unplug } from 'lucide-react'
+import { ArrowLeftRight, BarChart3, Unplug } from 'lucide-react'
 import { toast } from 'sonner'
-import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { PageTitle } from '@/components/views/page-title'
 import { useConnectProvider } from '@/lib/integrations/use-connect-provider'
 import type { GoogleProduct, GoogleSeoStatus } from '@/lib/seo/google/view'
+import { cn } from '@/lib/utils'
 import { ViewHeader } from '../../views/view-header'
 import { errorMessage } from '../api'
 import { CenteredError, CenteredLoader } from '../load-states'
+import { SeoHeaderMore, useInCard } from '../shared/header-controls'
 import { FilterChips, TabPills } from '../shared/tab-pills'
 import { clearSite, fetchGoogleStatus } from './api'
 import { AnalyticsTab } from './analytics-tab'
@@ -65,6 +67,9 @@ const MENU_ITEM =
   'flex w-full items-center gap-1.5 rounded-2xl px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent'
 
 export function SearchPerformancePage({ tab, onTab, onCount }: SearchPerformanceViewProps) {
+  // In a card its header names the page and takes the period and the menu
+  // (Liam, 11-22): no row of the page's own above it.
+  const inCard = useInCard()
   const [status, setStatus] = React.useState<GoogleSeoStatus | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -140,16 +145,7 @@ export function SearchPerformancePage({ tab, onTab, onCount }: SearchPerformance
             <FilterChips options={SEARCH_PERIODS} value={period} onChange={setPeriod} label="Period" className="flex-nowrap" />
             <Popover open={menuOpen} onOpenChange={setMenuOpen}>
               <PopoverTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  data-seo-search-menu=""
-                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                  title="More"
-                  aria-label="More"
-                >
-                  <MoreHorizontal className="h-4 w-4" />
-                </Button>
+                <SeoHeaderMore data-seo-search-menu="" />
               </PopoverTrigger>
               <PopoverContent align="end" className="w-56 p-1.5">
                 <button
@@ -198,7 +194,7 @@ export function SearchPerformancePage({ tab, onTab, onCount }: SearchPerformance
 
   if (!status || !sc) {
     return (
-      <div className="flex h-full min-h-0 flex-col">
+      <div className={cn('flex h-full min-h-0 flex-col', inCard && 'pt-2')}>
         {header}
         {error && !loading ? <CenteredError text={error} onRetry={() => void load()} /> : <CenteredLoader />}
       </div>
@@ -274,7 +270,7 @@ export function SearchPerformancePage({ tab, onTab, onCount }: SearchPerformance
   }
 
   return (
-    <div data-seo-search-page="" data-seo-search-state={picking ? `pick-${picking}` : sc.state} className="flex h-full min-h-0 flex-col">
+    <div data-seo-search-page="" data-seo-search-state={picking ? `pick-${picking}` : sc.state} className={cn('flex h-full min-h-0 flex-col', inCard && 'pt-2')}>
       {header}
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6">{body}</div>
       {sc.source && (

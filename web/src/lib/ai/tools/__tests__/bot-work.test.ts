@@ -371,7 +371,7 @@ describe('the main agent is told how to use them', () => {
     expect(md).not.toMatch(/\bInbox\b|`inbox`/)
     // Where things live rides the Your agents pack.
     const where = agentsPack
-    for (const part of ['For you', 'Working on', 'Done lately', 'About', 'Conversations', 'Notices', "The Library's Agents & skills lists their agents", "side panel's Agents row", 'notices show as toasts']) {
+    for (const part of ['For you', 'Working on', 'Done lately', 'About', 'Conversations', 'Notices', 'Agents & skills (the Agents group on the rail) lists their agents', "side panel's Agents row", 'notices show as toasts']) {
       expect(where, part).toContain(part)
     }
     // Work no other agent holds is the Assistant's (Liam, 2026-10-08), the main agent's own (always-on-agent §2c);

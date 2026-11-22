@@ -315,7 +315,7 @@ async function checkPlace(scope: PageScope, kind: PageKind, place: PagePlace): P
     case 'package':
     case 'agent':
     case 'skill': {
-      const want: Record<string, PageKind> = { package: 'knowledge', agent: 'library', skill: 'library' }
+      const want: Record<string, PageKind> = { package: 'knowledge_library', agent: 'library', skill: 'library' }
       if (want[place.type] !== kind) return null
       const resolved = await resolveWorkspaceEdition(scope.supabase, ws)
       const hit = (await candidates(scope, place.type, resolved)).find((c) => c.id === place.id)
@@ -514,7 +514,9 @@ export async function readPageRows(
       const all = await candidates(scope, type, resolved)
       return { count: all.length, rows: all.slice(0, limit).map((c) => ({ id: c.id, name: c.name })), noun: `${type}s` }
     }
-    case 'knowledge': {
+    // The Library (Liam, 11-21: Knowledge's library tab, its own page): one
+    // package's pinned items, by kind, or the packages the person can see.
+    case 'knowledge_library': {
       if (place?.type === 'package') {
         const { data, error } = await scope.supabase.from('knowledge_package_item').select('entity_type, entity_id').eq('package_id', place.id).limit(1000)
         if (error) throw new Error(error.message)
@@ -523,7 +525,6 @@ export async function readPageRows(
         const rows = [...byType].map(([type, n]) => ({ id: type, name: `${n} pinned ${type}${n === 1 ? '' : 's'}` }))
         return { count: rows.length, rows, noun: 'kinds of pinned items' }
       }
-      // The library tab: the packages the person can see.
       const resolved = await resolveWorkspaceEdition(scope.supabase, ws)
       const all = await candidates(scope, 'package', resolved)
       return { count: all.length, rows: all.slice(0, limit).map((c) => ({ id: c.id, name: c.name })), noun: 'knowledge packages' }

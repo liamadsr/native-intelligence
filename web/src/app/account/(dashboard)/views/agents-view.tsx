@@ -31,6 +31,9 @@ import {
 } from '@/lib/types/library'
 import { LIBRARY_CATEGORY_ICONS } from '@/lib/types/library-icons'
 import { ViewHeader } from './view-header'
+import { CardHeaderSlot, useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
+import { CARD_HEADER_PILL_BUTTON } from '@/components/chat-cards/card-header-button'
+import { cn } from '@/lib/utils'
 import { useLibraryItems } from './agents/use-library-items'
 import { myIdSet } from './agents/library-filter'
 import { LibraryCollection } from './agents/library-collection'
@@ -344,77 +347,116 @@ export function AgentsView({
   const framing = TYPE_FRAMING[activeType]
   const activePicker = TYPE_PICKER.find((t) => t.id === activeType) ?? TYPE_PICKER[0]
 
+  const inCard = useCardHeaderSlots() !== null
+  const newLabel = `New ${CATEGORY_LABELS[activeType].toLowerCase()}`
+
+  // Type switcher — the pill dropdown "view picker", matching the Knowledge /
+  // Team / Calendar pickers so the pattern reads the same across the app.
+  const typePicker = (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        className={
+          inCard
+            ? cn(CARD_HEADER_PILL_BUTTON, 'data-[state=open]:bg-foreground/[0.1]')
+            : 'border-border text-foreground hover:bg-muted data-[state=open]:bg-muted inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs font-semibold shadow-sm transition-colors dark:shadow-none'
+        }
+      >
+        <activePicker.Icon className="h-3.5 w-3.5" />
+        {activePicker.label}
+        <ChevronsUpDown className="h-3 w-3 opacity-50" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align={inCard ? 'end' : 'start'} className="w-40">
+        {TYPE_PICKER.map((t) => (
+          <DropdownMenuItem key={t.id} onClick={() => setTypePersisted(t.id)} className="gap-2">
+            <t.Icon className="h-3.5 w-3.5" />
+            {t.label}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+
+  const searchBox = (
+    <ExpandableSearch
+      value={search}
+      onChange={setSearch}
+      placeholder="Search…"
+      label="Search agents and skills"
+    />
+  )
+
+  // Import a SKILL.md — skills only. Opens the create dialog pre-filled from
+  // the parsed file.
+  const skillImport =
+    activeType === 'skill' ? (
+      <>
+        <input
+          ref={skillImportInputRef}
+          type="file"
+          accept=".md,.markdown,.txt"
+          className="hidden"
+          onChange={handleSkillFilePicked}
+        />
+        {inCard ? (
+          <button type="button" onClick={() => skillImportInputRef.current?.click()} title="Import a SKILL.md file" className={CARD_HEADER_PILL_BUTTON}>
+            <Upload className="size-3.5" strokeWidth={1.75} aria-hidden />
+            Import
+          </button>
+        ) : (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 gap-1.5 text-xs"
+            onClick={() => skillImportInputRef.current?.click()}
+            title="Import a SKILL.md file"
+          >
+            <Upload className="h-3.5 w-3.5" />
+            Import
+          </Button>
+        )}
+      </>
+    ) : null
+
   return (
     <div className="flex h-full flex-col">
-      {/* One ViewHeader owns: title + type picker (left), and search + ghost
-          create (right). */}
-      <ViewHeader className="gap-3">
-        <PageTitle label={LIBRARY_SURFACE_LABEL} as="h1" />
-
-        {/* Type switcher — the pill dropdown "view picker", matching the
-            Knowledge / Team / Calendar pickers so the pattern reads the same
-            across the app. */}
-        <DropdownMenu>
-          <DropdownMenuTrigger className="border-border text-foreground hover:bg-muted data-[state=open]:bg-muted inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs font-semibold shadow-sm transition-colors dark:shadow-none">
-            <activePicker.Icon className="h-3.5 w-3.5" />
-            {activePicker.label}
-            <ChevronsUpDown className="h-3 w-3 opacity-50" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-40">
-            {TYPE_PICKER.map((t) => (
-              <DropdownMenuItem key={t.id} onClick={() => setTypePersisted(t.id)} className="gap-2">
-                <t.Icon className="h-3.5 w-3.5" />
-                {t.label}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-
-        <div className="ml-auto flex items-center gap-1.5">
-          <ExpandableSearch
-            value={search}
-            onChange={setSearch}
-            placeholder="Search…"
-            label="Search agents and skills"
-          />
-
-          {/* Import a SKILL.md — skills only. Opens the create dialog pre-filled
-              from the parsed file. */}
-          {activeType === 'skill' && (
-            <>
-              <input
-                ref={skillImportInputRef}
-                type="file"
-                accept=".md,.markdown,.txt"
-                className="hidden"
-                onChange={handleSkillFilePicked}
-              />
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 gap-1.5 text-xs"
-                onClick={() => skillImportInputRef.current?.click()}
-                title="Import a SKILL.md file"
-              >
-                <Upload className="h-3.5 w-3.5" />
-                Import
-              </Button>
-            </>
-          )}
-
-          {/* Ghost icon-only create — matches the house convention. */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-muted-foreground hover:text-foreground h-8 w-8"
-            onClick={openCreateDialog}
-            title={`New ${CATEGORY_LABELS[activeType].toLowerCase()}`}
-            aria-label={`New ${CATEGORY_LABELS[activeType].toLowerCase()}`}
-          >
-            <Plus className="h-4 w-4" />
-          </Button>
-        </div>
-      </ViewHeader>
+      {inCard ? (
+        // In a card its header says Agents & skills: no title here, and the
+        // type picker, search, Import and New stand at the header's end
+        // (Liam, 11-22: every control in the header).
+        <CardHeaderSlot side="right">
+          <div data-library-header-controls="" className="flex items-center gap-1.5">
+            {typePicker}
+            {searchBox}
+            {skillImport}
+            <button type="button" data-new-library-item="" onClick={openCreateDialog} className={CARD_HEADER_PILL_BUTTON}>
+              <Plus className="size-3.5" strokeWidth={1.75} aria-hidden />
+              {newLabel}
+            </button>
+          </div>
+        </CardHeaderSlot>
+      ) : (
+        /* One ViewHeader owns: title + type picker (left), and search + ghost
+           create (right). */
+        <ViewHeader className="gap-3">
+          <PageTitle label={LIBRARY_SURFACE_LABEL} as="h1" />
+          {typePicker}
+          <div className="ml-auto flex items-center gap-1.5">
+            {searchBox}
+            {skillImport}
+            {/* Ghost icon-only create — matches the house convention. */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground hover:text-foreground h-8 w-8"
+              onClick={openCreateDialog}
+              title={newLabel}
+              aria-label={newLabel}
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+          </div>
+        </ViewHeader>
+      )}
 
       <LibraryCollection
         key={activeType}

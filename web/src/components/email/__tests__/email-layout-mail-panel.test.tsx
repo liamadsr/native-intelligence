@@ -57,12 +57,15 @@ vi.mock('@/hooks/use-entity-sync', () => ({ useEntityListSync: () => {} }))
 vi.mock('@/components/views/unified-view-layout', () => ({ useIsWindowFocused: () => true }))
 
 const { EmailLayout } = await import('../email-layout')
+const { CardHeaderSlotsProvider } = await import('@/components/chat-cards/card-header-slot')
 const controlsModule = await import('@/components/chat-cards/mail-card-controls')
 const { __resetMailCardsForTests, mailCardFor } = controlsModule
 const { __resetSubnavOnScreenForTests, setSubnavOnScreen } = await import('@/app/account/(dashboard)/page-panel/subnav-on-screen')
 
 const CARD = 'card-mail-page'
 let container: HTMLDivElement
+/** The card's header (CardHeaderSlot): Unread, search and New email. */
+let cardHeader: HTMLDivElement
 let root: Root
 let onStateChange: ReturnType<typeof vi.fn>
 const shows: string[] = []
@@ -78,12 +81,14 @@ beforeEach(() => {
     json: async () => (String(url).includes('/counts') ? { inbox_unread: 3, drafts: 2 } : {}),
   })))
   container = document.createElement('div')
-  document.body.appendChild(container)
+  cardHeader = document.createElement('div')
+  document.body.append(cardHeader, container)
   root = createRoot(container)
 })
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  cardHeader.remove()
   vi.unstubAllGlobals()
 })
 
@@ -96,13 +101,18 @@ async function mount(id: string | null = CARD, fullScreen = true) {
     show: () => shows.push('show'),
   }
   await act(async () => {
-    root.render(h('div', { 'data-chat-card-fullscreen': 'c1' }, h(EmailLayout, { card })))
+    root.render(h('div', { 'data-chat-card-fullscreen': 'c1' }, h(CardHeaderSlotsProvider, { value: { left: null, right: cardHeader } }, h(EmailLayout, { card }))))
   })
   for (let i = 0; i < 3; i++) await act(async () => {})
 }
 
 const me = () => mailCardFor(CARD)!
 const q = (sel: string) => container.querySelector(sel)
+/** The card's own account-and-folder row: shown below `md` only (the sub-nav's from there up), in CSS. */
+const hiddenFromMd = (el: Element) => {
+  const classes = el.className.split(' ')
+  return classes.includes('md:hidden') && classes.includes('flex')
+}
 
 describe('a Mail card and its sub-nav', () => {
   it('says where it is: its folder, all mailboxes, no tag, the counts it read; gone when unmounted', async () => {
@@ -153,11 +163,13 @@ describe('a Mail card and its sub-nav', () => {
   it('full screen: its dropdown and Select only below `md` (the sub-nav’s from there up), from the first render', async () => {
     await mount()
     const own = q('[data-mail-own-nav]')!
-    expect(own.className.split(' ')).toEqual(['contents', 'md:hidden'])
+    expect(hiddenFromMd(own)).toBe(true)
     expect(own.querySelector('[data-account-filter]')).not.toBeNull()
     expect(own.querySelector('[data-folder-select]')).not.toBeNull()
-    // The unread chip, search and compose stay the card's own, at every width.
-    expect(q('[data-unread-toggle]')!.closest('[data-mail-own-nav]')).toBeNull()
+    // The unread chip, search and New email are the card header's, at every width (Liam, 11-22).
+    expect(q('[data-unread-toggle]')).toBeNull()
+    expect(cardHeader.querySelector('[data-unread-toggle]')).not.toBeNull()
+    expect(cardHeader.querySelector('button[aria-label="New email"]')).not.toBeNull()
   })
 
   it('full screen without the Mail sub-nav on screen (Liam, 11-11): a capture docked or the panel closed, Recent beside it; its own again', async () => {
@@ -165,26 +177,27 @@ describe('a Mail card and its sub-nav', () => {
     const own = () => q('[data-mail-own-nav]')!
     // The Mail sub-nav on screen: hidden from `md` up, as before.
     act(() => setSubnavOnScreen('mail'))
-    expect(own().className.split(' ')).toEqual(['contents', 'md:hidden'])
+    expect(hiddenFromMd(own())).toBe(true)
     // None on screen (the notepad holds the left, or the panel is closed).
     act(() => setSubnavOnScreen(null))
-    expect(own().className).toBe('contents')
+    expect(hiddenFromMd(own())).toBe(false)
     expect(own().querySelector('[data-folder-select]')).not.toBeNull()
     // Opened from home (a thread from Recent, For you, a notification): Recent beside it.
     act(() => setSubnavOnScreen('home'))
-    expect(own().className).toBe('contents')
+    expect(hiddenFromMd(own())).toBe(false)
     // Another page's sub-nav.
     act(() => setSubnavOnScreen('team-chat'))
-    expect(own().className).toBe('contents')
+    expect(hiddenFromMd(own())).toBe(false)
     // Undecided again (settling): today's look, never a flash.
     act(() => setSubnavOnScreen(undefined))
-    expect(own().className.split(' ')).toEqual(['contents', 'md:hidden'])
+    expect(hiddenFromMd(own())).toBe(true)
   })
 
   it('inline in the chat (no sub-nav beside it): its own dropdown and Select at every width', async () => {
     await mount(CARD, false)
     const own = q('[data-mail-own-nav]')!
-    expect(own.className).toBe('contents')
+    expect(hiddenFromMd(own)).toBe(false)
+    expect(own.className.split(' ')).toContain('flex')
     expect(own.querySelector('[data-account-filter]')).not.toBeNull()
     expect(own.querySelector('[data-folder-select]')).not.toBeNull()
   })

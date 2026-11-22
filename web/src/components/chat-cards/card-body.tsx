@@ -75,8 +75,6 @@ export interface CardBodyProps {
   fullScreen: boolean
   /** The live count, for the card's header. */
   onCount?: (count: number | null) => void
-  /** The current view config, for Save as view. */
-  onConfig?: (config: ViewConfig) => void
   /** A record card's panel closed: the card folds to its pill. */
   onClose?: () => void
   /**
@@ -244,13 +242,11 @@ interface ListCardExtras {
   overlay?: { key: string; node: React.ReactNode } | null
 }
 
-function ListCardFrame({ toolCallId, spec, store, fullScreen, onCount, onConfig, records, over = null, onNav, scopeTabsBelowMdOnly, overlay = null }: CardBodyProps & { spec: ListCardSpec } & ListCardExtras) {
+function ListCardFrame({ toolCallId, spec, store, fullScreen, onCount, records, over = null, onNav, scopeTabsBelowMdOnly, overlay = null }: CardBodyProps & { spec: ListCardSpec } & ListCardExtras) {
   const kept = React.useMemo(() => store.state(toolCallId), [store, toolCallId])
   const baseline = React.useMemo(() => baselineOf(spec), [spec])
   const onCountRef = React.useRef(onCount)
   onCountRef.current = onCount
-  const onConfigRef = React.useRef(onConfig)
-  onConfigRef.current = onConfig
 
   const card = React.useMemo(
     () => ({
@@ -276,7 +272,6 @@ function ListCardFrame({ toolCallId, spec, store, fullScreen, onCount, onConfig,
           rows: rows.map((r) => ({ ...(r.identifier ? { identifier: r.identifier } : {}), title: r.title })),
         })
         onCountRef.current?.(state.total)
-        onConfigRef.current?.(state.config)
       },
     }),
     // `kept` is read once, at mount; the layout owns the state after that.
@@ -504,6 +499,7 @@ const PAGE_BODIES: Record<PageKind, React.LazyExoticComponent<React.ComponentTyp
   seo_ai_visibility: React.lazy(() => import('./pages/seo-ai-visibility-card')),
   seo_local: React.lazy(() => import('./pages/seo-local-card')),
   knowledge: React.lazy(() => import('./pages/knowledge-card')),
+  knowledge_library: React.lazy(() => import('./pages/knowledge-library-card')),
   library: React.lazy(() => import('./pages/library-card')),
   teams: React.lazy(() => import('./pages/teams-card')),
   bot: React.lazy(() => import('./pages/bot-card')),

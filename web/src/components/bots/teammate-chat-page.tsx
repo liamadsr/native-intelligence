@@ -50,6 +50,13 @@
  * offered on it (bot-page/about.tsx). Until the roster knows the teammate the
  * page is pending: nothing opens a chat for an id it can't place yet.
  *
+ * In its card (pages/bot-card.tsx) the header is the card's (Liam, 11-22: a
+ * page never repeats its title, its controls are the card header's, a place
+ * inside it is a breadcrumb): the card's title is the agent's name; its rest,
+ * workspace and switcher stand at the header's right; an item open on it is
+ * the breadcrumb ("<agent> › <item>"), whose title is the way back to the
+ * lists. No header row in the page.
+ *
  * The chat (bots-v2.md, bots v3 Phase 4, #611) is the teammate's own thread
  * (TeammateChat over useTeammateChat), with the main chat's composer. In the desktop app it has
  * the mic and the bot's own voice.
@@ -59,6 +66,7 @@ import { cn } from '@/lib/utils'
 import { useAgentWorkShared } from '@/components/work/agent-work-provider'
 import { useWorkspaces } from '@/app/account/workspace-switcher'
 import { ViewHeader } from '@/app/account/(dashboard)/views/view-header'
+import { CardHeaderSlot, CardHeaderTrail, useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
 import { useBotWork } from '@/hooks/use-bot-work'
 import { useBotVoice } from '@/lib/bots/bot-voice'
 import { BOT_PAGE_LINGER_MS, onBotPageFocus, stoppedByAiLimit, type BotPagePart } from '@/lib/bots/bot-page'
@@ -122,6 +130,7 @@ export function TeammateChatPage({
 }: TeammateChatPageProps) {
   const { work, counts } = useAgentWorkShared()
   const { workspaces, currentId } = useWorkspaces()
+  const inCard = useCardHeaderSlots() !== null
   const user = useTeammateChatUser()
   // An area face's page is the agent's (one face).
   const teammateId = useMemo(() => agentTeammateIdFor(work.roster, askedTeammateId), [work.roster, askedTeammateId])
@@ -257,6 +266,44 @@ export function TeammateChatPage({
     [],
   )
 
+  // The header's parts: the page's own row, or in a card its header's right.
+  const restWord = rest ? (
+    <span data-bot-page-status={rest} className="shrink-0 text-xs font-medium text-amber-700 dark:text-amber-400">
+      {TEAMMATE_REST_WORDS[rest]}
+    </span>
+  ) : null
+  const workspaceWord = workspace ? (
+    <span data-teammate-chat-page-workspace="" title={workspace} className="min-w-0 truncate text-xs text-muted-foreground">
+      {workspace}
+    </span>
+  ) : null
+  const switcher =
+    !missing && mates.length > 1 ? (
+      <div role="group" aria-label="This agent in other workspaces" data-bot-page-switcher="" className="flex min-w-0 items-center gap-1 overflow-x-auto">
+        {chipOrder.map((i) => {
+          const other = mates[i]
+          const current = other.id === teammateId
+          return (
+            <button
+              key={other.id}
+              type="button"
+              aria-pressed={current}
+              title={chips[i].title}
+              // That teammate's own page.
+              onClick={current ? undefined : () => onSwitchTeammate(other.id, part)}
+              className={cn(
+                'relative inline-flex h-6 max-w-[10rem] shrink-0 items-center rounded-full border px-2 text-[11px] transition-colors',
+                current ? 'border-primary/50 bg-primary/5 text-foreground' : 'border-border/60 text-muted-foreground hover:bg-muted hover:text-foreground',
+              )}
+            >
+              <span className="truncate">{chips[i].label}</span>
+              {other.hasNew && !current && <span aria-label="Something new" className="ml-1 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />}
+            </button>
+          )
+        })}
+      </div>
+    ) : null
+
   const chat = itemId ? (
     <div className="mx-auto flex min-h-0 w-full max-w-[var(--chat-reading-width,634px)] flex-1 flex-col px-4 pb-4 pt-3">
       <ItemChat
@@ -303,68 +350,56 @@ export function TeammateChatPage({
       data-bot-page-layout={tabs ? 'tabs' : 'columns'}
       className="flex h-full min-h-0 flex-col"
     >
-      <ViewHeader
-        title={
-          <div className="flex min-w-0 items-center gap-2">
-            <span
-              data-bot-page-face={state}
-              title={stateWords ?? undefined}
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-black/[0.04] dark:bg-white/[0.06]"
-            >
-              <AgentIcon />
-            </span>
-            <h1 data-teammate-chat-page-name="" title={name} className="min-w-0 truncate text-sm font-semibold">
-              {name}
-              {stateWords && !rest && <span className="sr-only">, {stateWords.charAt(0).toLowerCase() + stateWords.slice(1)}</span>}
-            </h1>
-            {rest && (
-              <span data-bot-page-status={rest} className="shrink-0 text-xs font-medium text-amber-700 dark:text-amber-400">
-                {TEAMMATE_REST_WORDS[rest]}
+      {inCard ? (
+        <>
+          {itemId && (
+            <CardHeaderTrail onBack={toLists} backLabel={`Back to ${name}’s work`}>
+              <span data-teammate-chat-page-item-title="" title={shownTitle} className="min-w-0 truncate font-medium">
+                {shownTitle}
               </span>
-            )}
-            {workspace && (
-              <span data-teammate-chat-page-workspace="" title={workspace} className="min-w-0 truncate text-xs text-muted-foreground">
-                {workspace}
+            </CardHeaderTrail>
+          )}
+          <CardHeaderSlot side="right">
+            <div data-bot-page-header="" data-bot-page-face={state} className="flex min-w-0 items-center gap-2">
+              {stateWords && !rest && <span className="sr-only">{stateWords}</span>}
+              {restWord}
+              {workspaceWord}
+              {switcher}
+            </div>
+          </CardHeaderSlot>
+        </>
+      ) : (
+        <ViewHeader
+          title={
+            <div className="flex min-w-0 items-center gap-2">
+              <span
+                data-bot-page-face={state}
+                title={stateWords ?? undefined}
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-black/[0.04] dark:bg-white/[0.06]"
+              >
+                <AgentIcon />
               </span>
-            )}
-            {!missing && mates.length > 1 && (
-              <div role="group" aria-label="This agent in other workspaces" data-bot-page-switcher="" className="flex min-w-0 items-center gap-1 overflow-x-auto">
-                {chipOrder.map((i) => {
-                  const other = mates[i]
-                  const current = other.id === teammateId
-                  return (
-                    <button
-                      key={other.id}
-                      type="button"
-                      aria-pressed={current}
-                      title={chips[i].title}
-                      // That teammate's own page.
-                      onClick={current ? undefined : () => onSwitchTeammate(other.id, part)}
-                      className={cn(
-                        'relative inline-flex h-6 max-w-[10rem] shrink-0 items-center rounded-full border px-2 text-[11px] transition-colors',
-                        current ? 'border-primary/50 bg-primary/5 text-foreground' : 'border-border/60 text-muted-foreground hover:bg-muted hover:text-foreground',
-                      )}
-                    >
-                      <span className="truncate">{chips[i].label}</span>
-                      {other.hasNew && !current && <span aria-label="Something new" className="ml-1 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />}
-                    </button>
-                  )
-                })}
-              </div>
-            )}
-            {itemId && (
-              <>
-                <span aria-hidden className="text-muted-foreground/50">
-                  /
-                </span>
-                <span data-teammate-chat-page-item-title="" title={shownTitle} className="min-w-0 truncate text-xs text-muted-foreground">
-                  {shownTitle}
-                </span>
-              </>
-            )}
-          </div>
-        }
-      />
+              <h1 data-teammate-chat-page-name="" title={name} className="min-w-0 truncate text-sm font-semibold">
+                {name}
+                {stateWords && !rest && <span className="sr-only">, {stateWords.charAt(0).toLowerCase() + stateWords.slice(1)}</span>}
+              </h1>
+              {restWord}
+              {workspaceWord}
+              {switcher}
+              {itemId && (
+                <>
+                  <span aria-hidden className="text-muted-foreground/50">
+                    /
+                  </span>
+                  <span data-teammate-chat-page-item-title="" title={shownTitle} className="min-w-0 truncate text-xs text-muted-foreground">
+                    {shownTitle}
+                  </span>
+                </>
+              )}
+            </div>
+          }
+        />
+      )}
       {missing ? (
         <div role="status" data-teammate-chat-page-missing="" className="flex flex-1 items-center justify-center px-4 pb-4 text-sm text-muted-foreground">
           This teammate isn’t available any more.
@@ -376,7 +411,7 @@ export function TeammateChatPage({
       ) : (
         <div className={cn('flex min-h-0 flex-1', tabs ? 'flex-col' : 'flex-row')}>
           {tabs && (
-            <div role="tablist" aria-label={`${name}’s page`} data-bot-page-tabs="" className="flex shrink-0 gap-1 px-4 pb-2">
+            <div role="tablist" aria-label={`${name}’s page`} data-bot-page-tabs="" className={cn('flex shrink-0 gap-1 px-4 pb-2', inCard && 'pt-2')}>
               {PARTS.map(({ part: p, label }) => (
                 <button
                   key={p}
@@ -429,7 +464,7 @@ export function TeammateChatPage({
             )}
           >
             {itemId ? (
-              <ItemPane key={itemId} itemId={itemId} name={name} label={itemLabel} shown={!tabs || part === 'work'} onBack={toLists} onItem={onItem} />
+              <ItemPane key={itemId} itemId={itemId} name={name} label={itemLabel} title={shownTitle} shown={!tabs || part === 'work'} onBack={toLists} onItem={onItem} />
             ) : (
               <BotWork teammateId={teammateId} name={name} mate={mate} work={botWork} aiLimit={aiLimit} onRefine={refine} />
             )}

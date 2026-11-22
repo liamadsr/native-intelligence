@@ -7,7 +7,7 @@
  * Every refusal names the one thing to change (#669: weak models misplace
  * fields), and the obvious slips are fixed rather than refused: a case slip
  * in a tab, `skills` for the library's skills tab, a target on a page that
- * takes none when it is empty.
+ * takes none when it is empty, a package asked of Knowledge (the Library's).
  */
 import type { CardFilter } from './kinds'
 import { PAGE_KINDS, PLACE_NOUN, isPageKind, type PageKind } from './pages'
@@ -39,7 +39,7 @@ export const TARGET_SOURCE: Partial<Record<PageKind, string>> = {
   sequences: 'list_sequences',
   prospecting: 'list_prospect_lists',
   evals: 'list_evals',
-  knowledge: 'list_packages',
+  knowledge_library: 'list_packages',
   library: 'list_agents or list_skills',
   tables: 'find_tables',
   pipelines: 'find_deals lists the pipelines',
@@ -55,8 +55,15 @@ function targetNoun(kind: PageKind): string {
 
 /** The page asked for, checked; or the one thing to fix. */
 export function normalizePageInput(input: PageShowInput): Checked<CheckedPageInput> {
-  const kind = typeof input.kind === 'string' ? input.kind.trim().toLowerCase() : ''
-  if (!isPageKind(kind)) return { ok: false, error: `kind: '${String(input.kind)}' is not a page` }
+  const named = typeof input.kind === 'string' ? input.kind.trim().toLowerCase() : ''
+  if (!isPageKind(named)) return { ok: false, error: `kind: '${String(input.kind)}' is not a page` }
+  // A package, or Knowledge's old library tab, asked of Knowledge: the
+  // Library has them since the split (Liam, 11-21), so it opens there.
+  const onPackage = typeof input.target === 'string' && !!input.target.trim()
+  const oldLibraryTab = typeof input.tab === 'string' && input.tab.trim().toLowerCase() === 'library'
+  const toLibrary = named === 'knowledge' && (onPackage || oldLibraryTab)
+  const kind: PageKind = toLibrary ? 'knowledge_library' : named
+  const askedTab = toLibrary ? undefined : input.tab
   const def = PAGE_KINDS[kind]
   if (def.personOnly) {
     return { ok: false, error: `kind: only the person opens a ${def.label.toLowerCase()}. To answer about a teammate's work, call list_bot_work` }
@@ -81,8 +88,8 @@ export function normalizePageInput(input: PageShowInput): Checked<CheckedPageInp
 
   // The tab: one of the kind's own, a case slip forgiven.
   let tab: string | undefined
-  if (input.tab !== undefined && input.tab !== null && input.tab !== '') {
-    const wanted = String(input.tab).trim().toLowerCase()
+  if (askedTab !== undefined && askedTab !== null && askedTab !== '') {
+    const wanted = String(askedTab).trim().toLowerCase()
     if (!def.tabs) return { ok: false, error: `tab: ${kind} has no tabs. Leave tab out` }
     // A table's list is its grid.
     const asked = (kind === 'tables' || kind === 'pipelines') && (wanted === 'list' || wanted === 'table') ? 'grid' : wanted
@@ -100,8 +107,6 @@ export function normalizePageInput(input: PageShowInput): Checked<CheckedPageInp
     return { ok: false, error: `tab: '${tab}' is a view of one video. Give target, the video's title or id, or leave tab out for the Studio` }
   }
   if (kind === 'studio' && tab === 'overview' && !rawTarget) tab = undefined
-  // Knowledge's packages live on its library tab.
-  if (kind === 'knowledge' && rawTarget) tab = 'library'
 
   // Filters: the team board's alone, on its actions.
   let filters: CardFilter[] | undefined
