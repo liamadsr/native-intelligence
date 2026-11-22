@@ -215,7 +215,7 @@ describe('a calendar card in its card', () => {
           CardHeaderSlotsProvider,
           { value: { left, right, trail: null, setBack: vi.fn() } },
           // As calendar-card-body.tsx draws it: covered while a record is open over it.
-          h(CardCovered, { covered }, h(CalendarCardView, { initial: { view: 'week', date: '2026-10-04', accounts: null }, compact: true, onStateChange })),
+          h(CardCovered, { covered, children: h(CalendarCardView, { initial: { view: 'week', date: '2026-10-04', accounts: null }, compact: true, onStateChange }) }),
         ),
       )
     })

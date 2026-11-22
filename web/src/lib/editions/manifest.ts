@@ -248,8 +248,8 @@ export const FEATURES: Record<FeatureKey, FeatureDefinition> = {
     description: 'Long-form docs the AI can read, draft, and edit.',
     views: ['docs'],
     extraAllowedViews: [],
-    // Tables (phase 5) live with the docs: their page shares the Docs gate.
-    toolCategories: ['documents', 'tables'],
+    // Tables (phase 5) and spreadsheets (phase 3) live with the docs: their pages share the Docs gate.
+    toolCategories: ['documents', 'tables', 'spreadsheets'],
     autoCreateEntities: [],
     requires: [],
     // The Documents playbook (migration 319): its pack's know-how, gated with the

@@ -7,14 +7,14 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createRoot, type Root } from 'react-dom/client'
-import { act, createElement as h } from 'react'
+import { act, createElement as h, type FunctionComponent } from 'react'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 vi.mock('@/components/spreadsheets/spreadsheet-editor', () => ({ SpreadsheetEditor: () => null }))
 
-import { SpreadsheetsView } from '../spreadsheets-view'
+import { SpreadsheetsView, type SpreadsheetsCardState } from '../spreadsheets-view'
 import { CardHeaderSlotsProvider } from '@/components/chat-cards/card-header-slot'
 
 const SHEETS = [
@@ -41,11 +41,13 @@ afterEach(() => {
 })
 
 const card = { openId: null, onOpen: () => {} }
+/** The view with its props as a card passes them (its own signature defaults them to `{}`, which createElement reads as no props). */
+const View: FunctionComponent<{ card?: SpreadsheetsCardState }> = SpreadsheetsView
 
 describe('the Spreadsheets page’s title', () => {
   it('in a card: no title of its own, New spreadsheet in the card’s header', async () => {
     await act(async () => {
-      root.render(h(CardHeaderSlotsProvider, { value: { left: null, right: header } }, h(SpreadsheetsView, { card })))
+      root.render(h(CardHeaderSlotsProvider, { value: { left: null, right: header } }, h(View, { card })))
     })
     expect(container.textContent).toContain('Fernhill budget')
     expect(container.textContent).not.toContain('Spreadsheets')

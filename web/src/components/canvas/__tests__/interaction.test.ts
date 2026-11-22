@@ -313,6 +313,30 @@ describe('text', () => {
     expect((store.getState().scene.items[a] as Extract<CanvasItem, { kind: 'rectangle' }>).label).toBeUndefined()
   })
 
+  it('keeps formatting with the words, and drops it when there are no words', () => {
+    const rich = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Bold', marks: [{ type: 'bold' }] }] }] }
+    store.setTool('text')
+    click(100, 100)
+    ix.finishEditing({ plain: 'Bold', rich })
+    expect((items()[0] as TextItem).content).toEqual({ plain: 'Bold', rich })
+    const a = drawRect([300, 300], [400, 400])
+    ix.doubleClick(P(350, 350))
+    ix.finishEditing({ plain: 'Bold', rich })
+    const labelled = store.getState().history.past.length
+    expect((store.getState().scene.items[a] as Extract<CanvasItem, { kind: 'rectangle' }>).label).toEqual({ plain: 'Bold', rich })
+    // The same words and the same formatting again: nothing to undo.
+    store.setEditing(a)
+    ix.finishEditing({ plain: 'Bold', rich })
+    expect(store.getState().history.past).toHaveLength(labelled)
+    // The same words, the formatting gone: that is a change.
+    store.setEditing(a)
+    ix.finishEditing({ plain: 'Bold' })
+    expect((store.getState().scene.items[a] as Extract<CanvasItem, { kind: 'rectangle' }>).label).toEqual({ plain: 'Bold' })
+    store.setEditing(a)
+    ix.finishEditing({ plain: '  ', rich })
+    expect((store.getState().scene.items[a] as Extract<CanvasItem, { kind: 'rectangle' }>).label).toBeUndefined()
+  })
+
   it('removes an old text box that is emptied', () => {
     store.setTool('text')
     click(100, 100)
@@ -371,6 +395,49 @@ describe('clipboard and view', () => {
     store.applyRemote([], [a])
     expect(store.getState().selection).toEqual([])
     expect(items()).toHaveLength(0)
+  })
+})
+
+describe('pasted links, and things taken back without a trace', () => {
+  it('reads a record out of this app\'s own link only', async () => {
+    const { recordFromLink } = await import('../clipboard')
+    const id = '11111111-1111-4111-8111-111111111111'
+    const origin = 'https://app.example.test'
+    expect(recordFromLink(`${origin}/account?document=${id}`, origin)).toEqual({ type: 'document', id })
+    expect(recordFromLink(` ${origin}/account?action=${id}\n`, origin)).toEqual({ type: 'action', id })
+    // Another site, another path, not an id, not a kind, a canvas (no canvas inside a canvas), prose.
+    expect(recordFromLink(`https://elsewhere.example.test/account?document=${id}`, origin)).toBeNull()
+    expect(recordFromLink(`${origin}/login?document=${id}`, origin)).toBeNull()
+    expect(recordFromLink(`${origin}/account?document=42`, origin)).toBeNull()
+    expect(recordFromLink(`${origin}/account?nonsense=${id}`, origin)).toBeNull()
+    expect(recordFromLink(`${origin}/account?canvas=${id}`, origin)).toBeNull()
+    expect(recordFromLink(`see ${origin}/account?document=${id}`, origin)).toBeNull()
+  })
+
+  it('forgets an item with no undo step left pointing at it, and still saves the removal', () => {
+    const a = drawRect([0, 0], [50, 50])
+    const b = drawRect([100, 0], [150, 50])
+    const steps: number[] = []
+    store.onChange((step) => steps.push(step.length))
+    store.forget([b])
+    expect(items().map((i) => i.id)).toEqual([a])
+    expect(steps).toEqual([1])
+    expect(store.getState().history.past).toHaveLength(1)
+    store.undo()
+    expect(items()).toHaveLength(0)
+    store.redo()
+    expect(items().map((i) => i.id)).toEqual([a])
+  })
+
+  it('opens a record card on a double-click, even when looking only', () => {
+    const opened: string[] = []
+    store.setHooks({ openRecord: (ref) => opened.push(`${ref.type}:${ref.id}`) })
+    store.applyRemote([{ id: 'card', parentId: null, sortKey: 'a1', kind: 'record', x: 0, y: 0, w: 340, h: 136, rotation: 0, style: {}, ref: { type: 'document', id: 'd1' } }], [])
+    ix.doubleClick(P(100, 60))
+    store.setReadOnly(true)
+    ix.doubleClick(P(100, 60))
+    expect(opened).toEqual(['document:d1', 'document:d1'])
+    expect(store.getState().editing).toBeNull()
   })
 })
 

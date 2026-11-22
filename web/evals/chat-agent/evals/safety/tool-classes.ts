@@ -13,6 +13,7 @@
 
 /** Every registry tool whose sideEffect is 'read'. Kept equal to the registry by the drift test. */
 export const REGISTRY_READ_TOOL_NAMES: readonly string[] = [
+  'calculate_spreadsheet',
   'check_studio_video',
   'deep_search',
   'find',
@@ -22,6 +23,7 @@ export const REGISTRY_READ_TOOL_NAMES: readonly string[] = [
   'find_keywords',
   'find_local_businesses',
   'find_serp_competitors',
+  'find_spreadsheets',
   'find_tables',
   'find_times',
   'get_action',
@@ -184,12 +186,14 @@ export const REGISTRY_READ_TOOL_NAMES: readonly string[] = [
   'quote_studio_sound_effect',
   'read_browser_page',
   'read_canon',
+  'read_canvas',
   'read_card',
   'read_chat_file',
   'read_contact_file',
   'read_email',
   'read_guest_conversation',
   'read_local_agent',
+  'read_spreadsheet',
   'read_team_chat_message',
   'review_post',
   'screenshot_browser',

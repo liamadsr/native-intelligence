@@ -293,7 +293,7 @@ async function main() {
     const shot = await page.screenshot({ type: 'png' })
     mkdirSync(POSTERS, { recursive: true })
     await sharp(shot).webp({ quality: 82 }).toFile(`${POSTERS}/${name}.webp`)
-    if (SHOTS) writeFileSync(`${SHOTS}/demo-rec-${name}.png`, shot)
+    if (SHOTS) writeFileSync(`${SHOTS}/demo-rec-${name}.png`, new Uint8Array(shot))
     // A request still on its way through the chat's route must not fail the run as the page closes.
     await page.unrouteAll({ behavior: 'ignoreErrors' })
     await context.close()
@@ -322,7 +322,7 @@ async function main() {
       await view.waitForTimeout(20_000)
       const drawn = await view.screenshot({ type: 'png' })
       await sharp(drawn).webp({ quality: 82 }).toFile(`${POSTERS}/${name}.webp`)
-      if (SHOTS) writeFileSync(`${SHOTS}/demo-rec-${name}.png`, drawn)
+      if (SHOTS) writeFileSync(`${SHOTS}/demo-rec-${name}.png`, new Uint8Array(drawn))
       await demo.close()
     }
     console.log(`${name}: ${Object.keys(answers).length} answers, ${out.length} bytes, ${open ? 'open request saved' : target ? 'target saved' : chat ? 'the home chat' : 'NOTHING TO OPEN IT WITH'}`)

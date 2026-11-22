@@ -21,7 +21,7 @@
  */
 import { describe, it, expect, vi } from 'vitest'
 import { Chat } from '@ai-sdk/react'
-import { EveChatTransport, STEER_SKIPPED_QUESTION_COPY, type EvePersistBody, type SteerPhase } from '../eve-chat-transport'
+import { EveChatTransport, STEER_SKIPPED_QUESTION_COPY, type EveChatTransportOptions, type EvePersistBody, type SteerPhase } from '../eve-chat-transport'
 import type { ChatTransport, UIMessage, UIMessageChunk } from 'ai'
 import type { HandleMessageStreamEvent } from 'eve/client'
 
@@ -67,7 +67,7 @@ type HarnessOpts = {
   persist?: (body: EvePersistBody) => Promise<void>
   timeouts?: ConstructorParameters<typeof EveChatTransport>[0] extends infer O ? O extends { timeouts?: infer T } ? T : never : never
   /** The main chat's cards and their settling (settleCardContext). */
-  cards?: Pick<ConstructorParameters<typeof EveChatTransport>[0], 'getCardContext' | 'settleCardContext'>
+  cards?: Pick<EveChatTransportOptions, 'getCardContext' | 'settleCardContext'>
 }
 
 function harness(sources: Source[], opts: HarnessOpts = {}) {

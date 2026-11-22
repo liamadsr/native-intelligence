@@ -1140,7 +1140,7 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
 
       const entityLabel = typeLabel(entityType)
 
-      if (mode === 'another' && entityType !== 'email') {
+      if (mode === 'another') {
         const displayTitle = entityType === 'contact'
           ? (result.full_name as string) || title.trim()
           : (result.title as string) || (result.name as string) || title.trim()

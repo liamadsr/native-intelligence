@@ -59,7 +59,7 @@ function macBody(over: { worker?: string | null; caller?: MacBody['caller']; loc
     session: {
       id: 'sess-1', userId: OWNER, workspaceId: WS, conversationId: 'conv-1', startedBy: 'agent', mode: 'edit', request: 'Fix the site',
       createdAt: '2026-11-14T10:00:00.000Z', startWords: [], localModel: over.localModel ?? false, deviceName: 'Studio Mac', folderLabel: 'site',
-      worker: over.worker === undefined ? 'claude-code' : over.worker,
+      worker: over.worker === undefined ? 'claude-code' : over.worker, codeJob: false,
     },
   }
 }

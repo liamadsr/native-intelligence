@@ -28,6 +28,12 @@ export interface GridCommands {
   paste: (valuesOnly?: boolean) => void
   fitColumns: (from: number, to: number) => void
   resize: (axis: 'row' | 'column', from: number, to: number) => void
+  /** Open the Dropdown… dialog. */
+  dropdown: () => void
+  /** Convert the selection to a table. */
+  convertToTable: () => void
+  /** Open a table's options panel. */
+  tableOptions: (id: string) => void
 }
 
 interface Props {
@@ -44,7 +50,11 @@ export function GridMenu({ workbook, state, onClose, commands, onMessage }: Prop
   if (!state) return null
   const { target } = state
   const readOnly = workbook.readOnly
-  const { range } = workbook.selection()
+  const selection = workbook.selection()
+  const { range } = selection
+  const activeIsCheckbox = workbook.isCheckboxCell(selection.row, selection.column)
+  const activeHasDropdown = workbook.validationView(selection.row, selection.column)?.isList ?? false
+  const activeTable = workbook.tableAtCell(selection.row, selection.column)
   const say = (result: { ok: boolean; message?: string }) => {
     if (!result.ok && result.message) onMessage(result.message)
   }
@@ -123,6 +133,21 @@ export function GridMenu({ workbook, state, onClose, commands, onMessage }: Prop
               Clear values<DropdownMenuShortcut>Del</DropdownMenuShortcut>
             </DropdownMenuItem>
             <DropdownMenuItem disabled={readOnly} onSelect={() => say(workbook.clearFormatting())}>Clear formatting</DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem disabled={readOnly} onSelect={commands.dropdown}>Dropdown…</DropdownMenuItem>
+            {activeHasDropdown && (
+              <DropdownMenuItem disabled={readOnly} onSelect={() => say(workbook.clearValidation())}>Remove dropdown</DropdownMenuItem>
+            )}
+            {activeIsCheckbox ? (
+              <DropdownMenuItem disabled={readOnly} onSelect={() => say(workbook.removeCheckboxes())}>Remove checkbox</DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem disabled={readOnly} onSelect={() => say(workbook.insertCheckboxes())}>Insert checkbox</DropdownMenuItem>
+            )}
+            {activeTable ? (
+              <DropdownMenuItem disabled={readOnly} onSelect={() => commands.tableOptions(activeTable.id)}>Table options…</DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem disabled={readOnly} onSelect={commands.convertToTable}>Convert to table</DropdownMenuItem>
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuItem disabled={readOnly} onSelect={() => say(workbook.insertRows(range.r1, rows))}>Insert {rowWord} above</DropdownMenuItem>
             <DropdownMenuItem disabled={readOnly} onSelect={() => say(workbook.insertColumns(range.c1, columns))}>Insert {columnWord} left</DropdownMenuItem>

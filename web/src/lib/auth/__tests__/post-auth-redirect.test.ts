@@ -32,7 +32,7 @@ describe.each(APP_DOMAINS)('on %s', (DOMAIN) => {
 
     it('clears the account redirect whichever way the sign-in ends, so it never waits for the next one', () => {
       const link = '/account?page=studio&video=aaaaaaaa-1111-4222-8333-444444444444&export=bbbbbbbb-1111-4222-8333-444444444444'
-      for (const winner of [{ invite_redirect: '/invite/tok' }, { share_redirect: '/s/abc' }, { mcp_redirect: '/api/mcp/oauth/authorize?x=1' }, {}]) {
+      for (const winner of [{ invite_redirect: '/invite/tok' }, { share_redirect: '/s/abc' }, { mcp_redirect: '/api/mcp/oauth/authorize?x=1' }, {}] as Record<string, string>[]) {
         const res = postAuthRedirect(request({ ...winner, account_redirect: link }))
         expect(cleared(res, 'account_redirect'), JSON.stringify(winner)).toBe(true)
       }

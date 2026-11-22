@@ -162,3 +162,56 @@ describe('GET /api/account/spreadsheets/engine', () => {
     expect((await engine(new Request(`${base}/engine`))).status).toBe(401)
   })
 })
+
+describe('/api/account/spreadsheets/[id]/revisions', () => {
+  const R1 = '55555555-5555-4555-8555-555555555555'
+  const R2 = '66666666-6666-4666-8666-666666666666'
+  let listRevisions: typeof import('@/app/api/account/spreadsheets/[id]/revisions/route').GET
+  let oneRevision: typeof import('@/app/api/account/spreadsheets/[id]/revisions/[revisionId]/route').GET
+  let restore: typeof import('@/app/api/account/spreadsheets/[id]/revisions/[revisionId]/route').POST
+  const rctx = (revisionId: string, id = S) => ({ params: Promise.resolve({ id, revisionId }) })
+  let old: string
+
+  beforeEach(async () => {
+    ;({ GET: listRevisions } = await import('@/app/api/account/spreadsheets/[id]/revisions/route'))
+    ;({ GET: oneRevision, POST: restore } = await import('@/app/api/account/spreadsheets/[id]/revisions/[revisionId]/route'))
+    old = workbookWith([[1, 1, 'as it was']])
+    const more = tables as unknown as Record<string, Row[]>
+    more.spreadsheet_revision = [
+      { id: R1, spreadsheet_id: S, revision: 2, title: 'Hiring plan', sheet_names: ['Sheet1'], author_id: ME, author_kind: 'human', change_summary: null, created_at: '2026-11-18T10:00:00Z', updated_at: '2026-11-18T10:05:00Z', workbook: old },
+      { id: R2, spreadsheet_id: S, revision: 4, title: 'Hiring plan', sheet_names: ['Sheet1'], author_id: ME, author_kind: 'agent', change_summary: 'Filled the totals', created_at: '2026-11-20T10:00:00Z', updated_at: '2026-11-20T10:00:00Z', workbook: rows[0].workbook },
+    ]
+    more.member = [{ id: ME, workspace_id: WS, display_name: 'Dana Okafor' }]
+    hoisted.requireWorkspaceMember.mockResolvedValue({ supabase: memoryDb(more), user: { id: 'u-1' }, workspaceId: WS, member: { id: ME } })
+  })
+
+  it('lists the history newest first, with who and without the workbooks', async () => {
+    const json = await readJson<{ revisions: Row[] }>(await listRevisions(get(`${base}/${S}/revisions`), ctx()))
+    expect(json.revisions.map((r) => r.revision)).toEqual([4, 2])
+    expect(json.revisions[0]).toMatchObject({ author_kind: 'agent', author_name: 'Dana Okafor', change_summary: 'Filled the totals' })
+    expect(json.revisions[0].workbook).toBeUndefined()
+  })
+
+  it('404s the history of a spreadsheet that is not there', async () => {
+    expect((await listRevisions(get(`${base}/x/revisions`), ctx('44444444-4444-4444-8444-444444444444'))).status).toBe(404)
+  })
+
+  it('reads one version with its workbook', async () => {
+    const json = await readJson<{ revision: Row }>(await oneRevision(get(`${base}/${S}/revisions/${R1}`), rctx(R1)))
+    expect(json.revision.workbook).toBe(old)
+    expect((await oneRevision(get(`${base}/${S}/revisions/x`), rctx('77777777-7777-4777-8777-777777777777'))).status).toBe(404)
+  })
+
+  it('restores a version as an ordinary save, against the revision it was made from', async () => {
+    const res = await restore(send(`${base}/${S}/revisions/${R1}`, 'POST', { base_revision: 4 }), rctx(R1))
+    expect(res.status).toBe(200)
+    expect(rows[0]).toMatchObject({ workbook: old, digest: 'Sheet1 as it was', edit_summary: 'Restored the version of 2026-11-18' })
+  })
+
+  it('refuses a restore made from an older revision, or without one', async () => {
+    const before = rows[0].workbook
+    expect((await restore(send(`${base}/${S}/revisions/${R1}`, 'POST', { base_revision: 3 }), rctx(R1))).status).toBe(409)
+    expect((await restore(send(`${base}/${S}/revisions/${R1}`, 'POST', {}), rctx(R1))).status).toBe(400)
+    expect(rows[0].workbook).toBe(before)
+  })
+})

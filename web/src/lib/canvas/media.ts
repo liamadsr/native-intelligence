@@ -40,3 +40,33 @@ export function isCanvasMediaPath(path: unknown, workspaceId: string, canvasId: 
 
 /** The address an item draws its media from. */
 export const canvasMediaUrl = (canvasId: string, path: string): string => `/api/account/canvases/${canvasId}/media?path=${encodeURIComponent(path)}`
+
+/** What clearing a canvas's folder needs of a storage bucket. */
+export interface MediaBucket {
+  list(path: string, options: { limit: number }): Promise<{ data: Array<{ name: string }> | null; error: { message: string } | null }>
+  remove(paths: string[]): Promise<{ error: { message: string } | null }>
+}
+
+/**
+ * Delete every file a canvas owns: what a permanent delete calls once the
+ * canvas's row is gone, so nothing is left that no canvas can reach. Only the
+ * canvas's own folder, and only names a canvas file can have. Returns how many
+ * went; a failure is reported, never thrown (the canvas is already deleted).
+ */
+export async function removeCanvasMedia(bucket: MediaBucket, workspaceId: string, canvasId: string): Promise<{ removed: number; error: string | null }> {
+  const folder = `canvas/${workspaceId}/${canvasId}`
+  if (!new RegExp(`^canvas/${UUID}/${UUID}$`).test(folder)) return { removed: 0, error: 'Not a canvas folder' }
+  let removed = 0
+  // A folder is emptied a page at a time; the bound stops a listing that never shrinks.
+  for (let round = 0; round < 50; round++) {
+    const { data, error } = await bucket.list(folder, { limit: 1000 })
+    if (error) return { removed, error: error.message }
+    const paths = (data ?? []).map((f) => `${folder}/${f.name}`).filter((p) => isCanvasMediaPath(p, workspaceId, canvasId))
+    if (!paths.length) return { removed, error: null }
+    const gone = await bucket.remove(paths)
+    if (gone.error) return { removed, error: gone.error.message }
+    removed += paths.length
+    if ((data ?? []).length < 1000) return { removed, error: null }
+  }
+  return { removed, error: 'Too many files' }
+}
