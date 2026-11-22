@@ -18,19 +18,16 @@
  * sheet so the map stays visible behind it.
  */
 
+import { EntityIcon } from '@/components/entities/entity-icon'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import {
   ArrowUpRight,
   CheckCircle2,
   FileQuestion,
-  FileText,
   HelpCircle,
   Lightbulb,
   Link2,
-  Mail,
-  Mic,
-  Paperclip,
   Sparkles,
   X,
 } from 'lucide-react'
@@ -69,14 +66,12 @@ export function typeIcon(type: ClaimType) {
 
 export function sourceIcon(type: string) {
   switch (type) {
+    // A source that is a record: its kind's identity.
     case 'capture':
-      return <Mic className="h-3.5 w-3.5 shrink-0" />
     case 'document':
-      return <FileText className="h-3.5 w-3.5 shrink-0" />
     case 'attachment':
-      return <Paperclip className="h-3.5 w-3.5 shrink-0" />
     case 'email':
-      return <Mail className="h-3.5 w-3.5 shrink-0" />
+      return <EntityIcon kind={type} size="sm" />
     case 'external_url':
       return <Link2 className="h-3.5 w-3.5 shrink-0" />
     default:

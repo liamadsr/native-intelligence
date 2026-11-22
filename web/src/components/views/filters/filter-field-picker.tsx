@@ -1,5 +1,6 @@
 'use client'
 
+import { ENTITY_IDENTITIES } from '@/lib/entities/entity-identity'
 import * as React from 'react'
 import {
   Command, CommandInput, CommandList, CommandGroup, CommandItem, CommandEmpty,
@@ -11,9 +12,16 @@ import {
   type ViewEntityType, type FilterFieldDefinition, type FilterFieldType, type FilterValue,
 } from '@/lib/views/types'
 import {
-  CircleDot, User, Tag, Calendar, Hash, Type, ToggleLeft,
-  FolderKanban, Users, Repeat, Milestone as MilestoneIcon,
-  Target, BookOpen, Building2, Mail, Link2, ChevronRight, ListChecks,
+  CircleDot,
+  User,
+  Tag,
+  Calendar,
+  Hash,
+  Type,
+  ToggleLeft,
+  Mail,
+  Link2,
+  ChevronRight,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { customFieldFilterFields } from '@/lib/views/custom-field-columns'
@@ -22,11 +30,12 @@ import { useCustomFieldDefinitions } from '../hooks/use-custom-field-definitions
 const FIELD_TYPE_ICONS: Record<FilterFieldType, React.ElementType> = {
   enum: CircleDot, member: User, label: Tag, tag: Tag,
   date: Calendar, number: Hash, text: Type, boolean: ToggleLeft,
-  project: FolderKanban, team: Users, cycle: Repeat,
-  milestone: MilestoneIcon, initiative: Target,
-  capture: BookOpen, action: CircleDot, contact: User,
-  company: Building2, contact_email: Mail, relation: Link2,
-  prospect_list: ListChecks,
+  // A field that points at a kind of record wears that kind's glyph (entity-identity.ts).
+  project: ENTITY_IDENTITIES.project.icon, team: ENTITY_IDENTITIES.team.icon, cycle: ENTITY_IDENTITIES.cycle.icon,
+  milestone: ENTITY_IDENTITIES.milestone.icon, initiative: ENTITY_IDENTITIES.initiative.icon,
+  capture: ENTITY_IDENTITIES.capture.icon, action: ENTITY_IDENTITIES.action.icon, contact: ENTITY_IDENTITIES.contact.icon,
+  company: ENTITY_IDENTITIES.company.icon, contact_email: Mail, relation: Link2,
+  prospect_list: ENTITY_IDENTITIES.prospect_list.icon,
 }
 
 function hasStaticOptions(field: FilterFieldDefinition): boolean {

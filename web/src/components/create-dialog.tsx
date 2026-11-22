@@ -52,21 +52,7 @@ import {
   Loader2,
   MapPin,
   Video,
-  FileText,
-  Sheet,
-  Table2,
-  Hash,
-  Package,
-  Clapperboard,
-  Film,
-  Handshake,
   Workflow,
-  Bot,
-  Sparkles,
-  ListOrdered,
-  UserSearch,
-  Megaphone,
-  CalendarClock,
 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -100,6 +86,7 @@ import { openCard } from '@/lib/chat-cards/open-card'
 import { pagesFor } from '@/lib/chat-cards/page-menu'
 import { useIsWorkspaceGuest, useWorkspaceEdition } from '@/app/account/workspace-switcher'
 import { useIsDesktop } from '@/components/desktop-titlebar'
+import { EntityIcon } from '@/components/entities/entity-icon'
 import { CreateTypePicker, type CreateTypeOption } from '@/components/create/create-type-picker'
 import { QUICK_CREATE } from '@/components/create/quick-create'
 import { useTeams } from '@/app/account/teams-context'
@@ -125,31 +112,8 @@ import { ATTACHMENT_ACCEPT_ATTR, isAllowedAttachmentFile } from '@/lib/attachmen
 // page opens on its own create flow (lib/create/page-create.ts).
 type CreateEntityType = CreateTypeId
 
-const TYPE_ICON = 'h-3.5 w-3.5'
-const ENTITY_TYPE_ICONS: Record<CreateTypeId, React.ReactNode> = {
-  action: <Circle className={TYPE_ICON} />,
-  project: <Folder className={TYPE_ICON} />,
-  initiative: <Target className={TYPE_ICON} />,
-  contact: <Contact className={TYPE_ICON} />,
-  email: <Mail className={TYPE_ICON} />,
-  event: <CalendarIcon className={TYPE_ICON} />,
-  company: <Building2 className={TYPE_ICON} />,
-  document: <FileText className={TYPE_ICON} />,
-  table: <Table2 className={TYPE_ICON} />,
-  spreadsheet: <Sheet className={TYPE_ICON} />,
-  channel: <Hash className={TYPE_ICON} />,
-  package: <Package className={TYPE_ICON} />,
-  studio_project: <Clapperboard className={TYPE_ICON} />,
-  studio_video: <Film className={TYPE_ICON} />,
-  deal: <Handshake className={TYPE_ICON} />,
-  flow: <Workflow className={TYPE_ICON} />,
-  agent: <Bot className={TYPE_ICON} />,
-  skill: <Sparkles className={TYPE_ICON} />,
-  sequence: <ListOrdered className={TYPE_ICON} />,
-  prospect_list: <UserSearch className={TYPE_ICON} />,
-  campaign: <Megaphone className={TYPE_ICON} />,
-  booking_link: <CalendarClock className={TYPE_ICON} />,
-}
+/** A type's glyph: its kind's identity (lib/entities/entity-identity.ts), as the palette and the pickers draw it. */
+const typeIcon = (id: CreateTypeId): React.ReactNode => <EntityIcon kind={id} size="sm" strokeWidth={2} />
 
 const typeLabel = (id: CreateTypeId) => createTypeDef(id).label
 const isQuickType = (id: CreateTypeId): id is CreateQuickTypeId => createTypeDef(id).mode === 'quick'
@@ -410,7 +374,7 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
     () =>
       availableCreateTypes(pagesFor(edition, { desktop, guest }).map((p) => p.slug)).map((t) => ({
         ...t,
-        icon: ENTITY_TYPE_ICONS[t.id],
+        icon: typeIcon(t.id),
       })),
     [edition, desktop, guest],
   )
@@ -1222,7 +1186,7 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
   const currentCompany = companies.find((c) => c.id === companyId)
 
   const hiddenExtras = ACTION_EXTRA_PROPERTY_DEFS.filter((d) => !visibleExtras.has(d.key))
-  const currentEntityOption = { label: typeLabel(entityType), icon: ENTITY_TYPE_ICONS[entityType] }
+  const currentEntityOption = { label: typeLabel(entityType), icon: typeIcon(entityType) }
 
   // ── Title placeholder by entity type ──
   const pickerAccounts = entityType === 'email' ? emailAccounts : calendarAccounts

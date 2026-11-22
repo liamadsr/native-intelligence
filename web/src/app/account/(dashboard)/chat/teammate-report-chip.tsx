@@ -4,7 +4,7 @@ import { Activity } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useOpenOutput } from '@/hooks/use-open-output'
 import { deliverableIcon } from '@/components/attention/column-card-copy'
-import { SENTENCE_ICON_GLYPHS } from '@/components/attention/sentence-icon'
+import { SENTENCE_ICON_GLYPHS, sentenceIconInk } from '@/components/attention/sentence-icon'
 import {
   isTeammateReportStatus,
   partDeliverable,
@@ -116,7 +116,7 @@ export function TeammateReportChip({
     >
       <span className="flex min-w-0 items-center gap-3 rounded-[18px] bg-background px-3 py-2.5">
         <span aria-hidden className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-foreground/[0.05] text-foreground/75">
-          <Icon className="h-[18px] w-[18px]" />
+          <Icon className={cn('h-[18px] w-[18px]', sentenceIconInk(icon))} />
         </span>
         <span className="flex min-w-0 flex-col">
           <span data-deliverable-title="" className="line-clamp-2 text-[15px] font-medium leading-5 text-foreground">

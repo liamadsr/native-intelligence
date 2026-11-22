@@ -109,7 +109,8 @@ import { usePaletteFeed } from './use-palette-feed'
 import { describeFeedEvent, feedActorLabel, sharedWithYouLine, type FeedEntry } from '@/lib/entities/feed-model'
 import { entityOpenTarget } from '@/lib/entity-links/open-entity'
 import { openTarget } from '@/lib/chat-cards/open-card'
-import { FEED_ICONS, RECORD_ICONS } from './feed-icons'
+import { EntityIcon } from '@/components/entities/entity-icon'
+import { FINDABLE_GROUP_IDENTITY_KIND } from '@/lib/entities/entity-identity'
 import { PALETTE_ENTRANCE_EASING, PALETTE_ENTRANCE_FROM, PALETTE_ENTRANCE_MS } from '@/lib/motion/palette-entrance'
 import { format, formatDistanceToNowStrict } from 'date-fns'
 
@@ -780,13 +781,15 @@ function MenuBody({
               data-menu-tab={t}
               onClick={() => onTab(t)}
               className={cn(
-                'shrink-0 rounded-full px-2.5 py-1 text-xs font-medium transition-colors',
+                'inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition-colors',
                 t === tab ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-accent hover:text-foreground',
                 // Typed, and none of its kinds matched: still there, dimmed.
                 t !== tab && t !== 'all' && counts?.[t] === 0 && 'opacity-40',
               )}
               data-menu-tab-empty={t !== 'all' && counts?.[t] === 0 ? '' : undefined}
             >
+              {/* A group of kinds wears its leading kind's glyph; lit, the glyph takes the tab's ink. */}
+              {t !== 'all' && t !== 'pages' && <EntityIcon kind={FINDABLE_GROUP_IDENTITY_KIND[t]} size="xs" muted={t === tab} strokeWidth={2} />}
               {menuTabLabel(t, edition)}
             </button>
           ))}
@@ -1112,6 +1115,8 @@ function statusLabel(status: string): string {
 const TILE = 'flex size-7 shrink-0 items-center justify-center rounded-lg'
 /** A neutral tile; on the highlighted row it lifts off the highlight. */
 const MUTED_TILE = 'bg-muted group-aria-selected:bg-background'
+/** A record's kind stands on no tile: the tile's slot, empty, so the titles still line up. */
+const SLOT = 'flex size-7 shrink-0 items-center justify-center'
 
 function RowIcon({ item }: { item: MenuItem }) {
   if (item.kind === 'page') {
@@ -1147,10 +1152,9 @@ function RowIcon({ item }: { item: MenuItem }) {
     )
   }
   if (item.kind === 'feed') {
-    const Icon = FEED_ICONS[item.entry.type] ?? Building2
     return (
-      <span className={cn(TILE, MUTED_TILE, 'text-muted-foreground')}>
-        <Icon className="size-4" strokeWidth={1.75} />
+      <span className={SLOT}>
+        <EntityIcon kind={item.entry.type} size="lg" fallback={Building2} />
       </span>
     )
   }
@@ -1165,10 +1169,10 @@ function RowIcon({ item }: { item: MenuItem }) {
   if (row.kind === 'company' && row.company.logo_url) {
     return <img src={row.company.logo_url} alt="" className={cn(TILE, MUTED_TILE, 'object-contain p-0.5')} />
   }
-  const Icon = RECORD_ICONS[row.kind] ?? Building2
+  // A record: its kind's glyph in its kind's colour, on no tile (entity-identity.ts).
   return (
-    <span className={cn(TILE, MUTED_TILE, 'text-muted-foreground')}>
-      <Icon className="size-4" strokeWidth={1.75} />
+    <span className={SLOT}>
+      <EntityIcon kind={row.kind} size="lg" fallback={Building2} />
     </span>
   )
 }

@@ -12,6 +12,7 @@ import { CalendarAgendaView } from "@/calendar/components/agenda-view/calendar-a
 import { CalendarDayView } from "@/calendar/components/week-and-day-view/calendar-day-view";
 import { CalendarWeekView } from "@/calendar/components/week-and-day-view/calendar-week-view";
 import { AddEventPopover } from "@/calendar/components/dialogs/add-event-dialog";
+import { EventDetailsPopover } from "@/calendar/components/dialogs/event-details-popover";
 import { CalendarSidebar } from "@/calendar/components/sidebar/calendar-sidebar";
 
 import type { SidebarAccount } from "@/calendar/sidebar/calendar-visibility";
@@ -170,6 +171,7 @@ export function ClientContainer({ view: chosenView, onViewChange, filterAccountI
       </div>
 
       <AddEventPopover />
+      <EventDetailsPopover />
     </div>
   );
 }

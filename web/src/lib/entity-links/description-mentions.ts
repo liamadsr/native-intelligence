@@ -21,6 +21,7 @@ import { mentionKey } from '@/lib/entity-links/mentionable'
 import { syncMentions } from '@/lib/entity-links/mentions'
 import { DOCUMENT_MENTION_KINDS } from '@/lib/wiki/wikilinks'
 import { notifyRecordMentions, type MentionNotificationTargetType } from '@/lib/documents/mention-notifications'
+import { shareMentionedMail } from '@/lib/email-share/share-on-mention'
 
 export interface SyncDescriptionMentionsInput {
   workspaceId: string
@@ -88,6 +89,20 @@ export async function syncDescriptionMentions(supabase: SupabaseClient, input: S
         ...(input.gate ? { gate: input.gate } : {}),
       })
     }
+
+    // The author's OWN mail thread, mentioned beside a teammate in this text,
+    // is shared with that teammate (decision 1), by the same rule as comments.
+    // Only pairs new since `previousMarkdown` are shared, so an unchanged
+    // re-save makes no provider call. Removing the mention later does NOT
+    // revoke the share (only the owner's explicit revoke does).
+    await shareMentionedMail(supabase, {
+      workspaceId: input.workspaceId,
+      authorUserId: input.userId,
+      authorMemberId: memberId,
+      mentions: chips,
+      previousMentions: input.previousMarkdown ? parseDocumentMentions(input.previousMarkdown) : null,
+      source: { type: input.source.type, id: input.source.id },
+    })
   } catch (err) {
     console.warn('[description-mentions] sync threw:', err instanceof Error ? err.message : 'unknown')
   }

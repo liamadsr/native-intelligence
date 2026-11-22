@@ -2,8 +2,9 @@
 /**
  * A calendar event block, in its two modes.
  *
- * On the calendar page, clicking the block opens the event, and a separate
- * Start button starts the meeting's capture.
+ * On the calendar page, clicking the block (or Enter on it) opens the
+ * event's card beside it, and a separate Start button starts the meeting's
+ * capture. The block has a resize handle at each edge.
  *
  * With `startOnClick` (the dashboard widget), the whole block is the Start
  * button: a click, Enter or Space starts the capture and nothing opens. There's
@@ -27,6 +28,7 @@ const calendar = vi.hoisted(() => ({
 vi.mock('@/calendar/contexts/calendar-context', () => ({
   useCalendarSettings: () => ({ badgeVariant: 'colored' }),
   useCalendarMutators: () => ({ selectEvent: calendar.selectEvent }),
+  useOptionalCalendarEventDetails: () => null,
 }))
 vi.mock('@/calendar/hooks/use-start-meeting', () => ({
   useStartMeetingFromEvent: () => ({
@@ -85,12 +87,29 @@ describe('an event block on the calendar page', () => {
     render(MEETING)
 
     act(() => card().click())
-    expect(calendar.selectEvent).toHaveBeenCalledWith(MEETING)
+    // The card opens beside the block that was clicked.
+    expect(calendar.selectEvent).toHaveBeenCalledWith(MEETING, container.querySelector('[data-calendar-event-trigger="standup"]'))
     expect(calendar.startMeeting).not.toHaveBeenCalled()
 
     act(() => startButton()!.click())
     expect(calendar.startMeeting).toHaveBeenCalledWith(MEETING)
     expect(calendar.selectEvent).toHaveBeenCalledTimes(1)
+  })
+
+  it('opens the event on Enter and Space too', () => {
+    render(MEETING)
+    press('Enter')
+    press(' ')
+    press('a')
+    expect(calendar.selectEvent).toHaveBeenCalledTimes(2)
+  })
+
+  it('has a handle for the start and one for the end, and only the end one on a short block', () => {
+    const handles = () => [...container.querySelectorAll<HTMLElement>('[data-resize-handle]')].map((el) => el.dataset.resizeHandle)
+    render({ ...MEETING, endDate: new Date(2026, 8, 23, 10, 0).toISOString() })
+    expect(handles()).toEqual(['start', 'end'])
+    render(MEETING)
+    expect(handles()).toEqual(['end'])
   })
 })
 
@@ -134,7 +153,7 @@ describe('an event block with startOnClick', () => {
     render(action, { readOnly: true, startOnClick: true })
 
     act(() => card().click())
-    expect(calendar.selectEvent).toHaveBeenCalledWith(action)
+    expect(calendar.selectEvent).toHaveBeenCalledWith(action, expect.any(HTMLElement))
     expect(calendar.startMeeting).not.toHaveBeenCalled()
   })
 })
