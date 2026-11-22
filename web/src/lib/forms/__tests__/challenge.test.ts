@@ -116,7 +116,7 @@ describe('one challenge stores one submission (the attempt ledger)', () => {
   }
 
   it('a second try with the same challenge is refused; a re-post of the stored submission is still a repeat', async () => {
-    const rows = [
+    const rows: Array<Record<string, unknown>> = [
       { id: 'a1', form_id: 'f', client_hash: 'c', external_id: null, challenge_id: null, row_id: null, stored_at: null },
       { id: 'a2', form_id: 'f', client_hash: 'c', external_id: null, challenge_id: null, row_id: null, stored_at: null },
       { id: 'a3', form_id: 'f', client_hash: 'c', external_id: null, challenge_id: null, row_id: null, stored_at: null },

@@ -214,8 +214,7 @@ const REF_LINES: Partial<Record<MentionableType, { noun: string; read: (id: stri
   knowledge_package: { noun: 'Knowledge package', read: (id) => `get_package(package_id: ${id})` },
   campaign: { noun: 'Campaign', read: (id) => `id ${id}: list_campaigns shows it in full` },
   data_table: { noun: 'Table', read: (id) => `get_table(table_id: ${id})` },
-  // Its tools arrive with the agents' spreadsheet tools; until then the line names it.
-  spreadsheet: { noun: 'Spreadsheet', read: (id) => `id ${id}` },
+  spreadsheet: { noun: 'Spreadsheet', read: (id) => `read_spreadsheet(id: ${id})` },
   data_row: { noun: 'Table row', read: (id) => `id ${id}: query_rows on its table reads its fields` },
   canvas: { noun: 'Canvas', read: (id) => `read_canvas(canvas_id: ${id})` },
   team_chat_channel: { noun: 'Team chat channel', read: (id) => `id ${id}` },

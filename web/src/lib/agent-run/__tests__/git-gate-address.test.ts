@@ -133,7 +133,7 @@ describe('parseGitGateAddresses / gitGateAddressBound', () => {
 
 describe('the git gate with the setting unset: as before', () => {
   it('any address, or none, reaches the token check (reads and pushes)', async () => {
-    for (const headers of [{}, { 'x-real-ip': ELSEWHERE }]) {
+    for (const headers of [{}, { 'x-real-ip': ELSEWHERE }] as Record<string, string>[]) {
       const { readRes, pushRes, upstreamCalls } = await both(headers)
       expect([readRes.status, pushRes.status]).toEqual([200, 200])
       expect(upstreamCalls).toBe(2)

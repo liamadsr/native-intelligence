@@ -50,6 +50,7 @@ beforeAll(() => {
   HTMLElement.prototype.setPointerCapture = () => {}
   HTMLElement.prototype.hasPointerCapture = () => false
   HTMLElement.prototype.releasePointerCapture = () => {}
+  HTMLElement.prototype.scrollIntoView = () => {}
   globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => setTimeout(() => cb(0), 0)) as never
   globalThis.cancelAnimationFrame = ((id: number) => clearTimeout(id)) as never
 })
@@ -397,7 +398,7 @@ describe('the full toolbar', () => {
       'Bold', 'Italic', 'Strikethrough', 'Underline',
       'Undo', 'Redo', 'Format as currency', 'Format as percent', 'Decrease decimal places', 'Increase decimal places', 'Wrap text',
       'Find and replace',
-      'Number format', 'Font', 'Text color', 'Fill color', 'Borders', 'Horizontal alignment', 'Vertical alignment', 'Functions', 'Paste special', 'View options', 'Format and data',
+      'Number format', 'Font', 'Text color', 'Fill color', 'Borders', 'Horizontal alignment', 'Vertical alignment', 'Functions', 'Paste special', 'Insert', 'View options', 'Format and data',
     ])
   })
 
@@ -517,5 +518,129 @@ describe('find and replace', () => {
     key('f', grid(), { ctrlKey: true })
     key('Escape', container.querySelector('[aria-label="Find"]') as Element)
     expect(container.querySelector('[role="search"]')).toBeNull()
+  })
+})
+
+describe('phase 4 data', () => {
+  const openMenu = (label: string) =>
+    act(() => {
+      const trigger = container.querySelector(`[aria-label="${label}"]`) as HTMLElement
+      trigger.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }))
+      trigger.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }))
+    })
+  const menuItem = (text: string) => [...document.querySelectorAll('[role="menuitem"]')].find((i) => i.textContent?.trim() === text) as HTMLElement
+
+  it('Insert → Checkbox makes a checkbox and the next save carries the extras', async () => {
+    await open()
+    openMenu('Insert')
+    act(() => menuItem('Checkbox').dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    expect(container.querySelector('[data-checkbox="A1"]')).not.toBeNull()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1300)
+    })
+    const body = patches()[0].body as { extras?: { checkboxes?: unknown[] } }
+    expect(body.extras?.checkboxes).toHaveLength(1)
+  })
+
+  it('an ordinary edit does not resend the extras', async () => {
+    await open()
+    await typeCell('9')
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1300)
+    })
+    expect(patches()[0].body?.extras).toBeUndefined()
+  })
+})
+
+describe('version history', () => {
+  const R1 = '55555555-5555-4555-8555-555555555555'
+  const R2 = '66666666-6666-4666-8666-666666666666'
+  const entries = [
+    { id: R2, spreadsheet_id: ID, revision: 4, title: 'Hiring plan', sheet_names: ['Sheet1'], author_id: 'm-1', author_kind: 'human', change_summary: null, created_at: '2026-11-20T10:00:00Z', updated_at: '2026-11-20T10:00:00Z', author_name: 'Dana Okafor' },
+    { id: R1, spreadsheet_id: ID, revision: 2, title: 'Hiring plan', sheet_names: ['Sheet1'], author_id: 'm-2', author_kind: 'agent', change_summary: 'Filled the totals', created_at: '2026-11-18T10:00:00Z', updated_at: '2026-11-18T10:00:00Z', author_name: 'Ravi Menon' },
+  ]
+  function withHistory(restore: () => Response) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : undefined
+        calls.push({ url, method, body })
+        if (url.endsWith('/revisions')) return json({ revisions: entries })
+        if (url.includes('/revisions/') && method === 'POST') return restore()
+        if (method === 'PATCH') return patch(body ?? {})
+        return json({ spreadsheet: current, member_id: 'm-1' })
+      }),
+    )
+  }
+  const openHistory = async () => {
+    await act(async () => {
+      ;(container.querySelector('button[aria-label="Version history"]') as HTMLButtonElement).click()
+      await vi.advanceTimersByTimeAsync(10)
+    })
+  }
+
+  it('lists who changed it and when, the newest marked as current, an agent’s change said to be one', async () => {
+    withHistory(() => json({}))
+    await open()
+    await openHistory()
+    const panel = container.querySelector('aside[aria-label="Version history"]') as HTMLElement
+    const items = [...panel.querySelectorAll('li')]
+    expect(items).toHaveLength(2)
+    expect(items[0].textContent).toContain('Dana Okafor')
+    expect(items[0].textContent).toContain('Current version')
+    expect(items[0].textContent).not.toContain('Restore this version')
+    expect(items[1].textContent).toContain('Ravi Menon’s agent')
+    expect(items[1].textContent).toContain('Filled the totals')
+    expect(items[1].textContent).toContain('Restore this version')
+  })
+
+  it('restores a version after asking, from the revision the editor is at, and loads it', async () => {
+    withHistory(() => {
+      current = record({ revision: 5, workbook: workbookWith([[1, 1, 'As it was']]) })
+      return json({ spreadsheet: { ...current, workbook: undefined } })
+    })
+    await open()
+    await openHistory()
+    const panel = () => container.querySelector('aside[aria-label="Version history"]') as HTMLElement
+    act(() => ([...panel().querySelectorAll('button')].find((b) => b.textContent === 'Restore this version') as HTMLButtonElement).click())
+    expect(panel().textContent).toContain('Restore this version?')
+    await act(async () => {
+      ;([...panel().querySelectorAll('button')].find((b) => b.textContent === 'Restore') as HTMLButtonElement).click()
+      await vi.advanceTimersByTimeAsync(20)
+    })
+    const post = calls.find((c) => c.method === 'POST')
+    expect(post?.url).toContain(`/revisions/${R1}`)
+    expect(post?.body).toEqual({ base_revision: 4 })
+    expect(container.querySelector('[data-cell="A1"]')?.textContent).toBe('As it was')
+    // The older workbook that was open is not saved over the restored one.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000)
+    })
+    expect(patches()).toHaveLength(0)
+  })
+
+  it('warns that unsaved changes go when restoring, and says when someone else got there first', async () => {
+    const { toast } = await import('sonner')
+    withHistory(() => json({ error: 'conflict' }, 409))
+    await open()
+    await typeCell('z')
+    await openHistory()
+    const panel = () => container.querySelector('aside[aria-label="Version history"]') as HTMLElement
+    act(() => ([...panel().querySelectorAll('button')].find((b) => b.textContent === 'Restore this version') as HTMLButtonElement).click())
+    expect(panel().textContent).toContain('Your unsaved changes will be lost')
+    await act(async () => {
+      ;([...panel().querySelectorAll('button')].find((b) => b.textContent === 'Restore') as HTMLButtonElement).click()
+      await vi.advanceTimersByTimeAsync(20)
+    })
+    expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('Someone changed this spreadsheet'))
+  })
+
+  it('a view-only spreadsheet shows its history without a way to restore', async () => {
+    current = record({ status: 'archived' })
+    withHistory(() => json({}))
+    await open()
+    await openHistory()
+    expect(container.querySelector('aside[aria-label="Version history"]')?.textContent).not.toContain('Restore this version')
   })
 })

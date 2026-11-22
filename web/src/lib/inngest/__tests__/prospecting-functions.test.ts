@@ -37,7 +37,7 @@ const hoisted = vi.hoisted(() => ({
   executeAccountCardRun: vi.fn(),
   executePeopleRun: vi.fn(),
   guardBackgroundUsage: vi.fn(),
-  guardBackgroundUsageOnPlan: vi.fn(async () => ({ chatgptPlan: true })),
+  guardBackgroundUsageOnPlan: vi.fn(async (_userId: string) => ({ chatgptPlan: true })),
   chatgptPlanFor: vi.fn(async (_userId: unknown, _opts?: unknown) => false),
   planDeepSearch: vi.fn(),
   chainProfileRun: vi.fn(),

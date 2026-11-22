@@ -91,7 +91,7 @@ function solved() {
 const GOOD = { name: 'Sarah Lindqvist', email: 'sarah@lindqvist.example', message: 'Two rugs.' }
 
 /** A multipart post as a browser sends it: the body encoded, with its Content-Length. */
-async function post(fields: Record<string, string>, files: Array<{ name: string; type: string; bytes: Uint8Array }> = [], headers: Record<string, string> = {}) {
+async function post(fields: Record<string, string>, files: Array<{ name: string; type: string; bytes: Uint8Array<ArrayBuffer> }> = [], headers: Record<string, string> = {}) {
   const form = new FormData()
   for (const [k, v] of Object.entries(fields)) form.append(k, v)
   for (const f of files) form.append('files', new File([f.bytes], f.name, { type: f.type }))
@@ -112,7 +112,7 @@ describe('a submission with files', () => {
     expect(res.status).toBe(201)
     expect(log).toEqual(['key', 'caps', 'bytes recorded', 'columns', 'byte caps', 'byte caps', 'byte caps', 'repeat', 'maker', 'contact', 'row', 'files stored', 'marked stored'])
     expect(d.recordUploadBytes).toHaveBeenCalledWith('att-1', PNG.length + PDF.length)
-    const [form, rowId, files] = d.storeFiles.mock.calls[0]
+    const [form, rowId, files] = vi.mocked(d.storeFiles).mock.calls[0]
     expect(form.id).toBe('form-1')
     expect(rowId).toBe('row-1')
     expect(files.map((f) => [f.name, f.mime, f.size])).toEqual([
@@ -120,7 +120,7 @@ describe('a submission with files', () => {
       ['quote.pdf', 'application/pdf', PDF.length],
     ])
     // Files fill no column: the row is the fields alone.
-    expect(d.writeRow.mock.calls[0][1]).toEqual({ id: 'row-1', title: 'Sarah Lindqvist', values: { email: 'sarah@lindqvist.example', message: 'Two rugs.' } })
+    expect(vi.mocked(d.writeRow).mock.calls[0][1]).toEqual({ id: 'row-1', title: 'Sarah Lindqvist', values: { email: 'sarah@lindqvist.example', message: 'Two rugs.' } })
   })
 
   it('the bot check comes before the files: a post without it is refused and stores nothing', async () => {

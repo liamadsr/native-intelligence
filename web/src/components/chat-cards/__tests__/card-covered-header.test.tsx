@@ -41,9 +41,10 @@ function render(covered: boolean) {
         { value: { left: null, right, trail, setBack } },
         h(
           CardCovered,
-          { covered },
-          h(CardHeaderSlot, { side: 'right' }, h('button', { type: 'button' }, 'New table')),
-          h(CardHeaderTrail, { onBack: () => {}, backLabel: 'Back to tables' }, h('span', null, 'Sales')),
+          { covered, children: [
+            h(CardHeaderSlot, { key: 'slot', side: 'right', children: h('button', { type: 'button' }, 'New table') }),
+            h(CardHeaderTrail, { key: 'trail', onBack: () => {}, backLabel: 'Back to tables', children: h('span', null, 'Sales') }),
+          ] },
         ),
       ),
     )

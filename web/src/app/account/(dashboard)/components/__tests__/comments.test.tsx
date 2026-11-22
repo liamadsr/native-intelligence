@@ -299,7 +299,7 @@ describe('Comments — the box is the shared composer', () => {
 
     const reply = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Reply')!
     await act(async () => reply.click())
-    await act(async () => new Promise((r) => requestAnimationFrame(() => r(null))))
+    await act(async () => new Promise((r) => requestAnimationFrame(() => r())))
     expect(composer().querySelector('[data-comment-replying]')?.textContent).toContain('Replying to Alice')
     expect(box().getAttribute('placeholder')).toBe('Reply to Alice…')
     expect(document.activeElement).toBe(box())

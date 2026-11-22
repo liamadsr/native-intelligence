@@ -125,11 +125,12 @@ const CHAT_ONLY_NAMED: Record<string, readonly string[]> = { 'studio-reference-t
 
 /** Every argument name any Studio tool takes, at any depth, read from the tools' own schemas. */
 function studioArgumentNames(): Set<string> {
-  const tools = {
+  // Each tool's input schema is a zod schema (z.toJSONSchema throws on anything else).
+  const tools: Record<string, { inputSchema?: unknown }> = {
     ...createStudioTools('u', 'w'), ...createStudioAdsTools('u', 'w'), ...createStudioAudioTools('u', 'w'), ...createStudioBlueprintTools('u', 'w'),
     ...createStudioCheckTools('u', 'w'), ...createStudioLibraryTools('u', 'w'), ...createStudioMediaTools('u', 'w'), ...createStudioProductTools('u', 'w'),
     ...createStudioSceneTools('u', 'w'), ...createStudioSoundTools('u', 'w'), ...createStudioVisionTools('u', 'w'),
-  } as Record<string, { inputSchema: z.ZodType }>
+  }
   const names = new Set<string>()
   const walk = (node: unknown) => {
     if (!node || typeof node !== 'object') return
@@ -143,7 +144,7 @@ function studioArgumentNames(): Set<string> {
     for (const key of ['items', 'additionalProperties']) walk(n[key])
     for (const key of ['anyOf', 'allOf', 'oneOf']) for (const v of (n[key] as unknown[] | undefined) ?? []) walk(v)
   }
-  for (const t of Object.values(tools)) walk(z.toJSONSchema(t.inputSchema, { unrepresentable: 'any' }))
+  for (const t of Object.values(tools)) walk(z.toJSONSchema(t.inputSchema as z.ZodType, { unrepresentable: 'any' }))
   return names
 }
 /**

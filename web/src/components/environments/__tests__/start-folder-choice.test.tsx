@@ -76,7 +76,7 @@ describe('folderChoices', () => {
 function render(m: MacEnvironmentItem, mode: 'start' | 'link', onStart = vi.fn()) {
   act(() =>
     root.render(
-      h(StartFolderChoice, { open: true, onOpenChange: vi.fn(), mac: m, repo: REPO, mode, onStart }, h(StartFolderAnchor, { asChild: true }, h('button', null, 'Start'))),
+      h(StartFolderChoice, { open: true, onOpenChange: vi.fn(), mac: m, repo: REPO, mode, onStart, children: h(StartFolderAnchor, { asChild: true }, h('button', null, 'Start')) }),
     ),
   )
   return onStart

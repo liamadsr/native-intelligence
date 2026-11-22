@@ -144,6 +144,15 @@ export const DEVICE_ONLY_EXCLUSIONS: readonly string[] = ['enrich_contact']
 const TABLE_WRITE_TOOLS: readonly string[] =
   TOOL_CATEGORIES.find((c) => c.id === 'tables')?.tools.filter((t) => t.sideEffect !== 'read').map((t) => t.name) ?? []
 
+/**
+ * A spreadsheet is the workspace's own too (Spreadsheets, phase 3), kept by
+ * everyone, so its writes are held out of a team chat turn the same way the
+ * table writes are: the person edits a spreadsheet from their own chat. Every
+ * non-read tool of the registry's `spreadsheets` category.
+ */
+const SPREADSHEET_WRITE_TOOLS: readonly string[] =
+  TOOL_CATEGORIES.find((c) => c.id === 'spreadsheets')?.tools.filter((t) => t.sideEffect !== 'read').map((t) => t.name) ?? []
+
 export const SURFACE_EXCLUDED_TOOLS: Readonly<Record<ChatRunSurface, ReadonlySet<string>>> = {
   // The attended-only tools the trust authority denies the person away from
   // the app (caller.ts: the device ask is person_remote).
@@ -195,7 +204,7 @@ export const SURFACE_EXCLUDED_TOOLS: Readonly<Record<ChatRunSurface, ReadonlySet
    * came back would have nowhere in the channel to go). Others in the channel
    * read the reply; nothing there draws cards.
    */
-  team_chat: new Set(['mcp_confirm_call', 'helpers', ...CHAT_NATIVE_TOOL_NAMES, ...ATTENDED_ONLY_TOOL_NAMES, ...CARD_TOOLS, ...BROWSER_TOOLS, ...JWT_TOOLS, ...TABLE_WRITE_TOOLS]),
+  team_chat: new Set(['mcp_confirm_call', 'helpers', ...CHAT_NATIVE_TOOL_NAMES, ...ATTENDED_ONLY_TOOL_NAMES, ...CARD_TOOLS, ...BROWSER_TOOLS, ...JWT_TOOLS, ...TABLE_WRITE_TOOLS, ...SPREADSHEET_WRITE_TOOLS]),
 }
 
 /**

@@ -110,6 +110,7 @@ export const REF_MENTION_TOOL_NAMES: Partial<Record<string, readonly string[]>> 
   data_row: ['query_rows'],
   decision: ['list_decisions'],
   studio_project: ['list_studio_projects'],
+  spreadsheet: ['read_spreadsheet'],
 }
 
 /**

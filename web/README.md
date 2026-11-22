@@ -146,7 +146,7 @@ and the desktop app bundles it.
 npm test               # the full Vitest suite, once
 npm run test:watch     # watch mode
 npm run test:coverage  # v8 coverage report in coverage/
-npm run typecheck      # tsc --noEmit over everything, tests included
+npm run typecheck      # tsc over everything, tests included (scripts/typecheck.mjs)
 npm run lint           # ESLint on src/
 ```
 
@@ -154,6 +154,13 @@ Run them under Node 24. The suite needs no `.env.local`: `src/test/setup.ts` cle
 the app's settings (the internal secrets, the app's address, the Gateway's
 credentials) before each run. `npm run build` runs the suite first and stops on a
 failure.
+
+The typecheck needs no generated files but fumadocs' `.source/` (written by `next dev`,
+`next build` or `npx fumadocs-mdx`). One `tsc --noEmit` over the whole project needs
+about 10 GB of heap, so `scripts/typecheck.mjs` builds the same program in four
+processes, one after another, each checking a quarter of the files (about 7 GB each,
+6 to 7 minutes in all; `--jobs 2` runs two at once on a machine with the memory).
+`packages/ui` is its own project (its tsconfig, built by tsup) and is checked after.
 
 The end-to-end tests use Playwright against a running app (`BASE_URL`, default
 `http://localhost:3000`):
