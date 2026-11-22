@@ -140,6 +140,8 @@ export interface ArtifactItem extends ItemBase {
   kind: 'artifact'
   html: string
   title?: string
+  /** Where it comes when artifacts are presented (a sort key); without one, reading order. */
+  presentOrder?: string
 }
 export interface GroupItem extends ItemBase {
   kind: 'group'
