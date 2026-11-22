@@ -29,6 +29,10 @@ import { appendStructure, readExtras, type ExtrasChange, type StructureEntry, ty
 import { droppedNote, mergeExtras, rebaseWithLog } from '@/lib/spreadsheets/sync'
 import type { SpreadsheetRecord, SpreadsheetSummary } from '@/lib/spreadsheets/types'
 import { CommentOverlay, CommentsPanel, useSpreadsheetComments } from './comments'
+import { createClient } from '@/lib/supabase/client'
+import { type RoomClient } from '@/components/canvas/live'
+import { SpreadsheetPresence, peerColor, type SheetSelection } from './presence'
+import { PeerFaces, PresenceOverlay, useSheetPeers } from './presence-layer'
 import { ChartDialog } from './chart-dialog'
 import { ConditionalFormat } from './conditional-format'
 import { DataValidationDialog } from './data-validation'
@@ -210,6 +214,55 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
   }, [])
   const onMessage = useCallback((message: string) => toast.error(message), [])
   const comments = useSpreadsheetComments(loaded.record.id, onMessage)
+
+  // ── Presence: who else has this open, and each one's selected cell ─────────
+  // Independent of saving — a view-only (archived) viewer is as much "here" as
+  // an editor — so this runs whatever the spreadsheet's status. The controller
+  // joins a private Realtime room (migration 689); if the server refuses, it
+  // stays quiet and shows nobody else.
+  const [presence, setPresence] = useState<SpreadsheetPresence | null>(null)
+  useEffect(() => {
+    const supabase = createClient()
+    let live = true
+    let controller: SpreadsheetPresence | null = null
+    let offWorkbook: (() => void) | null = null
+    const snapshot = (): SheetSelection => {
+      const sel = workbook.selection()
+      return { sheetId: workbook.sheetIdAt(), range: sel.range, active: { row: sel.row, column: sel.column } }
+    }
+    const onVisible = () => controller?.setVisible(!document.hidden)
+    document.addEventListener('visibilitychange', onVisible)
+    void supabase.auth.getUser().then(({ data }) => {
+      const user = data.user
+      if (!live || !user) return
+      const meta = (user.user_metadata ?? {}) as { full_name?: string; name?: string }
+      const name = (meta.full_name || meta.name || user.email?.split('@')[0] || 'Someone').slice(0, 60)
+      const key = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+      const me = { key, userId: user.id, name, color: peerColor(user.id) }
+      controller = new SpreadsheetPresence(supabase as unknown as RoomClient, loaded.record.id, me, snapshot())
+      setPresence(controller)
+      controller.setVisible(!document.hidden)
+      controller.start()
+      // The editor re-renders on every workbook change; feed presence only when
+      // the sheet or selection actually moved (the controller throttles sends).
+      let last = ''
+      offWorkbook = workbook.subscribe(() => {
+        const next = snapshot()
+        const sig = `${next.sheetId}:${next.range.r1},${next.range.c1},${next.range.r2},${next.range.c2}:${next.active.row},${next.active.column}`
+        if (sig === last) return
+        last = sig
+        controller?.update(next)
+      })
+    })
+    return () => {
+      live = false
+      document.removeEventListener('visibilitychange', onVisible)
+      offWorkbook?.()
+      controller?.stop()
+      setPresence(null)
+    }
+  }, [loaded.record.id, workbook])
+  const peers = useSheetPeers(presence?.peers ?? null)
 
   // A quiet "Updated by …" note for a few seconds after someone else's change lands.
   const noteUpdatedBy = useCallback((name: string | null) => {
