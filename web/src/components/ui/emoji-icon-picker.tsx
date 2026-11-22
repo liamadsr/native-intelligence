@@ -1,5 +1,6 @@
 'use client'
 
+import { EntityIcon } from '@/components/entities/entity-icon'
 import { useState } from 'react'
 import dynamic from 'next/dynamic'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -108,7 +109,8 @@ export function EmojiIconPicker({ value, onChange, className }: EmojiIconPickerP
 }
 
 /**
- * Renders a project icon — either the custom emoji or the default Folder.
+ * Renders a project icon — either the custom emoji or the project kind's own
+ * glyph and colour (lib/entities/entity-identity.ts).
  * Use this everywhere a project icon is displayed for consistency.
  */
 export function ProjectIcon({
@@ -131,5 +133,5 @@ export function ProjectIcon({
     return <span className={cn(sizeClasses[size], 'flex items-center justify-center leading-none', className)}>{icon}</span>
   }
 
-  return <Folder className={cn(sizeClasses[size], 'text-muted-foreground', className)} />
+  return <EntityIcon kind="project" className={cn(sizeClasses[size], className)} />
 }

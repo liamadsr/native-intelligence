@@ -2,8 +2,8 @@
 
 import { createContext, memo, useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { flushSync } from 'react-dom'
-import { AlertCircle, ArrowUp, AudioLines, Building2, FileText, FolderOpen, ImageIcon, Lock, MousePointerClick, Paperclip, Plus, User, X, type LucideIcon } from 'lucide-react'
-import { RECORD_ICONS } from './feed-icons'
+import { AlertCircle, ArrowUp, AudioLines, FileText, FolderOpen, ImageIcon, Lock, MousePointerClick, Paperclip, Plus, X } from 'lucide-react'
+import { EntityIcon } from '@/components/entities/entity-icon'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { registerReloadBlocker } from '@/lib/deploy-reload'
@@ -137,10 +137,6 @@ const TYPE_OUT_CHAR_MS = 30
 const TYPE_OUT_MAX_MS = 1200
 /** The whole suggestion stays in the box this long before it sends. */
 const TYPE_OUT_BEAT_MS = 200
-
-/** A mentioned record's chip glyph. */
-/** A record chip's glyph: its kind's, as the menu draws it (feed-icons.ts). */
-const recordChipIcon = (kind: ComposerRecordKind): LucideIcon => RECORD_ICONS[kind] ?? FileText
 
 /**
  * May `/` here open the palette? Only from outside a text field, a menu or a
@@ -1339,7 +1335,7 @@ export const ChatInput = memo(function ChatInput({
                 variant="secondary"
                 className="gap-1 pl-2 pr-1"
               >
-                <FileText className="h-3 w-3" />
+                <EntityIcon kind="capture" size="xs" strokeWidth={2} />
                 <span className="max-w-[150px] truncate text-xs">
                   {note.title}
                 </span>
@@ -1361,7 +1357,7 @@ export const ChatInput = memo(function ChatInput({
                 variant="secondary"
                 className="gap-1 pl-2 pr-1"
               >
-                <User className="h-3 w-3" />
+                <EntityIcon kind="contact" size="xs" strokeWidth={2} />
                 <span className="max-w-[150px] truncate text-xs">
                   {mentionLabel(contact)}
                 </span>
@@ -1383,7 +1379,7 @@ export const ChatInput = memo(function ChatInput({
                 variant="secondary"
                 className="gap-1 pl-2 pr-1"
               >
-                <Building2 className="h-3 w-3" />
+                <EntityIcon kind="company" size="xs" strokeWidth={2} />
                 <span className="max-w-[150px] truncate text-xs">
                   {company.name}
                 </span>
@@ -1400,11 +1396,10 @@ export const ChatInput = memo(function ChatInput({
               </Badge>
             ))}
             {attachedRecords.map((record) => {
-              const Icon = recordChipIcon(record.kind)
               const label = mentionRecordLabel(record)
               return (
                 <Badge key={record.id} variant="secondary" className="gap-1 pl-2 pr-1" data-record-chip={`${record.kind}:${record.id}`}>
-                  <Icon className="h-3 w-3" />
+                  <EntityIcon kind={record.kind} size="xs" fallback={FileText} strokeWidth={2} />
                   <span className="max-w-[150px] truncate text-xs">{label}</span>
                   <button
                     onClick={(e) => {

@@ -1,5 +1,6 @@
 'use client'
 
+import { EntityIcon } from '@/components/entities/entity-icon'
 import { PreferenceActionButton } from '@/components/views/preference-action'
 
 import dynamic from 'next/dynamic'
@@ -57,7 +58,6 @@ import {
   Search,
   Loader2,
   Lock,
-  Monitor,
   Paperclip,
   ZoomIn,
   ZoomOut,
@@ -1519,7 +1519,7 @@ function ProjectDocumentsList({ projectId }: { projectId: string }) {
           >
             {/* Name */}
             <div className="flex items-center gap-2 flex-1 min-w-0">
-              <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <EntityIcon kind="document" size="sm" />
               <span className="min-w-0 flex-1 truncate">{doc.title}</span>
             </div>
 
@@ -1800,7 +1800,7 @@ function ProjectFilesList({ projectId, onOpenCapture }: { projectId: string; onO
                       className="inline-flex items-center gap-1 max-w-full text-[11px] text-muted-foreground hover:text-foreground transition-colors truncate"
                       title={captureName}
                     >
-                      <Mic className="h-3 w-3 shrink-0" />
+                      <EntityIcon kind="capture" size="xs" strokeWidth={2} />
                       <span className="min-w-0 flex-1 truncate">{captureName}</span>
                     </button>
                   ) : (

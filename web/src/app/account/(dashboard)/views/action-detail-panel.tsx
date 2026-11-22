@@ -1,5 +1,6 @@
 'use client'
 
+import { EntityIcon } from '@/components/entities/entity-icon'
 import { PreferenceActionButton } from '@/components/views/preference-action'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -112,7 +113,6 @@ import {
 } from '@/components/ui/popover'
 import {
   Calendar as CalendarIcon,
-  PanelLeftClose,
   X,
   Plus,
   Link as LinkIcon,
@@ -126,7 +126,6 @@ import {
   Gauge,
   Milestone,
   RefreshCw,
-  ChevronLeft,
   ChevronRight,
   GitPullRequest,
   ExternalLink,
@@ -139,7 +138,6 @@ import {
   Copy,
   ChevronDown,
   Cloud,
-  FileText,
   Paperclip,
   MessageCircleQuestion,
   AlarmClock,
@@ -2817,7 +2815,7 @@ export function ActionDetailPanel({
                       onClick={() => setDocsExpanded((v) => !v)}
                       className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm text-muted-foreground transition-colors hover:bg-muted/50"
                     >
-                      <FileText className="h-4 w-4 shrink-0" />
+                      <EntityIcon kind="document" />
                       <span>
                         {linkedDocs.length} {linkedDocs.length === 1 ? 'document' : 'documents'}
                       </span>
@@ -2834,7 +2832,7 @@ export function ActionDetailPanel({
                             key={doc.link_id}
                             className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs group hover:bg-muted/50"
                           >
-                            <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                            <EntityIcon kind="document" size="sm" />
                             <span className="select-text min-w-0 flex-1 truncate">{doc.title}</span>
                             <button
                               onClick={() => handleUnlinkDocument(doc.link_id)}

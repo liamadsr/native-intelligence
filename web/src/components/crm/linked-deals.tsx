@@ -7,13 +7,16 @@
  * its pipeline, value and expected close; a click opens it in its pipeline
  * on the Deals page, in the row panel.
  */
+import { ENTITY_IDENTITIES } from '@/lib/entities/entity-identity'
 import { useEffect, useState } from 'react'
-import { CircleDollarSign } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { cn } from '@/lib/utils'
 import { formatDealValue, formatDealTotals } from '@/lib/crm/deal-format'
 import { openTarget } from '@/lib/chat-cards/open-card'
 import type { StageOutcome } from '@/lib/crm/custom-field-types'
+
+/** The deal's own glyph (entity-identity.ts); the row tints it by how the deal ended. */
+const DealGlyph = ENTITY_IDENTITIES.deal.icon
 
 export interface LinkedDeal {
   id: string
@@ -43,8 +46,9 @@ export function LinkedDealsList({ deals, onOpen }: { deals: readonly LinkedDeal[
         {deals.map((d) => (
           <li key={d.id}>
             <button type="button" onClick={() => onOpen(d)} className="flex w-full items-center gap-3 py-2.5 text-left hover:bg-muted/40" data-deal-row={d.id}>
-              <CircleDollarSign
+              <DealGlyph
                 aria-hidden
+                data-entity-icon="deal"
                 className={cn('h-4 w-4 shrink-0', d.status === 'won' ? 'text-emerald-500' : d.status === 'lost' ? 'text-muted-foreground/50' : 'text-muted-foreground')}
               />
               <span className="min-w-0 flex-1">

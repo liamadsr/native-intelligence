@@ -1,6 +1,7 @@
 'use client'
 
 
+import { EntityIcon } from '@/components/entities/entity-icon'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { usePanelSection } from './use-panel-section'
@@ -27,11 +28,8 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import {
-  FileText,
   ChevronDown,
-  ChevronLeft,
   ChevronRight,
-  CheckSquare,
   User,
   Trash2,
   Plus,
@@ -925,7 +923,7 @@ export function DocumentDetailPanel({
                     )}
                     <div className="flex flex-wrap items-center gap-2">
                       <div className="flex items-center gap-1.5">
-                        <FileText className="h-3 w-3 text-muted-foreground" />
+                        <EntityIcon kind="document" size="xs" strokeWidth={2} />
                         <span className="text-xs text-muted-foreground">{isSystem ? 'System document' : 'Document'}</span>
                       </div>
                       {doc.project_name && (
@@ -1023,7 +1021,7 @@ export function DocumentDetailPanel({
                                   onClick={() => setLinkedActionsExpanded((v) => !v)}
                                   className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm text-muted-foreground transition-colors hover:bg-muted/50"
                                 >
-                                  <CheckSquare className="h-4 w-4 shrink-0" />
+                                  <EntityIcon kind="action" />
                                   <span>
                                     {linkedActions.length} {linkedActions.length === 1 ? 'action' : 'actions'}
                                   </span>

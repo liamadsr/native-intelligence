@@ -1,5 +1,6 @@
 'use client'
 
+import { EntityIcon } from '@/components/entities/entity-icon'
 import { PreferenceActionButton } from '@/components/views/preference-action'
 
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
@@ -53,7 +54,6 @@ import {
   ArrowRightLeft,
   Tag,
   RotateCw,
-  Package,
   History,
   Info,
   Bot,
@@ -3647,7 +3647,7 @@ export function CaptureDetailPanel({
                                     className="flex h-8 w-full min-w-0 items-center gap-2 overflow-hidden rounded-md px-3 text-sm transition-colors hover:bg-muted/50"
                                     aria-label="Attach context packages for the live agent"
                                   >
-                                    <Package className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                    <EntityIcon kind="knowledge_package" />
                                     {capturePackageIds.length === 0 ? (
                                       <span className="text-muted-foreground">Add packages</span>
                                     ) : (
