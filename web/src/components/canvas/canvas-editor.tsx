@@ -174,6 +174,7 @@ function Header({
     return (
       <>
         <CardHeaderTrail onBack={onBack} backLabel="Back to canvases">
+          <HeaderFence>
           <EntityIcon kind="canvas" size="sm" />
           {/* As wide as the title (an invisible copy sizes it), renamed in place. */}
           <span className="inline-grid min-w-0 grid-cols-[minmax(0,auto)]">
@@ -185,12 +186,15 @@ function Header({
             />
           </span>
           {canvas.visibility === 'private' && <Lock className="size-3 shrink-0 text-muted-foreground" aria-label="Private" />}
+          </HeaderFence>
         </CardHeaderTrail>
         <CardHeaderSlot side="right">
-          <div data-canvas-header-controls="" className="flex items-center gap-1">
-            {note}
-            {menu}
-          </div>
+          <HeaderFence>
+            <div data-canvas-header-controls="" className="flex items-center gap-1">
+              {note}
+              {menu}
+            </div>
+          </HeaderFence>
         </CardHeaderSlot>
       </>
     )
@@ -214,6 +218,22 @@ function Header({
       {note}
       {menu}
     </div>
+  )
+}
+
+/**
+ * What the canvas puts in its card's header, fenced off from the canvas: a
+ * portal's events bubble to its React parents, and the header's parent here is
+ * the surface, whose presses draw, select and type (surface.tsx skips only
+ * targets inside `[data-canvas-chrome]` in the DOM, which the header is not).
+ * So a press on the title or the menu stops here, as the floating header's do.
+ */
+export function HeaderFence({ children }: { children: React.ReactNode }) {
+  const stop = (e: React.SyntheticEvent) => e.stopPropagation()
+  return (
+    <span data-canvas-header-fence="" className="contents" onPointerDown={stop} onPointerUp={stop} onDoubleClick={stop} onContextMenu={stop}>
+      {children}
+    </span>
   )
 }
 

@@ -34,6 +34,8 @@ describe('knowledge and the Library: the spec', () => {
     expect(normalizePageInput({ kind: 'knowledge', title: 'Library', tab: 'library' })).toEqual({ ok: true, value: { kind: 'knowledge_library', title: 'Library' } })
     expect(normalizePageInput({ kind: 'knowledge_library', title: 'Playbook', target: 'Sales playbook' })).toMatchObject({ ok: true, value: { kind: 'knowledge_library' } })
     expect(normalizePageInput({ kind: 'knowledge', title: 'K', tab: 'graph' })).toMatchObject({ ok: false, error: expect.stringContaining('knowledge has no tabs') })
+    // Its old claims tab is Knowledge itself now: forgiven, never refused.
+    expect(normalizePageInput({ kind: 'knowledge', title: 'Claims', tab: 'claims' })).toEqual({ ok: true, value: { kind: 'knowledge', title: 'Claims' } })
   })
 
   it('a card saved before the split, on the old library tab or a package, opens as the Library', () => {

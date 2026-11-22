@@ -63,7 +63,9 @@ export function normalizePageInput(input: PageShowInput): Checked<CheckedPageInp
   const oldLibraryTab = typeof input.tab === 'string' && input.tab.trim().toLowerCase() === 'library'
   const toLibrary = named === 'knowledge' && (onPackage || oldLibraryTab)
   const kind: PageKind = toLibrary ? 'knowledge_library' : named
-  const askedTab = toLibrary ? undefined : input.tab
+  // Knowledge's old claims tab is the page itself now: forgiven, as a saved card's is (upgradeSavedPageSpec).
+  const oldClaimsTab = named === 'knowledge' && typeof input.tab === 'string' && input.tab.trim().toLowerCase() === 'claims'
+  const askedTab = toLibrary || oldClaimsTab ? undefined : input.tab
   const def = PAGE_KINDS[kind]
   if (def.personOnly) {
     return { ok: false, error: `kind: only the person opens a ${def.label.toLowerCase()}. To answer about a teammate's work, call list_bot_work` }
