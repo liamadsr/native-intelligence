@@ -168,6 +168,8 @@ describe('migration 688: notifications', () => {
 
   it('target_type is 679’s list plus canvas and spreadsheet, the list 687 writes, so either order leaves it the same', () => {
     expect(checkList(sql, 'notification_target_type_check')).toEqual([...checkList(sourceOf('679_crm_companies.sql'), 'notification_target_type_check'), 'canvas', 'spreadsheet'])
+    // 687 (comments on canvases and spreadsheets) wrote the same list first: 687 then 688 leaves it as it was.
+    expect(checkList(sql, 'notification_target_type_check')).toEqual(checkList(sourceOf('687_notification_canvas_spreadsheet.sql'), 'notification_target_type_check'))
     const newest = [...all].reverse().find((m) => /add constraint notification_target_type_check/i.test(m.sql))!.file
     expect(newest).toBe(FILE)
   })

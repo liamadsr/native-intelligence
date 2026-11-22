@@ -33,6 +33,10 @@ export function notificationCardTarget(target: NotificationTarget): OpenTarget |
     // A conversation itself (a meeting's guest waiting, 572): team chat on it.
     case 'team_chat_channel':
       return { type: 'team_chat', channelId: target.id }
+    case 'canvas':
+      return { type: 'canvas', id: target.id, title: target.title || null }
+    case 'spreadsheet':
+      return { type: 'spreadsheet', id: target.id, title: target.title || null }
     case 'action':
     case 'capture':
     case 'document':
@@ -40,10 +44,6 @@ export function notificationCardTarget(target: NotificationTarget): OpenTarget |
     case 'initiative':
     case 'contact':
     case 'company':
-      return { type: target.type, id: target.id, title: target.title }
-    // A record shared with the person (record_shared, migration 688): its page's card.
-    case 'spreadsheet':
-    case 'canvas':
       return { type: target.type, id: target.id, title: target.title }
     default:
       return null

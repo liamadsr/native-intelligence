@@ -520,3 +520,20 @@ new yet. When Phase 3 un-holds them, the paths below are already in place.
 **Not done in Phase 2:** the `shared_with` summary in `read_spreadsheet` and
 `read_canvas`. It only matters once sharing is un-held, so it moves to
 Phase 3.
+
+## After 687 (merged from main, 2026-11-22)
+
+- 687 (comments on canvases and spreadsheets) writes
+  `notification_target_type_check` as 679's list plus `'canvas'` and
+  `'spreadsheet'`. 688 restates exactly that list, and
+  `migration-688.test.ts` holds the two equal. 688 is the newest
+  definition, and the 572 test names it.
+- 687 added the agent's comment tools (`comment_on_spreadsheet`,
+  `resolve_spreadsheet_comment`, `comment_on_canvas`,
+  `resolve_canvas_comment`). They may run on a service-role client, so they
+  now follow 688's comment rule themselves: whoever opens the record by its own
+  rule comments, and so does an edit grantee on a turn that may use the
+  grant. A view grant never comments.
+- Both sides had added `canvas` and `spreadsheet` notification targets. The
+  merge keeps 687's cases, which open the record's card; `record_shared` uses
+  them as they are.

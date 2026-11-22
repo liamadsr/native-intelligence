@@ -121,11 +121,6 @@ export async function resolveNotificationDetailPanel(
       return { type: 'contact', id: targetId, title }
     case 'company':
       return { type: 'company', id: targetId, title }
-    // A record shared with the person (record_shared, migration 688).
-    case 'spreadsheet':
-      return { type: 'spreadsheet', id: targetId, title }
-    case 'canvas':
-      return { type: 'canvas', id: targetId, title }
     // A failed-run notice ("<flow> couldn't run") targets the flow itself.
     case 'flow':
       return { type: 'flow', id: targetId, title }
@@ -155,6 +150,14 @@ export async function resolveNotificationDetailPanel(
     // A conversation (572: someone waiting in a meeting's lobby): team chat on it.
     case 'team_chat_channel':
       return { type: 'team_chat_channel', id: targetId, title: notification.title || title }
+    // A comment on a canvas or a spreadsheet (687), or the record shared with
+    // the person (record_shared, 688): the record itself. No title rides along
+    // (the notice's words are the comment's, or "X shared … with you"): the
+    // card names itself.
+    case 'canvas':
+      return { type: 'canvas', id: targetId, title: '' }
+    case 'spreadsheet':
+      return { type: 'spreadsheet', id: targetId, title: '' }
     // A sprint that started: its team's board (the team rides in the row's
     // metadata; an older row without it opens nothing particular).
     case 'cycle': {

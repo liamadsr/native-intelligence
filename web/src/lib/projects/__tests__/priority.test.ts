@@ -9,10 +9,13 @@ describe('a project’s priority', () => {
     expect([...PROJECT_PRIORITIES].sort()).toEqual(PRIORITY_OPTIONS.map((o) => o.value).sort())
   })
 
-  it('parses a request: absent, cleared, a value, or invalid', () => {
+  // Cleared is stored as 'none', not null: production's column is NOT NULL
+  // (default 'none'), so a null write would be refused there.
+  it('parses a request: absent, cleared (as none), a value, or invalid', () => {
     expect(parseProjectPriority(undefined)).toBeUndefined()
-    expect(parseProjectPriority(null)).toBeNull()
-    expect(parseProjectPriority('')).toBeNull()
+    expect(parseProjectPriority(null)).toBe('none')
+    expect(parseProjectPriority('')).toBe('none')
+    expect(parseProjectPriority('none')).toBe('none')
     expect(parseProjectPriority('urgent')).toBe('urgent')
     expect(parseProjectPriority('Urgent')).toBe('invalid')
     expect(parseProjectPriority(2)).toBe('invalid')

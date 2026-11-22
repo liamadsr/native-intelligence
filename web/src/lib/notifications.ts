@@ -106,8 +106,8 @@ export interface CreateNotificationParams {
   body?: string
   actorId?: string
   // Must stay in sync with the notification.target_type CHECK (migration 031,
-  // widened by 172, then 197, then 224, then 273, then 560, then 679 with 'company', then 687/688 with 'canvas'
-  // and 'spreadsheet') — an out-of-set value fails the
+  // widened by 172, then 197, then 224, then 273, then 560, then 679 with 'company', then 687 with 'canvas' and 'spreadsheet';
+  // 688 restates it with the same list) — an out-of-set value fails the
   // insert, which createNotification swallows, silently dropping the row.
   // 'flow_run'/'flow' deep-link loop notifications to the Loop Activity surface
   // (WS-3b); 'agent_run' deep-links a work_run_ready notification to the run
@@ -118,7 +118,10 @@ export interface CreateNotificationParams {
     | 'action' | 'capture' | 'document' | 'project' | 'contact' | 'company'
     | 'cycle' | 'comment' | 'decision' | 'share' | 'flow_run' | 'flow'
     | 'agent_run' | 'initiative' | 'work_item' | 'email_draft' | 'sequence'
-    | 'team_chat_message' | 'canvas' | 'spreadsheet'
+    | 'team_chat_message'
+    // A comment on a canvas or a spreadsheet opens that record (migration 687), as
+    // does a record shared with the person (record_shared, migration 688).
+    | 'canvas' | 'spreadsheet'
   targetId?: string
   contextType?: string
   contextId?: string

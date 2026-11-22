@@ -50,6 +50,12 @@ describe('the canvas tools and a shared canvas (688)', () => {
     expect(edit.success).toBe(false)
     expect(String(edit.error)).toContain('can view that canvas but not change it')
     expect(tables.canvas_item).toEqual([])
+    // Nor comments, nor resolves (688: a view grant writes no comment).
+    const said = await run(tools(true, false), 'comment_on_canvas', { canvas_id: SHARED, body: 'A note' })
+    expect(String(said.error)).toContain('not comment on it')
+    const resolved = await run(tools(true, false), 'resolve_canvas_comment', { canvas_id: SHARED, thread_id: 'c-1' })
+    expect(String(resolved.error)).toContain('not comment on it')
+    expect(tables.canvas_comment).toEqual([])
   })
 
   it('an edit grant edits it only on a turn that may use one', async () => {
@@ -57,6 +63,7 @@ describe('the canvas tools and a shared canvas (688)', () => {
     const held = await run(tools(false, false), 'edit_canvas', move)
     expect(held.success).toBe(false)
     expect(String(held.error)).toContain('not change it')
+    expect(String((await run(tools(false, false), 'comment_on_canvas', { canvas_id: SHARED, body: 'A note' })).error)).toContain('not comment on it')
     const read = await run(tools(true, false), 'read_canvas', { canvas_id: SHARED })
     expect((read.canvas as { can_edit: boolean }).can_edit).toBe(true)
   })

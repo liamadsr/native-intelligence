@@ -5,13 +5,16 @@
  * copy, and editing in one all-or-nothing batch against the revision read.
  * Fixtures use made-up names and numbers.
  */
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { memoryDb } from '@/test/memory-db'
 import { loadModel } from '@/lib/spreadsheets/engine-server'
 import { blankWorkbook } from '@/lib/spreadsheets/store'
 import { saveWorkbook } from '@/lib/spreadsheets/workbook'
 import { createSpreadsheetTools, SPREADSHEET_TOOL_NAMES } from '../spreadsheets'
 import { TOOL_CATEGORIES, getToolDefinition } from '../../tool-registry'
+
+const told = vi.hoisted(() => ({ list: [] as Array<Record<string, unknown>> }))
+vi.mock('@/lib/record-comments/notify', () => ({ sendRecordCommentNotifications: vi.fn(async (n: Record<string, unknown>) => (told.list.push(n), 0)) }))
 
 const WS = '11111111-1111-4111-8111-111111111111'
 const ME = 'u-1'
@@ -312,6 +315,14 @@ describe('a private spreadsheet shared with the person (migration 688)', () => {
     const res = await run(t, 'edit_spreadsheet', edit)
     expect(res.success).toBe(false)
     expect(String(res.error)).toContain('view that spreadsheet but not change it')
+    // Nor comments, nor resolves (688: a view grant writes no comment).
+    tables.spreadsheet_comment = []
+    const said = await run(t, 'comment_on_spreadsheet', { id: SECRET, body: 'A note', range: 'A1' })
+    expect(said.success).toBe(false)
+    expect(String(said.error)).toContain('not comment on it')
+    const resolved = await run(t, 'resolve_spreadsheet_comment', { id: SECRET, thread_id: '66666666-6666-4666-8666-666666666666' })
+    expect(String(resolved.error)).toContain('not comment on it')
+    expect(tables.spreadsheet_comment).toEqual([])
     expect(rows[1].workbook).toBe(blankWorkbook())
     expect(rows[1].edit_source).toBeUndefined()
   })
@@ -337,5 +348,64 @@ describe('a private spreadsheet shared with the person (migration 688)', () => {
     expect((listed.spreadsheets as Row[]).map((s) => s.id)).toEqual([PLAN])
     const withGrants = await run(toolsWith(true, false), 'find_spreadsheets', {})
     expect((withGrants.spreadsheets as Row[]).map((s) => s.id).sort()).toEqual([PLAN, SECRET].sort())
+  })
+})
+
+describe('comment_on_spreadsheet and resolve_spreadsheet_comment', () => {
+  const comments = () => (tables.spreadsheet_comment ??= [])
+  beforeEach(() => {
+    told.list = []
+    tables.spreadsheet_comment = []
+    // Member ids are uuids where mentions are fenced.
+    tables.member.push({ id: '77777777-7777-4777-8777-777777777772', workspace_id: WS, user_id: 'u-3', role: 'member', display_name: 'Robin Vale' })
+  })
+  const ROBIN = '77777777-7777-4777-8777-777777777772'
+
+  it('starts a thread on a range as the person, marked as the assistant\'s, and tells who it names', async () => {
+    const r = await call('comment_on_spreadsheet', { id: PLAN, body: 'Is 20 right, @Robin Vale?', range: 'Sheet1!b2:B3', mention_member_ids: [ROBIN] })
+    expect(r).toMatchObject({ success: true, mentioned: 1 })
+    expect(comments()[0]).toMatchObject({ spreadsheet_id: PLAN, workspace_id: WS, author_id: M1, via_agent: true, anchor: 'B2:B3', parent_id: null, mentions: [ROBIN], body: 'Is 20 right, @Robin Vale?' })
+    expect(typeof comments()[0].sheet_id).toBe('number')
+    expect(told.list[0]).toMatchObject({ kind: 'spreadsheet', recordId: PLAN, authorMemberId: M1, mentionedMemberIds: [ROBIN], viaAgent: true })
+    expect(String(r.message)).toContain('written by their assistant')
+  })
+
+  it('replies on a thread and resolves it as the person, then reopens it', async () => {
+    const first = await call('comment_on_spreadsheet', { id: PLAN, body: 'Check this', range: 'B1' })
+    const thread = (first.comment as { id: string }).id
+    const reply = await call('comment_on_spreadsheet', { id: PLAN, body: 'Checked', reply_to: thread })
+    expect(reply.success).toBe(true)
+    expect(comments()[1]).toMatchObject({ parent_id: thread, anchor: null, via_agent: true })
+    expect(told.list[1]).toMatchObject({ parentId: thread })
+    expect(await call('resolve_spreadsheet_comment', { id: PLAN, thread_id: thread })).toMatchObject({ success: true, resolved: true })
+    expect(comments()[0]).toMatchObject({ resolved_by: M1, body: 'Check this' })
+    expect(await call('resolve_spreadsheet_comment', { id: PLAN, thread_id: thread, resolved: false })).toMatchObject({ success: true, resolved: false })
+  })
+
+  it('refuses a spreadsheet the person cannot read, a thread with no range, a bad range and a thread that is not this spreadsheet\'s', async () => {
+    expect((await call('comment_on_spreadsheet', { id: SECRET, body: 'Hi', range: 'A1' })).success).toBe(false)
+    expect(String((await call('comment_on_spreadsheet', { id: PLAN, body: 'Hi' })).error)).toContain('range')
+    expect((await call('comment_on_spreadsheet', { id: PLAN, body: 'Hi', range: 'not a range' })).success).toBe(false)
+    expect((await call('comment_on_spreadsheet', { id: PLAN, body: 'Hi', reply_to: '99999999-9999-4999-8999-999999999999' })).success).toBe(false)
+    expect((await call('resolve_spreadsheet_comment', { id: PLAN, thread_id: '99999999-9999-4999-8999-999999999999' })).success).toBe(false)
+    expect((await call('resolve_spreadsheet_comment', { id: SECRET, thread_id: '99999999-9999-4999-8999-999999999999' })).success).toBe(false)
+    expect(comments()).toHaveLength(0)
+    expect(told.list).toEqual([])
+  })
+
+  it('are internal writes to the board; a whole-workbook read lists the open threads and who wrote them', async () => {
+    for (const name of ['comment_on_spreadsheet', 'resolve_spreadsheet_comment']) {
+      const def = getToolDefinition(name)!
+      expect([def.sideEffect, def.writeTarget], name).toEqual(['internal-write', 'board'])
+    }
+    await call('comment_on_spreadsheet', { id: PLAN, body: 'From the assistant', range: 'B3' })
+    comments().push({ id: 'c-hand', spreadsheet_id: PLAN, workspace_id: WS, parent_id: null, sheet_id: comments()[0].sheet_id, anchor: 'A1', body: 'By hand', mentions: [], author_id: M2, resolved_at: null, resolved_by: null, created_at: '2026-11-21T10:00:00Z', updated_at: '2026-11-21T10:00:00Z' })
+    const read = await call('read_spreadsheet', { id: PLAN })
+    expect(read.open_comments).toBe(2)
+    const list = read.comments as Array<Record<string, unknown>>
+    expect(list.map((c) => [c.text, c.range, c.by, c.by_assistant ?? false]).sort()).toEqual([
+      ['By hand', 'Sheet1!A1', 'Jamie Park', false],
+      ['From the assistant', 'Sheet1!B3', 'Avery Stone', true],
+    ])
   })
 })

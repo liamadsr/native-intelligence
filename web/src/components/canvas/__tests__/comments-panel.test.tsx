@@ -16,6 +16,8 @@ const c = (id: string, extra: Partial<CanvasComment> = {}): CanvasComment => ({
   x: null,
   y: null,
   body: `Body of ${id}`,
+  mentions: [],
+  via_agent: false,
   author_id: ME,
   author_name: 'Ada Example',
   resolved_at: null,
@@ -57,6 +59,12 @@ describe('the comments panel', () => {
     expect(html).toContain('On an item: show it')
     expect(html).toContain('On an item that was deleted')
     expect(html).toContain('Comment on the canvas…')
+  })
+
+  it('says which comments the assistant wrote', () => {
+    const html = draw(<CommentsPanel comments={comments([c('t1', { via_agent: true }), c('t2', { created_at: '2026-11-20T11:00:00Z' })])} focus={null} onFocus={() => {}} onClose={() => {}} />)
+    expect(html.match(/data-canvas-comment-assistant/g)).toHaveLength(1)
+    expect(html).toContain('Written by the assistant for them')
   })
 
   it('offers delete only on the caller\'s own comments', () => {

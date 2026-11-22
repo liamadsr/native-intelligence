@@ -170,7 +170,10 @@ describe('migrations 572-575 and 585', () => {
     const newest = (re: RegExp) => [...migrationsInOrder()].reverse().find((m) => re.test(m.sql))!.file
     expect(newest(/add constraint notification_type_check/i)).toBe('688_record_sharing.sql')
     // 679 (the CRM around the company) adds 'company' to the target check (src/lib/crm/__tests__/migration-679-680.test.ts
-    // holds that it adds nothing else); 688 (record sharing) adds 'canvas' and 'spreadsheet' and is its newest word since.
+    // holds that it adds nothing else). 687 (comments on canvases and spreadsheets) adds 'canvas' and 'spreadsheet'
+    // (src/lib/canvas/__tests__/migration-687-692.test.ts holds that it is 679's list plus those two), and 688
+    // (record sharing) restates that same list, so 688 is its newest word since
+    // (src/lib/entity-access/__tests__/migration-688.test.ts holds it equal to 687's).
     expect(newest(/add constraint notification_target_type_check/i)).toBe('688_record_sharing.sql')
     expect(body).toContain("check (kind in ('channel', 'dm', 'meeting'))")
     expect(body).toContain("(kind = 'meeting' and name is not null and char_length(name) between 1 and 80 and dm_key is null and team_id is null)")

@@ -8,7 +8,10 @@
  * rules, migration 682; this only hides the buttons that would be refused).
  */
 import * as React from 'react'
-import { Check, CornerDownRight, Loader2, MessageSquare, Pencil, RotateCcw, Trash2, X } from 'lucide-react'
+import { Check, CornerDownRight, Loader2, MessageSquare, Pencil, RotateCcw, Sparkles, Trash2, X } from 'lucide-react'
+import { MentionTextarea } from '@/components/mentions/mention-textarea'
+import { useCommentMentions, useMentionMembers, type CommentMentionsPayload } from '@/components/mentions/use-comment-mentions'
+import type { ComposerMentionOption } from '@/app/account/(dashboard)/chat/command-menu-model'
 import { FLOATING_CARD_CLASS } from '@/components/attention/card-skin'
 import { createClient } from '@/lib/supabase/client'
 import { threadsOf, type CanvasComment, type CanvasThread } from '@/lib/canvas/comments'
@@ -25,10 +28,10 @@ export interface CanvasComments {
   me: string | null
   /** Threads nobody has resolved. */
   open: number
-  add: (input: { body: string; parent_id?: string; item_id?: string | null; x?: number; y?: number }) => Promise<string | null>
+  add: (input: { body: string; parent_id?: string; item_id?: string | null; x?: number; y?: number } & Partial<CommentMentionsPayload>) => Promise<string | null>
   resolve: (id: string, resolved: boolean) => Promise<string | null>
   /** New words for one's own comment. */
-  edit: (id: string, body: string) => Promise<string | null>
+  edit: (id: string, body: string, named?: CommentMentionsPayload) => Promise<string | null>
   remove: (id: string) => Promise<string | null>
 }
 
@@ -119,7 +122,7 @@ export function useCanvasComments(canvasId: string): CanvasComments {
       open,
       add: (input) => call(base, 'POST', input).then(after),
       resolve: (id, resolved) => call(`${base}/${id}`, 'PATCH', { resolved }).then(after),
-      edit: (id, body) => call(`${base}/${id}`, 'PATCH', { body }).then(after),
+      edit: (id, body, named) => call(`${base}/${id}`, 'PATCH', { body, ...(named ?? {}) }).then(after),
       remove: (id) => call(`${base}/${id}`, 'DELETE').then(after),
     }),
     [state, threads, me, open, base, after],
@@ -154,23 +157,31 @@ function when(iso: string): string {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
-function Composer({ placeholder, label, autoFocus, initial = '', send: sendLabel = 'Send', onSend, onCancel }: { placeholder: string; label: string; autoFocus?: boolean; initial?: string; send?: string; onSend: (body: string) => Promise<string | null>; onCancel?: () => void }) {
+/** The teammates `@` offers in every box of the panel (the viewer is left out). */
+const MentionMembers = React.createContext<readonly ComposerMentionOption[]>([])
+
+function Composer({ placeholder, label, autoFocus, initial = '', already, send: sendLabel = 'Send', onSend, onCancel }: { placeholder: string; label: string; autoFocus?: boolean; initial?: string; already?: readonly string[]; send?: string; onSend: (body: string, named: CommentMentionsPayload) => Promise<string | null>; onCancel?: () => void }) {
   const [text, setText] = React.useState(initial)
+  const mentions = useCommentMentions(React.useContext(MentionMembers), already)
   const [busy, setBusy] = React.useState(false)
   const [err, setErr] = React.useState<string | null>(null)
   const send = async () => {
     const body = text.trim()
     if (!body || busy) return
     setBusy(true)
-    const e = await onSend(body)
+    const e = await onSend(body, mentions.payload(body))
     setBusy(false)
     setErr(e)
-    if (!e) setText('')
+    if (!e) {
+      setText('')
+      mentions.reset()
+    }
   }
   return (
     <div>
       <div className="flex items-end gap-1.5">
-        <textarea
+        <MentionTextarea
+          {...mentions.textareaProps}
           aria-label={label}
           value={text}
           autoFocus={autoFocus}
@@ -198,7 +209,7 @@ function Composer({ placeholder, label, autoFocus, initial = '', send: sendLabel
   )
 }
 
-function Words({ comment, mine, onDelete, onEdit }: { comment: CanvasComment; mine: boolean; onDelete: () => void; onEdit: (body: string) => Promise<string | null> }) {
+function Words({ comment, mine, onDelete, onEdit }: { comment: CanvasComment; mine: boolean; onDelete: () => void; onEdit: (body: string, named: CommentMentionsPayload) => Promise<string | null> }) {
   const [editing, setEditing] = React.useState(false)
   if (editing) {
     return (
@@ -209,8 +220,9 @@ function Words({ comment, mine, onDelete, onEdit }: { comment: CanvasComment; mi
         initial={comment.body}
         send="Save"
         onCancel={() => setEditing(false)}
-        onSend={async (body) => {
-          const e = body === comment.body ? null : await onEdit(body)
+        already={comment.mentions}
+        onSend={async (body, named) => {
+          const e = body === comment.body ? null : await onEdit(body, named)
           if (!e) setEditing(false)
           return e
         }}
@@ -221,6 +233,11 @@ function Words({ comment, mine, onDelete, onEdit }: { comment: CanvasComment; mi
     <div className="group/comment">
       <div className="flex items-baseline gap-1.5">
         <span className="truncate text-xs font-medium text-foreground">{comment.author_name ?? (mine ? 'You' : 'Someone')}</span>
+        {comment.via_agent ? (
+          <span data-canvas-comment-assistant title="Written by the assistant for them" className="flex shrink-0 items-center gap-0.5 rounded bg-foreground/[0.06] px-1 text-[10px] text-muted-foreground">
+            <Sparkles className="h-2.5 w-2.5" /> assistant
+          </span>
+        ) : null}
         <span className="shrink-0 text-[11px] text-muted-foreground">{when(comment.created_at)}</span>
         {comment.updated_at > comment.created_at && !comment.resolved_at ? <span className="shrink-0 text-[11px] text-muted-foreground">edited</span> : null}
         {mine ? (
@@ -263,12 +280,12 @@ function Thread({ thread, comments, active, onFocus }: { thread: CanvasThread; c
           <CornerDownRight className="h-3 w-3" /> {itemThere ? 'On an item: show it' : 'On an item that was deleted'}
         </button>
       ) : null}
-      <Words comment={root} mine={!!comments.me && root.author_id === comments.me} onEdit={(body) => comments.edit(root.id, body)} onDelete={() => (replies.length && !window.confirm('Delete this thread and its replies?') ? undefined : act(comments.remove(root.id)))} />
+      <Words comment={root} mine={!!comments.me && root.author_id === comments.me} onEdit={(body, named) => comments.edit(root.id, body, named)} onDelete={() => (replies.length && !window.confirm('Delete this thread and its replies?') ? undefined : act(comments.remove(root.id)))} />
       {replies.length ? (
         <ul className="mt-2 space-y-2 border-l border-border/60 pl-2.5">
           {replies.map((r) => (
             <li key={r.id}>
-              <Words comment={r} mine={!!comments.me && r.author_id === comments.me} onEdit={(body) => comments.edit(r.id, body)} onDelete={() => act(comments.remove(r.id))} />
+              <Words comment={r} mine={!!comments.me && r.author_id === comments.me} onEdit={(body, named) => comments.edit(r.id, body, named)} onDelete={() => act(comments.remove(r.id))} />
             </li>
           ))}
         </ul>
@@ -279,8 +296,8 @@ function Thread({ thread, comments, active, onFocus }: { thread: CanvasThread; c
             autoFocus
             label="Reply"
             placeholder="Reply…"
-            onSend={async (body) => {
-              const e = await comments.add({ body, parent_id: root.id })
+            onSend={async (body, named) => {
+              const e = await comments.add({ body, parent_id: root.id, ...named })
               if (!e) setReplying(false)
               return e
             }}
@@ -310,10 +327,12 @@ export function CommentsPanel({ comments, focus, onFocus, onClose }: { comments:
   const shown = comments.threads.filter((t) => showResolved || !t.root.resolved_at || t.root.id === focus)
   const resolvedCount = comments.threads.length - comments.open
   const list = React.useRef<HTMLUListElement>(null)
+  const members = useMentionMembers(comments.me)
   React.useEffect(() => {
     if (focus) list.current?.querySelector(`[data-canvas-thread="${focus}"]`)?.scrollIntoView({ block: 'nearest' })
   }, [focus])
   return (
+    <MentionMembers.Provider value={members}>
     <aside
       data-canvas-chrome
       data-canvas-comments
@@ -352,17 +371,18 @@ export function CommentsPanel({ comments, focus, onFocus, onClose }: { comments:
             <Composer
               label={selected ? 'Comment on the selected item' : 'Comment on the canvas'}
               placeholder={selected ? 'Comment on the selected item…' : 'Comment on the canvas…'}
-              onSend={(body) => {
-                if (!selected) return comments.add({ body })
+              onSend={(body, named) => {
+                if (!selected) return comments.add({ body, ...named })
                 const it = store.getState().scene.items[selected]
                 const box = it && 'w' in it ? aabb(it) : null
-                return comments.add({ body, item_id: selected, ...(box ? { x: box.x + box.w, y: box.y } : {}) })
+                return comments.add({ body, item_id: selected, ...(box ? { x: box.x + box.w, y: box.y } : {}), ...named })
               }}
             />
           </div>
         </>
       )}
     </aside>
+    </MentionMembers.Provider>
   )
 }
 

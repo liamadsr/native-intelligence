@@ -242,6 +242,8 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       { name: 'read_canvas', sideEffect: 'read', label: 'Read Canvas', description: 'Read a canvas (a whiteboard): its shapes, text, connectors and cards, with their ids, boxes and words' },
       { name: 'edit_canvas', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Edit Canvas', description: 'Add shapes, text and arrows to a canvas, or move, resize, restyle, group, restack and delete what is there' },
       { name: 'create_canvas', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Create Canvas', description: 'Make a new, empty canvas (a whiteboard)' },
+      { name: 'comment_on_canvas', sideEffect: 'internal-write', writeTarget: 'board', label: 'Comment on Canvas', description: 'Write a comment on a canvas for the person (a thread on the canvas or one item, or a reply), marked as written by their assistant; can @-mention teammates' },
+      { name: 'resolve_canvas_comment', sideEffect: 'internal-write', writeTarget: 'board', label: 'Resolve Canvas Comment', description: 'Resolve or reopen a comment thread on a canvas, as the person' },
       { name: 'update_document', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Update Document', description: 'Edit document content directly (published, no draft)' },
       { name: 'edit_document_content', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Edit Content', description: 'Make a surgical text edit to a document' },
       // Part edits (documents phase 1): the same kind of write as
@@ -316,6 +318,8 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       { name: 'calculate_spreadsheet', sideEffect: 'read', label: 'Calculate', description: 'Evaluate up to 20 formulas against a spreadsheet on a throwaway copy (a what-if), with optional cell overrides; writes nothing' },
       { name: 'create_spreadsheet', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Create Spreadsheet', description: 'Make a workbook of cells and formulas, optionally filled with sheets of values on creation' },
       { name: 'edit_spreadsheet', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Edit Spreadsheet', description: 'Edit a spreadsheet in one all-or-nothing batch against the revision read: set, clear, format, border, fill cells, append rows, resize columns, insert/delete rows and columns, and add/rename/duplicate/delete sheets' },
+      { name: 'comment_on_spreadsheet', sideEffect: 'internal-write', writeTarget: 'board', label: 'Comment on Spreadsheet', description: "Write a comment on a spreadsheet for the person (a thread on a cell or range, or a reply), marked as written by their assistant; can @-mention teammates" },
+      { name: 'resolve_spreadsheet_comment', sideEffect: 'internal-write', writeTarget: 'board', label: 'Resolve Spreadsheet Comment', description: 'Resolve or reopen a comment thread on a spreadsheet, as the person' },
     ],
   },
   {
@@ -1598,6 +1602,12 @@ const NON_PREFIX_MUTATING_TOOLS: string[] = [
   'check_studio_motion',
   'review_studio_video',
   'look_at_studio_video',
+  // Comments the assistant writes on a canvas or a spreadsheet for the person, and threads it resolves:
+  // each writes a comment row other people see. Neither `comment_` nor `resolve_` is a write verb.
+  'comment_on_canvas',
+  'resolve_canvas_comment',
+  'comment_on_spreadsheet',
+  'resolve_spreadsheet_comment',
   // Studio's reference blueprint: a video's storyboard laid out in a reference's rhythm. `storyboard_` is not a write verb.
   'storyboard_from_studio_blueprint',
   // Studio code scenes: a scene's source compiled and kept (files and a record). `write_` is not a write verb.
