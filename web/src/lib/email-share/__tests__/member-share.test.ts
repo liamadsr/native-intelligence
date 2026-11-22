@@ -10,13 +10,15 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { memoryDb } from '@/test/memory-db'
 import {
   findMemberShareId,
+  listOwnerThreadShares,
+  readSharedEmailAttachmentForMember,
   readSharedEmailThreadForMember,
   revokeEmailThreadShare,
   shareEmailThreadWithMembers,
   type MemberShareDeps,
 } from '../member-share'
 import type { EmailShareMessage } from '../types'
-import type { ShareMailbox } from '../provider'
+import { SHARE_ATTACHMENT_MAX_BYTES, type ShareMailbox } from '../provider'
 
 const WS = '11111111-1111-4111-8111-111111111111'
 const OTHER_WS = '11111111-1111-4111-8111-222222222222'
@@ -77,7 +79,12 @@ beforeEach(() => {
   threadNow = ['m1', 'm2']
   mailboxUp = true
   messages = {
-    m1: message('m1'),
+    m1: message('m1', 'thr-1', {
+      attachments: [
+        { key: 'att-1', name: 'terms.pdf', size: 1024, mimeType: 'application/pdf' },
+        { key: 'att-big', name: 'huge.zip', size: SHARE_ATTACHMENT_MAX_BYTES + 1, mimeType: 'application/zip' },
+      ],
+    }),
     m2: message('m2', 'thr-1', { bodyText: 'Sounds good.', bodyHtml: null, blockedImages: 0 }),
     m3: message('m3', 'thr-1', { bodyText: 'A later, private reply.' }),
   }
@@ -93,6 +100,16 @@ beforeEach(() => {
         if (!m || m.threadId !== threadId) return null
         const { threadId: _t, ...rest } = m
         return opts?.images ? { ...rest, blockedImages: 0 } : rest
+      }),
+      // The channel share's own attachment path (liveSharedAttachment): the key
+      // must be one the message lists now, and the file under the share cap.
+      attachment: vi.fn(async (_m, id: string, threadId: string, key: string) => {
+        const m = messages[id]
+        if (!m || m.threadId !== threadId) return null
+        const att = m.attachments.find((a) => a.key === key)
+        if (!att) return null
+        if (att.size > SHARE_ATTACHMENT_MAX_BYTES) return null
+        return { name: att.name, mimeType: att.mimeType, size: att.size, body: new Uint8Array([1, 2, 3, 4]) }
       }),
     },
   }
@@ -234,6 +251,87 @@ describe('readSharedEmailThreadForMember', () => {
   })
 })
 
+describe('readSharedEmailAttachmentForMember', () => {
+  it('a grantee downloads an attachment of a frozen message', async () => {
+    const shareId = await shareToBen()
+    const result = await readSharedEmailAttachmentForMember(svc, { shareId, messageId: 'm1', key: 'att-1', callerUserId: BEN_USER, workspaceId: WS }, deps)
+    expect(result.state).toBe('file')
+    if (result.state === 'file') {
+      expect(result.file.name).toBe('terms.pdf')
+      expect(result.file.mimeType).toBe('application/pdf')
+    }
+  })
+
+  it('the owner downloads their own share’s attachment', async () => {
+    const shareId = await shareToBen()
+    const result = await readSharedEmailAttachmentForMember(svc, { shareId, messageId: 'm1', key: 'att-1', callerUserId: ANA_USER, workspaceId: WS }, deps)
+    expect(result.state).toBe('file')
+  })
+
+  it('a non-grantee member gets not-found', async () => {
+    const shareId = await shareToBen()
+    const result = await readSharedEmailAttachmentForMember(svc, { shareId, messageId: 'm1', key: 'att-1', callerUserId: DANA_USER, workspaceId: WS }, deps)
+    expect(result.state).toBe('not_found')
+  })
+
+  it('a revoked share gets not-found', async () => {
+    const shareId = await shareToBen()
+    await revokeEmailThreadShare(svc, { shareId, ownerUserId: ANA_USER, workspaceId: WS })
+    const result = await readSharedEmailAttachmentForMember(svc, { shareId, messageId: 'm1', key: 'att-1', callerUserId: BEN_USER, workspaceId: WS }, deps)
+    expect(result.state).toBe('not_found')
+  })
+
+  it('a grantee named in another workspace gets not-found', async () => {
+    tables.email_thread_share.push({
+      id: '66666666-6666-4666-8666-000000000002',
+      workspace_id: WS,
+      owner_user_id: ANA_USER,
+      account_id: ACCOUNT,
+      provider: 'google',
+      provider_thread_id: 'thr-1',
+      thread_index_id: INDEX,
+      message_ids: ['m1', 'm2'],
+      grantee_member_id: M_SAM,
+      source: 'mention',
+      revoked_at: null,
+    })
+    const result = await readSharedEmailAttachmentForMember(
+      svc,
+      { shareId: '66666666-6666-4666-8666-000000000002', messageId: 'm1', key: 'att-1', callerUserId: SAM_USER, workspaceId: WS },
+      deps,
+    )
+    expect(result.state).toBe('not_found')
+  })
+
+  it('a message id not in the frozen list is not-found, even in the same thread', async () => {
+    const shareId = await shareToBen() // freezes ['m1','m2']
+    // m3 is in the same thread (thr-1) but was never frozen.
+    const result = await readSharedEmailAttachmentForMember(svc, { shareId, messageId: 'm3', key: 'att-1', callerUserId: BEN_USER, workspaceId: WS }, deps)
+    expect(result.state).toBe('not_found')
+    // Never fetched from the mailbox: it was refused on the frozen-id check.
+    expect(deps.provider.attachment).not.toHaveBeenCalled()
+  })
+
+  it('an attachment id not on that message is not-found (never fetched on trust)', async () => {
+    const shareId = await shareToBen()
+    const result = await readSharedEmailAttachmentForMember(svc, { shareId, messageId: 'm1', key: 'not-a-real-key', callerUserId: BEN_USER, workspaceId: WS }, deps)
+    expect(result.state).toBe('not_found')
+  })
+
+  it('an attachment over the share cap is not-found', async () => {
+    const shareId = await shareToBen()
+    const result = await readSharedEmailAttachmentForMember(svc, { shareId, messageId: 'm1', key: 'att-big', callerUserId: BEN_USER, workspaceId: WS }, deps)
+    expect(result.state).toBe('not_found')
+  })
+
+  it('a disconnected mailbox reads as unavailable', async () => {
+    const shareId = await shareToBen()
+    mailboxUp = false
+    const result = await readSharedEmailAttachmentForMember(svc, { shareId, messageId: 'm1', key: 'att-1', callerUserId: BEN_USER, workspaceId: WS }, deps)
+    expect(result.state).toBe('unavailable')
+  })
+})
+
 describe('findMemberShareId', () => {
   it('returns the grantee’s active share id for a thread index row, and nothing for a non-grantee', async () => {
     const shareId = await shareToBen()
@@ -251,5 +349,94 @@ describe('revokeEmailThreadShare', () => {
     const ok = await revokeEmailThreadShare(svc, { shareId, ownerUserId: ANA_USER, workspaceId: WS })
     expect(ok).toEqual({ ok: true })
     expect(tables.email_thread_share[0].revoked_at).toBeTruthy()
+  })
+})
+
+describe('stop sharing ends access at once', () => {
+  it('after the owner revokes, the grantee can no longer read the thread, its attachment, or find the share', async () => {
+    const shareId = await shareToBen()
+    // Before: the grantee reads it, its attachment, and finds the share.
+    expect((await readSharedEmailThreadForMember(svc, { shareId, callerUserId: BEN_USER, workspaceId: WS }, deps)).state).toBe('available')
+    expect((await readSharedEmailAttachmentForMember(svc, { shareId, messageId: 'm1', key: 'att-1', callerUserId: BEN_USER, workspaceId: WS }, deps)).state).toBe('file')
+    expect(await findMemberShareId(svc, { threadIndexId: INDEX, callerUserId: BEN_USER, workspaceId: WS })).toBe(shareId)
+
+    const ok = await revokeEmailThreadShare(svc, { shareId, ownerUserId: ANA_USER, workspaceId: WS })
+    expect(ok).toEqual({ ok: true })
+
+    // After: everything is closed to the grantee at once.
+    expect((await readSharedEmailThreadForMember(svc, { shareId, callerUserId: BEN_USER, workspaceId: WS }, deps)).state).toBe('not_found')
+    expect((await readSharedEmailAttachmentForMember(svc, { shareId, messageId: 'm1', key: 'att-1', callerUserId: BEN_USER, workspaceId: WS }, deps)).state).toBe('not_found')
+    expect(await findMemberShareId(svc, { threadIndexId: INDEX, callerUserId: BEN_USER, workspaceId: WS })).toBeNull()
+  })
+
+  it('only the owner can revoke: a grantee’s and a stranger’s DELETE change nothing', async () => {
+    const shareId = await shareToBen()
+    expect(await revokeEmailThreadShare(svc, { shareId, ownerUserId: BEN_USER, workspaceId: WS })).toEqual({ ok: false, status: 404 })
+    expect(await revokeEmailThreadShare(svc, { shareId, ownerUserId: DANA_USER, workspaceId: WS })).toEqual({ ok: false, status: 404 })
+    expect(tables.email_thread_share[0].revoked_at ?? null).toBeNull()
+    // The grantee still reads it: nothing was taken away.
+    expect((await readSharedEmailThreadForMember(svc, { shareId, callerUserId: BEN_USER, workspaceId: WS }, deps)).state).toBe('available')
+  })
+})
+
+describe('listOwnerThreadShares', () => {
+  // The list reads rows directly (a pure read): seed them, with provenance.
+  const OTHER_INDEX = '55555555-5555-4555-8555-000000000009'
+  const seed = (over: Record<string, unknown> = {}) =>
+    tables.email_thread_share.push({
+      id: randomShareId(),
+      workspace_id: WS,
+      owner_user_id: ANA_USER,
+      account_id: ACCOUNT,
+      provider: 'google',
+      provider_thread_id: 'thr-1',
+      thread_index_id: INDEX,
+      message_ids: ['m1', 'm2'],
+      grantee_member_id: M_BEN,
+      source: 'mention',
+      source_type: 'comment',
+      source_id: null,
+      created_at: '2026-11-10T10:00:00.000Z',
+      revoked_at: null,
+      ...over,
+    })
+  let n = 0
+  const randomShareId = () => `66666666-6666-4666-8666-0000000001${(n++).toString().padStart(2, '0')}`
+
+  it('the owner gets their active shares, newest first, with grantee names and sources', async () => {
+    seed({ grantee_member_id: M_BEN, created_at: '2026-11-10T10:00:00.000Z', source_type: 'document', source_id: 'dddddddd-dddd-4ddd-8ddd-00000000d0c1' })
+    seed({ grantee_member_id: M_DANA, created_at: '2026-11-11T10:00:00.000Z', source_type: 'comment', source_id: null })
+    const shares = await listOwnerThreadShares(svc, { ownerUserId: ANA_USER, workspaceId: WS })
+    expect(shares.map((s) => s.granteeName)).toEqual(['Dana', 'Ben']) // newest first
+    expect(shares[0]).toMatchObject({ granteeMemberId: M_DANA, providerThreadId: 'thr-1', threadIndexId: INDEX, sourceType: 'comment', sourceId: null })
+    expect(shares[1]).toMatchObject({ granteeMemberId: M_BEN, sourceType: 'document', sourceId: 'dddddddd-dddd-4ddd-8ddd-00000000d0c1' })
+  })
+
+  it('another member gets none of them (the owner_user_id condition only matches their own)', async () => {
+    seed({ grantee_member_id: M_BEN })
+    expect(await listOwnerThreadShares(svc, { ownerUserId: BEN_USER, workspaceId: WS })).toEqual([])
+  })
+
+  it('a revoked share is not listed', async () => {
+    seed({ grantee_member_id: M_BEN, revoked_at: '2026-11-12T10:00:00.000Z' })
+    seed({ grantee_member_id: M_DANA, revoked_at: null })
+    const shares = await listOwnerThreadShares(svc, { ownerUserId: ANA_USER, workspaceId: WS })
+    expect(shares.map((s) => s.granteeMemberId)).toEqual([M_DANA])
+  })
+
+  it('another workspace’s shares are not listed', async () => {
+    seed({ grantee_member_id: M_BEN })
+    seed({ grantee_member_id: M_DANA, workspace_id: OTHER_WS })
+    const shares = await listOwnerThreadShares(svc, { ownerUserId: ANA_USER, workspaceId: WS })
+    expect(shares.map((s) => s.granteeMemberId)).toEqual([M_BEN])
+  })
+
+  it('?thread= narrows to one thread (by its index row id)', async () => {
+    seed({ grantee_member_id: M_BEN, thread_index_id: INDEX, provider_thread_id: 'thr-1' })
+    seed({ grantee_member_id: M_DANA, thread_index_id: OTHER_INDEX, provider_thread_id: 'thr-9' })
+    const here = await listOwnerThreadShares(svc, { ownerUserId: ANA_USER, workspaceId: WS, threadIndexId: INDEX })
+    expect(here.map((s) => s.granteeMemberId)).toEqual([M_BEN])
+    const byProvider = await listOwnerThreadShares(svc, { ownerUserId: ANA_USER, workspaceId: WS, providerThreadId: 'thr-9' })
+    expect(byProvider.map((s) => s.granteeMemberId)).toEqual([M_DANA])
   })
 })

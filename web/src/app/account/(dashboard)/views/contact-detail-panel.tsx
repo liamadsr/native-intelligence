@@ -1,5 +1,6 @@
 'use client'
 
+import { EntityIcon } from '@/components/entities/entity-icon'
 import { PreferenceActionButton } from '@/components/views/preference-action'
 
 import dynamic from 'next/dynamic'
@@ -30,15 +31,11 @@ import {
 import {
   Building2,
   Calendar as CalendarIcon,
-  ChevronLeft,
-  ChevronRight,
   ExternalLink,
   Globe,
-  ListTodo,
   Loader2,
   Mail,
   MapPin,
-  Mic,
   Phone,
   Plus,
   Share2,
@@ -211,13 +208,14 @@ const CLAIM_TYPE_LABEL: Record<string, string> = {
 // Config
 // ============================================================
 
-const INTERACTION_ICONS: Record<string, typeof Mic> = {
-  capture: Mic,
-  email_sent: Mail,
-  email_received: Mail,
-  action_assigned: ListTodo,
-  action_completed: ListTodo,
-  note_added: Globe,
+/** What each interaction is about, as a kind of record (its identity's glyph and colour). */
+const INTERACTION_KINDS: Record<string, string> = {
+  capture: 'capture',
+  email_sent: 'email_thread',
+  email_received: 'email_thread',
+  action_assigned: 'action',
+  action_completed: 'action',
+  note_added: 'document',
 }
 
 /** How long the "Finding…" state waits for an address before giving up. The
@@ -810,12 +808,9 @@ export function ContactDetailPanel({
                       ) : (
                         <div className="space-y-1">
                           {contact.interactions.slice(0, 10).map((interaction) => {
-                            const Icon = INTERACTION_ICONS[interaction.interaction_type] || Globe
                             return (
                               <div key={interaction.id} className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs">
-                                <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted">
-                                  <Icon className="h-3 w-3 text-muted-foreground" />
-                                </div>
+                                <EntityIcon kind={INTERACTION_KINDS[interaction.interaction_type]} size="sm" fallback={Globe} />
                                 <span className="min-w-0 flex-1 truncate">{interaction.title || interaction.interaction_type}</span>
                                 <span className="shrink-0 text-[10px] text-muted-foreground">
                                   {relativeTime(interaction.occurred_at)}

@@ -60,6 +60,27 @@ describe('canvas store', () => {
     expect(got?.can_edit).toBe(true)
   })
 
+  it('reads every item of a big canvas, a thousand at a time, and deletes many in chunks', async () => {
+    const many = Array.from({ length: 2350 }, (_, i) => ({
+      canvas_id: C,
+      id: `i${String(i).padStart(4, '0')}`,
+      workspace_id: WS,
+      parent_id: null,
+      sort_key: `a${String(i).padStart(4, '0')}`,
+      kind: 'rectangle',
+      data: { x: i, y: 0, w: 10, h: 10, style: {}, rotation: 0 },
+    }))
+    const f = seed({ canvas_item: many })
+    const got = await getCanvas(f.client, WS, C, { userId: USER })
+    expect(got?.items).toHaveLength(2350)
+    expect(got?.items[0].id).toBe('i0000')
+    expect(got?.items[2349].id).toBe('i2349')
+    const res = await writeItems(f.client, WS, C, { remove: many.slice(0, 450).map((r) => r.id) }, { userId: USER })
+    expect(res.ok).toBe(true)
+    expect(f.rows.canvas_item).toHaveLength(1900)
+    expect(f.calls.filter((c) => c.table === 'canvas_item' && c.op === 'delete')).toHaveLength(3)
+  })
+
   it('creates a canvas owned by the caller', async () => {
     const f = fakeCanvasDb({ canvas: [], member: [{ id: MEMBER, workspace_id: WS, user_id: USER }] })
     const res = await createCanvas(f.client, WS, { title: 'Sketch' }, { userId: USER, ownerMemberId: MEMBER })

@@ -13,23 +13,8 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { formatDistanceToNow } from 'date-fns'
-import {
-  AudioLines,
-  Building2,
-  CalendarDays,
-  CircleCheck,
-  FileText,
-  FolderKanban,
-  Rows3,
-  Shapes,
-  Hash,
-  Link2,
-  MessageSquare,
-  Target,
-  User,
-  Workflow,
-  type LucideIcon,
-} from 'lucide-react'
+import { Link2 } from 'lucide-react'
+import { EntityIcon } from '@/components/entities/entity-icon'
 import { PropertyGroup } from '@/components/views/property-group'
 import { useEntityListSync } from '@/hooks/use-entity-sync'
 import { openTarget } from '@/lib/chat-cards/open-card'
@@ -39,23 +24,6 @@ import { EntityContextMenu } from '@/components/entities/entity-actions-menu'
 
 export const entityReferencesUrl = (type: string, id: string) =>
   `/api/account/entities/${encodeURIComponent(type)}/${encodeURIComponent(id)}/references`
-
-const ICONS: Record<string, LucideIcon> = {
-  action: CircleCheck,
-  document: FileText,
-  project: FolderKanban,
-  initiative: Target,
-  capture: AudioLines,
-  contact: User,
-  company: Building2,
-  data_row: Rows3,
-  canvas: Shapes,
-  flow: Workflow,
-  calendar_event: CalendarDays,
-  team_chat_message: Hash,
-  team_chat_channel: Hash,
-  conversation: MessageSquare,
-}
 
 /** How a relation reads under a row: a mention is the common case and says so. */
 const RELATION_WORDS: Record<string, string> = {
@@ -117,13 +85,12 @@ export function ReferencedInList({ references }: { references: readonly EntityRe
     <PropertyGroup title="Referenced in">
       <ul className="space-y-0.5 px-1" data-referenced-in="">
         {references.map((r) => {
-          const Icon = ICONS[r.type] ?? Link2
           const target = entityOpenTarget(r.type, r.id, r.label)
           const how = r.relations.map((rel) => RELATION_WORDS[rel] ?? rel).join(' · ')
           const when = formatDistanceToNow(new Date(r.created_at), { addSuffix: true })
           const body = (
             <>
-              <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" strokeWidth={1.75} />
+              <EntityIcon kind={r.type} size="sm" fallback={Link2} className="mt-0.5" />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm text-foreground/90">{r.label}</span>
                 <span className="block truncate text-[11px] text-muted-foreground">

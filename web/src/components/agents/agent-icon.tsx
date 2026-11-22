@@ -8,11 +8,12 @@
  * panel's computer card and the voice bird (bots/agent-bot.tsx, 10-23).
  * Decorative: it always stands beside the agent's name.
  */
-import { Boxes } from 'lucide-react'
+import { ENTITY_IDENTITIES } from '@/lib/entities/entity-identity'
 import { cn } from '@/lib/utils'
 
-export const AGENT_ICON = Boxes
+/** The agent's glyph, from the one map of every kind's (lib/entities/entity-identity.ts). */
+export const AGENT_ICON = ENTITY_IDENTITIES.agent.icon
 
 export function AgentIcon({ className }: { className?: string }) {
-  return <Boxes aria-hidden data-agent-icon="" className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground', className)} />
+  return <AGENT_ICON aria-hidden data-agent-icon="" className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground', className)} />
 }

@@ -22,6 +22,7 @@ export function fakeCanvasDb(seed: Record<string, Row[]>, opts: { editable?: boo
   const from = (table: string) => {
     const filters: Array<(r: Row) => boolean> = []
     let orderCol: string | null = null
+    let slice: [number, number] | null = null
     let orderAsc = true
     let mutation: { kind: 'insert' | 'update' | 'upsert'; payload: Row | Row[]; onConflict?: string } | { kind: 'delete' } | null = null
 
@@ -84,8 +85,15 @@ export function fakeCanvasDb(seed: Record<string, Row[]>, opts: { editable?: boo
         return q
       },
       order(col: string, o?: { ascending?: boolean }) {
-        orderCol = col
-        orderAsc = o?.ascending !== false
+        // The first order is the one that sorts; a second only breaks ties.
+        if (!orderCol) {
+          orderCol = col
+          orderAsc = o?.ascending !== false
+        }
+        return q
+      },
+      range(from: number, to: number) {
+        slice = [from, to]
         return q
       },
       insert(payload: Row | Row[]) {
@@ -122,6 +130,9 @@ export function fakeCanvasDb(seed: Record<string, Row[]>, opts: { editable?: boo
           const col = orderCol
           res = [...res].sort((a, b) => (String(a[col]) < String(b[col]) ? (orderAsc ? -1 : 1) : String(a[col]) > String(b[col]) ? (orderAsc ? 1 : -1) : 0))
         }
+        // One request never returns more than a thousand rows, as the real API.
+        const [from, to] = slice ?? [0, 999]
+        res = res.slice(from, Math.min(to, from + 999) + 1)
         return Promise.resolve({ data: res, error: null }).then(resolve)
       },
     }

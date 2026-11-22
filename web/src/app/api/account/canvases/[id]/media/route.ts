@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { requireWorkspace } from '@/lib/api-auth'
 import { badRequest, forbidden, notFound, serverError } from '@/lib/api-errors'
-import { getCanvas } from '@/lib/canvas/store'
+import { canvasAccess } from '@/lib/canvas/store'
 import {
   CANVAS_MEDIA_BUCKET,
   CANVAS_MEDIA_MAX_BYTES,
@@ -27,9 +27,9 @@ export async function GET(request: NextRequest, { params }: Ctx) {
   const { id } = await params
   const path = request.nextUrl.searchParams.get('path')
   try {
-    const found = await getCanvas(supabase, workspaceId, id, { userId: user.id })
+    const found = await canvasAccess(supabase, workspaceId, id, user.id)
     if (!found) return notFound('That canvas is not here.')
-    if (!isCanvasMediaPath(path, found.canvas.workspace_id, id)) return badRequest('That file is not on this canvas.')
+    if (!isCanvasMediaPath(path, found.workspace_id, id)) return badRequest('That file is not on this canvas.')
     const { data, error } = await getServiceClient().storage.from(CANVAS_MEDIA_BUCKET).createSignedUrl(path, 600)
     if (error || !data?.signedUrl) return notFound('That file is gone.')
     const res = NextResponse.redirect(data.signedUrl, 302)
@@ -51,7 +51,7 @@ export async function POST(request: NextRequest, { params }: Ctx) {
   const { supabase, user, workspaceId } = auth
   const { id } = await params
   try {
-    const found = await getCanvas(supabase, workspaceId, id, { userId: user.id })
+    const found = await canvasAccess(supabase, workspaceId, id, user.id)
     if (!found) return notFound('That canvas is not here.')
     if (!found.can_edit) return forbidden('You can view this canvas but not change it.')
     const form = await request.formData().catch(() => null)
@@ -61,7 +61,7 @@ export async function POST(request: NextRequest, { params }: Ctx) {
     if (!type) return badRequest('A canvas takes PNG, JPEG, GIF and WebP images, and MP4, WebM and MOV video.')
     if (file.size <= 0) return badRequest('That file is empty.')
     if (file.size > CANVAS_MEDIA_MAX_BYTES) return badRequest(`That file is over ${CANVAS_MEDIA_MAX_LABEL}.`)
-    const path = canvasMediaPath(found.canvas.workspace_id, id, crypto.randomUUID(), type.ext)
+    const path = canvasMediaPath(found.workspace_id, id, crypto.randomUUID(), type.ext)
     const { error } = await getServiceClient()
       .storage.from(CANVAS_MEDIA_BUCKET)
       .upload(path, Buffer.from(await file.arrayBuffer()), { contentType: file.type, upsert: false })

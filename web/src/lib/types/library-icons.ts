@@ -12,10 +12,12 @@
  * Lives apart from types/library.ts because that module is imported by API
  * routes, and icon VALUES would drag React components into route bundles.
  */
-import { Boxes, ScrollText, type LucideIcon } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
+import { ENTITY_IDENTITIES } from '@/lib/entities/entity-identity'
 import type { LibraryCategory } from './library'
 
 export const LIBRARY_CATEGORY_ICONS: Record<LibraryCategory, LucideIcon> = {
-  agent: Boxes,
-  skill: ScrollText,
+  // The glyphs live with every other kind's (lib/entities/entity-identity.ts).
+  agent: ENTITY_IDENTITIES.agent.icon,
+  skill: ENTITY_IDENTITIES.skill.icon,
 }

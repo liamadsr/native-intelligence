@@ -80,11 +80,49 @@ export async function getCanvas(
   return { canvas: normalizeRecord(data as CanvasRecord), items, can_edit: editable ? editable.data === true : false }
 }
 
-/** A canvas's items (RLS decides visibility, which follows the canvas). */
+/** Rows one read asks for: under the API's own cap, so a big canvas comes in pages. */
+const ITEM_PAGE = 1000
+
+/**
+ * A canvas's items (RLS decides visibility, which follows the canvas). Read a
+ * page at a time, in a fixed order, until a page comes back short: the API
+ * returns at most a thousand rows to one request, and a board can hold more.
+ */
 export async function listItems(db: SupabaseClient, canvasId: string): Promise<CanvasItemRow[]> {
-  const { data, error } = await db.from('canvas_item').select(ITEM_SELECT).eq('canvas_id', canvasId).order('sort_key', { ascending: true })
+  const out: CanvasItemRow[] = []
+  for (let from = 0; from < CANVAS_LIMITS.items + ITEM_PAGE; from += ITEM_PAGE) {
+    const { data, error } = await db
+      .from('canvas_item')
+      .select(ITEM_SELECT)
+      .eq('canvas_id', canvasId)
+      .order('sort_key', { ascending: true })
+      .order('id', { ascending: true })
+      .range(from, from + ITEM_PAGE - 1)
+    if (error) throw new Error(error.message)
+    const page = (data ?? []) as CanvasItemRow[]
+    for (const r of page) out.push({ ...r, data: (r.data ?? {}) as Record<string, unknown> })
+    if (page.length < ITEM_PAGE) break
+  }
+  return out
+}
+
+/**
+ * Can this person open the canvas, and change it? Without reading its items:
+ * what the media route asks for every image.
+ */
+export async function canvasAccess(
+  db: SupabaseClient,
+  workspaceId: string,
+  canvasId: string,
+  userId: string,
+): Promise<{ workspace_id: string; can_edit: boolean } | null> {
+  if (!isUuid(canvasId)) return null
+  const { data, error } = await db.from('canvas').select('id, workspace_id').eq('workspace_id', workspaceId).eq('id', canvasId).maybeSingle()
   if (error) throw new Error(error.message)
-  return ((data ?? []) as CanvasItemRow[]).map((r) => ({ ...r, data: (r.data ?? {}) as Record<string, unknown> }))
+  if (!data) return null
+  const editable = await db.rpc('canvas_editable_by', { p_canvas_id: canvasId, p_user_id: userId })
+  if (editable.error) throw new Error(editable.error.message)
+  return { workspace_id: (data as { workspace_id: string }).workspace_id, can_edit: editable.data === true }
 }
 
 function normalizeRecord(row: CanvasRecord): CanvasRecord {
@@ -274,8 +312,10 @@ export async function writeItems(
     const { error } = await db.from('canvas_item').upsert(rows, { onConflict: 'canvas_id,id' })
     if (error) return refusal(error)
   }
-  if (remove.length) {
-    const { error } = await db.from('canvas_item').delete().eq('canvas_id', canvasId).in('id', remove.slice(0, CANVAS_LIMITS.batch))
+  // Deletes go in the request's address, so a long list goes a few hundred ids at a time.
+  const gone = remove.slice(0, CANVAS_LIMITS.batch)
+  for (let i = 0; i < gone.length; i += 200) {
+    const { error } = await db.from('canvas_item').delete().eq('canvas_id', canvasId).in('id', gone.slice(i, i + 200))
     if (error) return refusal(error)
   }
 

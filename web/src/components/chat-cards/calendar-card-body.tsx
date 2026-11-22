@@ -9,8 +9,10 @@
  *     kept per device, and is what the agent hears and read_card reads.
  *   - Its count is the calendar events in the range on screen (timed actions
  *     draw on the grid too, but are not events), the same count `show` gave.
- *   - An event opens inside the card, as its detail panel; a timed action as
- *     the action's. The card header's Back returns to the grid.
+ *   - A click on an event opens its card beside it, over the grid
+ *     (event-details-popover.tsx); the card's "Open full details" opens the
+ *     event inside this card as its detail panel, a timed action as the
+ *     action's. The card header's Back returns to the grid.
  */
 import * as React from 'react'
 import { format, parseISO } from 'date-fns'
@@ -78,6 +80,7 @@ export default function CalendarCardBody({ toolCallId, spec, store, fullScreen, 
           onEvents={onEvents}
           onSelectEvent={(event) => records.open({ type: 'event', id: event.id, label: event.title })}
           onSelectAction={(id) => records.open({ type: 'action', id })}
+          onOpenCapture={(id, title) => records.open({ type: 'capture', id, label: title })}
         />
       </CardCovered>
       {open && (

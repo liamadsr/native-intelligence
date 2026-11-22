@@ -32,9 +32,11 @@ export async function openMention(ref: { type: string; id: string; label?: strin
     return true
   }
   // A mail thread: a grantee (shared by a mention, decision 1) opens the
-  // read-only shared viewer; the OWNER keeps today's behaviour. We cannot tell
-  // which client-side, so ask the share route: 200 means grantee, 404 falls
-  // back to the owner's existing open.
+  // read-only shared viewer; the OWNER opens the thread in Mail. We cannot tell
+  // which client-side, so ask the share route: 200 means grantee. On 404 (not a
+  // grantee), the owner's lookup turns the mention's email_thread_index id into
+  // its provider thread id (owner-only by RLS) and opens Mail on it. Neither
+  // (the lookup 404s): nothing opens, as before.
   if (ref.type === 'email_thread') {
     try {
       const res = await fetch(`/api/account/email/thread-shares?thread=${encodeURIComponent(ref.id)}`, { cache: 'no-store' })
@@ -45,8 +47,15 @@ export async function openMention(ref: { type: string; id: string; label?: strin
     } catch {
       // fall through to the owner's open
     }
-    const target = entityOpenTarget(ref.type, ref.id, ref.label)
-    return target ? openTarget(target, { from, origin }) : false
+    try {
+      const res = await fetch(`/api/account/email/threads/lookup?id=${encodeURIComponent(ref.id)}`, { cache: 'no-store' })
+      if (!res.ok) return false
+      const data = (await res.json()) as { provider_thread_id?: unknown }
+      if (typeof data.provider_thread_id !== 'string' || !data.provider_thread_id) return false
+      return openTarget({ type: 'mail', threadId: data.provider_thread_id, title: ref.label ?? null }, { from, origin })
+    } catch {
+      return false
+    }
   }
   if (ref.type !== 'attachment') {
     const target = entityOpenTarget(ref.type, ref.id, ref.label)

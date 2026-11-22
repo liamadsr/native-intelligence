@@ -100,11 +100,12 @@ export function CalendarSidebar({ view, accounts, hidden, onHiddenChange, upcomi
   const upcoming = useMemo(() => upcomingEvents(upcomingFrom ?? events, now), [upcomingFrom, events, now]);
   const calendarCount = accounts.reduce((n, a) => n + a.calendars.length, 0);
 
-  const openEvent = (event: IEvent) => {
+  const openEvent = (event: IEvent, row: HTMLElement) => {
     const start = eventStart(event);
     // An event already under way stays on today; a later one brings its day up.
     setSelectedDate(start > now ? start : now);
-    selectEvent(event);
+    // Its card, beside the row.
+    selectEvent(event, row);
   };
 
   return (
@@ -137,7 +138,7 @@ export function CalendarSidebar({ view, accounts, hidden, onHiddenChange, upcomi
                   <button
                     type="button"
                     data-upcoming-event={event.id}
-                    onClick={() => openEvent(event)}
+                    onClick={(e) => openEvent(event, e.currentTarget)}
                     title={event.title}
                     className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted"
                   >

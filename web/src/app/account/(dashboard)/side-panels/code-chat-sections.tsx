@@ -40,6 +40,7 @@
  * Read from the conversation's own reader (chat/code-view-store.ts `live`):
  * no read of its own, no timer. Until that first read, blank cards.
  */
+import { EntityIcon } from '@/components/entities/entity-icon'
 import { useEffect, useState, type ReactNode } from 'react'
 import { ArrowUpRight, ExternalLink, Square } from 'lucide-react'
 import { toast } from 'sonner'
@@ -140,6 +141,7 @@ function ActionCard({ action }: { action: JobAction }) {
         title={[action.identifier, action.title].filter(Boolean).join(' · ')}
         className="-mx-1 flex w-[calc(100%+0.5rem)] min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 text-left text-[13px] text-foreground/90 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
       >
+        <EntityIcon kind="action" size="sm" />
         {action.identifier && <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{action.identifier}</span>}
         <span className="min-w-0 flex-1 truncate">{action.title || 'Untitled action'}</span>
         <ArrowUpRight aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
