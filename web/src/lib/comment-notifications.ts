@@ -73,6 +73,19 @@ export async function sendCommentNotifications(params: CommentNotificationParams
     } else {
       // A contact's name is not repeated into notices: contacts can be private.
       parentTitle = `a ${params.commentableType}`
+      if (params.commentableType === 'contact') {
+        // Nor is a comment's text sent to someone who may not open the contact
+        // (migration 058: private, team or shared). Who that is, is the
+        // database's rule (can_view_contact); here the notice goes to the one
+        // person it certainly lets in, the contact's creator. Unknown reads as
+        // not for everyone, never as open.
+        const { data } = await service
+          .from('contact')
+          .select('visibility, created_by_member_id')
+          .eq('id', params.commentableId)
+          .single()
+        if (data?.visibility !== 'workspace') privateTo = data?.created_by_member_id ?? null
+      }
     }
 
     const commentPreview = params.commentBody.substring(0, 200)
