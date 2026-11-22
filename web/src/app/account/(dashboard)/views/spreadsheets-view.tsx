@@ -13,6 +13,8 @@ import { Button } from '@/components/ui/button'
 import { SpreadsheetEditor } from '@/components/spreadsheets/spreadsheet-editor'
 import { CardHeaderSlot } from '@/components/chat-cards/card-header-slot'
 import { CARD_HEADER_PILL_BUTTON } from '@/components/chat-cards/card-header-button'
+import { EntityContextMenu } from '@/components/entities/entity-actions-menu'
+import { useEntityListSync } from '@/hooks/use-entity-sync'
 import { relativeTime } from '@/lib/work/presentation'
 import { cn } from '@/lib/utils'
 import type { SpreadsheetSummary } from '@/lib/spreadsheets/types'
@@ -60,6 +62,11 @@ export function SpreadsheetsView({ onCount, card }: { onCount?: (count: number) 
   useEffect(() => {
     void load()
   }, [load])
+
+  // A rename, archive or restore from a row's menu (the one entity actions
+  // menu) changes the list: read it again so an archived one leaves and a
+  // rename shows.
+  useEntityListSync(['spreadsheet'], () => void load())
 
   const create = async () => {
     if (creating) return
@@ -150,13 +157,16 @@ export function SpreadsheetsView({ onCount, card }: { onCount?: (count: number) 
           <ul className="divide-y divide-border">
             {sheets.map((s) => (
               <li key={s.id}>
-                <button type="button" onClick={() => setOpenId(s.id, s.title)} className={cn('flex w-full items-center py-2.5 text-left hover:bg-muted/40', card ? 'gap-2' : 'gap-3')}>
-                  <Sheet className={cn('shrink-0 text-muted-foreground', card ? 'size-3.5' : 'h-4 w-4')} aria-hidden />
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{s.title}</span>
-                  {s.sheet_names.length > 1 && <span className="shrink-0 text-xs text-muted-foreground">{s.sheet_names.length} sheets</span>}
-                  {s.visibility === 'private' && <Lock className="h-3 w-3 shrink-0 text-muted-foreground" aria-label="Private" />}
-                  <span className="shrink-0 text-xs text-muted-foreground">{relativeTime(s.updated_at)}</span>
-                </button>
+                {/* Right-click a row for its own actions (Copy link, Rename, Make a task, Archive): the one entity actions menu. */}
+                <EntityContextMenu entity={{ type: 'spreadsheet', id: s.id, label: s.title }} state={{ archived: s.status === 'archived' }} from="spreadsheet_list">
+                  <button type="button" onClick={() => setOpenId(s.id, s.title)} className={cn('flex w-full items-center py-2.5 text-left hover:bg-muted/40', card ? 'gap-2' : 'gap-3')}>
+                    <Sheet className={cn('shrink-0 text-muted-foreground', card ? 'size-3.5' : 'h-4 w-4')} aria-hidden />
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{s.title}</span>
+                    {s.sheet_names.length > 1 && <span className="shrink-0 text-xs text-muted-foreground">{s.sheet_names.length} sheets</span>}
+                    {s.visibility === 'private' && <Lock className="h-3 w-3 shrink-0 text-muted-foreground" aria-label="Private" />}
+                    <span className="shrink-0 text-xs text-muted-foreground">{relativeTime(s.updated_at)}</span>
+                  </button>
+                </EntityContextMenu>
               </li>
             ))}
           </ul>

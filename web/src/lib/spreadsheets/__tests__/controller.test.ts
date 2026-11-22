@@ -68,6 +68,78 @@ describe('editing a cell', () => {
   })
 })
 
+describe('moving a range by its border', () => {
+  it('moves values, formulas and the references into them, clears the source, and is one undo step', () => {
+    // A1:A2 hold values; B1 = A1*2 points into the moved range.
+    const wb = open([
+      [1, 1, '10'],
+      [2, 1, '20'],
+      [1, 2, '=A1*2'],
+    ])
+    wb.selectRange({ r1: 1, c1: 1, r2: 2, c2: 1 })
+    // Move A1:A2 → C1:C2 (two columns right).
+    expect(wb.moveSelection(0, 2)).toEqual({ ok: true })
+    expect(wb.text(1, 3)).toBe('10')
+    expect(wb.text(2, 3)).toBe('20')
+    // The source is cleared.
+    expect(wb.input(1, 1)).toBe('')
+    expect(wb.input(2, 1)).toBe('')
+    // The reference followed the moved cell.
+    expect(wb.input(1, 2)).toBe('=C1*2')
+    expect(wb.text(1, 2)).toBe('20')
+    // The moved range is selected.
+    expect(wb.selection().range).toEqual({ r1: 1, c1: 3, r2: 2, c2: 3 })
+    // One undo step puts everything back.
+    wb.undo()
+    expect(wb.text(1, 1)).toBe('10')
+    expect(wb.text(1, 3)).toBe('')
+    expect(wb.input(1, 2)).toBe('=A1*2')
+  })
+
+  it('refuses a move off the top-left of the sheet and does nothing', () => {
+    const wb = open([[1, 1, 'a']])
+    wb.select(1, 1)
+    expect(wb.moveSelection(-1, 0)).toMatchObject({ ok: false })
+    expect(wb.text(1, 1)).toBe('a')
+    expect(wb.canUndo()).toBe(false)
+  })
+
+  it('tells the caller when the target holds values (so the UI can ask first)', () => {
+    const wb = open([
+      [1, 1, 'from'],
+      [1, 3, 'there'],
+    ])
+    wb.select(1, 1)
+    // C1 is occupied → moving A1 onto it would overwrite.
+    expect(wb.moveWouldOverwrite(0, 2)).toBe(true)
+    // B1 is empty → no overwrite.
+    expect(wb.moveWouldOverwrite(0, 1)).toBe(false)
+    // A no-op move never overwrites.
+    expect(wb.moveWouldOverwrite(0, 0)).toBe(false)
+  })
+
+  it('overlapping the source is not an overwrite', () => {
+    const wb = open([
+      [1, 1, 'a'],
+      [2, 1, 'b'],
+    ])
+    wb.selectRange({ r1: 1, c1: 1, r2: 2, c2: 1 })
+    // Moving down one lands row 2 (part of the source) and row 3 (empty): no ask.
+    expect(wb.moveWouldOverwrite(1, 0)).toBe(false)
+    expect(wb.moveSelection(1, 0)).toEqual({ ok: true })
+    expect(wb.text(2, 1)).toBe('a')
+    expect(wb.text(3, 1)).toBe('b')
+    expect(wb.text(1, 1)).toBe('')
+  })
+
+  it('does not move in a view-only workbook', () => {
+    const wb = open([[1, 1, 'a']], { readOnly: true })
+    wb.select(1, 1)
+    expect(wb.moveSelection(0, 1)).toMatchObject({ ok: false, message: expect.stringMatching(/view/) })
+    expect(wb.text(1, 1)).toBe('a')
+  })
+})
+
 describe('undo and redo', () => {
   it('takes back one action at a time, and redoes it', () => {
     const wb = open()

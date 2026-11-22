@@ -24,6 +24,7 @@ import { indexAt, type InternalClipboard, type SheetLayout, type WorkbookControl
 import type { WorkbookTable } from '@/lib/spreadsheets/extras'
 import { expectsReference, insertReference, isFormula, referenceText } from '@/lib/spreadsheets/formula-edit'
 import { parseTsv, toTsv } from '@/components/grid/tsv'
+import { FLOATING_CARD_CLASS } from '@/components/attention/card-skin'
 import { CfGlyph } from './cf-glyph'
 import { FloatingObjects } from './floating-objects'
 import { TableBackground, TableHeaders } from './table-overlay'
@@ -458,10 +459,14 @@ export function SheetGrid({ workbook, caret, showGridlines = true, showFormulas 
   const editorRef = useRef<HTMLTextAreaElement>(null)
   const [scroll, setScroll] = useState({ left: 0, top: 0, width: 0, height: 0 })
   const [fillPreview, setFillPreview] = useState<CellRange | null>(null)
+  // The dashed rectangle while a range is dragged by its border, and a confirm
+  // held until the person agrees to overwrite the cells it would land on.
+  const [movePreview, setMovePreview] = useState<CellRange | null>(null)
+  const [moveConfirm, setMoveConfirm] = useState<{ row: number; column: number } | null>(null)
   const [pointing, setPointing] = useState<{ sheet: number; range: CellRange } | null>(null)
   const [listCell, setListCell] = useState<CellRef | null>(null)
   const [selectedObject, setSelectedObject] = useState<string | null>(null)
-  const drag = useRef<null | { kind: 'select' | 'rows' | 'columns' | 'fill' | 'point' | 'resize-column' | 'resize-row'; from: CellRef; index?: number; start?: number; size?: number }>(null)
+  const drag = useRef<null | { kind: 'select' | 'rows' | 'columns' | 'fill' | 'point' | 'move' | 'extend' | 'resize-column' | 'resize-row'; from: CellRef; index?: number; start?: number; size?: number; delta?: { row: number; column: number }; corner?: 'tl' | 'br'; origin?: CellRange }>(null)
   const frame = useRef(0)
   const say = useCallback((result: { ok: boolean; message?: string }) => {
     if (!result.ok && result.message) onMessage?.(result.message)
@@ -647,6 +652,19 @@ export function SheetGrid({ workbook, caret, showGridlines = true, showFormulas 
         setFillPreview({ ...range, c1: Math.min(range.c1, at.column), c2: Math.max(range.c2, at.column) })
       }
       d.from = at
+    } else if (d.kind === 'extend' && d.origin && d.corner) {
+      // A touch handle on the selection's corner, on a phone: it extends the
+      // range, keeping the opposite corner fixed.
+      const base = d.origin
+      if (d.corner === 'br') workbook.selectRange({ r1: base.r1, c1: base.c1, r2: Math.max(base.r1, at.row), c2: Math.max(base.c1, at.column) }, { row: base.r1, column: base.c1 })
+      else workbook.selectRange({ r1: Math.min(base.r2, at.row), c1: Math.min(base.c2, at.column), r2: base.r2, c2: base.c2 }, { row: base.r2, column: base.c2 })
+    } else if (d.kind === 'move') {
+      const base = workbook.selection().range
+      // Grab-and-move: the range follows the cell under the pointer, never off the top-left.
+      const dRow = Math.max(1 - base.r1, at.row - d.from.row)
+      const dColumn = Math.max(1 - base.c1, at.column - d.from.column)
+      d.delta = { row: dRow, column: dColumn }
+      setMovePreview(dRow === 0 && dColumn === 0 ? null : { r1: base.r1 + dRow, c1: base.c1 + dColumn, r2: base.r2 + dRow, c2: base.c2 + dColumn })
     } else if (d.kind === 'resize-column' && d.index && d.start !== undefined && d.size !== undefined) {
       setResize({ kind: 'column', index: d.index, size: Math.max(8, Math.min(640, d.size + event.clientX - d.start)) })
     } else if (d.kind === 'resize-row' && d.index && d.start !== undefined && d.size !== undefined) {
@@ -664,6 +682,13 @@ export function SheetGrid({ workbook, caret, showGridlines = true, showFormulas 
     if (d.kind === 'fill') {
       setFillPreview(null)
       say(workbook.fillTo(d.from))
+    } else if (d.kind === 'move') {
+      setMovePreview(null)
+      const delta = d.delta ?? { row: 0, column: 0 }
+      if (delta.row === 0 && delta.column === 0) return
+      // Ask before writing over cells that already hold something.
+      if (workbook.moveWouldOverwrite(delta.row, delta.column)) setMoveConfirm(delta)
+      else say(workbook.moveSelection(delta.row, delta.column))
     } else if (d.kind === 'point') {
       editorRef.current?.focus()
     } else if ((d.kind === 'resize-column' || d.kind === 'resize-row') && resize) {
@@ -679,6 +704,27 @@ export function SheetGrid({ workbook, caret, showGridlines = true, showFormulas 
       }
       setResize(null)
     }
+  }
+
+  // Grab the selection's border to move the range. The cell under the pointer
+  // is the grip; the range then follows it (onPointerMove, kind 'move').
+  const beginMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || workbook.readOnly || workbook.editing) return
+    event.stopPropagation()
+    event.preventDefault()
+    drag.current = { kind: 'move', from: cellAt(event.clientX, event.clientY), delta: { row: 0, column: 0 } }
+    event.currentTarget.setPointerCapture(event.pointerId)
+    host.current?.focus({ preventScroll: true })
+  }
+
+  // A touch handle on a selection corner (phones): drag to extend the range.
+  const beginExtend = (corner: 'tl' | 'br') => (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return
+    event.stopPropagation()
+    event.preventDefault()
+    drag.current = { kind: 'extend', from: cellAt(event.clientX, event.clientY), corner, origin: workbook.selection().range }
+    event.currentTarget.setPointerCapture(event.pointerId)
+    host.current?.focus({ preventScroll: true })
   }
 
   const measureText = useCallback((text: string, row: number, column: number): number => {
@@ -790,6 +836,13 @@ export function SheetGrid({ workbook, caret, showGridlines = true, showFormulas 
     if (event.nativeEvent.isComposing) return
     const mod = event.metaKey || event.ctrlKey
     const key = event.key
+    // Escape cancels a border drag in progress (the move is not made).
+    if (key === 'Escape' && drag.current?.kind === 'move') {
+      event.preventDefault()
+      drag.current = null
+      setMovePreview(null)
+      return
+    }
     // Ctrl/Cmd+Alt+T: convert the selection to a table (or open its options when already in one).
     if (mod && event.altKey && key.toLowerCase() === 't') {
       event.preventDefault()
@@ -1041,6 +1094,13 @@ export function SheetGrid({ workbook, caret, showGridlines = true, showFormulas 
 
   const pointRect = pointing && pointing.sheet === sheet ? rectOf(layout, pointing.range) : null
   const previewRect = fillPreview ? rectOf(layout, fillPreview) : null
+  const moveRect = movePreview ? rectOf(layout, movePreview) : null
+  // A thin band on each edge of the selection, where a grab starts a move.
+  const canMove = !workbook.readOnly && !editing && rangeRect.width > 0 && rangeRect.height > 0
+  // On a narrow (phone) grid, two big touch handles on the selection's corners
+  // extend it; a mouse uses Shift+click and the small fill handle instead.
+  const narrow = scroll.width > 0 && scroll.width < 480
+  const touchHandles = narrow && !editing && rangeRect.width > 0 && rangeRect.height > 0
   const activeName = `${columnName(selection.column)}${selection.row}`
 
   return (
@@ -1187,6 +1247,42 @@ export function SheetGrid({ workbook, caret, showGridlines = true, showFormulas 
           {activeRect.width > 0 && activeRect.height > 0 && (
             <div aria-hidden className="pointer-events-none absolute z-10 border-2 border-primary" style={activeRect} />
           )}
+          {/* Grab the selection's edge to move the range (cursor: move). Four
+              thin bands leave the interior free to click and the corner free
+              for the fill handle (rendered after, so it wins the corner). */}
+          {canMove && (
+            <>
+              <div data-move-edge="top" className="absolute z-10 cursor-move" style={{ left: rangeRect.left, top: rangeRect.top - 3, width: rangeRect.width, height: 6 }} onPointerDown={beginMove} onPointerMove={onPointerMove} onPointerUp={onPointerUp} />
+              <div data-move-edge="bottom" className="absolute z-10 cursor-move" style={{ left: rangeRect.left, top: rangeRect.top + rangeRect.height - 3, width: rangeRect.width, height: 6 }} onPointerDown={beginMove} onPointerMove={onPointerMove} onPointerUp={onPointerUp} />
+              <div data-move-edge="left" className="absolute z-10 cursor-move" style={{ left: rangeRect.left - 3, top: rangeRect.top, width: 6, height: rangeRect.height }} onPointerDown={beginMove} onPointerMove={onPointerMove} onPointerUp={onPointerUp} />
+              <div data-move-edge="right" className="absolute z-10 cursor-move" style={{ left: rangeRect.left + rangeRect.width - 3, top: rangeRect.top, width: 6, height: rangeRect.height }} onPointerDown={beginMove} onPointerMove={onPointerMove} onPointerUp={onPointerUp} />
+            </>
+          )}
+          {/* Where the dragged range would land. */}
+          {moveRect && <div aria-hidden data-move-preview className="pointer-events-none absolute z-20 border-2 border-dashed border-primary bg-primary/[0.06]" style={moveRect} />}
+          {/* Phone: two big touch handles on the selection's corners extend it. */}
+          {touchHandles && (
+            <>
+              <div
+                role="presentation"
+                data-touch-handle="tl"
+                className="absolute z-20 size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-background bg-primary shadow"
+                style={{ left: rangeRect.left, top: rangeRect.top }}
+                onPointerDown={beginExtend('tl')}
+                onPointerMove={onPointerMove}
+                onPointerUp={onPointerUp}
+              />
+              <div
+                role="presentation"
+                data-touch-handle="br"
+                className="absolute z-20 size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-background bg-primary shadow"
+                style={{ left: rangeRect.left + rangeRect.width, top: rangeRect.top + rangeRect.height }}
+                onPointerDown={beginExtend('br')}
+                onPointerMove={onPointerMove}
+                onPointerUp={onPointerUp}
+              />
+            </>
+          )}
           {/* The fill handle, at the range's bottom-right corner. */}
           {!workbook.readOnly && !editing && rangeRect.width > 0 && rangeRect.height > 0 && (
             <div
@@ -1276,6 +1372,39 @@ export function SheetGrid({ workbook, caret, showGridlines = true, showFormulas 
         </div>
        </div>
       </div>
+      {/* Overwrite confirm for a border move onto cells that hold values. */}
+      {moveConfirm && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/40" role="dialog" aria-modal="true" aria-label="Replace cells?">
+          <div className={cn(FLOATING_CARD_CLASS, 'w-64 p-3 shadow-lg')}>
+            <p className="text-sm text-foreground">Replace the cells there?</p>
+            <p className="mt-1 text-xs text-muted-foreground">The cells this range lands on already hold values.</p>
+            <div className="mt-3 flex justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-md px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+                onClick={() => {
+                  setMoveConfirm(null)
+                  host.current?.focus({ preventScroll: true })
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                data-move-confirm
+                className="rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+                onClick={() => {
+                  say(workbook.moveSelection(moveConfirm.row, moveConfirm.column))
+                  setMoveConfirm(null)
+                  host.current?.focus({ preventScroll: true })
+                }}
+              >
+                Move
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -319,6 +319,76 @@ describe('the mouse', () => {
     expect([3, 4, 5].map((r) => cell(`A${r}`)?.textContent)).toEqual(['3', '4', '5'])
   })
 
+  it('dragging the selection border moves the range into empty cells', () => {
+    mount([[1, 1, 'move me']])
+    act(() => workbook.select(1, 1))
+    const edge = container.querySelector('[data-move-edge="bottom"]') as Element
+    expect(edge).toBeTruthy()
+    pointer('pointerdown', 1, 1, {}, edge)
+    pointer('pointermove', 1, 3, {}, edge)
+    pointer('pointerup', 1, 3, {}, edge)
+    expect(cell('A1')?.textContent ?? '').toBe('')
+    expect(cell('C1')?.textContent).toBe('move me')
+  })
+
+  it('asks before overwriting occupied cells, and moves on confirm', () => {
+    mount([[1, 1, 'a'], [1, 3, 'b']])
+    act(() => workbook.select(1, 1))
+    const edge = container.querySelector('[data-move-edge="right"]') as Element
+    pointer('pointerdown', 1, 1, {}, edge)
+    pointer('pointermove', 1, 3, {}, edge)
+    pointer('pointerup', 1, 3, {}, edge)
+    // Nothing moved; a confirm is shown.
+    expect(cell('C1')?.textContent).toBe('b')
+    const confirm = container.querySelector('[data-move-confirm]') as HTMLElement
+    expect(confirm).toBeTruthy()
+    act(() => confirm.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    expect(cell('A1')?.textContent ?? '').toBe('')
+    expect(cell('C1')?.textContent).toBe('a')
+  })
+
+  it('Escape during a border drag cancels the move', () => {
+    mount([[1, 1, 'a']])
+    act(() => workbook.select(1, 1))
+    const edge = container.querySelector('[data-move-edge="top"]') as Element
+    pointer('pointerdown', 1, 1, {}, edge)
+    pointer('pointermove', 1, 3, {}, edge)
+    key('Escape')
+    pointer('pointerup', 1, 3, {}, edge)
+    expect(cell('A1')?.textContent).toBe('a')
+    expect(cell('C1')?.textContent ?? '').toBe('')
+  })
+
+  it('offers no move border in a view-only workbook', () => {
+    mount([[1, 1, 'a']], { readOnly: true })
+    act(() => workbook.select(1, 1))
+    expect(container.querySelector('[data-move-edge]')).toBeNull()
+  })
+
+  it('on a narrow (phone) grid, a corner touch handle extends the selection', () => {
+    const descW = Object.getOwnPropertyDescriptor(Element.prototype, 'clientWidth')
+    Object.defineProperty(Element.prototype, 'clientWidth', { configurable: true, get: () => 390 })
+    try {
+      mount([[1, 1, 'a']])
+      act(() => workbook.select(2, 2))
+      // Desktop grids (the other tests at 1046px) show no touch handles.
+      const br = container.querySelector('[data-touch-handle="br"]') as Element
+      expect(br).toBeTruthy()
+      pointer('pointerdown', 2, 2, {}, br)
+      pointer('pointermove', 4, 5, {}, br)
+      pointer('pointerup', 4, 5, {}, br)
+      expect(workbook.selection().range).toEqual({ r1: 2, c1: 2, r2: 4, c2: 5 })
+    } finally {
+      if (descW) Object.defineProperty(Element.prototype, 'clientWidth', descW)
+    }
+  })
+
+  it('shows no touch handles on a wide (desktop) grid', () => {
+    mount([[1, 1, 'a']])
+    act(() => workbook.select(1, 1))
+    expect(container.querySelector('[data-touch-handle]')).toBeNull()
+  })
+
   it('a press on a column letter selects the column, on a row number the row, on the corner everything', () => {
     mount()
     const headers = container.querySelector('[data-column-headers]') as Element
