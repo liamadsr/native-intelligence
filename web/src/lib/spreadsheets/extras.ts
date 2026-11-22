@@ -64,23 +64,138 @@ export interface CheckboxArea {
   range: CellRange
 }
 
+// ── Tables ───────────────────────────────────────────────────────────────────
+
+/** A table column's type: what new cells become and how the total aggregates. `people` is treated as text. */
+export type TableColumnType = 'text' | 'number' | 'percent' | 'currency' | 'date' | 'datetime' | 'time' | 'checkbox' | 'dropdown' | 'people'
+
+/** The aggregate a total-row cell shows. Written as a SUBTOTAL (or COUNTBLANK / a unique count) so hidden rows drop out. */
+export type TotalKind = 'none' | 'sum' | 'average' | 'count' | 'filled' | 'empty' | 'unique' | 'min' | 'max'
+
+export const TABLE_COLUMN_TYPES: readonly TableColumnType[] = ['text', 'number', 'percent', 'currency', 'date', 'datetime', 'time', 'checkbox', 'dropdown', 'people']
+export const TOTAL_KINDS: readonly TotalKind[] = ['none', 'sum', 'average', 'count', 'filled', 'empty', 'unique', 'min', 'max']
+
+export interface TableColumn {
+  /** The header cell's text. */
+  name: string
+  type: TableColumnType
+  /** The total-row aggregate, when the table has a total row. */
+  total?: TotalKind
+}
+
+/** A filter on one column: a set of allowed shown values, and/or a condition. */
+export type FilterOp = 'equals' | 'notEquals' | 'contains' | 'greaterThan' | 'lessThan' | 'isEmpty' | 'isNotEmpty'
+export const FILTER_OPS: readonly FilterOp[] = ['equals', 'notEquals', 'contains', 'greaterThan', 'lessThan', 'isEmpty', 'isNotEmpty']
+
+export interface TableFilter {
+  /** Allowed shown values (the checklist). Absent means every value passes the checklist. */
+  values?: string[]
+  condition?: { op: FilterOp; value: string }
+}
+
+export interface TableStyle {
+  /** One of TABLE_COLORS. */
+  color: string
+  bandedRows: boolean
+  bandedColumns: boolean
+  boldFirstColumn: boolean
+  boldLastColumn: boolean
+  totalRow: boolean
+}
+
+export interface WorkbookTable {
+  id: string
+  sheetId: number
+  /** Unique in the workbook, a valid identifier (Table1, Table2…). */
+  name: string
+  /** Header row + data rows [+ total row]. */
+  range: CellRange
+  columns: TableColumn[]
+  style: TableStyle
+  /** Per column offset (0-based within the table), a filter. */
+  filters: Record<number, TableFilter>
+  sort?: { column: number; descending: boolean }
+  /** Rows this table's own filter hid, so "clear filters" unhides only those (not ones a person hid). */
+  hiddenRows?: number[]
+}
+
+/** Ten header colors, theme-safe: strong enough that white header text reads on them in either theme. */
+export const TABLE_COLORS: readonly { name: string; hex: string }[] = [
+  { name: 'Blue', hex: '#1A73E8' },
+  { name: 'Teal', hex: '#0E9384' },
+  { name: 'Green', hex: '#1E8E3E' },
+  { name: 'Amber', hex: '#B88407' },
+  { name: 'Orange', hex: '#E8710A' },
+  { name: 'Red', hex: '#D92D20' },
+  { name: 'Pink', hex: '#D6336C' },
+  { name: 'Purple', hex: '#9334E6' },
+  { name: 'Indigo', hex: '#4F46E5' },
+  { name: 'Slate', hex: '#475467' },
+]
+
+export function defaultTableStyle(color = TABLE_COLORS[0].hex): TableStyle {
+  return { color, bandedRows: true, bandedColumns: false, boldFirstColumn: false, boldLastColumn: false, totalRow: false }
+}
+
+// ── Charts ─────────────────────────────────────────────────────────────────
+
+export type ChartType = 'column' | 'bar' | 'line' | 'area' | 'pie' | 'doughnut' | 'scatter'
+export const CHART_TYPES: readonly ChartType[] = ['column', 'bar', 'line', 'area', 'pie', 'doughnut', 'scatter']
+
+/** Where a floating object sits: anchored to a cell, with a pixel offset into it, then a size. */
+export interface Anchor {
+  row: number
+  column: number
+  dx: number
+  dy: number
+}
+
+export interface WorkbookChart {
+  id: string
+  sheetId: number
+  type: ChartType
+  title: string
+  legend: boolean
+  /** The data range on the same sheet (follows the sheet's row/column moves). */
+  source: CellRange
+  anchor: Anchor
+  width: number
+  height: number
+}
+
+// ── Images ───────────────────────────────────────────────────────────────────
+
+export interface WorkbookImage {
+  id: string
+  sheetId: number
+  /** The content hash; the bytes live once in `imageBlobs` keyed by it (identical images are stored once). */
+  hash: string
+  anchor: Anchor
+  width: number
+  height: number
+}
+
 /** A versioned bag. New kinds are added as optional arrays so an older reader drops them cleanly. */
 export interface WorkbookExtras {
   v: typeof EXTRAS_VERSION
   validations: Validation[]
   checkboxes: CheckboxArea[]
-  /** Reserved for later phases; carried through untouched. */
-  charts: unknown[]
-  images: unknown[]
-  tables: unknown[]
+  tables: WorkbookTable[]
+  charts: WorkbookChart[]
+  images: WorkbookImage[]
+  /** Image data URLs by content hash, so identical images are stored once. */
+  imageBlobs: Record<string, string>
 }
 
-/** Serialized extras larger than this are refused (the arrays are trimmed): a guard against a runaway workbook. */
+/** Serialized extras (minus the image blobs) larger than this are trimmed: a guard against runaway validation/table data. */
 export const MAX_EXTRAS_BYTES = 1_000_000
+/** An image is at most 1 MB, and a workbook holds at most 4 MB of images (the lead's decision: a data URL, no bucket). */
+export const MAX_IMAGE_BYTES = 1_000_000
+export const MAX_WORKBOOK_IMAGE_BYTES = 4_000_000
 const MAX_ENTRIES = 5_000
 
 export function emptyExtras(): WorkbookExtras {
-  return { v: EXTRAS_VERSION, validations: [], checkboxes: [], charts: [], images: [], tables: [] }
+  return { v: EXTRAS_VERSION, validations: [], checkboxes: [], tables: [], charts: [], images: [], imageBlobs: {} }
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -156,6 +271,103 @@ function readAreas<T extends { sheetId: number; range: CellRange }>(value: unkno
   return out
 }
 
+function readString(value: unknown, fallback = ''): string {
+  return typeof value === 'string' ? value : fallback
+}
+
+function readColumnType(value: unknown): TableColumnType {
+  return TABLE_COLUMN_TYPES.includes(value as TableColumnType) ? (value as TableColumnType) : 'text'
+}
+
+function readTotalKind(value: unknown): TotalKind | undefined {
+  return TOTAL_KINDS.includes(value as TotalKind) ? (value as TotalKind) : undefined
+}
+
+function readFilter(value: unknown): TableFilter | null {
+  if (!isObject(value)) return null
+  const filter: TableFilter = {}
+  if (Array.isArray(value.values)) filter.values = value.values.filter((v): v is string => typeof v === 'string')
+  if (isObject(value.condition) && FILTER_OPS.includes(value.condition.op as FilterOp)) {
+    filter.condition = { op: value.condition.op as FilterOp, value: readString(value.condition.value) }
+  }
+  return filter.values || filter.condition ? filter : null
+}
+
+function readTable(value: unknown): WorkbookTable | null {
+  if (!isObject(value)) return null
+  const sheetId = Number(value.sheetId)
+  const range = readRange(value.range)
+  if (!Number.isInteger(sheetId) || !range || typeof value.id !== 'string') return null
+  const columns: TableColumn[] = []
+  if (Array.isArray(value.columns)) {
+    for (const c of value.columns) {
+      if (!isObject(c)) continue
+      columns.push({ name: readString(c.name), type: readColumnType(c.type), ...(readTotalKind(c.total) ? { total: readTotalKind(c.total) } : {}) })
+    }
+  }
+  if (!columns.length) return null
+  const styleIn = isObject(value.style) ? value.style : {}
+  const style: TableStyle = {
+    color: typeof styleIn.color === 'string' ? styleIn.color : TABLE_COLORS[0].hex,
+    bandedRows: styleIn.bandedRows !== false,
+    bandedColumns: styleIn.bandedColumns === true,
+    boldFirstColumn: styleIn.boldFirstColumn === true,
+    boldLastColumn: styleIn.boldLastColumn === true,
+    totalRow: styleIn.totalRow === true,
+  }
+  const filters: Record<number, TableFilter> = {}
+  if (isObject(value.filters)) {
+    for (const [key, f] of Object.entries(value.filters)) {
+      const offset = Number(key)
+      const filter = readFilter(f)
+      if (Number.isInteger(offset) && offset >= 0 && filter) filters[offset] = filter
+    }
+  }
+  const sort = isObject(value.sort) && Number.isInteger(Number(value.sort.column)) ? { column: Number(value.sort.column), descending: value.sort.descending === true } : undefined
+  const hiddenRows = Array.isArray(value.hiddenRows) ? value.hiddenRows.filter((r): r is number => Number.isInteger(r)) : undefined
+  return {
+    id: value.id,
+    sheetId,
+    name: readString(value.name, 'Table'),
+    range,
+    columns,
+    style,
+    filters,
+    ...(sort ? { sort } : {}),
+    ...(hiddenRows && hiddenRows.length ? { hiddenRows } : {}),
+  }
+}
+
+function readAnchor(value: unknown): Anchor | null {
+  if (!isObject(value)) return null
+  const row = Number(value.row)
+  const column = Number(value.column)
+  if (!Number.isInteger(row) || !Number.isInteger(column) || row < 1 || column < 1) return null
+  return { row, column, dx: Number.isFinite(Number(value.dx)) ? Number(value.dx) : 0, dy: Number.isFinite(Number(value.dy)) ? Number(value.dy) : 0 }
+}
+
+function readChart(value: unknown): WorkbookChart | null {
+  if (!isObject(value)) return null
+  const sheetId = Number(value.sheetId)
+  const source = readRange(value.source)
+  const anchor = readAnchor(value.anchor)
+  if (!Number.isInteger(sheetId) || !source || !anchor || typeof value.id !== 'string') return null
+  const type = CHART_TYPES.includes(value.type as ChartType) ? (value.type as ChartType) : 'column'
+  const width = Number.isFinite(Number(value.width)) ? Math.max(120, Number(value.width)) : 420
+  const height = Number.isFinite(Number(value.height)) ? Math.max(100, Number(value.height)) : 280
+  return { id: value.id, sheetId, type, title: readString(value.title), legend: value.legend !== false, source, anchor, width, height }
+}
+
+function readImage(value: unknown): WorkbookImage | null {
+  if (!isObject(value)) return null
+  const sheetId = Number(value.sheetId)
+  const anchor = readAnchor(value.anchor)
+  if (!Number.isInteger(sheetId) || !anchor || typeof value.id !== 'string' || typeof value.hash !== 'string') return null
+  const width = Number.isFinite(Number(value.width)) ? Math.max(16, Number(value.width)) : 200
+  const height = Number.isFinite(Number(value.height)) ? Math.max(16, Number(value.height)) : 150
+  return { id: value.id, sheetId, hash: value.hash, anchor, width, height }
+}
+
 /** Read whatever is in the column, dropping anything this version does not understand. */
 export function readExtras(value: unknown): WorkbookExtras {
   const base = emptyExtras()
@@ -165,16 +377,43 @@ export function readExtras(value: unknown): WorkbookExtras {
     return rule ? { rule } : null
   })
   const checkboxes = readAreas<CheckboxArea>(value.checkboxes, () => ({}))
-  const result: WorkbookExtras = {
-    v: EXTRAS_VERSION,
-    validations,
-    checkboxes,
-    charts: Array.isArray(value.charts) ? (value.charts as unknown[]) : [],
-    images: Array.isArray(value.images) ? (value.images as unknown[]) : [],
-    tables: Array.isArray(value.tables) ? (value.tables as unknown[]) : [],
+  const tables: WorkbookTable[] = []
+  if (Array.isArray(value.tables)) {
+    for (const t of value.tables) {
+      if (tables.length >= MAX_ENTRIES) break
+      const table = readTable(t)
+      if (table) tables.push(table)
+    }
   }
-  // The size guard: trim the large collections until it fits.
-  while (JSON.stringify(result).length > MAX_EXTRAS_BYTES && (result.validations.length || result.checkboxes.length)) {
+  const charts: WorkbookChart[] = []
+  if (Array.isArray(value.charts)) {
+    for (const c of value.charts) {
+      if (charts.length >= MAX_ENTRIES) break
+      const chart = readChart(c)
+      if (chart) charts.push(chart)
+    }
+  }
+  const images: WorkbookImage[] = []
+  if (Array.isArray(value.images)) {
+    for (const im of value.images) {
+      if (images.length >= MAX_ENTRIES) break
+      const image = readImage(im)
+      if (image) images.push(image)
+    }
+  }
+  const imageBlobs: Record<string, string> = {}
+  if (isObject(value.imageBlobs)) {
+    for (const [hash, url] of Object.entries(value.imageBlobs)) {
+      if (typeof url === 'string' && url.startsWith('data:')) imageBlobs[hash] = url
+    }
+  }
+  // Keep only blobs an image still points at.
+  const used = new Set(images.map((im) => im.hash))
+  for (const hash of Object.keys(imageBlobs)) if (!used.has(hash)) delete imageBlobs[hash]
+  const result: WorkbookExtras = { v: EXTRAS_VERSION, validations, checkboxes, tables, charts, images, imageBlobs }
+  // The size guard counts everything but the image blobs (those have their own caps): trim until it fits.
+  const weight = () => JSON.stringify({ ...result, imageBlobs: {} }).length
+  while (weight() > MAX_EXTRAS_BYTES && (result.validations.length || result.checkboxes.length)) {
     if (result.validations.length >= result.checkboxes.length) result.validations.pop()
     else result.checkboxes.pop()
   }
@@ -186,9 +425,9 @@ export function extrasAreEmpty(extras: WorkbookExtras): boolean {
   return (
     extras.validations.length === 0 &&
     extras.checkboxes.length === 0 &&
+    extras.tables.length === 0 &&
     extras.charts.length === 0 &&
-    extras.images.length === 0 &&
-    extras.tables.length === 0
+    extras.images.length === 0
   )
 }
 
@@ -270,12 +509,86 @@ function mapAreas<T extends { sheetId: number; range: CellRange }>(items: T[], c
   return out
 }
 
-/** Move the stored ranges with a structural change to the sheet. Returns new extras (unchanged object when nothing moved). */
+/** A cell anchor after a structural change; it never vanishes (a delete clamps it to the cut point). */
+function shiftAnchor(anchor: Anchor, change: ExtrasChange): Anchor {
+  if (change.type === 'deleteSheet' || change.type === 'duplicateSheet') return anchor
+  const axisRow = change.type === 'insertRows' || change.type === 'deleteRows'
+  const idx = axisRow ? anchor.row : anchor.column
+  let next = idx
+  if (change.type === 'insertRows' || change.type === 'insertColumns') {
+    if (idx >= change.at) next = idx + change.count
+  } else {
+    const band = change.at + change.count - 1
+    next = idx < change.at ? idx : idx > band ? idx - change.count : change.at
+  }
+  next = Math.max(1, next)
+  return axisRow ? { ...anchor, row: next } : { ...anchor, column: next }
+}
+
+/** A chart after a structural change: its source range shifts, its anchor moves; it never vanishes. */
+function shiftChart(chart: WorkbookChart, change: ExtrasChange): WorkbookChart | null {
+  if (change.type === 'deleteSheet') return chart.sheetId === change.sheetId ? null : chart
+  if (change.type === 'duplicateSheet') return chart // the copy is appended separately
+  if (chart.sheetId !== change.sheetId) return chart
+  const axis: 'row' | 'column' = change.type === 'insertRows' || change.type === 'deleteRows' ? 'row' : 'column'
+  const kind: 'insert' | 'delete' = change.type.startsWith('insert') ? 'insert' : 'delete'
+  const source = shiftRange(chart.source, axis, { kind, at: change.at, count: change.count }) ?? chart.source
+  return { ...chart, source, anchor: shiftAnchor(chart.anchor, change) }
+}
+
+/** A table after a structural change: row changes shift/shrink the range; column changes also add or drop columns. */
+function shiftTable(table: WorkbookTable, change: ExtrasChange): WorkbookTable | null {
+  if (change.type === 'deleteSheet') return table.sheetId === change.sheetId ? null : table
+  if (change.type === 'duplicateSheet') return table // the copy is appended separately
+  if (table.sheetId !== change.sheetId) return table
+  if (change.type === 'insertRows' || change.type === 'deleteRows') {
+    const next = shiftRange(table.range, 'row', { kind: change.type === 'insertRows' ? 'insert' : 'delete', at: change.at, count: change.count })
+    if (!next) return null
+    return { ...table, range: next, ...(table.hiddenRows ? { hiddenRows: table.hiddenRows.map((r) => shiftAnchor({ row: r, column: 1, dx: 0, dy: 0 }, change).row) } : {}) }
+  }
+  // Column insert or delete: shift the range, and add or drop the columns that fall inside it.
+  const nextRange = shiftRange(table.range, 'column', { kind: change.type === 'insertColumns' ? 'insert' : 'delete', at: change.at, count: change.count })
+  if (!nextRange) return null
+  let columns = table.columns
+  let filters = table.filters
+  if (change.type === 'insertColumns' && change.at > table.range.c1 && change.at <= table.range.c2) {
+    const offset = change.at - table.range.c1
+    const added: TableColumn[] = Array.from({ length: change.count }, (_, i) => ({ name: `Column ${columns.length + i + 1}`, type: 'text' }))
+    columns = [...columns.slice(0, offset), ...added, ...columns.slice(offset)]
+    filters = {}
+    for (const [key, f] of Object.entries(table.filters)) filters[Number(key) >= offset ? Number(key) + change.count : Number(key)] = f
+  } else if (change.type === 'deleteColumns') {
+    const band = { lo: change.at, hi: change.at + change.count - 1 }
+    columns = []
+    filters = {}
+    let newOffset = 0
+    for (let i = 0; i < table.columns.length; i++) {
+      const col = table.range.c1 + i
+      if (col >= band.lo && col <= band.hi) continue
+      columns.push(table.columns[i])
+      if (table.filters[i]) filters[newOffset] = table.filters[i]
+      newOffset += 1
+    }
+    if (!columns.length) return null
+  }
+  return { ...table, range: nextRange, columns, filters }
+}
+
+/** Move the stored ranges and objects with a structural change to the sheet. Returns new extras (unchanged object when nothing moved). */
 export function shiftExtras(extras: WorkbookExtras, change: ExtrasChange): WorkbookExtras {
   const validations = mapAreas(extras.validations, change)
   const checkboxes = mapAreas(extras.checkboxes, change)
-  if (validations === extras.validations && checkboxes === extras.checkboxes) return extras
-  return { ...extras, validations, checkboxes }
+  let tables = extras.tables.map((t) => shiftTable(t, change)).filter((t): t is WorkbookTable => t !== null)
+  let charts = extras.charts.map((c) => shiftChart(c, change)).filter((c): c is WorkbookChart => c !== null)
+  let images = extras.images
+  if (change.type === 'duplicateSheet') {
+    tables = [...tables, ...extras.tables.filter((t) => t.sheetId === change.fromId).map((t) => ({ ...t, sheetId: change.toId, id: `${t.id}-copy` }))]
+    charts = [...charts, ...extras.charts.filter((c) => c.sheetId === change.fromId).map((c) => ({ ...c, sheetId: change.toId, id: `${c.id}-copy` }))]
+  }
+  if (change.type === 'deleteSheet') images = images.filter((im) => im.sheetId !== change.sheetId)
+  else if (change.type === 'duplicateSheet') images = [...images, ...images.filter((im) => im.sheetId === change.fromId).map((im) => ({ ...im, sheetId: change.toId, id: `${im.id}-copy` }))]
+  else images = images.map((im) => (im.sheetId === change.sheetId ? { ...im, anchor: shiftAnchor(im.anchor, change) } : im))
+  return { ...extras, validations, checkboxes, tables, charts, images }
 }
 
 // ── Editing the collections (each returns a new extras) ──────────────────────
@@ -364,6 +677,113 @@ export function passesBound(quantity: number, rule: BoundValidation): boolean {
     case 'lessThanOrEqual':
       return quantity <= a
   }
+}
+
+// ── Tables: geometry and editing ─────────────────────────────────────────────
+
+/** The header row, the data rows [r1, r2] and the total row of a table (total is null when it has none). */
+export function tableParts(table: WorkbookTable): { header: number; dataR1: number; dataR2: number; total: number | null } {
+  const header = table.range.r1
+  const total = table.style.totalRow ? table.range.r2 : null
+  const dataR2 = total !== null ? table.range.r2 - 1 : table.range.r2
+  return { header, dataR1: header + 1, dataR2, total }
+}
+
+/** The table whose range covers a cell, or null (later tables win, as validations do). */
+export function tableAt(extras: WorkbookExtras, sheetId: number, row: number, column: number): WorkbookTable | null {
+  for (let i = extras.tables.length - 1; i >= 0; i--) {
+    const t = extras.tables[i]
+    if (t.sheetId === sheetId && rangeContains(t.range, row, column)) return t
+  }
+  return null
+}
+
+export function tableById(extras: WorkbookExtras, id: string): WorkbookTable | null {
+  return extras.tables.find((t) => t.id === id) ?? null
+}
+
+/** A table name not already taken (Table1, Table2…), a valid identifier. */
+export function nextTableName(extras: WorkbookExtras): string {
+  const taken = new Set(extras.tables.map((t) => t.name.toLowerCase()))
+  for (let n = 1; ; n++) {
+    const name = `Table${n}`
+    if (!taken.has(name.toLowerCase())) return name
+  }
+}
+
+/** Whether a name is a valid, unique table identifier; returns a reason when it is not. */
+export function tableNameProblem(name: string, extras: WorkbookExtras, exceptId?: string): string | null {
+  const s = name.trim()
+  if (!s) return 'A table needs a name.'
+  if (!/^[A-Za-z_][A-Za-z0-9_.]*$/.test(s)) return 'A table name starts with a letter and uses letters, digits, _ or .'
+  if (s.length > 255) return 'A table name is 255 characters at most.'
+  if (extras.tables.some((t) => t.id !== exceptId && t.name.toLowerCase() === s.toLowerCase())) return 'Another table already has that name.'
+  return null
+}
+
+/** Add or replace a table (removing any table that overlaps its range, since tables do not nest). */
+export function putTable(extras: WorkbookExtras, table: WorkbookTable): WorkbookExtras {
+  const tables = extras.tables.filter((t) => t.id === table.id || t.sheetId !== table.sheetId || !rangesOverlap(t.range, table.range))
+  const replaced = tables.some((t) => t.id === table.id)
+  return { ...extras, tables: replaced ? tables.map((t) => (t.id === table.id ? table : t)) : [...tables, table] }
+}
+
+export function removeTable(extras: WorkbookExtras, id: string): WorkbookExtras {
+  return { ...extras, tables: extras.tables.filter((t) => t.id !== id) }
+}
+
+// ── Charts: editing ──────────────────────────────────────────────────────────
+
+export function addChart(extras: WorkbookExtras, chart: WorkbookChart): WorkbookExtras {
+  return { ...extras, charts: [...extras.charts, chart] }
+}
+
+export function updateChart(extras: WorkbookExtras, id: string, patch: Partial<WorkbookChart>): WorkbookExtras {
+  return { ...extras, charts: extras.charts.map((c) => (c.id === id ? { ...c, ...patch } : c)) }
+}
+
+export function removeChart(extras: WorkbookExtras, id: string): WorkbookExtras {
+  return { ...extras, charts: extras.charts.filter((c) => c.id !== id) }
+}
+
+export function chartById(extras: WorkbookExtras, id: string): WorkbookChart | null {
+  return extras.charts.find((c) => c.id === id) ?? null
+}
+
+// ── Images: editing (deduped by content hash) ────────────────────────────────
+
+/** The (decoded) bytes a workbook's images take, counting each distinct blob once. */
+export function imageBytesUsed(extras: WorkbookExtras): number {
+  return Object.values(extras.imageBlobs).reduce((sum, url) => sum + decodedBytes(url), 0)
+}
+
+/** The decoded size of a `data:…;base64,…` URL, estimated from its base64 length. */
+function decodedBytes(dataUrl: string): number {
+  const comma = dataUrl.indexOf(',')
+  const b64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl
+  const pad = b64.endsWith('==') ? 2 : b64.endsWith('=') ? 1 : 0
+  return Math.max(0, Math.floor((b64.length * 3) / 4) - pad)
+}
+
+/** Add an image; its data URL is stored once per content hash. */
+export function addImage(extras: WorkbookExtras, image: WorkbookImage, dataUrl: string): WorkbookExtras {
+  return { ...extras, images: [...extras.images, image], imageBlobs: { ...extras.imageBlobs, [image.hash]: dataUrl } }
+}
+
+export function removeImage(extras: WorkbookExtras, id: string): WorkbookExtras {
+  const images = extras.images.filter((im) => im.id !== id)
+  const used = new Set(images.map((im) => im.hash))
+  const imageBlobs: Record<string, string> = {}
+  for (const [hash, url] of Object.entries(extras.imageBlobs)) if (used.has(hash)) imageBlobs[hash] = url
+  return { ...extras, images, imageBlobs }
+}
+
+export function updateImage(extras: WorkbookExtras, id: string, patch: Partial<WorkbookImage>): WorkbookExtras {
+  return { ...extras, images: extras.images.map((im) => (im.id === id ? { ...im, ...patch } : im)) }
+}
+
+export function imageById(extras: WorkbookExtras, id: string): WorkbookImage | null {
+  return extras.images.find((im) => im.id === id) ?? null
 }
 
 const OPERATOR_WORDS: Record<ValidationOperator, string> = {

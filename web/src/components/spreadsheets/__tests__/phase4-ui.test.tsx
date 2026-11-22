@@ -21,6 +21,11 @@ vi.mock('@/lib/spreadsheets/engine-client', async () => {
 const { DataValidationDialog } = await import('../data-validation')
 const { GoalSeekDialog } = await import('../goal-seek-dialog')
 const { ConditionalFormat } = await import('../conditional-format')
+const { TableColumnMenu, TableOptionsPanel } = await import('../table-tools')
+const { ChartDialog } = await import('../chart-dialog')
+const { ChartView } = await import('../charts/chart-view')
+const { FloatingObjects } = await import('../floating-objects')
+const { prepareChartData } = await import('@/lib/spreadsheets/charts')
 
 let container: HTMLDivElement
 let root: Root
@@ -141,5 +146,99 @@ describe('the conditional-formatting panel', () => {
     expect(container.textContent).toContain('greater than 1')
     act(() => (container.querySelector('[aria-label="Delete rule"]') as HTMLButtonElement).dispatchEvent(new MouseEvent('click', { bubbles: true })))
     expect(workbook.conditionalRules()).toHaveLength(0)
+  })
+})
+
+const setSelect = (el: HTMLSelectElement, value: string) =>
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(el, value)
+    el.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+
+function tableFrom(rows: [number, number, string][], range: { r1: number; c1: number; r2: number; c2: number }) {
+  open(rows)
+  act(() => {
+    workbook.selectRange(range)
+    workbook.convertToTable()
+  })
+  return workbook.tables()[0]
+}
+
+const TABLE_ROWS: [number, number, string][] = [
+  [1, 1, 'Region'], [1, 2, 'Amount'],
+  [2, 1, 'North'], [2, 2, '10'],
+  [3, 1, 'South'], [3, 2, '20'],
+  [4, 1, 'East'], [4, 2, '30'],
+]
+
+describe('the table column menu', () => {
+  it('sorts a column Z to A', () => {
+    const table = tableFrom(TABLE_ROWS, { r1: 1, c1: 1, r2: 4, c2: 2 })
+    act(() => root.render(<TableColumnMenu workbook={workbook} state={{ table, offset: 1, x: 10, y: 10 }} onMessage={(m) => messages.push(m)} onOpenOptions={() => {}} onClose={() => {}} />))
+    act(() => byText('Sort Z to A').dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    expect([workbook.text(2, 1), workbook.text(3, 1), workbook.text(4, 1)]).toEqual(['East', 'South', 'North'])
+  })
+
+  it('filters by a condition and hides the failing rows', () => {
+    const table = tableFrom(TABLE_ROWS, { r1: 1, c1: 1, r2: 4, c2: 2 })
+    act(() => root.render(<TableColumnMenu workbook={workbook} state={{ table, offset: 0, x: 10, y: 10 }} onMessage={(m) => messages.push(m)} onOpenOptions={() => {}} onClose={() => {}} />))
+    act(() => byText('Filter…').dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    setSelect(container.querySelector('[aria-label="Condition"]') as HTMLSelectElement, 'equals')
+    setInput(container.querySelector('[aria-label="Condition value"]') as HTMLInputElement, 'North')
+    act(() => byText('Apply').dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    expect(workbook.hiddenRows()).toEqual([3, 4])
+  })
+})
+
+describe('the table options panel', () => {
+  it('turns on the total row and deletes the table', () => {
+    const table = tableFrom(TABLE_ROWS, { r1: 1, c1: 1, r2: 4, c2: 2 })
+    const onClose = vi.fn()
+    act(() => root.render(<TableOptionsPanel workbook={workbook} tableId={table.id} onMessage={(m) => messages.push(m)} focusGrid={() => {}} onClose={onClose} />))
+    const totalRow = [...container.querySelectorAll('label')].find((l) => l.textContent?.includes('Total row'))?.querySelector('input') as HTMLInputElement
+    act(() => totalRow.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    expect(workbook.tables()[0].style.totalRow).toBe(true)
+    act(() => byText('Delete table').dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    expect(workbook.tables()).toHaveLength(0)
+    expect(onClose).toHaveBeenCalled()
+  })
+})
+
+describe('charts in the UI', () => {
+  it('draws an SVG for numeric data and a quiet state otherwise', () => {
+    open()
+    const ok = prepareChartData([[{ text: 'A', value: null }], [{ text: '10', value: 10 }], [{ text: '20', value: 20 }]], 'column')
+    act(() => root.render(<ChartView type="column" title="Sales" legend prepared={ok} width={400} height={280} />))
+    expect(container.querySelector('svg')).not.toBeNull()
+    expect(container.textContent).toContain('Sales')
+    const empty = prepareChartData([[{ text: 'a', value: null }]], 'column')
+    act(() => root.render(<ChartView type="column" title="" legend={false} prepared={empty} width={400} height={280} />))
+    expect(container.textContent).toContain('No numbers in this range')
+  })
+
+  it('renders a floating chart and deletes it from its handle', () => {
+    open([[1, 1, 'Jan'], [1, 2, '10'], [2, 1, 'Feb'], [2, 2, '20']])
+    let id = ''
+    act(() => {
+      workbook.selectRange({ r1: 1, c1: 1, r2: 2, c2: 2 })
+      id = workbook.insertChart('column').id
+    })
+    act(() => root.render(<FloatingObjects workbook={workbook} sheet={0} layout={workbook.layout()} selectedId={id} onSelect={() => {}} onEditChart={() => {}} onMessage={(m) => messages.push(m)} />))
+    expect(container.querySelector('[data-floating-object] svg')).not.toBeNull()
+    act(() => (container.querySelector('[aria-label^="Delete"]') as HTMLButtonElement).dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    expect(workbook.charts()).toHaveLength(0)
+  })
+
+  it('edits a chart through the dialog', () => {
+    open([[1, 1, '10'], [2, 1, '20']])
+    let id = ''
+    act(() => {
+      workbook.selectRange({ r1: 1, c1: 1, r2: 2, c2: 1 })
+      id = workbook.insertChart('column').id
+    })
+    act(() => root.render(<ChartDialog workbook={workbook} chartId={id} onMessage={(m) => messages.push(m)} focusGrid={() => {}} onClose={() => {}} />))
+    setSelect(container.querySelector('[aria-label="Chart type"]') as HTMLSelectElement, 'line')
+    act(() => byText('Apply').dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    expect(workbook.charts()[0].type).toBe('line')
   })
 })

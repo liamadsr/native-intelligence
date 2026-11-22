@@ -25,24 +25,56 @@ import {
 import { DEFAULT_FONT_POINTS } from './cell-view'
 import {
   addCheckboxes,
+  addChart,
+  addImage,
+  chartById,
   clearValidationIn,
+  defaultTableStyle,
   describeValidation,
   emptyExtras,
+  imageBytesUsed,
+  imageById,
   isCheckbox as extrasIsCheckbox,
   listChoiceValues,
+  nextTableName,
   passesBound,
+  putTable,
   putValidation,
+  removeChart,
   removeCheckboxesIn,
+  removeImage,
+  removeTable,
   shiftExtras,
+  tableAt,
+  tableById,
+  tableNameProblem,
+  tableParts,
+  updateChart,
+  updateImage,
   validationAt,
+  MAX_IMAGE_BYTES,
+  MAX_WORKBOOK_IMAGE_BYTES,
+  TABLE_COLORS,
+  type ChartType,
   type ExtrasChange,
+  type TableColumn,
+  type TableColumnType,
+  type TableFilter,
+  type TableStyle,
+  type TotalKind,
   type Validation,
   type ValidationChoice,
   type ValidationSpec,
+  type WorkbookChart,
   type WorkbookExtras,
+  type WorkbookImage,
+  type WorkbookTable,
 } from './extras'
 import { GENERAL, PLAIN_TEXT, changeDecimals, clampFontSize } from './formats'
-import { CELL_TYPE, listSheets, saveWorkbook, usedRange, type SheetInfo } from './workbook'
+import { IMAGE_MIME, hashBytes, sniffImageType } from './images'
+import { rewriteStructuredRefs, type TableRefMeta } from './table-refs'
+import { CELL_TYPE, bytesToBase64, listSheets, saveWorkbook, usedRange, type SheetInfo } from './workbook'
+import type { ChartCell } from './charts'
 
 export type Direction = 'up' | 'down' | 'left' | 'right'
 
@@ -128,6 +160,43 @@ function area(sheet: number, range: CellRange): Area {
 function numericFrom(text: string): number {
   const cleaned = text.replace(/[^0-9.eE+-]/g, '')
   return cleaned === '' ? NaN : Number(cleaned)
+}
+
+/** A pale tint of a table's header color, for a banded row baked into the cells on Convert to range. */
+function softTint(hex: string): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim())
+  if (!m) return '#F3F4F6'
+  const n = parseInt(m[1], 16)
+  const mix = (channel: number) => Math.round(channel * 0.12 + 255 * 0.88)
+  const r = mix((n >> 16) & 255)
+  const g = mix((n >> 8) & 255)
+  const b = mix(n & 255)
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0').toUpperCase()}`
+}
+
+/** The total a column's type suggests when the total row is first turned on. */
+function defaultTotal(type: TableColumnType): TotalKind {
+  return type === 'number' || type === 'currency' || type === 'percent' ? 'sum' : 'none'
+}
+
+/** Whether a shown value passes a column filter (its checklist of allowed values and its condition). */
+function filterPasses(value: string, filter: TableFilter): boolean {
+  if (filter.values && !filter.values.includes(value)) return false
+  const condition = filter.condition
+  if (!condition) return true
+  const cmp = value.trim()
+  const num = numericFrom(cmp)
+  const target = numericFrom(condition.value)
+  switch (condition.op) {
+    case 'equals': return cmp.toLowerCase() === condition.value.trim().toLowerCase()
+    case 'notEquals': return cmp.toLowerCase() !== condition.value.trim().toLowerCase()
+    case 'contains': return cmp.toLowerCase().includes(condition.value.trim().toLowerCase())
+    case 'greaterThan': return Number.isFinite(num) && Number.isFinite(target) && num > target
+    case 'lessThan': return Number.isFinite(num) && Number.isFinite(target) && num < target
+    case 'isEmpty': return cmp === ''
+    case 'isNotEmpty': return cmp !== ''
+    default: return true
+  }
 }
 
 /** The last entry at or before `offset` (a binary search over starts). */
@@ -555,8 +624,14 @@ export class WorkbookController {
     // A cell formatted as plain text keeps what is typed as text: a formula stays a formula's
     // words and 007 keeps its zeros (the engine's quote prefix, which a person can also type).
     const plain = input !== '' && !input.startsWith("'") && this.model.getCellStyle(sheet, row, column).style.num_fmt === PLAIN_TEXT
-    const typed = plain ? `'${input}` : input
-    return this.act(() => this.mut(() => this.model.setUserInput(sheet, row, column, typed)))
+    // A formula's structured table references (Sales[Amount], [@Qty]) are rewritten to A1 before
+    // the engine, which knows nothing of tables, sees them; the cell then stores the A1 form.
+    const resolved = !plain && input.startsWith('=') ? rewriteStructuredRefs(input, this.tableRefMetas(), this.refContext(sheet, row, column)) : input
+    const typed = plain ? `'${input}` : resolved
+    return this.act(() => {
+      this.mut(() => this.model.setUserInput(sheet, row, column, typed))
+      this.growTableIfAdjacent(sheet, row, column)
+    })
   }
 
   /** Delete or Backspace: the values go, the formats stay. */
@@ -1122,14 +1197,26 @@ export class WorkbookController {
     if (r2 <= range.r1) return OK
     const c2 = Math.min(range.c2, Math.max(used.c2, range.c1))
     const key = Math.max(range.c1, Math.min(c2, byColumn))
+    const apply = this.sortedWrites(sheet, { ...range, r2, c2 }, key, descending)
+    if (!apply) return OK
+    return this.act(apply)
+  }
+
+  /**
+   * The reorder a sort would make, as a function that performs the writes inside
+   * an `act` (null when the rows are already in order). The key column is read
+   * for each whole row of `range`; relative formulas move as typed. Used by the
+   * range sort and by a table-column sort.
+   */
+  private sortedWrites(sheet: number, range: CellRange, keyColumn: number, descending: boolean): (() => void) | null {
     type Line = { inputs: string[]; kind: number; number: number; text: string }
     const lines: Line[] = []
-    for (let r = range.r1; r <= r2; r++) {
+    for (let r = range.r1; r <= range.r2; r++) {
       const inputs: string[] = []
-      for (let c = range.c1; c <= c2; c++) inputs.push(this.model.getCellContent(sheet, r, c))
-      const shown = this.model.getFormattedCellValue(sheet, r, key)
-      const type = this.model.getCellType(sheet, r, key)
-      const raw = this.model.getCellContent(sheet, r, key)
+      for (let c = range.c1; c <= range.c2; c++) inputs.push(this.model.getCellContent(sheet, r, c))
+      const shown = this.model.getFormattedCellValue(sheet, r, keyColumn)
+      const type = this.model.getCellType(sheet, r, keyColumn)
+      const raw = this.model.getCellContent(sheet, r, keyColumn)
       const blank = shown === '' && raw === ''
       const numeric = !blank && type === CELL_TYPE.number
       const value = numeric ? Number(raw.startsWith('=') ? shown.replace(/[^0-9.eE+-]/g, '') : raw) : NaN
@@ -1150,8 +1237,8 @@ export class WorkbookController {
         const order = a.line.kind === 0 ? a.line.number - b.line.number : a.line.text < b.line.text ? -1 : a.line.text > b.line.text ? 1 : 0
         return order ? sign * order : a.index - b.index
       })
-    if (sorted.every((entry, index) => entry.index === index)) return OK
-    return this.act(() => {
+    if (sorted.every((entry, index) => entry.index === index)) return null
+    return () => {
       sorted.forEach((entry, offset) => {
         if (entry.index === offset) return
         entry.line.inputs.forEach((input, i) => {
@@ -1161,7 +1248,7 @@ export class WorkbookController {
           this.mut(() => this.model.setUserInput(sheet, row, column, input))
         })
       })
-    })
+    }
   }
 
   // ── Find ─────────────────────────────────────────────────────────────────
@@ -1420,6 +1507,597 @@ export class WorkbookController {
     const a = cellName(range.r1, range.c1)
     const b = cellName(range.r2, range.c2)
     return a === b ? a : `${a}:${b}`
+  }
+
+  // ── Tables ─────────────────────────────────────────────────────────────────
+
+  private newId(prefix: string): string {
+    const uuid = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    return `${prefix}_${uuid}`
+  }
+
+  /** Every table as a reference target for the structured-reference translator. */
+  private tableRefMetas(): TableRefMeta[] {
+    const sheets = this.sheets()
+    const out: TableRefMeta[] = []
+    for (const t of this.extras.tables) {
+      const sheet = sheets.find((s) => s.id === t.sheetId)
+      if (sheet) out.push({ name: t.name, sheetName: sheet.name, range: t.range, columns: t.columns.map((c) => c.name), hasTotals: t.style.totalRow })
+    }
+    return out
+  }
+
+  /** The context a `[@…]` reference needs: this cell's sheet, row and containing table. */
+  private refContext(sheet: number, row: number, column: number): { sheetName: string; row: number; table?: TableRefMeta } {
+    const sheets = this.sheets()
+    const name = sheets[sheet]?.name ?? ''
+    const containing = tableAt(this.extras, this.sheetIdAt(sheet), row, column)
+    const table = containing ? this.tableRefMetas().find((m) => m.name === containing.name) : undefined
+    return { sheetName: name, row, ...(table ? { table } : {}) }
+  }
+
+  tables(sheet = this.sheet): WorkbookTable[] {
+    const id = this.sheetIdAt(sheet)
+    return this.extras.tables.filter((t) => t.sheetId === id)
+  }
+
+  tableAtCell(row: number, column: number, sheet = this.sheet): WorkbookTable | null {
+    return tableAt(this.extras, this.sheetIdAt(sheet), row, column)
+  }
+
+  /** The filled rectangle around a cell: grow the box while an adjacent row or column has anything in it. */
+  private contiguousBlock(sheet: number, row: number, column: number): CellRange {
+    const filled = (r: number, c: number) => this.model.getCellContent(sheet, r, c) !== '' || this.model.getFormattedCellValue(sheet, r, c) !== ''
+    let { r1, c1, r2, c2 } = { r1: row, c1: column, r2: row, c2: column }
+    let grew = true
+    while (grew) {
+      grew = false
+      if (r1 > 1) { for (let c = c1; c <= c2; c++) if (filled(r1 - 1, c)) { r1 -= 1; grew = true; break } }
+      if (r2 < MAX_ROWS) { for (let c = c1; c <= c2; c++) if (filled(r2 + 1, c)) { r2 += 1; grew = true; break } }
+      if (c1 > 1) { for (let r = r1; r <= r2; r++) if (filled(r, c1 - 1)) { c1 -= 1; grew = true; break } }
+      if (c2 < MAX_COLUMNS) { for (let r = r1; r <= r2; r++) if (filled(r, c2 + 1)) { c2 += 1; grew = true; break } }
+    }
+    return { r1, c1, r2, c2 }
+  }
+
+  /** The type a column's values suggest (its data cells' kinds and number formats). */
+  private inferColumnType(sheet: number, column: number, dataR1: number, dataR2: number): TableColumnType {
+    const id = this.sheetIdAt(sheet)
+    if (extrasIsCheckbox(this.extras, id, dataR1, column)) return 'checkbox'
+    let numeric = 0
+    let filled = 0
+    const fmts: string[] = []
+    for (let r = dataR1; r <= dataR2; r++) {
+      const text = this.model.getFormattedCellValue(sheet, r, column)
+      if (text === '' && this.model.getCellContent(sheet, r, column) === '') continue
+      filled += 1
+      if (this.model.getCellType(sheet, r, column) === CELL_TYPE.number) {
+        numeric += 1
+        fmts.push(this.model.getCellStyle(sheet, r, column).style.num_fmt || '')
+      }
+    }
+    if (!filled || numeric < filled / 2) return 'text'
+    const fmt = fmts.join(' ').toLowerCase()
+    if (/[ymd]/.test(fmt.replace(/"[^"]*"/g, '')) && /[dmy]/.test(fmt)) return 'date'
+    if (fmt.includes('%')) return 'percent'
+    if (/[$€£¥]/.test(fmt)) return 'currency'
+    return 'number'
+  }
+
+  /** The A1 range of one table column's data cells. */
+  private columnDataRange(table: WorkbookTable, offset: number): string {
+    const { dataR1, dataR2 } = tableParts(table)
+    const col = table.range.c1 + offset
+    return dataR2 >= dataR1 ? `${cellName(dataR1, col)}:${cellName(dataR2, col)}` : cellName(dataR1, col)
+  }
+
+  /** The SUBTOTAL (or COUNTBLANK / unique-count) formula for a total-row aggregate, or '' to clear it. */
+  private totalFormula(table: WorkbookTable, offset: number): string {
+    const kind = table.columns[offset]?.total ?? 'none'
+    if (kind === 'none') return ''
+    const range = this.columnDataRange(table, offset)
+    switch (kind) {
+      case 'sum': return `=SUBTOTAL(109,${range})`
+      case 'average': return `=SUBTOTAL(101,${range})`
+      case 'count': return `=SUBTOTAL(102,${range})`
+      case 'filled': return `=SUBTOTAL(103,${range})`
+      case 'max': return `=SUBTOTAL(104,${range})`
+      case 'min': return `=SUBTOTAL(105,${range})`
+      case 'empty': return `=COUNTBLANK(${range})`
+      case 'unique': return `=COUNTA(UNIQUE(${range}))`
+      default: return ''
+    }
+  }
+
+  /** Convert the selection (or a range) to a table: one undo step. */
+  convertToTable(range?: CellRange): ActionResult {
+    const sheet = this.sheet
+    const id = this.sheetIdAt(sheet)
+    const sel = range ?? this.selection().range
+    const single = sel.r1 === sel.r2 && sel.c1 === sel.c2
+    const blank = single && this.model.getCellContent(sheet, sel.r1, sel.c1) === '' && this.model.getFormattedCellValue(sheet, sel.r1, sel.c1) === ''
+    const target = blank ? { r1: sel.r1, c1: sel.c1, r2: sel.r1 + 3, c2: sel.c1 + 3 } : single ? this.contiguousBlock(sheet, sel.r1, sel.c1) : sel
+    if (target.r2 > MAX_ROWS || target.c2 > MAX_COLUMNS) return no('That runs past the edge of the sheet.')
+    if (this.extras.tables.some((t) => t.sheetId === id && t.range.r1 <= target.r2 && t.range.r2 >= target.r1 && t.range.c1 <= target.c2 && t.range.c2 >= target.c1)) {
+      return no('That overlaps a table already there.')
+    }
+    this.reach(sheet, target.r2, target.c2)
+    const name = nextTableName(this.extras)
+    return this.act(() => {
+      const columns: TableColumn[] = []
+      for (let c = target.c1; c <= target.c2; c++) {
+        const offset = c - target.c1
+        let header = this.model.getCellContent(sheet, target.r1, c)
+        if (blank || header === '') {
+          header = `Column ${offset + 1}`
+          this.mut(() => this.model.setUserInput(sheet, target.r1, c, header))
+        }
+        columns.push({ name: header, type: blank ? 'text' : this.inferColumnType(sheet, c, target.r1 + 1, target.r2) })
+      }
+      const table: WorkbookTable = { id: this.newId('tbl'), sheetId: id, name, range: { ...target }, columns, style: defaultTableStyle(), filters: {} }
+      this.extras = putTable(this.extras, table)
+    }, { layout: true })
+  }
+
+  /** Rename a table (a valid, unique identifier). */
+  renameTable(id: string, name: string): ActionResult {
+    const table = tableById(this.extras, id)
+    if (!table) return no('That table is gone.')
+    const next = name.trim()
+    if (next === table.name) return OK
+    const problem = tableNameProblem(next, this.extras, id)
+    if (problem) return no(problem)
+    return this.act(() => {
+      this.extras = putTable(this.extras, { ...table, name: next })
+    })
+  }
+
+  /** Change a table's range; its columns are padded or trimmed to the new width. */
+  setTableRange(id: string, range: CellRange): ActionResult {
+    const table = tableById(this.extras, id)
+    if (!table) return no('That table is gone.')
+    if (range.r2 > MAX_ROWS || range.c2 > MAX_COLUMNS || range.r1 < 1 || range.c1 < 1) return no('That range is off the sheet.')
+    if (range.r2 <= range.r1) return no('A table needs a header row and at least one row below it.')
+    const width = range.c2 - range.c1 + 1
+    let columns: TableColumn[] = table.columns.slice(0, width)
+    while (columns.length < width) columns = [...columns, { name: `Column ${columns.length + 1}`, type: 'text' }]
+    const filters: Record<number, TableFilter> = {}
+    for (const [key, f] of Object.entries(table.filters)) if (Number(key) < width) filters[Number(key)] = f
+    this.reach(this.sheets().find((s) => s.id === table.sheetId)?.index ?? this.sheet, range.r2, range.c2)
+    return this.act(() => {
+      this.extras = putTable(this.extras, { ...table, range: { ...range }, columns, filters })
+    }, { layout: true })
+  }
+
+  /** Change a table's color and banding/bold toggles (drawn as an overlay, so no engine change) and the total row. */
+  setTableStyle(id: string, patch: Partial<TableStyle>): ActionResult {
+    const table = tableById(this.extras, id)
+    if (!table) return no('That table is gone.')
+    if (patch.totalRow !== undefined && patch.totalRow !== table.style.totalRow) return this.toggleTotalRow(table, patch.totalRow)
+    return this.act(() => {
+      this.extras = putTable(this.extras, { ...table, style: { ...table.style, ...patch } })
+    })
+  }
+
+  private toggleTotalRow(table: WorkbookTable, on: boolean): ActionResult {
+    const sheet = this.sheets().find((s) => s.id === table.sheetId)?.index ?? this.sheet
+    if (on) {
+      const newR2 = table.range.r2 + 1
+      if (newR2 > MAX_ROWS) return no('There is no room for a total row.')
+      this.reach(sheet, newR2, table.range.c2)
+      return this.act(() => {
+        const columns = table.columns.map((col, i) => ({ ...col, total: col.total ?? (i === table.columns.length - 1 ? defaultTotal(col.type) : 'none' as TotalKind) }))
+        const next: WorkbookTable = { ...table, range: { ...table.range, r2: newR2 }, columns, style: { ...table.style, totalRow: true } }
+        this.extras = putTable(this.extras, next)
+        this.writeTotals(sheet, next)
+      }, { layout: true })
+    }
+    return this.act(() => {
+      const totalRow = table.range.r2
+      for (let c = table.range.c1; c <= table.range.c2; c++) this.mut(() => this.model.setUserInput(sheet, totalRow, c, ''))
+      this.extras = putTable(this.extras, { ...table, range: { ...table.range, r2: table.range.r2 - 1 }, style: { ...table.style, totalRow: false } })
+    }, { layout: true })
+  }
+
+  /** Write every column's total formula into the total row (inside an act). */
+  private writeTotals(sheet: number, table: WorkbookTable): void {
+    const { total } = tableParts(table)
+    if (total === null) return
+    for (let offset = 0; offset < table.columns.length; offset++) {
+      const col = table.range.c1 + offset
+      const formula = this.totalFormula(table, offset)
+      if (this.model.getCellContent(sheet, total, col) !== formula) this.mut(() => this.model.setUserInput(sheet, total, col, formula))
+    }
+  }
+
+  /** Set a column's total-row aggregate, writing its formula. */
+  setColumnTotal(id: string, offset: number, kind: TotalKind): ActionResult {
+    const table = tableById(this.extras, id)
+    if (!table || !table.columns[offset]) return no('That table is gone.')
+    if (!table.style.totalRow) return no('Turn on the total row first.')
+    const sheet = this.sheets().find((s) => s.id === table.sheetId)?.index ?? this.sheet
+    return this.act(() => {
+      const columns = table.columns.map((c, i) => (i === offset ? { ...c, total: kind } : c))
+      const next = { ...table, columns }
+      this.extras = putTable(this.extras, next)
+      const col = table.range.c1 + offset
+      const formula = this.totalFormula(next, offset)
+      this.mut(() => this.model.setUserInput(sheet, tableParts(next).total as number, col, formula))
+    })
+  }
+
+  /** Set a column's type; a checkbox column's data cells become checkboxes. */
+  setColumnType(id: string, offset: number, type: TableColumnType): ActionResult {
+    const table = tableById(this.extras, id)
+    if (!table || !table.columns[offset]) return no('That table is gone.')
+    const sheet = this.sheets().find((s) => s.id === table.sheetId)?.index ?? this.sheet
+    const { dataR1, dataR2 } = tableParts(table)
+    const col = table.range.c1 + offset
+    return this.act(() => {
+      this.extras = putTable(this.extras, { ...table, columns: table.columns.map((c, i) => (i === offset ? { ...c, type } : c)) })
+      if (type === 'checkbox' && dataR2 >= dataR1) {
+        for (let r = dataR1; r <= dataR2; r++) if (this.model.getCellContent(sheet, r, col) === '') this.mut(() => this.model.setUserInput(sheet, r, col, 'FALSE'))
+        this.extras = addCheckboxes(this.extras, table.sheetId, { r1: dataR1, c1: col, r2: dataR2, c2: col })
+      }
+    })
+  }
+
+  /** Rename a column: edit its header cell and the stored name, in one step. */
+  renameColumn(id: string, offset: number, name: string): ActionResult {
+    const table = tableById(this.extras, id)
+    if (!table || !table.columns[offset]) return no('That table is gone.')
+    const next = name.trim()
+    if (!next) return no('A column needs a name.')
+    const sheet = this.sheets().find((s) => s.id === table.sheetId)?.index ?? this.sheet
+    const col = table.range.c1 + offset
+    return this.act(() => {
+      this.mut(() => this.model.setUserInput(sheet, table.range.r1, col, next))
+      this.extras = putTable(this.extras, { ...table, columns: table.columns.map((c, i) => (i === offset ? { ...c, name: next } : c)) })
+    })
+  }
+
+  /** Insert a column into a table, left or right of the column at `offset`. */
+  insertColumnAt(id: string, offset: number, side: 'left' | 'right'): ActionResult {
+    const table = tableById(this.extras, id)
+    if (!table || !table.columns[offset]) return no('That table is gone.')
+    const sheet = this.sheets().find((s) => s.id === table.sheetId)?.index ?? this.sheet
+    const at = table.range.c1 + offset + (side === 'right' ? 1 : 0)
+    if (this.extent(sheet).columns + 1 > MAX_COLUMNS) return no(`A sheet holds ${MAX_COLUMNS} columns at most.`)
+    return this.act(() => {
+      this.mut(() => this.model.insertColumns(sheet, at, 1))
+      this.extras = shiftExtras(this.extras, { type: 'insertColumns', sheetId: table.sheetId, at, count: 1 })
+      // The shift added a generic "Column N" to the table; write its header cell.
+      const grown = tableById(this.extras, id)
+      if (grown) {
+        const headerCol = at
+        const newOffset = at - grown.range.c1
+        this.mut(() => this.model.setUserInput(sheet, grown.range.r1, headerCol, grown.columns[newOffset]?.name ?? `Column ${grown.columns.length}`))
+      }
+    }, { structure: true })
+  }
+
+  /** Delete a table's column (and the sheet column under it). */
+  deleteColumnAt(id: string, offset: number): ActionResult {
+    const table = tableById(this.extras, id)
+    if (!table || !table.columns[offset]) return no('That table is gone.')
+    if (table.columns.length <= 1) return no('A table keeps at least one column. Delete the table instead.')
+    const sheet = this.sheets().find((s) => s.id === table.sheetId)?.index ?? this.sheet
+    const at = table.range.c1 + offset
+    return this.act(() => {
+      this.mut(() => this.model.deleteColumns(sheet, at, 1))
+      this.extras = shiftExtras(this.extras, { type: 'deleteColumns', sheetId: table.sheetId, at, count: 1 })
+    }, { structure: true })
+  }
+
+  /** Sort a table's data rows by one of its columns, A to Z or Z to A. One undo step. */
+  sortTableColumn(id: string, offset: number, descending: boolean): ActionResult {
+    const table = tableById(this.extras, id)
+    if (!table || !table.columns[offset]) return no('That table is gone.')
+    const sheet = this.sheets().find((s) => s.id === table.sheetId)?.index ?? this.sheet
+    const { dataR1, dataR2 } = tableParts(table)
+    if (dataR2 <= dataR1) return OK
+    const apply = this.sortedWrites(sheet, { r1: dataR1, c1: table.range.c1, r2: dataR2, c2: table.range.c2 }, table.range.c1 + offset, descending)
+    return this.act(() => {
+      if (apply) apply()
+      this.extras = putTable(this.extras, { ...table, sort: { column: offset, descending } })
+    })
+  }
+
+  /** Apply a filter to a table column and hide the rows that fail (only the table's own hidden rows are touched). */
+  setTableFilter(id: string, offset: number, filter: TableFilter | null): ActionResult {
+    const table = tableById(this.extras, id)
+    if (!table || !table.columns[offset]) return no('That table is gone.')
+    const filters = { ...table.filters }
+    if (filter && (filter.values || filter.condition)) filters[offset] = filter
+    else delete filters[offset]
+    return this.applyTableFilters({ ...table, filters })
+  }
+
+  /** Clear every filter on a table and unhide only the rows the table's filter hid. */
+  clearTableFilters(id: string): ActionResult {
+    const table = tableById(this.extras, id)
+    if (!table) return no('That table is gone.')
+    return this.applyTableFilters({ ...table, filters: {} })
+  }
+
+  /** Recompute which rows a table's filters hide, unhiding the ones it hid before and hiding the new set. */
+  private applyTableFilters(table: WorkbookTable): ActionResult {
+    const sheet = this.sheets().find((s) => s.id === table.sheetId)?.index ?? this.sheet
+    const { dataR1, dataR2 } = tableParts(table)
+    const shouldHide = (row: number): boolean => {
+      for (const [key, filter] of Object.entries(table.filters)) {
+        const col = table.range.c1 + Number(key)
+        const value = this.model.getFormattedCellValue(sheet, row, col)
+        if (!filterPasses(value, filter)) return true
+      }
+      return false
+    }
+    const nextHidden: number[] = []
+    for (let r = dataR1; r <= dataR2; r++) if (shouldHide(r)) nextHidden.push(r)
+    const was = new Set(table.hiddenRows ?? [])
+    const now = new Set(nextHidden)
+    return this.act(() => {
+      // Unhide the rows this table hid that should now show; hide the new ones.
+      for (const r of was) if (!now.has(r)) this.mut(() => this.model.setRowsHidden(sheet, r, r, false))
+      for (const r of now) if (!was.has(r)) this.mut(() => this.model.setRowsHidden(sheet, r, r, true))
+      const next = { ...table }
+      if (nextHidden.length) next.hiddenRows = nextHidden
+      else delete next.hiddenRows
+      this.extras = putTable(this.extras, next)
+    })
+  }
+
+  /** A read-only group-by summary: each distinct value of one column with an aggregate of another. */
+  groupBy(id: string, groupOffset: number, valueOffset: number, agg: 'sum' | 'average' | 'count' | 'min' | 'max'): { group: string; value: number; count: number }[] {
+    const table = tableById(this.extras, id)
+    if (!table) return []
+    const sheet = this.sheets().find((s) => s.id === table.sheetId)?.index ?? this.sheet
+    const { dataR1, dataR2 } = tableParts(table)
+    const gCol = table.range.c1 + groupOffset
+    const vCol = table.range.c1 + valueOffset
+    const groups = new Map<string, number[]>()
+    for (let r = dataR1; r <= dataR2; r++) {
+      const key = this.model.getFormattedCellValue(sheet, r, gCol)
+      const n = numericFrom(this.model.getFormattedCellValue(sheet, r, vCol))
+      if (!groups.has(key)) groups.set(key, [])
+      if (Number.isFinite(n)) groups.get(key)!.push(n)
+    }
+    const out: { group: string; value: number; count: number }[] = []
+    for (const [group, nums] of groups) {
+      const count = nums.length
+      let value = 0
+      if (agg === 'sum') value = nums.reduce((a, b) => a + b, 0)
+      else if (agg === 'average') value = count ? nums.reduce((a, b) => a + b, 0) / count : 0
+      else if (agg === 'count') value = count
+      else if (agg === 'min') value = count ? Math.min(...nums) : 0
+      else if (agg === 'max') value = count ? Math.max(...nums) : 0
+      out.push({ group, value, count })
+    }
+    return out.sort((a, b) => (a.group < b.group ? -1 : a.group > b.group ? 1 : 0))
+  }
+
+  /** The distinct shown values of one table column's data cells, in order (for a filter checklist). */
+  tableColumnValues(id: string, offset: number): string[] {
+    const table = tableById(this.extras, id)
+    if (!table) return []
+    const sheet = this.sheets().find((s) => s.id === table.sheetId)?.index ?? this.sheet
+    const { dataR1, dataR2 } = tableParts(table)
+    const col = table.range.c1 + offset
+    const seen = new Set<string>()
+    const out: string[] = []
+    for (let r = dataR1; r <= dataR2; r++) {
+      const value = this.model.getFormattedCellValue(sheet, r, col)
+      if (!seen.has(value)) {
+        seen.add(value)
+        out.push(value)
+      }
+    }
+    return out
+  }
+
+  /** Convert a table back to a plain range, keeping its look by writing the drawn formats into the cells. */
+  convertTableToRange(id: string): ActionResult {
+    const table = tableById(this.extras, id)
+    if (!table) return no('That table is gone.')
+    const sheet = this.sheets().find((s) => s.id === table.sheetId)?.index ?? this.sheet
+    return this.act(() => {
+      this.bakeTableFormats(sheet, table)
+      this.extras = removeTable(this.extras, id)
+    }, { layout: true })
+  }
+
+  /** Delete a table: clear its cells and remove it. */
+  deleteTable(id: string): ActionResult {
+    const table = tableById(this.extras, id)
+    if (!table) return no('That table is gone.')
+    const sheet = this.sheets().find((s) => s.id === table.sheetId)?.index ?? this.sheet
+    return this.act(() => {
+      this.mut(() => this.model.rangeClearAll(sheet, table.range.r1, table.range.c1, table.range.r2, table.range.c2))
+      this.extras = removeTable(this.extras, id)
+    }, { layout: true })
+  }
+
+  /** Write a table's header/banding/total formats into the engine (Convert to range keeps the look). */
+  private bakeTableFormats(sheet: number, table: WorkbookTable): void {
+    const { header, dataR1, dataR2, total } = tableParts(table)
+    const color = table.style.color
+    const headerArea = area(sheet, { r1: header, c1: table.range.c1, r2: header, c2: table.range.c2 })
+    this.mut(() => this.model.updateRangeStyle(headerArea, 'fill.fg_color', color))
+    this.mut(() => this.model.updateRangeStyle(headerArea, 'font.color', '#FFFFFF'))
+    this.mut(() => this.model.updateRangeStyle(headerArea, 'font.b', 'true'))
+    if (table.style.bandedRows && dataR2 >= dataR1) {
+      for (let r = dataR1; r <= dataR2; r++) {
+        if ((r - dataR1) % 2 === 1) this.mut(() => this.model.updateRangeStyle(area(sheet, { r1: r, c1: table.range.c1, r2: r, c2: table.range.c2 }), 'fill.fg_color', softTint(color)))
+      }
+    }
+    if (total !== null) {
+      this.mut(() => this.model.updateRangeStyle(area(sheet, { r1: total, c1: table.range.c1, r2: total, c2: table.range.c2 }), 'font.b', 'true'))
+    }
+  }
+
+  // ── Charts ─────────────────────────────────────────────────────────────────
+
+  charts(sheet = this.sheet): WorkbookChart[] {
+    const id = this.sheetIdAt(sheet)
+    return this.extras.charts.filter((c) => c.sheetId === id)
+  }
+
+  /** Insert a chart of the selection, anchored just right of it. Returns the new chart's id. */
+  insertChart(type: ChartType = 'column'): { result: ActionResult; id: string } {
+    const { range } = this.selection()
+    const sheet = this.sheet
+    const id = this.newId('cht')
+    const anchor = { row: range.r1, column: Math.min(MAX_COLUMNS, range.c2 + 1), dx: 12, dy: 0 }
+    const chart: WorkbookChart = { id, sheetId: this.sheetIdAt(sheet), type, title: '', legend: true, source: { ...range }, anchor, width: 440, height: 300 }
+    const result = this.act(() => {
+      this.extras = addChart(this.extras, chart)
+    })
+    return { result, id }
+  }
+
+  moveChart(id: string, anchor: WorkbookChart['anchor']): ActionResult {
+    if (!chartById(this.extras, id)) return no('That chart is gone.')
+    return this.act(() => {
+      this.extras = updateChart(this.extras, id, { anchor })
+    })
+  }
+
+  resizeChart(id: string, width: number, height: number): ActionResult {
+    if (!chartById(this.extras, id)) return no('That chart is gone.')
+    return this.act(() => {
+      this.extras = updateChart(this.extras, id, { width: Math.max(160, Math.round(width)), height: Math.max(120, Math.round(height)) })
+    })
+  }
+
+  updateChartSpec(id: string, patch: { type?: ChartType; title?: string; legend?: boolean; source?: CellRange }): ActionResult {
+    if (!chartById(this.extras, id)) return no('That chart is gone.')
+    return this.act(() => {
+      this.extras = updateChart(this.extras, id, patch)
+    })
+  }
+
+  deleteChart(id: string): ActionResult {
+    if (!chartById(this.extras, id)) return no('That chart is gone.')
+    return this.act(() => {
+      this.extras = removeChart(this.extras, id)
+    })
+  }
+
+  /** A chart's source range as calculated cells, for drawing. Re-read whenever the data changes. */
+  chartGrid(chart: WorkbookChart): ChartCell[][] {
+    const sheet = this.sheets().find((s) => s.id === chart.sheetId)?.index ?? this.sheet
+    const { source } = chart
+    const grid: ChartCell[][] = []
+    for (let r = source.r1; r <= source.r2; r++) {
+      const line: ChartCell[] = []
+      for (let c = source.c1; c <= source.c2; c++) {
+        const text = this.model.getFormattedCellValue(sheet, r, c)
+        const value = this.model.getCellType(sheet, r, c) === CELL_TYPE.number ? numericFrom(text) : null
+        line.push({ text, value: value !== null && Number.isFinite(value) ? value : null })
+      }
+      grid.push(line)
+    }
+    return grid
+  }
+
+  // ── Images ─────────────────────────────────────────────────────────────────
+
+  images(sheet = this.sheet): WorkbookImage[] {
+    const id = this.sheetIdAt(sheet)
+    return this.extras.images.filter((im) => im.sheetId === id)
+  }
+
+  imageUrl(hash: string): string | undefined {
+    return this.extras.imageBlobs[hash]
+  }
+
+  /**
+   * Insert an image from its bytes, anchored to the active cell. The kind is
+   * read from the bytes (never the name); an SVG or anything else is refused.
+   * One picture is stored once by content hash.
+   */
+  insertImageFromBytes(bytes: Uint8Array, width: number, height: number): { result: ActionResult; id: string | null } {
+    const kind = sniffImageType(bytes)
+    if (!kind) return { result: no('That is not a PNG, JPEG, GIF or WebP image.'), id: null }
+    if (bytes.length > MAX_IMAGE_BYTES) return { result: no(`An image is ${(MAX_IMAGE_BYTES / 1_000_000).toFixed(0)} MB at most.`), id: null }
+    const hash = hashBytes(bytes)
+    const already = this.extras.imageBlobs[hash]
+    if (!already) {
+      const addingBytes = bytes.length
+      if (imageBytesUsed(this.extras) + addingBytes > MAX_WORKBOOK_IMAGE_BYTES) {
+        return { result: no(`A workbook holds ${(MAX_WORKBOOK_IMAGE_BYTES / 1_000_000).toFixed(0)} MB of images at most.`), id: null }
+      }
+    }
+    const { row, column } = this.selection()
+    const id = this.newId('img')
+    const w = Math.max(16, Math.round(width) || 200)
+    const h = Math.max(16, Math.round(height) || 150)
+    const image: WorkbookImage = { id, sheetId: this.sheetIdAt(this.sheet), hash, anchor: { row, column, dx: 8, dy: 8 }, width: w, height: h }
+    const dataUrl = already ?? `data:${IMAGE_MIME[kind]};base64,${bytesToBase64(bytes)}`
+    const result = this.act(() => {
+      this.extras = addImage(this.extras, image, dataUrl)
+    })
+    return { result, id }
+  }
+
+  moveImage(id: string, anchor: WorkbookImage['anchor']): ActionResult {
+    if (!imageById(this.extras, id)) return no('That image is gone.')
+    return this.act(() => {
+      this.extras = updateImage(this.extras, id, { anchor })
+    })
+  }
+
+  resizeImage(id: string, width: number, height: number): ActionResult {
+    if (!imageById(this.extras, id)) return no('That image is gone.')
+    return this.act(() => {
+      this.extras = updateImage(this.extras, id, { width: Math.max(16, Math.round(width)), height: Math.max(16, Math.round(height)) })
+    })
+  }
+
+  deleteImage(id: string): ActionResult {
+    if (!imageById(this.extras, id)) return no('That image is gone.')
+    return this.act(() => {
+      this.extras = removeImage(this.extras, id)
+    })
+  }
+
+  /** When a cell is typed just below a table (no total row) or just right of it, grow the table (inside an act). */
+  private growTableIfAdjacent(sheet: number, row: number, column: number): void {
+    const sheetId = this.sheetIdAt(sheet)
+    for (const table of this.extras.tables) {
+      if (table.sheetId !== sheetId) continue
+      const { total } = tableParts(table)
+      const { r1, c1, r2, c2 } = table.range
+      if (total === null && row === r2 + 1 && column >= c1 && column <= c2) {
+        const next: WorkbookTable = { ...table, range: { ...table.range, r2: r2 + 1 } }
+        this.extras = putTable(this.extras, next)
+        this.fillNewTableRow(sheet, next, r2 + 1)
+        return
+      }
+      if (column === c2 + 1 && row >= r1 && row <= r2) {
+        const headerText = this.model.getCellContent(sheet, r1, column) || `Column ${table.columns.length + 1}`
+        if (this.model.getCellContent(sheet, r1, column) === '') this.mut(() => this.model.setUserInput(sheet, r1, column, headerText))
+        const columns: TableColumn[] = [...table.columns, { name: headerText, type: 'text' }]
+        this.extras = putTable(this.extras, { ...table, range: { ...table.range, c2: column }, columns })
+        return
+      }
+    }
+  }
+
+  /** A new table row inherits its columns' checkbox and dropdown behaviour. */
+  private fillNewTableRow(sheet: number, table: WorkbookTable, row: number): void {
+    const { dataR1 } = tableParts(table)
+    for (let offset = 0; offset < table.columns.length; offset++) {
+      const col = table.range.c1 + offset
+      const type = table.columns[offset].type
+      if (type === 'checkbox') {
+        if (this.model.getCellContent(sheet, row, col) === '') this.mut(() => this.model.setUserInput(sheet, row, col, 'FALSE'))
+        this.extras = addCheckboxes(this.extras, table.sheetId, { r1: row, c1: col, r2: row, c2: col })
+      } else {
+        const rule = validationAt(this.extras, table.sheetId, dataR1, col)
+        if (rule && rule.rule.type === 'list') this.extras = putValidation(this.extras, table.sheetId, { r1: row, c1: col, r2: row, c2: col }, rule.rule)
+      }
+    }
   }
 
   disposed = false

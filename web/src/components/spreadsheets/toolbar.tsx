@@ -13,7 +13,7 @@
 import { useState } from 'react'
 import {
   AlignCenter, AlignLeft, AlignRight, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, AlignVerticalJustifyStart,
-  Baseline, Bold, ChevronDown, ClipboardPaste, DollarSign, Eye, Grid2x2, Italic, Minus, PaintBucket, Percent, Plus, Redo2,
+  Baseline, Bold, ChartColumn, ChevronDown, ClipboardPaste, DollarSign, Eye, Grid2x2, Image as ImageIcon, Italic, Minus, PaintBucket, Percent, Plus, Redo2,
   Search, SquareCheck, SquarePlus, Sigma, SlidersHorizontal, Strikethrough, Type, Underline, Undo2, WrapText,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -53,6 +53,14 @@ interface Props {
   onConditionalFormatting: () => void
   /** Open the Goal Seek… dialog. */
   onGoalSeek: () => void
+  /** Insert a chart of the selection. */
+  onInsertChart: () => void
+  /** Pick an image file to insert. */
+  onInsertImage: () => void
+  /** Convert the selection to a table. */
+  onConvertToTable: () => void
+  /** Open a table's options panel (the active cell is in a table). */
+  onTableOptions: (id: string) => void
 }
 
 const ICON = 'h-3.5 w-3.5'
@@ -132,9 +140,10 @@ function Swatches({ label, current, onPick, onClear, clearLabel }: { label: stri
   )
 }
 
-export function Toolbar({ workbook, view, onView, onFind, onPaste, onMessage, focusGrid, onDropdown, onConditionalFormatting, onGoalSeek }: Props) {
+export function Toolbar({ workbook, view, onView, onFind, onPaste, onMessage, focusGrid, onDropdown, onConditionalFormatting, onGoalSeek, onInsertChart, onInsertImage, onConvertToTable, onTableOptions }: Props) {
   const readOnly = workbook.readOnly
   const { row, column } = workbook.selection()
+  const activeTable = workbook.tableAtCell(row, column)
   const style = workbook.style(row, column)
   const font = style.font
   const size = font?.sz ?? DEFAULT_FONT_POINTS
@@ -314,6 +323,12 @@ export function Toolbar({ workbook, view, onView, onFind, onPaste, onMessage, fo
       <DropdownMenu>
         <MenuButton label="Insert" disabled={readOnly}><SquarePlus className={ICON} /></MenuButton>
         <DropdownMenuContent align="start" className="w-44" {...after}>
+          <DropdownMenuItem onSelect={onInsertChart}>
+            <ChartColumn className="mr-2 h-3.5 w-3.5" /> Chart
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={onInsertImage}>
+            <ImageIcon className="mr-2 h-3.5 w-3.5" /> Image…
+          </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => run(workbook.insertCheckboxes())}>
             <SquareCheck className="mr-2 h-3.5 w-3.5" /> Checkbox
           </DropdownMenuItem>
@@ -339,6 +354,11 @@ export function Toolbar({ workbook, view, onView, onFind, onPaste, onMessage, fo
           <DropdownMenuItem onSelect={() => run(workbook.trimWhitespace())}>Trim whitespace</DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={onDropdown}>Dropdown…</DropdownMenuItem>
+          {activeTable ? (
+            <DropdownMenuItem onSelect={() => onTableOptions(activeTable.id)}>Table options…</DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem onSelect={onConvertToTable}>Convert to table</DropdownMenuItem>
+          )}
           <DropdownMenuItem onSelect={onConditionalFormatting}>Conditional formatting…</DropdownMenuItem>
           <DropdownMenuItem onSelect={onGoalSeek}>Goal Seek…</DropdownMenuItem>
           <DropdownMenuSeparator />

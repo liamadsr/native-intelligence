@@ -21,9 +21,12 @@ import { columnName, type CellRange, type CellRef } from '@/lib/spreadsheets/a1'
 import { readCellView, type CellBorder, type CellView } from '@/lib/spreadsheets/cell-view'
 import { parseTableHtml, sameClipboardText, tableHtml } from '@/lib/spreadsheets/clipboard'
 import { indexAt, type InternalClipboard, type SheetLayout, type WorkbookController } from '@/lib/spreadsheets/controller'
+import type { WorkbookTable } from '@/lib/spreadsheets/extras'
 import { expectsReference, insertReference, isFormula, referenceText } from '@/lib/spreadsheets/formula-edit'
 import { parseTsv, toTsv } from '@/components/grid/tsv'
 import { CfGlyph } from './cf-glyph'
+import { FloatingObjects } from './floating-objects'
+import { TableBackground, TableHeaders } from './table-overlay'
 import { useWorkbook } from './use-workbook'
 
 export const ROW_HEADER_WIDTH = 46
@@ -78,6 +81,12 @@ export interface SheetGridProps {
   onContextMenu?: (target: GridMenuTarget, at: { x: number; y: number }) => void
   /** A key in the cell's editor, before the grid acts on it: true when something else (the suggestions list) took it. */
   onEditorKey?: (event: React.KeyboardEvent<HTMLTextAreaElement>) => boolean
+  /** A click on a table column's header menu arrow. */
+  onTableColumnMenu?: (table: WorkbookTable, offset: number, at: { x: number; y: number }) => void
+  /** A double-click on a chart: open its Edit dialog. */
+  onEditChart?: (id: string) => void
+  /** Ctrl/Cmd+Alt+T: convert the selection to a table, or open the options when the cell is already in one. */
+  onTableShortcut?: () => void
   className?: string
   ariaLabel: string
 }
@@ -434,7 +443,7 @@ function rectOf(layout: SheetLayout, range: CellRange): { left: number; top: num
   return { left, top, width: layout.columnStarts[c2] - left, height: layout.rowStarts[r2] - top }
 }
 
-export function SheetGrid({ workbook, caret, showGridlines = true, showFormulas = false, onMessage, onContextMenu, onEditorKey, className, ariaLabel }: SheetGridProps) {
+export function SheetGrid({ workbook, caret, showGridlines = true, showFormulas = false, onMessage, onContextMenu, onEditorKey, onTableColumnMenu, onEditChart, onTableShortcut, className, ariaLabel }: SheetGridProps) {
   useWorkbook(workbook)
   const sheet = workbook.sheet
   const layout = workbook.layout(sheet)
@@ -449,6 +458,7 @@ export function SheetGrid({ workbook, caret, showGridlines = true, showFormulas 
   const [fillPreview, setFillPreview] = useState<CellRange | null>(null)
   const [pointing, setPointing] = useState<{ sheet: number; range: CellRange } | null>(null)
   const [listCell, setListCell] = useState<CellRef | null>(null)
+  const [selectedObject, setSelectedObject] = useState<string | null>(null)
   const drag = useRef<null | { kind: 'select' | 'rows' | 'columns' | 'fill' | 'point' | 'resize-column' | 'resize-row'; from: CellRef; index?: number; start?: number; size?: number }>(null)
   const frame = useRef(0)
   const say = useCallback((result: { ok: boolean; message?: string }) => {
@@ -596,6 +606,7 @@ export function SheetGrid({ workbook, caret, showGridlines = true, showFormulas 
       if (!inside && !workbook.editing) workbook.select(at.row, at.column)
       return
     }
+    setSelectedObject(null)
     if (workbook.editing) {
       if (canPoint()) {
         event.preventDefault()
@@ -773,6 +784,12 @@ export function SheetGrid({ workbook, caret, showGridlines = true, showFormulas 
     if (event.nativeEvent.isComposing) return
     const mod = event.metaKey || event.ctrlKey
     const key = event.key
+    // Ctrl/Cmd+Alt+T: convert the selection to a table (or open its options when already in one).
+    if (mod && event.altKey && key.toLowerCase() === 't') {
+      event.preventDefault()
+      onTableShortcut?.()
+      return
+    }
     const arrows: Record<string, 'up' | 'down' | 'left' | 'right'> = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' }
     const active = workbook.selection()
     // Alt+Down opens the dropdown under the active cell; Space toggles a checkbox there.
@@ -1124,6 +1141,9 @@ export function SheetGrid({ workbook, caret, showGridlines = true, showFormulas 
             }
           }}
         >
+          {/* Table tints and outline, behind the cell text. */}
+          <TableBackground workbook={workbook} sheet={sheet} layout={layout} window={view} />
+
           <Cells
             workbook={workbook}
             sheet={sheet}
@@ -1137,6 +1157,12 @@ export function SheetGrid({ workbook, caret, showGridlines = true, showFormulas 
 
           {/* Checkboxes, dropdown arrows, choice chips and warning corners. */}
           <GridControls workbook={workbook} sheet={sheet} layout={layout} window={view} dataVersion={workbook.dataVersion} onToggle={toggleCheckbox} onOpenList={openList} />
+
+          {/* Table header bars, their column menu arrows and the total-row divider, over the cells. */}
+          {onTableColumnMenu && <TableHeaders workbook={workbook} sheet={sheet} layout={layout} window={view} onColumnMenu={onTableColumnMenu} />}
+
+          {/* Charts and images floating over the sheet. */}
+          <FloatingObjects workbook={workbook} sheet={sheet} layout={layout} selectedId={selectedObject} onSelect={setSelectedObject} onEditChart={(id) => onEditChart?.(id)} onMessage={onMessage} />
 
           {/* The selected range: a tint that leaves the active cell clear. */}
           {!single && rangeRect.width > 0 && rangeRect.height > 0 && (

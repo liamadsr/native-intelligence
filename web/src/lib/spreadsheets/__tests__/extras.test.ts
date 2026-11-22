@@ -1,21 +1,43 @@
 import { describe, expect, it } from 'vitest'
 import {
+  addChart,
   addCheckboxes,
+  addImage,
   clearValidationIn,
+  defaultTableStyle,
   describeValidation,
   emptyExtras,
   extrasAreEmpty,
+  imageBytesUsed,
   isCheckbox,
+  nextTableName,
   passesBound,
+  putTable,
   putValidation,
   readExtras,
   removeCheckboxesIn,
+  removeImage,
   shiftExtras,
   subtractRange,
+  tableNameProblem,
   validationAt,
   type ListValidation,
+  type WorkbookChart,
+  type WorkbookImage,
+  type WorkbookTable,
 } from '../extras'
 import type { CellRange } from '../a1'
+
+const table = (over: Partial<WorkbookTable> = {}): WorkbookTable => ({
+  id: 't1',
+  sheetId: 0,
+  name: 'Table1',
+  range: { r1: 1, c1: 1, r2: 5, c2: 3 },
+  columns: [{ name: 'A', type: 'text' }, { name: 'B', type: 'number' }, { name: 'C', type: 'number' }],
+  style: defaultTableStyle(),
+  filters: {},
+  ...over,
+})
 
 const R = (r1: number, c1: number, r2: number, c2: number): CellRange => ({ r1, c1, r2, c2 })
 const list = (reject = true): ListValidation => ({ type: 'list', choices: [{ value: 'Yes' }, { value: 'No' }], reject })
@@ -136,6 +158,92 @@ describe('shiftExtras', () => {
     expect(shiftExtras(extras, { type: 'deleteSheet', sheetId: 3 }).checkboxes).toHaveLength(0)
     const dup = shiftExtras(extras, { type: 'duplicateSheet', fromId: 3, toId: 9 })
     expect(dup.checkboxes.map((b) => b.sheetId).sort()).toEqual([3, 9])
+  })
+})
+
+describe('tables in extras', () => {
+  it('names the next table and refuses a bad or taken name', () => {
+    let extras = emptyExtras()
+    expect(nextTableName(extras)).toBe('Table1')
+    extras = putTable(extras, table({ id: 't1', name: 'Table1' }))
+    expect(nextTableName(extras)).toBe('Table2')
+    expect(tableNameProblem('Table1', extras)).toMatch(/already/)
+    expect(tableNameProblem('2bad', extras)).toMatch(/starts with a letter/)
+    expect(tableNameProblem('Table1', extras, 't1')).toBeNull()
+  })
+
+  it('shifts a table down when rows are inserted above it', () => {
+    const extras = putTable(emptyExtras(), table({ range: { r1: 5, c1: 1, r2: 8, c2: 3 } }))
+    const next = shiftExtras(extras, { type: 'insertRows', sheetId: 0, at: 2, count: 2 })
+    expect(next.tables[0].range).toEqual({ r1: 7, c1: 1, r2: 10, c2: 3 })
+  })
+
+  it('adds a column when one is inserted inside it and drops one when deleted', () => {
+    const extras = putTable(emptyExtras(), table())
+    const inserted = shiftExtras(extras, { type: 'insertColumns', sheetId: 0, at: 2, count: 1 })
+    expect(inserted.tables[0].columns).toHaveLength(4)
+    expect(inserted.tables[0].range.c2).toBe(4)
+    const deleted = shiftExtras(extras, { type: 'deleteColumns', sheetId: 0, at: 2, count: 1 })
+    expect(deleted.tables[0].columns.map((c) => c.name)).toEqual(['A', 'C'])
+  })
+
+  it('drops a table on sheet delete and copies it on duplicate', () => {
+    const extras = putTable(emptyExtras(), table({ sheetId: 3 }))
+    expect(shiftExtras(extras, { type: 'deleteSheet', sheetId: 3 }).tables).toHaveLength(0)
+    const dup = shiftExtras(extras, { type: 'duplicateSheet', fromId: 3, toId: 9 })
+    expect(dup.tables.map((t) => t.sheetId).sort()).toEqual([3, 9])
+  })
+
+  it('putTable replaces a table in place and drops a table it overlaps', () => {
+    let extras = putTable(emptyExtras(), table({ id: 't1', range: { r1: 1, c1: 1, r2: 3, c2: 3 } }))
+    extras = putTable(extras, table({ id: 't1', name: 'Renamed' }))
+    expect(extras.tables).toHaveLength(1)
+    expect(extras.tables[0].name).toBe('Renamed')
+  })
+})
+
+describe('charts and images in extras', () => {
+  const chart = (over: Partial<WorkbookChart> = {}): WorkbookChart => ({
+    id: 'c1', sheetId: 0, type: 'column', title: '', legend: true, source: { r1: 2, c1: 1, r2: 4, c2: 2 }, anchor: { row: 2, column: 4, dx: 0, dy: 0 }, width: 400, height: 280, ...over,
+  })
+  const image = (over: Partial<WorkbookImage> = {}): WorkbookImage => ({ id: 'i1', sheetId: 0, hash: 'h1', anchor: { row: 3, column: 3, dx: 0, dy: 0 }, width: 100, height: 80, ...over })
+
+  it('shifts a chart source and anchor on an insert', () => {
+    const extras = addChart(emptyExtras(), chart())
+    const next = shiftExtras(extras, { type: 'insertRows', sheetId: 0, at: 1, count: 2 })
+    expect(next.charts[0].source).toEqual({ r1: 4, c1: 1, r2: 6, c2: 2 })
+    expect(next.charts[0].anchor.row).toBe(4)
+  })
+
+  it('shifts an image anchor and clamps it when its row is deleted', () => {
+    const extras = addImage(emptyExtras(), image({ anchor: { row: 6, column: 3, dx: 0, dy: 0 } }), 'data:image/png;base64,AAAA')
+    expect(shiftExtras(extras, { type: 'insertRows', sheetId: 0, at: 2, count: 1 }).images[0].anchor.row).toBe(7)
+    expect(shiftExtras(extras, { type: 'deleteRows', sheetId: 0, at: 5, count: 3 }).images[0].anchor.row).toBe(5)
+  })
+
+  it('stores a blob once and drops it when the last image using it goes', () => {
+    let extras = addImage(emptyExtras(), image({ id: 'i1', hash: 'h1' }), 'data:image/png;base64,AAAA')
+    extras = addImage(extras, image({ id: 'i2', hash: 'h1' }), 'data:image/png;base64,AAAA')
+    expect(Object.keys(extras.imageBlobs)).toHaveLength(1)
+    expect(imageBytesUsed(extras)).toBeGreaterThan(0)
+    extras = removeImage(extras, 'i1')
+    expect(extras.imageBlobs.h1).toBeDefined() // still used by i2
+    extras = removeImage(extras, 'i2')
+    expect(extras.imageBlobs.h1).toBeUndefined()
+  })
+
+  it('readExtras keeps typed tables, charts and images and drops junk', () => {
+    const extras = readExtras({
+      tables: [{ id: 't', sheetId: 0, name: 'T', range: { r1: 1, c1: 1, r2: 2, c2: 2 }, columns: [{ name: 'A', type: 'number' }], style: {}, filters: { '0': { values: ['x'] } } }, { nope: true }],
+      charts: [{ id: 'c', sheetId: 0, type: 'pie', source: { r1: 1, c1: 1, r2: 2, c2: 1 }, anchor: { row: 1, column: 1 }, width: 300, height: 200 }],
+      images: [{ id: 'i', sheetId: 0, hash: 'h', anchor: { row: 1, column: 1 }, width: 10, height: 10 }],
+      imageBlobs: { h: 'data:image/png;base64,AAAA', orphan: 'data:image/png;base64,BBBB' },
+    })
+    expect(extras.tables).toHaveLength(1)
+    expect(extras.charts[0].type).toBe('pie')
+    expect(extras.images).toHaveLength(1)
+    expect(Object.keys(extras.imageBlobs)).toEqual(['h']) // orphan blob dropped
+    expect(extrasAreEmpty(extras)).toBe(false)
   })
 })
 

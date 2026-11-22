@@ -51,7 +51,7 @@ function mount(cells: Array<[number, number, string]> = [], options: { readOnly?
   act(() => {
     root.render(
       <div style={{ width: 1046, height: 526 }}>
-        <SheetGrid workbook={workbook} caret={caret} ariaLabel="Budget: Sheet1" showFormulas={options.showFormulas} onMessage={(m) => messages.push(m)} onContextMenu={(t) => menus.push(t)} />
+        <SheetGrid workbook={workbook} caret={caret} ariaLabel="Budget: Sheet1" showFormulas={options.showFormulas} onMessage={(m) => messages.push(m)} onContextMenu={(t) => menus.push(t)} onTableColumnMenu={() => {}} onEditChart={() => {}} />
       </div>,
     )
   })
@@ -474,5 +474,24 @@ describe('conditional formatting marks', () => {
       ),
     )
     expect(container.querySelectorAll('[data-cf-icon]').length).toBeGreaterThan(0)
+  })
+
+  it('draws a table header bar with a column menu arrow after convert to table', () => {
+    mount([[1, 1, 'Region'], [1, 2, 'Amount'], [2, 1, 'North'], [2, 2, '10'], [3, 1, 'South'], [3, 2, '20']])
+    act(() => {
+      workbook.selectRange({ r1: 1, c1: 1, r2: 3, c2: 2 })
+      workbook.convertToTable()
+    })
+    expect(container.querySelectorAll('[data-table-column-menu]').length).toBe(2)
+  })
+
+  it('draws a chart as a floating object once one is inserted', () => {
+    mount([[1, 1, 'Jan'], [1, 2, '10'], [2, 1, 'Feb'], [2, 2, '20']])
+    act(() => {
+      workbook.selectRange({ r1: 1, c1: 1, r2: 2, c2: 2 })
+      workbook.insertChart('column')
+    })
+    expect(container.querySelector('[data-floating-object]')).not.toBeNull()
+    expect(container.querySelector('[data-floating-object] svg')).not.toBeNull()
   })
 })
