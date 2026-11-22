@@ -167,6 +167,8 @@ export type OpenTarget =
   | { type: 'team_chat'; channelId?: string | null; messageId?: string | null }
   /** The Studio, on one video (on one of its tabs) or one Studio project. */
   | { type: 'studio_video' | 'studio_project'; id: string; title?: string | null; tab?: string | null }
+  /** A canvas, open on the Canvases page's card (migration 676). */
+  | { type: 'canvas'; id: string; title?: string | null }
   | { type: 'page'; slug: string }
 
 export interface TargetCard {
@@ -345,6 +347,10 @@ export function cardForTarget(target: OpenTarget, now: Date = new Date()): Targe
       // (useOpenWorkItem); one with none lands on its own card.
       return {
         spec: { kind: 'work_item', title: label(target.title, 'Work item'), target: { type: 'work_item', id: target.id, label: label(target.title, 'Work item') } },
+      }
+    case 'canvas':
+      return {
+        spec: { kind: 'canvases', title: label(target.title, 'Canvas'), target: { type: 'canvas', id: target.id, label: label(target.title, 'Canvas') } },
       }
   }
   return null

@@ -181,6 +181,8 @@ export const FINDABLE = {
   team: { section: 'teams', label: 'Teams', entity: 'team', mention: 'team', group: 'agents_skills', order: 210 },
   // A knowledge package (673): found as RLS lets the person read it, mentioned as the `knowledge_package` it is.
   package: { section: 'packages', label: 'Packages', entity: 'knowledge_package', mention: 'knowledge_package', group: 'agents_skills', order: 215 },
+  // Canvas (migration 676): a whiteboard, found by title and mentioned, fenced as the canvas is (workspace, or its owner). In the Drive group with Docs.
+  canvas: { section: 'canvases', label: 'Canvases', entity: 'canvas', mention: 'canvas', group: 'docs', order: 35 },
   // Mail (email_thread) and agent chats (conversation): found and mentionable by their OWNER only (decisions 1); each is its person's alone (fenced on user_id).
   email_thread: { section: 'mail', label: 'Mail', entity: 'email_thread', mention: 'email_thread', group: 'mail', order: 216 },
   conversation: { section: 'chats', label: 'Chats', entity: 'conversation', mention: 'conversation', group: 'chats', order: 217 },

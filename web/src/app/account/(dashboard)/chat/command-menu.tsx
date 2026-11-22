@@ -55,6 +55,7 @@ import {
   Paperclip,
   ScanSearch,
   Table2,
+  Shapes,
   Search,
   Send,
   Swords,
@@ -170,6 +171,7 @@ const PAGE_ICONS: Record<string, LucideIcon> = {
   docs: BookOpen,
   files: Paperclip,
   tables: Table2,
+  canvases: Shapes,
   knowledge: Brain,
   initiatives: Target,
   projects: FolderKanban,
@@ -1045,6 +1047,7 @@ function rowText(item: MenuItem): { title: string; detail: string | null; meta: 
       return { title: row.title, detail: row.status ? statusLabel(row.status) : null, meta: null }
     case 'data_table':
     case 'data_row':
+    case 'canvas':
     case 'team_chat_channel':
     case 'decision':
     case 'team':

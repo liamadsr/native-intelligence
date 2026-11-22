@@ -36,6 +36,7 @@ export const PAGE_KIND_NAMES = [
   'campaigns',
   'tables',
   'pipelines',
+  'canvases',
   'knowledge',
   'library',
   'teams',
@@ -79,6 +80,7 @@ export const PAGE_PLACE_TYPES = [
   'team_chat_message',
   'data_table',
   'data_row',
+  'canvas',
   'studio_project',
   'studio_video',
   'seo_audit',
@@ -209,6 +211,16 @@ export const PAGE_KINDS: Record<PageKind, PageKindDef> = {
     view: 'companies',
     target: { types: ['data_table', 'data_row'] },
     tabs: ['board', 'grid', 'calendar', 'gallery'],
+  },
+  // Canvas (migration 676): the workspace's whiteboards. Gated with Docs, in
+  // the Drive group beside Tables and Files. `show` opens it on one canvas
+  // (`target`), or the list at the top level; a canvas has no sub-views, and
+  // holds nothing the agent reads back (read_card points at read_canvas).
+  canvases: {
+    label: 'Canvases',
+    rows: 'canvases',
+    view: 'docs',
+    target: { types: ['canvas'] },
   },
   knowledge: {
     label: 'Knowledge',
@@ -367,6 +379,7 @@ export const PLACE_NOUN: Record<PagePlaceType, string> = {
   team_chat_message: 'message',
   data_table: 'table',
   data_row: 'row',
+  canvas: 'canvas',
   studio_project: 'Studio project',
   studio_video: 'video',
   seo_audit: 'site audit',

@@ -236,6 +236,7 @@ export type MenuNamedKind =
   | 'prospect_list'
   | 'data_table'
   | 'data_row'
+  | 'canvas'
   | 'team_chat_channel'
   | 'decision'
   | 'team'

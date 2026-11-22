@@ -57,6 +57,7 @@ import { visiblePrivateKindIds } from '@/lib/knowledge/entity-fences'
 import { FORM_ROW_NAME, fenceFormValue, isFormRow } from '@/lib/knowledge/form-rows'
 import { wrapUntrusted } from '@/lib/email/untrusted'
 import { listRows, listTables } from '@/lib/tables/store'
+import { listCanvases } from '@/lib/canvas/store'
 import { readStudioOverview, readStudioProject, readStudioVideoBrief } from '@/lib/studio/agent/reads'
 import { isRefusal, studioContext } from '@/lib/studio/agent/access'
 
@@ -136,6 +137,8 @@ async function candidates(scope: PageScope, type: PagePlaceType, resolved: Resol
     case 'data_row':
       // A row is named by its id alone (findTableTarget).
       return []
+    case 'canvas':
+      return (await visibleCanvases(scope)).map((c) => ({ id: c.id, name: c.name, type }))
     case 'studio_project':
     case 'studio_video': {
       // The workspace's own, out of the trash, by title (Studio, migration 620).
@@ -173,6 +176,13 @@ async function visibleTables(scope: PageScope, opts: { pipelines?: boolean } = {
   const all = await listTables(scope.supabase, scope.workspaceId, opts.pipelines ? { kind: 'pipeline' } : {})
   const seen = await visiblePrivateKindIds(scope.supabase, 'data_table', scope.userId, all.map((t) => t.id), scope.workspaceId, scope.grants === false ? { grants: false } : {})
   return all.filter((t) => seen.has(t.id)).map((t) => ({ id: t.id, name: t.name }))
+}
+
+/** The workspace's live canvases the person can read (without grants on a guest's turn), newest first. */
+async function visibleCanvases(scope: PageScope): Promise<Array<{ id: string; name: string }>> {
+  const all = await listCanvases(scope.supabase, scope.workspaceId)
+  const seen = await visiblePrivateKindIds(scope.supabase, 'canvas', scope.userId, all.map((c) => c.id), scope.workspaceId, scope.grants === false ? { grants: false } : {})
+  return all.filter((c) => seen.has(c.id)).map((c) => ({ id: c.id, name: c.title }))
 }
 
 /** A row's place on the Deals page: only a pipeline's row is a deal. */
@@ -295,6 +305,11 @@ async function checkPlace(scope: PageScope, kind: PageKind, place: PagePlace): P
     }
     case 'data_row':
       return kind === 'tables' ? visibleRow(scope, place.id) : kind === 'pipelines' ? visibleDealRow(scope, place.id) : null
+    case 'canvas': {
+      if (kind !== 'canvases') return null
+      const canvas = (await visibleCanvases(scope)).find((c) => c.id === place.id)
+      return canvas ? ok(canvas.name) : null
+    }
     case 'studio_project':
     case 'studio_video': {
       // Read on the service client, so fenced here by the workspace: a video or
@@ -516,6 +531,16 @@ export async function readPageRows(
       }
       const tables = await visibleTables(scope, { pipelines: kind === 'pipelines' })
       return { count: tables.length, rows: tables.slice(0, limit), noun: kind === 'pipelines' ? 'pipelines' : 'tables' }
+    }
+    case 'canvases': {
+      // One canvas: itself (its items are read with read_canvas, not here). The
+      // top level: the workspace's canvases the person can see.
+      const canvases = await visibleCanvases(scope)
+      if (place?.type === 'canvas') {
+        const one = canvases.find((c) => c.id === place.id)
+        return { count: one ? 1 : 0, rows: one ? [{ id: one.id, title: one.name }] : [], noun: 'canvases' }
+      }
+      return { count: canvases.length, rows: canvases.slice(0, limit).map((c) => ({ id: c.id, title: c.name })), noun: 'canvases' }
     }
     case 'studio': {
       // One video: itself. One Studio project: its videos. The top level: the

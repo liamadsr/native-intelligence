@@ -38,7 +38,7 @@ const in500 = (kind: string) => NAME_IN_500[kind] ?? kind
  * policies (migration-624.test.ts).
  */
 // Teams and knowledge packages (673) are fenced by their own restrictive policies, as the Studio's are.
-const LATER = new Set<string>(['data_table', 'data_row', 'studio_video', 'studio_project', 'team', 'knowledge_package'])
+const LATER = new Set<string>(['data_table', 'data_row', 'studio_video', 'studio_project', 'team', 'knowledge_package', 'canvas'])
 const FENCED_IN_500 = LINK_FENCED_KINDS.filter((k) => !LATER.has(k))
 
 /** Linkable kinds every member of the workspace reads (their tables' RLS is membership only). */

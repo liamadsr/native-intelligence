@@ -743,6 +743,18 @@ const searchTableRows = nameSearch({
   parentId: (r) => text(r.table_id),
 })
 
+/** Canvases by title (migration 676): the ones the caller may read (RLS), not archived. */
+const searchCanvases = nameSearch({
+  kind: 'canvas',
+  table: 'canvas',
+  name: 'title',
+  columns: 'id, title, visibility',
+  fallback: 'Untitled canvas',
+  recent: 'updated_at',
+  narrow: (q) => q.is('archived_at', null),
+  status: (r) => (r.visibility === 'private' ? 'Private' : null),
+})
+
 /** Channels by name (a DM has none): the ones the caller may read. */
 const searchChannels = nameSearch({
   kind: 'team_chat_channel',
@@ -918,6 +930,7 @@ export const MENU_QUERIES: Record<MenuSearchKind, (ctx: MenuQueryContext) => Pro
   sequence: searchSequences,
   prospect_list: searchProspectLists,
   data_table: searchTables,
+  canvas: searchCanvases,
   data_row: searchTableRows,
   team_chat_channel: searchChannels,
   decision: searchDecisions,
