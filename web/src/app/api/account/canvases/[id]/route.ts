@@ -18,7 +18,8 @@ export async function GET(_request: NextRequest, { params }: Ctx) {
   try {
     const canvas = await getCanvas(supabase, workspaceId, id, { userId: user.id })
     if (!canvas) return notFound('Canvas not found')
-    return NextResponse.json(canvas)
+    // `viewer`: who is looking, so the editor keeps unsent edits per person.
+    return NextResponse.json({ ...canvas, viewer: user.id })
   } catch (e) {
     return serverError(e instanceof Error ? e.message : 'Could not load the canvas')
   }

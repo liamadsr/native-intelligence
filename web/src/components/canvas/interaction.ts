@@ -141,6 +141,8 @@ export class Interaction {
     }
     if (e.button !== 0) return
     if (state.editing) return
+    // A press on the canvas takes the pointer back from an open artifact.
+    if (state.opened) store.setOpened(null)
 
     if (tool === 'select') return this.selectDown(e, world)
     if (state.readOnly) return
@@ -576,6 +578,12 @@ export class Interaction {
     if (state.tool !== 'select' || state.editing) return
     const world = this.world(e)
     const hit = pick(state.scene, world, this.pickTol(e)) ?? pickBox(state.scene, world)
+    if (hit?.kind === 'artifact') {
+      // Its page takes the pointer (looking only, too: a page is there to be used).
+      store.select([store.targetOf(hit.id, true)])
+      store.setOpened(hit.id)
+      return
+    }
     if (state.readOnly) {
       // Looking only: a card still opens its record.
       if (hit?.kind === 'record') store.openRecord?.(hit.ref)
@@ -665,7 +673,8 @@ export class Interaction {
       return true
     }
     if (key === 'Escape') {
-      if (this.gesture) this.cancel()
+      if (state.opened) store.setOpened(null)
+      else if (this.gesture) this.cancel()
       else if (state.tool !== 'select') store.setTool('select')
       else store.select([])
       return true

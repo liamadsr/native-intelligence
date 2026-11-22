@@ -47,7 +47,7 @@ export function artifactDocument(html: string, opts: { dark?: boolean } = {}): s
     `<meta http-equiv="Content-Security-Policy" content="${ARTIFACT_CSP}">` +
     '<meta name="viewport" content="width=device-width, initial-scale=1">' +
     `<meta name="color-scheme" content="${opts.dark ? 'dark' : 'light'}">` +
-    `<style>html,body{margin:0;height:100%}body{font:14px/1.5 system-ui,sans-serif;color:${opts.dark ? '#e5e5e5' : '#171717'};background:transparent;overflow:auto}</style>` +
+    `<style>html{height:100%}body{margin:0;min-height:100%;padding:12px;box-sizing:border-box;font:14px/1.5 system-ui,sans-serif;color:${opts.dark ? '#e5e5e5' : '#171717'};background:transparent;overflow:auto}</style>` +
     '</head><body>' +
     body +
     '</body></html>'
