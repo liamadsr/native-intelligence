@@ -33,6 +33,8 @@ declare
   u_bob   constant uuid := '00000000-0000-4000-8000-000000680002';
   u_carol constant uuid := '00000000-0000-4000-8000-000000680003';
   u_eve   constant uuid := '00000000-0000-4000-8000-000000680004';
+  u_gus   constant uuid := '00000000-0000-4000-8000-000000680005';
+  m_gus uuid; teamco uuid; own uuid;
   ws uuid; ws2 uuid;
   m_alice uuid; m_bob uuid; m_carol uuid; m_eve uuid;
   acme uuid; beta uuid; other uuid;
@@ -45,7 +47,8 @@ declare
 begin
   insert into auth.users (id, email) values
     (u_alice, 'alice@team.example.test'), (u_bob, 'bob@team.example.test'),
-    (u_carol, 'carol@team.example.test'), (u_eve, 'eve@elsewhere.example.test');
+    (u_carol, 'carol@team.example.test'), (u_eve, 'eve@elsewhere.example.test'),
+    (u_gus, 'gus@outside.example.test');
   insert into public.workspace (name, slug) values ('Probe Team 680', 'probe-team-680-' || substr(md5(random()::text), 1, 8)) returning id into ws;
   insert into public.workspace (name, slug) values ('Probe Other 680', 'probe-other-680-' || substr(md5(random()::text), 1, 8)) returning id into ws2;
 
@@ -58,6 +61,7 @@ begin
   insert into public.member (user_id, workspace_id, role, display_name) values (u_bob, ws, 'member', 'Bob Probe') returning id into m_bob;
   insert into public.member (user_id, workspace_id, role, display_name) values (u_carol, ws, 'member', 'Carol Probe') returning id into m_carol;
   insert into public.member (user_id, workspace_id, role, display_name) values (u_eve, ws2, 'owner', 'Eve Probe') returning id into m_eve;
+  insert into public.member (user_id, workspace_id, role, display_name) values (u_gus, ws, 'guest', 'Gus Probe') returning id into m_gus;
 
   insert into public.connected_account (user_id, workspace_id, provider, capability, account_email)
   values (u_alice, ws, 'google', 'email', 'alice@team.example.test') returning id into acct_alice;
@@ -74,6 +78,17 @@ begin
   insert into public.contact (workspace_id, full_name, email, company_id, visibility, created_by_member_id)
   values (ws, 'Robin Example', 'robin@beta.example.test', beta, 'private', m_alice);
   insert into public.company (workspace_id, name, domain) values (ws2, 'Acme Probe Elsewhere', 'acme.example.test') returning id into other;
+  -- Bob is also on record as a contact at Acme (a teammate who is a contact).
+  insert into public.contact (workspace_id, full_name, email, company_id, visibility, created_by_member_id, member_id)
+  values (ws, 'Bob Probe', 'bob@team.example.test', acme, 'workspace', m_alice, m_bob);
+  -- A company on the team's own domain, and the workspace's own company.
+  insert into public.company (workspace_id, name, domain) values (ws, 'Team Probe Co', 'team.example.test') returning id into teamco;
+  insert into public.contact (workspace_id, full_name, email, company_id, visibility, created_by_member_id)
+  values (ws, 'Team Desk', 'desk@team.example.test', teamco, 'workspace', m_alice);
+  -- (Its domain would be the team's too; one company per domain, so it has none here: its flag decides.)
+  insert into public.company (workspace_id, name, is_workspace_company) values (ws, 'Probe Team 680 (us)', true) returning id into own;
+  insert into public.contact (workspace_id, full_name, email, company_id, visibility, created_by_member_id)
+  values (ws, 'Outside Example', 'pat@acme-partner.example.test', own, 'workspace', m_alice);
 
   -- Threads (pointers only, as the index holds them).
   insert into public.email_thread_index (workspace_id, user_id, account_id, provider, provider_thread_id, participant_emails, last_message_at, folder) values
@@ -83,6 +98,7 @@ begin
     (ws, u_alice, acct_alice, 'google', 'a-trash', array['alice@team.example.test', 'pat@acme.example.test'], now() - interval '4 days', 'trash'),
     (ws, u_alice, acct_alice, 'google', 'a-unrelated', array['alice@team.example.test', 'kim@nowhere.example.test'], now() - interval '5 days', 'inbox'),
     (ws, u_alice, acct_alice, 'google', 'a-lookalike', array['alice@team.example.test', 'x@notacme.example.test'], now() - interval '5 days', 'inbox'),
+    (ws, u_alice, acct_alice, 'google', 'a-internal', array['alice@team.example.test', 'bob@team.example.test', 'carol@team.example.test'], now() - interval '1 hour', 'inbox'),
     (ws, u_alice, acct_alice, 'google', 'a-with-robin', array['alice@team.example.test', 'robin@beta.example.test'], now() - interval '6 days', 'inbox'),
     (ws, u_bob, acct_bob, 'google', 'b-with-pat', array['bob@team.example.test', 'pat@acme.example.test'], now() - interval '1 day', 'inbox'),
     (ws, u_carol, acct_carol, 'google', 'c-with-pat', array['carol@team.example.test', 'pat@acme.example.test'], now() - interval '1 day', 'inbox');
@@ -167,6 +183,43 @@ begin
   if not (st ->> 'enabled')::boolean or (st ->> 'my_consent')::boolean or jsonb_array_length(st -> 'sharers') <> 1 then
     raise exception 'FAIL: status for Bob; got %', st;
   end if;
+
+  -- Internal mail never rides on a company: not through a teammate who is a
+  -- contact at it (a-internal is with Bob, on record at Acme, above), and not
+  -- on a company whose domain is the team's.
+  perform pg_temp.as_user(u_alice);
+  perform public.set_company_email_consent(teamco, true);
+  perform public.set_company_email_sharing(teamco, true);
+  perform pg_temp.as_service();
+  if cardinality(pg_temp.seen(teamco, u_bob)) <> 0 then raise exception 'FAIL: internal threads on the team''s domain stay off a company'; end if;
+  if 'a-internal' = any (pg_temp.seen(acme, u_bob)) then raise exception 'FAIL: a thread among teammates is not with Acme'; end if;
+  -- The workspace's own company can't be switched on; forced on, it lists nothing.
+  perform pg_temp.as_user(u_alice);
+  failed := false;
+  begin perform public.set_company_email_sharing(own, true); exception when others then failed := true; end;
+  if not failed then raise exception 'FAIL: the workspace''s own company refuses the switch'; end if;
+  perform public.set_company_email_consent(own, true);
+  perform pg_temp.as_service();
+  update public.company set share_email_with_team = true where id = own;
+  if cardinality(pg_temp.seen(own, u_bob)) <> 0 then raise exception 'FAIL: the own company lists nothing'; end if;
+
+  -- A guest reads no team mail: not on Acme (they see it through Pat), not on
+  -- Beta shared to them by a grant; they can't switch it or agree, and get no status.
+  insert into public.entity_access (workspace_id, entity_type, entity_id, grantee_kind, grantee_member_id, level, granted_by)
+  values (ws, 'company', beta, 'member', m_gus, 'view', m_alice);
+  if not public.company_visible_to(beta, u_gus) then raise exception 'SETUP: the grant shows Gus Beta'; end if;
+  if cardinality(pg_temp.seen(acme, u_gus)) <> 0 or cardinality(pg_temp.seen(beta, u_gus)) <> 0 then
+    raise exception 'FAIL: a guest reads no team mail';
+  end if;
+  if public.company_email_sharing_status(beta, u_gus) is not null then raise exception 'FAIL: no status for a guest'; end if;
+  perform pg_temp.as_user(u_gus);
+  failed := false;
+  begin perform public.set_company_email_sharing(acme, false); exception when others then failed := true; end;
+  if not failed then raise exception 'FAIL: a guest can''t switch it'; end if;
+  failed := false;
+  begin perform public.set_company_email_consent(acme, true); exception when others then failed := true; end;
+  if not failed then raise exception 'FAIL: a guest can''t agree'; end if;
+  perform pg_temp.as_service();
 
   -- Alice makes the thread shareable again; then stops sharing everything.
   perform pg_temp.as_user(u_alice);

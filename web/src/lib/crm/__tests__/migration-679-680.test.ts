@@ -96,13 +96,32 @@ describe('680', () => {
   it('lists a thread only through every rule', () => {
     expect(fence).toContain('if p_user_id is null then return; end if;')
     expect(fence).toContain('if auth.uid() is not null and p_user_id is distinct from auth.uid() then return; end if;')
-    expect(fence).toContain('if c.share_email_with_team is not true then return; end if;')
     expect(fence).toContain('public.company_visible_to(p_company_id, p_user_id, coalesce(p_grants, true))')
     expect(fence).toContain('where k.company_id = p_company_id and k.revoked_at is null')
     expect(fence).toContain('join public.member m on m.user_id = k.user_id and m.workspace_id = c.workspace_id')
     expect(fence).toContain('select 1 from public.email_thread_team_private x')
     expect(fence).toContain('public.contact_visible_to(ct.id, p_user_id, coalesce(p_grants, true))')
     expect(fence).toContain("coalesce(t.folder, 'inbox') not in ('spam', 'trash', 'drafts')")
+  })
+
+  it('never counts a teammate as "at the company", and never lists the workspace’s own company', () => {
+    // Members' sign-in addresses and contacts that are a member, on both sides of the match.
+    expect(fence).toContain('from public.member m join auth.users u on u.id = m.user_id')
+    expect(fence).toContain('where ct.workspace_id = c.workspace_id and ct.member_id is not null')
+    expect(fence).toContain('and ct.member_id is null')
+    expect(fence).toContain('and lower(e) <> all (v_team)')
+    expect(fence).toContain('where q.p <> all (v_team)')
+    expect(fence).toContain('if c.share_email_with_team is not true or c.is_workspace_company then return; end if;')
+    expect(m680).toContain("the workspace''s own company can''t share email with the team")
+  })
+
+  it('keeps guests out: no reading, no status, no switch, no consent', () => {
+    expect(fence).toContain("and m.user_id = p_user_id and m.role <> 'guest' limit 1;")
+    const status = m680.slice(m680.indexOf('function public.company_email_sharing_status'), m680.indexOf('function public.company_team_email_threads'))
+    expect(status).toContain("and m.user_id = p_user_id and m.role <> 'guest' limit 1;")
+    expect(m680.match(/where m\.id = v_member and m\.role = 'guest'/g)).toHaveLength(2)
+    // A guest's old consent never shares either.
+    expect(fence).toContain("join public.member m on m.user_id = k.user_id and m.workspace_id = c.workspace_id and m.role <> 'guest'")
   })
 
   it('lets a member agree, stop, or make a thread private only for themself', () => {

@@ -84,7 +84,8 @@ export function CompanyTeamEmail({ companyId }: { companyId: string }) {
     try {
       const res = await fetch(base, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       if (!res.ok) {
-        toast.error("Couldn't save that")
+        const json = (await res.json().catch(() => ({}))) as { error?: string }
+        toast.error(res.status === 400 && json.error ? json.error : "Couldn't save that")
         return false
       }
       if (done) toast(done)

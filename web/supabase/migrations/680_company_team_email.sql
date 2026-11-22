@@ -17,9 +17,15 @@
 --   4. The owner has not made the thread private
 --      (email_thread_team_private: one thread, every company).
 --   5. The reader can see the company (company_visible_to, with or without
---      grants as the caller asks) and is a member of its workspace.
---   6. The thread is with someone at the company: an address of one of its
---      people the READER can see, or an address at the company's domain.
+--      grants as the caller asks) and is a member of its workspace who is not
+--      a guest: members agreed to share with the TEAM, so a guest reaches no
+--      team mail, even with the company shared to them by a grant.
+--   6. The thread is with someone at the company who is NOT a teammate: an
+--      address of one of its people the READER can see, or an address at the
+--      company's domain. Workspace members' own addresses (their sign-in
+--      emails, and contacts that are a member) never count, on either side,
+--      so an internal thread never rides on a company; the workspace's own
+--      company (is_workspace_company) can't be switched on at all.
 --   7. Not a draft, not spam, not trash; the mailbox is still connected
 --      (account_id set).
 -- A signed-in caller asks only about themself (auth.uid() = p_user_id); the
@@ -147,6 +153,14 @@ begin
   if v_member is null or not public.company_visible_to(p_company_id, auth.uid()) then
     raise exception 'company not found' using errcode = 'P0002';
   end if;
+  -- A guest takes no part in the team's mail.
+  if exists (select 1 from public.member m where m.id = v_member and m.role = 'guest') then
+    raise exception 'company not found' using errcode = 'P0002';
+  end if;
+  -- The workspace's own company is the team itself: its mail is all internal.
+  if coalesce(p_on, false) and exists (select 1 from public.company co where co.id = p_company_id and co.is_workspace_company) then
+    raise exception 'the workspace''s own company can''t share email with the team' using errcode = '22023';
+  end if;
   update public.company
      set share_email_with_team = coalesce(p_on, false),
          share_email_changed_by_member_id = v_member,
@@ -173,6 +187,10 @@ begin
   if auth.uid() is null then raise exception 'sign in first' using errcode = '42501'; end if;
   select x.member_id, x.workspace_id into v_member, v_ws from public._company_email_member(p_company_id, auth.uid()) x;
   if v_member is null or not public.company_visible_to(p_company_id, auth.uid()) then
+    raise exception 'company not found' using errcode = 'P0002';
+  end if;
+  -- A guest's mail is never the team's (stopping always works, below).
+  if coalesce(p_on, false) and exists (select 1 from public.member m where m.id = v_member and m.role = 'guest') then
     raise exception 'company not found' using errcode = 'P0002';
   end if;
   if coalesce(p_on, false) then
@@ -264,7 +282,7 @@ begin
   select co.id, co.workspace_id, co.share_email_with_team, co.share_email_changed_by_member_id, co.share_email_changed_at
     into c from public.company co where co.id = p_company_id;
   if c.id is null then return null; end if;
-  select m.id into v_member from public.member m where m.workspace_id = c.workspace_id and m.user_id = p_user_id limit 1;
+  select m.id into v_member from public.member m where m.workspace_id = c.workspace_id and m.user_id = p_user_id and m.role <> 'guest' limit 1;
   if v_member is null or not public.company_visible_to(p_company_id, p_user_id, coalesce(p_grants, true)) then return null; end if;
   return jsonb_build_object(
     'enabled', c.share_email_with_team,
@@ -276,7 +294,7 @@ begin
     'sharers', coalesce((
       select jsonb_agg(jsonb_build_object('member_id', m.id, 'display_name', m.display_name, 'since', k.created_at) order by k.created_at)
         from public.company_email_consent k
-        join public.member m on m.user_id = k.user_id and m.workspace_id = c.workspace_id
+        join public.member m on m.user_id = k.user_id and m.workspace_id = c.workspace_id and m.role <> 'guest'
        where k.company_id = p_company_id and k.revoked_at is null), '[]'::jsonb)
   );
 end;
@@ -319,27 +337,45 @@ declare
   c record;
   v_member uuid;
   v_emails text[];
+  v_team text[];
   v_domain text;
 begin
   -- 5. A reader, asking about themself (the service role names them).
   if p_user_id is null then return; end if;
   if auth.uid() is not null and p_user_id is distinct from auth.uid() then return; end if;
-  select co.id, co.workspace_id, co.domain, co.share_email_with_team into c from public.company co where co.id = p_company_id;
+  select co.id, co.workspace_id, co.domain, co.share_email_with_team, co.is_workspace_company into c from public.company co where co.id = p_company_id;
   if c.id is null then return; end if;
-  -- 1. The switch.
-  if c.share_email_with_team is not true then return; end if;
-  select m.id into v_member from public.member m where m.workspace_id = c.workspace_id and m.user_id = p_user_id limit 1;
+  -- 1. The switch (never on the workspace's own company).
+  if c.share_email_with_team is not true or c.is_workspace_company then return; end if;
+  -- 5. Not a guest.
+  select m.id into v_member from public.member m where m.workspace_id = c.workspace_id and m.user_id = p_user_id and m.role <> 'guest' limit 1;
   if v_member is null then return; end if;
   if not public.company_visible_to(p_company_id, p_user_id, coalesce(p_grants, true)) then return; end if;
 
-  -- 6. Who is "at the company": the people at it the READER can see, and its domain.
+  -- 6. Teammates: every member's sign-in address, and every address of a
+  -- contact that is a member. These never make a thread "with the company".
+  select coalesce(array_agg(distinct a), '{}'::text[]) into v_team
+    from (
+      select lower(u.email) as a
+        from public.member m join auth.users u on u.id = m.user_id
+       where m.workspace_id = c.workspace_id and u.email is not null
+      union
+      select lower(e)
+        from public.contact ct
+        cross join lateral unnest(array[ct.email] || coalesce(ct.secondary_emails, '{}'::text[])) e
+       where ct.workspace_id = c.workspace_id and ct.member_id is not null and e is not null and btrim(e) <> ''
+    ) x;
+  -- Who is "at the company": the people at it the READER can see (not
+  -- teammates), and its domain.
   select coalesce(array_agg(distinct lower(e)), '{}'::text[]) into v_emails
     from public.contact ct
     cross join lateral unnest(array[ct.email] || coalesce(ct.secondary_emails, '{}'::text[])) e
    where ct.company_id = p_company_id
      and ct.workspace_id = c.workspace_id
      and ct.merged_into_contact_id is null
+     and ct.member_id is null
      and e is not null and btrim(e) <> ''
+     and lower(e) <> all (v_team)
      and public.contact_visible_to(ct.id, p_user_id, coalesce(p_grants, true));
   -- A personal-mail domain (gmail.com and the like, 232's list) names no company.
   v_domain := nullif(lower(btrim(c.domain)), '');
@@ -350,7 +386,7 @@ begin
     -- 2 and 3. Agreed for this company, and still a member of its workspace.
     select k.user_id, m.id as member_id
       from public.company_email_consent k
-      join public.member m on m.user_id = k.user_id and m.workspace_id = c.workspace_id
+      join public.member m on m.user_id = k.user_id and m.workspace_id = c.workspace_id and m.role <> 'guest'
      where k.company_id = p_company_id and k.revoked_at is null
   ),
   team as (
@@ -378,12 +414,14 @@ begin
      and not exists (
        select 1 from public.email_thread_team_private x
         where x.owner_user_id = t.user_id and x.workspace_id = t.workspace_id and x.provider_thread_id = t.provider_thread_id)
-     -- 6.
-     and (
-       (cardinality(v_emails) > 0 and t.participant_emails && v_emails)
-       or (v_domain is not null and exists (
-         select 1 from unnest(coalesce(t.participant_emails, '{}'::text[])) p
-          where lower(split_part(p, '@', 2)) = v_domain or right(lower(split_part(p, '@', 2)), char_length(v_domain) + 1) = '.' || v_domain))
+     -- 6. A participant who is not a teammate is at the company.
+     and exists (
+       select 1 from unnest(coalesce(t.participant_emails, '{}'::text[])) p0
+        cross join lateral (select lower(btrim(p0)) as p) q
+        where q.p <> all (v_team)
+          and (q.p = any (v_emails)
+               or (v_domain is not null and (split_part(q.p, '@', 2) = v_domain
+                   or right(split_part(q.p, '@', 2), char_length(v_domain) + 1) = '.' || v_domain)))
      )
    order by t.last_message_at desc nulls last
    limit greatest(1, least(coalesce(p_limit, 50), 100));

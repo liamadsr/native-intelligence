@@ -65,6 +65,8 @@ export async function POST(request: NextRequest, { params }: Params) {
   }
   if (res.error) {
     if (res.error.code === 'P0002') return notFound('Not found')
+    // The workspace's own company is the team itself (680 refuses it).
+    if (res.error.code === '22023') return badRequest("The workspace's own company can't share email with the team.")
     return serverError("Couldn't save that")
   }
   const status = await companySharingStatus(getServiceClient(), id, { userId: caller.userId, workspaceId: caller.workspaceId })
