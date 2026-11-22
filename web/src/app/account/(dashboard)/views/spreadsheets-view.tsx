@@ -17,6 +17,14 @@ import { useEntityListSync } from '@/hooks/use-entity-sync'
 import { relativeTime } from '@/lib/work/presentation'
 import { cn } from '@/lib/utils'
 import type { SpreadsheetSummary } from '@/lib/spreadsheets/types'
+import type { ListSharing } from '@/lib/entity-access/store'
+
+/** A list row's word on sharing (688): shared with you, or shared with how many (its maker's). */
+export function listSharingText(sharing: ListSharing | undefined): string | null {
+  if (!sharing) return null
+  if (sharing.shared_with_me) return 'Shared with you'
+  return sharing.shared_count > 0 ? `Shared · ${sharing.shared_count}` : null
+}
 import { openCreateDialog } from '@/lib/create/open-create'
 import { ViewHeader } from './view-header'
 
@@ -153,6 +161,9 @@ export function SpreadsheetsView({ onCount, card }: { onCount?: (count: number) 
                     <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{s.title}</span>
                     {s.sheet_names.length > 1 && <span className="shrink-0 text-xs text-muted-foreground">{s.sheet_names.length} sheets</span>}
                     {s.visibility === 'private' && <Lock className="h-3 w-3 shrink-0 text-muted-foreground" aria-label="Private" />}
+                    {listSharingText((s as SpreadsheetSummary & { sharing?: ListSharing }).sharing) && (
+                      <span data-spreadsheet-row-sharing="" className="shrink-0 text-xs text-muted-foreground">{listSharingText((s as SpreadsheetSummary & { sharing?: ListSharing }).sharing)}</span>
+                    )}
                     <span className="shrink-0 text-xs text-muted-foreground">{relativeTime(s.updated_at)}</span>
                   </button>
                 </EntityContextMenu>

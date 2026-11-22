@@ -7,7 +7,7 @@
  */
 import * as React from 'react'
 import { ArrowLeft, CopyPlus, Download, SlidersHorizontal, Link2, Loader2, Lock, MoreHorizontal, Paperclip, Pencil, Presentation, Share2, Trash2, Users } from 'lucide-react'
-import { RecordShareDialog } from '@/app/account/(dashboard)/components/record-share-dialog'
+import { RecordShareDialog, SharingChip, canShareFromMenu } from '@/app/account/(dashboard)/components/record-share-dialog'
 import type { RecordSharing } from '@/lib/entity-access/store'
 import { FLOATING_CARD_CLASS } from '@/components/attention/card-skin'
 import {
@@ -68,26 +68,6 @@ interface Loaded {
   sharing: RecordSharing | null
 }
 
-/** Whether the ⋯ menu offers Share: to whoever may share it, once the app shares this kind (GRANTING_HELD_TYPES). */
-export function canShareFromMenu(sharing: RecordSharing | null): boolean {
-  return !!sharing && sharing.can_share && !sharing.held
-}
-
-/**
- * The header's word on sharing: for its owner, how many it is shared with;
- * for someone it was shared with, that it was. Nothing otherwise.
- */
-export function SharingChip({ sharing, compact = false }: { sharing: RecordSharing | null; compact?: boolean }) {
-  if (!sharing) return null
-  const text = sharing.can_share && sharing.grant_count > 0 ? `Shared · ${sharing.grant_count}` : sharing.shared_with_me ? 'Shared with you' : null
-  if (!text) return null
-  const title = sharing.can_share ? 'Who it is shared with: Share… in the menu' : 'Someone shared this canvas with you'
-  return (
-    <span data-canvas-sharing="" title={title} className={cn('flex shrink-0 items-center gap-1 rounded-md text-[11px] text-muted-foreground', compact ? 'px-1' : 'px-1.5')}>
-      <Share2 className="h-3 w-3" /> {text}
-    </span>
-  )
-}
 
 /** The palette as CSS variables, light and dark, scoped to the editor. */
 const THEME_CSS = `[data-canvas-root]{${THEME_COLORS.map((c) => `--cv-${c.id}:${c.light}`).join(';')}}.dark [data-canvas-root]{${THEME_COLORS.map((c) => `--cv-${c.id}:${c.dark}`).join(';')}}`
@@ -305,7 +285,7 @@ function Header({
             />
           </span>
           {canvas.visibility === 'private' && <Lock className="size-3 shrink-0 text-muted-foreground" aria-label="Private" />}
-          <SharingChip sharing={sharing} compact />
+          <SharingChip sharing={sharing} noun="canvas" compact />
           </HeaderFence>
         </CardHeaderTrail>
         <CardHeaderSlot side="right">
@@ -336,7 +316,7 @@ function Header({
           <Lock className="h-3 w-3" /> Private
         </span>
       ) : null}
-      <SharingChip sharing={sharing} />
+      <SharingChip sharing={sharing} noun="canvas" />
       {peers}
       {note}
       {menu}

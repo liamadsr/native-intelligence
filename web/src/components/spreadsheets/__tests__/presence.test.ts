@@ -52,7 +52,7 @@ describe('who else is here', () => {
 // A fake Supabase client that records joins, auth calls, channels and sends.
 function client(opts: { auth?: () => Promise<unknown> } = {}) {
   const log: string[] = []
-  const channels: Array<{ topic: string; config: unknown; status: (s: string) => void; hear: (p: unknown) => void; sent: unknown[]; removed: boolean }> = []
+  const channels: Array<{ topic: string; config: unknown; status: (s: string) => void; hear: (p: unknown) => void; on: Record<string, (m: { payload?: unknown }) => void>; sent: unknown[]; removed: boolean }> = []
   const c: Client = {
     realtime: {
       setAuth: () => {
@@ -62,12 +62,13 @@ function client(opts: { auth?: () => Promise<unknown> } = {}) {
     },
     channel(topic, o) {
       log.push('join')
-      const entry = { topic, config: o.config, status: (_s: string) => {}, hear: (_p: unknown) => {}, sent: [] as unknown[], removed: false }
+      const on: Record<string, (m: { payload?: unknown }) => void> = {}
+      const entry = { topic, config: o.config, status: (_s: string) => {}, hear: (p: unknown) => on.peer?.({ payload: p }), on, sent: [] as unknown[], removed: false }
       channels.push(entry)
       const ch: Chan & { entry: typeof entry } = {
         entry,
-        on(_t, _f, cb) {
-          entry.hear = (p) => cb({ payload: p })
+        on(_t, f, cb) {
+          on[(f as { event: string }).event] = cb
           return ch
         },
         subscribe(cb) {
@@ -88,6 +89,21 @@ function client(opts: { auth?: () => Promise<unknown> } = {}) {
 const ID = '3f2b8c1e-5a4d-4e6f-9a7b-0c1d2e3f4a5b'
 
 describe('the presence room', () => {
+  it('passes on the server\'s word that the sharing changed (688), to whoever asked to hear it', async () => {
+    const { c, channels } = client()
+    const presence = new SpreadsheetPresence(c, ID, { key: 'k', userId: 'u', name: 'Ana', color: '#000' }, { sheetId: 1, range: { r1: 1, c1: 1, r2: 1, c2: 1 }, active: { row: 1, column: 1 } } as SheetSelection)
+    let asked = 0
+    presence.setOnAccessChanged(() => void asked++)
+    presence.start()
+    await vi.advanceTimersByTimeAsync(0)
+    channels[0].status('SUBSCRIBED')
+    channels[0].on.access_changed({ payload: {} })
+    expect(asked).toBe(1)
+    presence.stop()
+    channels[0].on.access_changed({ payload: {} })
+    expect(asked).toBe(1)
+  })
+
   const hooks = () => {
     const seen = { heard: [] as unknown[], open: 0, closed: 0 }
     return { seen, h: { hear: (p: unknown) => void seen.heard.push(p), open: () => void seen.open++, closed: () => void seen.closed++ } }

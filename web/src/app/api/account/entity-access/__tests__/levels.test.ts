@@ -120,6 +120,12 @@ describe('a canvas grant removed or lowered: its open editors ask again (688)', 
     read.mockResolvedValue({ type: 'document', id: DOC, granteeKind: 'member', granteeId: BEN, level: 'edit' })
     await DELETE(req({}), params(GRANT))
     expect(announce).toHaveBeenCalledTimes(2)
+    // A spreadsheet's room hears it too, on its own topic.
+    const any = vi.spyOn(notice, 'announceAccessChanged').mockResolvedValue(undefined)
+    read.mockResolvedValue({ type: 'spreadsheet', id: DOC, granteeKind: 'member', granteeId: BEN, level: 'view' })
+    await DELETE(req({}), params(GRANT))
+    expect(any).toHaveBeenCalledWith({ service: true }, `spreadsheet-presence:${DOC}`)
+    any.mockRestore()
     // Nothing is announced for a grant that was not removed.
     read.mockResolvedValue({ type: 'canvas', id: DOC, granteeKind: 'member', granteeId: BEN, level: 'edit' })
     vi.mocked(store.removeEntityGrant).mockResolvedValue(false)

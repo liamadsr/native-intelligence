@@ -48,6 +48,8 @@ function thread(extra: Record<string, unknown> = {}) {
 const calls: Array<{ url: string; method: string; body?: Record<string, unknown> }> = []
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 let threads: Array<Record<string, unknown>>
+/** The GET's can_edit (688): false for someone it was shared with to view. */
+let canEdit: boolean | undefined
 
 function stubFetch() {
   vi.stubGlobal(
@@ -63,7 +65,7 @@ function stubFetch() {
       if (url.includes('/comments/')) return json({ comment: {} })
       if (url.endsWith('/revision')) return json({ revision: 4 })
       if (method === 'PATCH') return json({ spreadsheet: { ...record(), revision: 5, workbook: undefined, extras: undefined } })
-      return json({ spreadsheet: record(), member_id: 'm-1' })
+      return json({ spreadsheet: record(), member_id: 'm-1', ...(canEdit === undefined ? {} : { can_edit: canEdit }) })
     }),
   )
 }
@@ -92,6 +94,7 @@ let container: HTMLDivElement
 let root: Root
 beforeEach(() => {
   calls.length = 0
+  canEdit = undefined
   threads = [thread()]
   stubFetch()
   container = document.createElement('div')
@@ -173,6 +176,18 @@ describe('comment markers and the thread card', () => {
     const patched = commentCalls().find((c) => c.method === 'PATCH')
     expect(patched?.url).toContain(`/comments/${TID}`)
     expect(patched?.body).toEqual({ resolved: true })
+  })
+  it('someone it was shared with to view reads the thread, and has no reply box or Resolve (688)', async () => {
+    canEdit = false
+    await open()
+    await act(async () => {
+      marker()!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }))
+    })
+    const card = container.querySelector('[data-comment-thread]') as HTMLElement
+    expect(card.textContent).toContain('Needs a number')
+    expect(card.querySelector('[aria-label="Reply"]')).toBeNull()
+    expect(card.querySelector('[aria-label="Resolve thread"]')).toBeNull()
+    expect(commentCalls().filter((c) => c.method !== 'GET')).toEqual([])
   })
 })
 

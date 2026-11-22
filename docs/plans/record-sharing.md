@@ -564,3 +564,32 @@ Not done: a read-only "Shared with…" list for people who may not share
 (`EntityAccessSection` shows nothing to them). It wasn't checked in a browser
 either: this checkout has no dev settings, and with canvases held there is
 nothing new on screen.
+
+## Phase 3b as built: the spreadsheet (held)
+
+Spreadsheets also stay held, so the Share button, the chips and
+`shared_with` don't show yet. **View-only does work now**: no new view
+grant can be made yet, but the editor already opens view-only for anyone
+whose `can_edit` is false.
+
+- **The read-only editor**: the editor already had one, for an archived
+  spreadsheet (`WorkbookController`'s `readOnly`, honoured by the grid, the
+  formula bar, the menus, find and replace, floating objects and saving). It now
+  also turns on when the GET's `can_edit` is false. The note says "View only"
+  ("Archived: view only" for an archived one). Nothing is typed, pasted,
+  imported or saved.
+- **Comments**: `useSpreadsheetComments` takes `canComment` (the GET's
+  `can_edit`). A view-only reader reads the threads; the composer, the reply
+  box and Resolve are not shown, and a write says why. That matches what 688
+  refuses in the database.
+- **Share**: a "Share with people" button beside Links, for the maker, once
+  spreadsheets are not held. It opens the same `RecordShareDialog`.
+  `canShareFromMenu` and `SharingChip` moved there from the canvas editor, so
+  both kinds use one chip. The GET returns `sharing`, and the list returns each
+  row's ("Shared with you", "Shared · N").
+- **The agent**: `read_spreadsheet` returns `shared_with` for the maker only.
+- **Revoke and presence (689)**: a spreadsheet grant removed, or lowered to
+  view, says `access_changed` in its presence room (`announceAccessChanged`,
+  `lib/spreadsheets/presence-topic.ts`). The editor asks its GET again, and
+  opens afresh only when its own answer changed (404, or a new `can_edit`), so
+  another person's grant never costs anyone unsaved typing.

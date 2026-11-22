@@ -109,7 +109,7 @@ describe('/api/account/spreadsheets/[id]', () => {
   it('says whether the person may change it: spreadsheet_editable_by, for them (688)', async () => {
     const mine = await readJson<{ can_edit: boolean }>(await read(get(`${base}/${S}`), ctx()))
     expect(mine.can_edit).toBe(true)
-    expect(rpc).toHaveBeenLastCalledWith('spreadsheet_editable_by', { p_spreadsheet_id: S, p_user_id: 'u-1' })
+    expect(rpc).toHaveBeenCalledWith('spreadsheet_editable_by', { p_spreadsheet_id: S, p_user_id: 'u-1' })
     // Shared with them to view: they read it, and the editor is read-only.
     editable = false
     const viewing = await readJson<{ spreadsheet: Row; can_edit: boolean }>(await read(get(`${base}/${S}`), ctx()))

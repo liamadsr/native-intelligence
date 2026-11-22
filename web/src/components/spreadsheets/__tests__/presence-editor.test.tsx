@@ -33,8 +33,9 @@ const sb = vi.hoisted(() => {
         channels.push(entry)
         const ch: FakeChan = {
           entry,
-          on(_t, _f, cb) {
-            entry.hear = (p) => cb({ payload: p })
+          on(_t, f, cb) {
+            // The peer channel is what `hear` stands in for; the server's word (688) has its own.
+            if ((f as { event?: string }).event === 'peer') entry.hear = (p) => cb({ payload: p })
             return ch
           },
           subscribe(cb) {

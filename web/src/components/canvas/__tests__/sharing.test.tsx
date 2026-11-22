@@ -13,7 +13,7 @@ import { act, createElement as h } from 'react'
 
 vi.mock('../surface', () => ({ CanvasSurface: () => null, isTyping: () => false }))
 
-import { SharingChip, canShareFromMenu } from '../canvas-editor'
+import { SharingChip, canShareFromMenu } from '@/app/account/(dashboard)/components/record-share-dialog'
 import type { RecordSharing } from '@/lib/entity-access/store'
 
 const sharing = (over: Partial<RecordSharing> = {}): RecordSharing => ({ can_share: true, held: false, grant_count: 0, shared_with_me: false, ...over })
@@ -30,8 +30,8 @@ afterEach(() => {
   container.remove()
 })
 const chip = (s: RecordSharing | null) => {
-  act(() => root.render(h(SharingChip, { sharing: s })))
-  return container.querySelector('[data-canvas-sharing]')?.textContent?.trim() ?? null
+  act(() => root.render(h(SharingChip, { sharing: s, noun: 'canvas' })))
+  return container.querySelector('[data-record-sharing]')?.textContent?.trim() ?? null
 }
 
 describe('a canvas’s sharing in its header', () => {
