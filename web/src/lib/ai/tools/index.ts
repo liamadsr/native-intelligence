@@ -62,6 +62,7 @@ import { createCompanyTools } from './companies'
 import { createDealTools } from './deals'
 import { createTableTools } from './tables'
 import { createSpreadsheetTools } from './spreadsheets'
+import { createCanvasTools } from './canvas'
 import { createCampaignTools } from './campaigns'
 import { createReviewTools } from './reviews'
 import { createChatHelperTools } from './chat-helpers'
@@ -464,6 +465,8 @@ export function createTools(
     // Spreadsheets (phase 3): the workspace's own workbooks of cells and formulas. Read, calculate, create
     // and edit through the same engine the editor runs; every edit saves against the revision read (CAS). See ./spreadsheets.ts.
     ...createSpreadsheetTools(userId, supabase, workspaceId, strict, createPolicy),
+    // Canvases (whiteboards): read one as data, add to it or rearrange it. See ./canvas.ts.
+    ...createCanvasTools(userId, supabase, workspaceId, strict, createPolicy),
     // Campaigns — Marketing's anchor entity. Read + create + update; no delete
     // (a campaign is something claims point at).
     // launch_campaign raises the person's card and sends on their yes (roadmap D2).

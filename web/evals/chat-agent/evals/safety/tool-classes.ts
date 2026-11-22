@@ -186,6 +186,7 @@ export const REGISTRY_READ_TOOL_NAMES: readonly string[] = [
   'quote_studio_sound_effect',
   'read_browser_page',
   'read_canon',
+  'read_canvas',
   'read_card',
   'read_chat_file',
   'read_contact_file',

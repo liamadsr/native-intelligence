@@ -7,18 +7,33 @@
  * nothing for them until the view nears the edge of what is mounted.
  */
 import * as React from 'react'
+import { createPortal } from 'react-dom'
 import type { CanvasItem } from '@/lib/canvas/types'
 import { gridLevels, wheelZoom } from '@/lib/canvas/engine/camera'
 import { aabb, boxesIntersect } from '@/lib/canvas/engine/geometry'
 import { painted } from '@/lib/canvas/engine/scene'
 import { cn } from '@/lib/utils'
 import type { Interaction, PointerInput } from './interaction'
+import { FarLayer, useFarMode } from './far-layer'
 import { ItemView } from './item-view'
 import { SelectionOverlay } from './selection-overlay'
 import { TextEditor } from './text-editor'
 import { useCanvas, useCanvasStore } from './use-canvas'
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
+
+/**
+ * Did this event physically land on the canvas itself? Not on its floating
+ * chrome (toolbar, inspector, header), and not in a menu or popover: those
+ * are drawn elsewhere in the page, but React hands their events up to the
+ * canvas component as if they were inside it.
+ */
+function onCanvas(e: { target: EventTarget | null; currentTarget: EventTarget | null }): boolean {
+  const target = e.target as HTMLElement | null
+  const root = e.currentTarget as HTMLElement | null
+  if (!target || !root || typeof target.closest !== 'function') return false
+  return root.contains(target) && !target.closest('[data-canvas-chrome]')
+}
 
 /** Is the event's target somewhere keys should be left alone (a field, an editor)? */
 export function isTyping(target: EventTarget | null): boolean {
@@ -32,6 +47,7 @@ function ItemsLayer({ onMeasure }: { onMeasure: (id: string, w: number, h: numbe
   const cull = useCanvas((s) => s.cull)
   const erasing = useCanvas((s) => s.overlay.erasing)
   const editing = useCanvas((s) => s.editing)
+  const far = useCanvas((s) => s.far)
   const list = React.useMemo(() => {
     const all = painted(scene)
     if (!cull) return all
@@ -52,6 +68,7 @@ function ItemsLayer({ onMeasure }: { onMeasure: (id: string, w: number, h: numbe
           endTarget={item.kind === 'connector' && item.end.bind ? scene.items[item.end.bind.id] : undefined}
           dim={dim.has(item.id)}
           editing={editing === item.id}
+          far={far}
           onMeasure={item.kind === 'text' ? onMeasure : undefined}
         />
       ))}
@@ -68,11 +85,29 @@ export function CanvasSurface({ interaction, className, children }: { interactio
   const editing = useCanvas((s) => s.editing)
   const scene = useCanvas((s) => s.scene)
   const editingItem = editing ? scene.items[editing] : undefined
+  const farMode = useFarMode()
+  /** Where the text editor's format bar is drawn: over the canvas, outside the zoomed layer. */
+  const [barHost, setBarHost] = React.useState<HTMLDivElement | null>(null)
 
   // The camera, applied straight to the DOM.
+  const lastScale = React.useRef(1)
+  const settle = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const paint = React.useCallback(() => {
     const cam = store.camera
-    if (worldRef.current) worldRef.current.style.transform = `translate(${cam.x}px, ${cam.y}px) scale(${cam.scale})`
+    const world = worldRef.current
+    if (world) {
+      // A pan at one zoom moves the layer as an image the browser already has;
+      // when it stops (or the zoom changes) the layer is drawn afresh, so it is never blurred.
+      if (cam.scale === lastScale.current) {
+        world.style.willChange = 'transform'
+        if (settle.current) clearTimeout(settle.current)
+        settle.current = setTimeout(() => {
+          if (worldRef.current) worldRef.current.style.willChange = ''
+        }, 180)
+      } else world.style.willChange = ''
+      lastScale.current = cam.scale
+      world.style.transform = `translate(${cam.x}px, ${cam.y}px) scale(${cam.scale})`
+    }
     const g = gridRef.current
     if (g) {
       if (!store.getState().prefs.grid) {
@@ -117,6 +152,19 @@ export function CanvasSurface({ interaction, className, children }: { interactio
       pointerType: e.pointerType ?? 'mouse',
     }
   }, [])
+
+  // Fingers on the glass: two of them pan and pinch in every tool; one belongs to the tool.
+  const touches = React.useRef(new Map<number, { x: number; y: number }>())
+  const pinch = React.useRef<{ mid: { x: number; y: number }; dist: number } | null>(null)
+  const twoFingers = (): { mid: { x: number; y: number }; dist: number } | null => {
+    const pts = [...touches.current.values()]
+    if (pts.length < 2) return null
+    const rect = rootRef.current!.getBoundingClientRect()
+    return {
+      mid: { x: (pts[0].x + pts[1].x) / 2 - rect.left, y: (pts[0].y + pts[1].y) / 2 - rect.top },
+      dist: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y),
+    }
+  }
 
   const setCursor = React.useCallback(
     (e: { x: number; y: number }) => {
@@ -186,16 +234,36 @@ export function CanvasSurface({ interaction, className, children }: { interactio
       tabIndex={0}
       className={cn('relative h-full w-full touch-none select-none overflow-hidden outline-none', className)}
       onPointerDown={(e) => {
-        if ((e.target as HTMLElement).closest('[data-canvas-chrome]')) return
+        if (!onCanvas(e)) return
         const el = e.currentTarget
         if (document.activeElement !== el && !isTyping(e.target)) el.focus({ preventScroll: true })
         if (e.button === 1) e.preventDefault()
+        if (e.pointerType === 'touch') {
+          touches.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+          if (touches.current.size >= 2) {
+            // A second finger: whatever the first one started is dropped, with nothing left behind.
+            interaction.cancel()
+            pinch.current = twoFingers()
+            return
+          }
+        }
         const inp = input(e)
         interaction.pointerDown(inp)
         if (interaction.active) el.setPointerCapture(e.pointerId)
         setCursor(inp)
       }}
       onPointerMove={(e) => {
+        if (e.pointerType === 'touch' && touches.current.has(e.pointerId)) {
+          touches.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+          const now = twoFingers()
+          if (now && pinch.current) {
+            const was = pinch.current
+            store.pan(now.mid.x - was.mid.x, now.mid.y - was.mid.y)
+            if (was.dist > 0 && now.dist > 0) store.zoomTo(store.camera.scale * (now.dist / was.dist), now.mid)
+            pinch.current = now
+            return
+          }
+        }
         const inp = input(e)
         if (interaction.active) {
           // A pen or a fast mouse reports more points than frames: take them all for ink.
@@ -203,21 +271,38 @@ export function CanvasSurface({ interaction, className, children }: { interactio
           const more = typeof native.getCoalescedEvents === 'function' ? native.getCoalescedEvents() : []
           if (more.length > 1 && store.getState().tool === 'pencil') for (const m of more) interaction.pointerMove(input({ ...inp, clientX: m.clientX, clientY: m.clientY, button: 0, shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey, ctrlKey: e.ctrlKey, pressure: m.pressure, pointerType: m.pointerType }))
           else interaction.pointerMove(inp)
-        } else if (!(e.target as HTMLElement).closest('[data-canvas-chrome]')) {
+        } else if (onCanvas(e)) {
           interaction.hover(inp)
           setCursor(inp)
         }
       }}
       onPointerUp={(e) => {
+        if (e.pointerType === 'touch') {
+          touches.current.delete(e.pointerId)
+          if (pinch.current) {
+            if (touches.current.size < 2) pinch.current = null
+            return
+          }
+        }
         if (!interaction.active) return
         const inp = input(e)
         interaction.pointerUp(inp)
         if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId)
         setCursor(inp)
       }}
-      onPointerCancel={() => interaction.cancel()}
+      onPointerCancel={(e) => {
+        touches.current.delete(e.pointerId)
+        if (touches.current.size < 2) pinch.current = null
+        interaction.cancel()
+      }}
+      onContextMenu={(e) => {
+        // A long press opens the menu too: it takes what is under the finger first, as a right-click does.
+        if (!onCanvas(e)) return
+        interaction.cancel()
+        interaction.contextAt(input({ ...e, button: 2, clientX: e.clientX, clientY: e.clientY, shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey, ctrlKey: e.ctrlKey }))
+      }}
       onDoubleClick={(e) => {
-        if ((e.target as HTMLElement).closest('[data-canvas-chrome]')) return
+        if (!onCanvas(e)) return
         interaction.doubleClick(input({ ...e, button: 0, clientX: e.clientX, clientY: e.clientY, shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey, ctrlKey: e.ctrlKey }))
       }}
       onAuxClick={(e) => {
@@ -226,16 +311,25 @@ export function CanvasSurface({ interaction, className, children }: { interactio
       }}
     >
       <div ref={gridRef} data-canvas-grid className="pointer-events-none absolute inset-0" />
+      {farMode ? <FarLayer /> : null}
       <div ref={worldRef} data-canvas-world className="absolute left-0 top-0 h-0 w-0" style={{ transformOrigin: '0 0' }}>
-        <ItemsLayer onMeasure={onMeasure} />
-        {editingItem ? <TextEditor key={editingItem.id} item={editingItem} scene={scene} onFinish={(plain) => {
-              interaction.finishEditing(plain)
+        {farMode ? null : <ItemsLayer onMeasure={onMeasure} />}
+        {editingItem ? (
+          <TextEditor
+            key={editingItem.id}
+            item={editingItem}
+            scene={scene}
+            renderBar={(bar) => (barHost ? createPortal(bar, barHost) : null)}
+            onFinish={(text) => {
+              interaction.finishEditing(text)
               // Back to the canvas, so the next key is a shortcut again.
               rootRef.current?.focus({ preventScroll: true })
             }}
-          /> : null}
+          />
+        ) : null}
       </div>
       <SelectionOverlay />
+      <div ref={setBarHost} data-canvas-chrome className="pointer-events-none absolute inset-x-0 top-16 z-20 flex justify-center px-3 [&>*]:pointer-events-auto" />
       {children}
     </div>
   )

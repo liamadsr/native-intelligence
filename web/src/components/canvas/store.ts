@@ -57,6 +57,9 @@ import {
 import { gridStep, type GridSnap, type Guide } from '@/lib/canvas/engine/snap'
 import type { BindAnchor } from '@/lib/canvas/types'
 
+/** Below this zoom, text is left out of the drawing. */
+export const FAR_SCALE = 0.2
+
 export type ToolId = 'select' | 'hand' | 'rectangle' | 'ellipse' | 'arrow' | 'line' | 'connector' | 'pencil' | 'eraser' | 'text'
 export const DRAWING_TOOLS: readonly ToolId[] = ['rectangle', 'ellipse', 'arrow', 'line', 'connector', 'text']
 
@@ -93,6 +96,8 @@ export interface CanvasState {
   readOnly: boolean
   /** The part of the canvas whose items are mounted (the view and a margin). */
   cull: Box | null
+  /** Zoomed out so far that words are specks: they are not drawn. */
+  far: boolean
 }
 
 /** A copied fragment: the items, and where they came from. */
@@ -114,6 +119,16 @@ export class CanvasStore {
   viewport = { w: 0, h: 0 }
   /** True once the person has moved the camera, so a late first fit does not yank it. */
   cameraTouched = false
+  /** Open the record a card shows (set by the editor). */
+  openRecord: ((ref: { type: string; id: string; label?: string }) => void) | null = null
+  /** Say something to the person (set by the editor). */
+  notify: ((message: string) => void) | null = null
+  /** Open the insert menu at a screen point (set by the editor). */
+  openInsert: ((at: Point) => void) | null = null
+  /** The editor's hands: how to say something, open a record, open the insert menu. Null takes one back. */
+  setHooks(hooks: Partial<Pick<CanvasStore, 'notify' | 'openRecord' | 'openInsert'>>): void {
+    Object.assign(this, hooks)
+  }
   private fragment: Fragment | null = null
   private pasteCount = 0
 
@@ -133,6 +148,7 @@ export class CanvasStore {
       overlay: NO_OVERLAY,
       readOnly: !!opts.readOnly,
       cull: null,
+      far: false,
     }
   }
 
@@ -179,12 +195,16 @@ export class CanvasStore {
     const { w, h } = this.viewport
     if (!w || !h) return
     const view = viewBox(this.camera, w, h)
+    // 16 px words under about 3 px tall are not worth drawing (and a board that far out is mostly words).
+    const far = this.camera.scale < FAR_SCALE
+    if (far !== this.state.far) this.set({ far })
     const cur = this.state.cull
     const ratio = this.camera.scale / this.cullScale
     if (!force && cur && boxContains(cur, view) && ratio > 0.5 && ratio < 2) return
     this.cullScale = this.camera.scale
-    // A view's worth of margin each way, so a pan mounts nothing until it has gone a long way.
-    this.set({ cull: expandBox(view, Math.max(view.w, view.h)) })
+    // Half a view of margin each way: a pan mounts nothing for a while, and what is mounted stays a few
+    // hundred items on the densest board (a whole view of margin was nine screens' worth).
+    this.set({ cull: expandBox(view, Math.max(view.w, view.h) * 0.5) })
   }
   pan(dx: number, dy: number): void {
     this.setCamera(panBy(this.camera, dx, dy))
@@ -250,6 +270,25 @@ export class CanvasStore {
     const step = diffScenes(this.state.base, base)
     this.set({ base, scene })
     if (step.length) for (const fn of [...this.changeListeners]) fn(step)
+  }
+  /**
+   * Take items off without an undo step (an upload that failed: undo must not
+   * bring back a picture that is nowhere). The removal is still saved.
+   */
+  forget(ids: readonly string[]): void {
+    const gone = ids.filter((id) => this.state.base.items[id])
+    if (!gone.length) return
+    const base = settleConnectors(patchScene(this.state.base, [], gone), new Set(gone))
+    const step = diffScenes(this.state.base, base)
+    const drop = new Set(gone)
+    const prune = (steps: Step[]) => steps.map((st) => st.filter((ch) => !drop.has(ch.id))).filter((st) => st.length)
+    this.set({
+      base,
+      scene: base,
+      history: { past: prune(this.state.history.past), future: prune(this.state.history.future) },
+      selection: this.state.selection.filter((id) => !drop.has(id)),
+    })
+    for (const fn of [...this.changeListeners]) fn(step)
   }
   /** Take in what someone else changed: no undo step here, nothing to save. */
   applyRemote(put: readonly CanvasItem[], remove: readonly string[]): void {
