@@ -7,6 +7,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
 import { TablesView } from '../tables-view'
+import { CardHeaderSlotsProvider, type CardHeaderBack } from '@/components/chat-cards/card-header-slot'
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 // jsdom lays nothing out: give the grid's scroller a size so its rows render.
@@ -121,4 +122,34 @@ it('makes a table by name and opens it', async () => {
   const post = calls.find((c) => c.init?.method === 'POST')!
   expect(JSON.parse(String(post.init?.body))).toEqual({ name: 'Hires' })
   expect(calls.some((c) => c.url === '/api/account/tables/new')).toBe(true)
+})
+
+it('in a card: New table, then the table’s breadcrumb and its actions are the card header’s, no title row in the page (Liam, 11-22)', async () => {
+  const right = document.createElement('div')
+  const trail = document.createElement('div')
+  document.body.append(right, trail)
+  let back: CardHeaderBack | null = null
+  const slots = { left: null, right, trail, setBack: (b: CardHeaderBack | null) => (back = b) }
+  await act(async () => root.render(<CardHeaderSlotsProvider value={slots}><TablesView /></CardHeaderSlotsProvider>))
+  await flush()
+  expect(right.querySelector('[data-new-table]')?.textContent).toBe('New table')
+  expect(container.querySelector('h1')).toBeNull()
+  expect(button('New table')).toBeUndefined()
+
+  await act(async () => button('Fernhill orders').click())
+  await flush()
+  // "Tables › Fernhill orders": the card's title is the way back, no back arrow in the page.
+  expect(trail.querySelector('[data-table-crumb]')?.textContent).toContain('Fernhill orders')
+  expect(back!.label).toBe('Back to tables')
+  expect(container.querySelector('[aria-label="All tables"]')).toBeNull()
+  const actions = [...right.querySelectorAll('[data-table-actions] button')].map((b) => b.getAttribute('aria-label'))
+  expect(actions).toEqual(['Import', 'Form', 'Copy link', 'Export', 'History'])
+  expect(container.querySelector('[role="grid"], [role="columnheader"]')).not.toBeNull()
+
+  await act(async () => back!.go())
+  await flush()
+  expect(right.querySelector('[data-new-table]')).not.toBeNull()
+  expect(trail.childElementCount).toBe(0)
+  right.remove()
+  trail.remove()
 })

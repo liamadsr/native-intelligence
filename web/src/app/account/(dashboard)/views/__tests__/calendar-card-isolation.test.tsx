@@ -61,6 +61,8 @@ const fetchMock = vi.fn(async (url: string) => {
 })
 
 const { CalendarView, CalendarCardView } = await import('../calendar-view')
+const { CardHeaderSlotsProvider } = await import('@/components/chat-cards/card-header-slot')
+const { CardCovered } = await import('@/components/chat-cards/card-covered')
 const { patchCalendarEventsCache } = await import('@/calendar/hooks/use-calendar-events')
 
 let container: HTMLDivElement
@@ -183,5 +185,68 @@ describe('a calendar card beside the Calendar page', () => {
     expect(labels.some((c) => c.includes('lucide-grid3x3') || c.includes('lucide-grid-3x3'))).toBe(false)
     const pageLabels = [...container.querySelectorAll('[data-page] button')].map((b) => b.querySelector('svg')?.getAttribute('class') ?? '')
     expect(pageLabels.some((c) => c.includes('grid-3x3') || c.includes('grid3x3'))).toBe(true)
+  })
+})
+
+/**
+ * In a card's header (Liam, 11-22: a page's controls are its card header's,
+ * the page starts with its content): the date, the arrows, New event and the
+ * views stand at the header's right, and the calendar draws no date row of
+ * its own; while a record is open over it, the header is the record's.
+ */
+describe('a calendar card in its card', () => {
+  let left: HTMLDivElement
+  let right: HTMLDivElement
+  beforeEach(() => {
+    left = document.createElement('div')
+    right = document.createElement('div')
+    document.body.append(left, right)
+  })
+  afterEach(() => {
+    left.remove()
+    right.remove()
+  })
+
+  async function mountInCard({ covered = false } = {}) {
+    const onStateChange = vi.fn()
+    await act(async () => {
+      root.render(
+        h(
+          CardHeaderSlotsProvider,
+          { value: { left, right, trail: null, setBack: vi.fn() } },
+          // As calendar-card-body.tsx draws it: covered while a record is open over it.
+          h(CardCovered, { covered }, h(CalendarCardView, { initial: { view: 'week', date: '2026-10-04', accounts: null }, compact: true, onStateChange })),
+        ),
+      )
+    })
+    await act(async () => {})
+    return onStateChange
+  }
+
+  it('puts its controls in the header and draws no date row in the page', async () => {
+    const onStateChange = await mountInCard()
+    const controls = right.querySelector<HTMLElement>('[data-calendar-header-controls]')!
+    expect(controls).not.toBeNull()
+    for (const label of ['Previous', 'Next', 'New event', 'Day', 'Week', 'Month']) {
+      expect(controls.querySelector(`button[aria-label="${label}"]`), label).not.toBeNull()
+    }
+    expect(controls.querySelector('button[aria-label="Week"]')!.getAttribute('aria-pressed')).toBe('true')
+    expect(controls.querySelector('[data-calendar-header-date]')!.textContent).toContain('October 2026')
+    // The page under it: none of those, and no title.
+    for (const label of ['Previous', 'Next', 'New event']) {
+      expect(container.querySelector(`button[aria-label="${label}"]`), label).toBeNull()
+    }
+    expect(container.textContent).not.toContain('Today')
+    // The header's Next moves the card.
+    await act(async () => controls.querySelector<HTMLButtonElement>('button[aria-label="Next"]')!.click())
+    expect(onStateChange).toHaveBeenLastCalledWith({ view: 'week', date: '2026-10-11', accounts: null })
+    await act(async () => controls.querySelector<HTMLButtonElement>('button[aria-label="Day"]')!.click())
+    expect(onStateChange).toHaveBeenLastCalledWith(expect.objectContaining({ view: 'day' }))
+  })
+
+  it('leaves the header to a record open over it', async () => {
+    await mountInCard({ covered: true })
+    expect(right.childElementCount).toBe(0)
+    expect(container.querySelector('button[aria-label="Next"]')).toBeNull()
   })
 })

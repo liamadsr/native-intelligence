@@ -1702,8 +1702,12 @@ export function ActionDetailPanel({
       {/* In the page's own column (the body's 736px, px-8, below): its tabs
           start on the title's line and its buttons end on the body's right
           edge (Liam, 11-20: "when you click into an action item that header
-          section needs to be cleaned up too"). */}
-      <div data-action-toolbar="" className="@container/actiontoolbar mx-auto flex h-10 w-full max-w-[736px] shrink-0 items-center px-8">
+          section needs to be cleaned up too"). Its pills start 22px left of
+          that line (10px in), where the header island's icon stands over the
+          title's (Liam, 11-21: "the pills should be more to the left";
+          view-toolbar.tsx alignToContent), and 48px tall, as every page's
+          first row. */}
+      <div data-action-toolbar="" className="@container/actiontoolbar mx-auto flex h-12 w-full max-w-[736px] shrink-0 items-center pl-2.5 pr-8">
         {/* View switcher — pill tabs matching the project detail panel. Offered
             whenever this action can carry a server-side run: an AI assignee
             (coding run), a workspace-kind run (Loops v3 work run — reachable even
@@ -2057,10 +2061,11 @@ export function ActionDetailPanel({
       ) : (
       // Properties float at page level; the reading column stays centered.
       <div ref={panelBodyRef} data-task-panel="" className="flex flex-1 min-h-0 justify-center">
-        {/* Centered reading column; properties do not consume window width. */}
-        <div className="w-full max-w-[736px] min-w-0 mx-auto">
-        <ScrollArea className="h-full">
-          <div className="px-8 pb-28 space-y-8">
+        {/* The whole card's width scrolls, with no bar drawn (Liam, 11-21: the bar
+            sat at the reading column's edge, mid-card); the column stays centred
+            in it, and properties do not consume window width. */}
+        <ScrollArea scrollbar={false} className="h-full w-full">
+          <div className="mx-auto w-full max-w-[736px] min-w-0 px-8 pb-28 space-y-8">
             {/* Title. The identifier used to print above it, but the breadcrumb
                 header now carries the ID, so repeating it here was redundant. */}
             {/* Auto-acceptance is reported in Activity ("Created by the live
@@ -2303,7 +2308,6 @@ export function ActionDetailPanel({
             </div>
           </div>
         </ScrollArea>
-        </div>
 
       </div>
       )}

@@ -20,7 +20,9 @@
  *   A form's  file a stranger sent: always downloaded (its signed URL asks
  *             storage for an attachment download), an image viewed in place.
  *   Filter    All, Images, Documents (the categories files are filed under),
- *             and a search on the name; more pages on request.
+ *             the page's own tab row, and a search on the name, in the card's
+ *             header with every page's search (Liam, 11-22: a page's controls
+ *             live in its card's header); more pages on request.
  *
  * Flat cost: one read per page shown, none of its own afterwards.
  */
@@ -29,6 +31,7 @@ import { createPortal } from 'react-dom'
 import { File as FileIcon, FileCode, FileImage, FileSpreadsheet, FileText, Paperclip, Search } from 'lucide-react'
 import { toast } from 'sonner'
 import { Input } from '@/components/ui/input'
+import { ExpandableSearch } from '@/components/views/expandable-search'
 import { Lightbox } from '@/components/capture/attachments-carousel'
 import type { AttachmentItem } from '@/app/account/(dashboard)/views/capture-utils'
 import { createClient } from '@/lib/supabase/client'
@@ -46,6 +49,7 @@ import {
   type WorkspaceFilesPage,
 } from '@/lib/attachments/workspace-files-model'
 import { CardCovered } from '../card-covered'
+import { CardHeaderSlot, useCardHeaderSlots } from '../card-header-slot'
 import { RecordOverlay, usePageRecords } from './record-overlay'
 import type { PageCardProps } from './page-card'
 
@@ -158,6 +162,8 @@ function useFiles(category: FileCategory | null, q: string) {
 export default function FilesCard(props: PageCardProps) {
   const { toolCallId, store, onCount } = props
   const records = usePageRecords(toolCallId, store)
+  // In a card the search is the header's (outside one, the row's, as before).
+  const inCard = useCardHeaderSlots() !== null
   const [category, setCategory] = React.useState<FileCategory | null>(null)
   const [typed, setTyped] = React.useState('')
   const [q, setQ] = React.useState('')
@@ -207,6 +213,16 @@ export default function FilesCard(props: PageCardProps) {
   return (
     <div className="relative h-full min-h-0">
       <CardCovered covered={!!records.current}>
+        {/* The name search, in the header as every page's search is (Liam,
+            11-22); a record open over the list has the header then
+            (CardCovered). The tabs stay the page's own row. */}
+        {inCard && (
+          <CardHeaderSlot side="right">
+            <div data-files-search-control="" className="flex items-center">
+              <ExpandableSearch value={typed} onChange={setTyped} label="Search files" placeholder="Search files" />
+            </div>
+          </CardHeaderSlot>
+        )}
         <div className="flex h-full min-h-0 flex-col">
           <div className="flex shrink-0 flex-wrap items-center gap-2 px-5 pb-2 pt-3">
             <div role="radiogroup" aria-label="File type" className="flex items-center gap-1">
@@ -227,18 +243,20 @@ export default function FilesCard(props: PageCardProps) {
                 </button>
               ))}
             </div>
-            <div className="relative ml-auto w-48 min-w-0">
-              <Search aria-hidden className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                type="search"
-                value={typed}
-                onChange={(e) => setTyped(e.target.value)}
-                placeholder="Search files"
-                aria-label="Search files"
-                data-files-search=""
-                className="h-7 pl-7 text-xs"
-              />
-            </div>
+            {!inCard && (
+              <div className="relative ml-auto w-48 min-w-0">
+                <Search aria-hidden className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  type="search"
+                  value={typed}
+                  onChange={(e) => setTyped(e.target.value)}
+                  placeholder="Search files"
+                  aria-label="Search files"
+                  data-files-search=""
+                  className="h-7 pl-7 text-xs"
+                />
+              </div>
+            )}
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6">
             {error ? (

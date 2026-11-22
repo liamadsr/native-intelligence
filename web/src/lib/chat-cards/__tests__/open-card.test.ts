@@ -54,7 +54,13 @@ describe('cardForTarget', () => {
       kind: 'prospecting',
       target: { type: 'prospect_list', id: 'p1' },
     })
-    expect(cardForTarget({ type: 'package', id: 'k1', title: 'Pricing' })?.spec).toMatchObject({ kind: 'knowledge', target: { type: 'package', id: 'k1' } })
+    // A package lives on the Library since Knowledge split in two (Liam, 11-21).
+    expect(cardForTarget({ type: 'package', id: 'k1', title: 'Pricing' })?.spec).toEqual({
+      kind: 'knowledge_library',
+      title: 'Pricing',
+      target: { type: 'package', id: 'k1', label: 'Pricing' },
+    })
+    expect(cardForTarget({ type: 'package', id: 'k1' })?.spec).toMatchObject({ kind: 'knowledge_library', title: 'Library' })
     expect(cardForTarget({ type: 'skill', id: 'sk1' })?.spec).toMatchObject({ kind: 'library', tab: 'skills', target: { type: 'skill', id: 'sk1' } })
     expect(cardForTarget({ type: 'team_board', id: 't1', title: 'Eng' })?.spec).toMatchObject({ kind: 'team_board', target: { type: 'team', id: 't1' } })
     for (const t of ['sequence', 'prospect_list', 'package', 'agent', 'skill', 'team', 'team_board', 'eval_suite'] as const) {

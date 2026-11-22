@@ -111,6 +111,7 @@ import { toast } from 'sonner'
 import { EVAL_SUITE_TABS, type EvalSuiteTab } from '@/app/account/(dashboard)/evals/suite-tabs'
 import { usePanelSection } from '../views/use-panel-section'
 import { ViewHeader } from '../views/view-header'
+import { useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
 import {
   cancelRun,
   deleteSuite,
@@ -258,6 +259,8 @@ export function EvalSuiteDetail({
   const [confirmMode, setConfirmMode] = useState<EvalMode | null>(null)
   const [speed, setSpeed] = useState<EvalSpeed>('instant')
   const [canceling, setCanceling] = useState(false)
+  // In a card the suite is a place in its header, "Evals › Suite" (Liam, 11-22).
+  const inCard = useCardHeaderSlots() !== null
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
@@ -621,15 +624,18 @@ export function EvalSuiteDetail({
       <div className="flex h-full flex-col">
         <ViewHeader
           title="Eval suite"
+          place={{ label: <span className="min-w-0 truncate font-medium">Eval suite</span>, onBack, backLabel: 'Back to evals' }}
           actions={
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 text-xs"
-              onClick={onBack}
-            >
-              Back to evals
-            </Button>
+            inCard ? undefined : (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={onBack}
+              >
+                Back to evals
+              </Button>
+            )
           }
         />
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6">
