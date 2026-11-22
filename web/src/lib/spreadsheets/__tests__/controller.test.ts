@@ -967,3 +967,40 @@ describe('images', () => {
     expect(wb.images()).toHaveLength(1)
   })
 })
+
+describe('pending actions carry what each action is (for a log-aware rebase)', () => {
+  const last = (wb: WorkbookController) => wb.pendingActions().at(-1)!.action
+
+  it('types a cell as a cells action, at its sheet’s stable id, with the input as handed to the engine', () => {
+    const wb = open()
+    wb.setCell(2, 3, '=1+1')
+    expect(last(wb)).toEqual({ kind: 'cells', sheetId: wb.sheetIdAt(0), cells: [{ row: 2, column: 3, input: '=1+1' }] })
+  })
+
+  it('clears cells as a cells action over the selection', () => {
+    const wb = open([[1, 1, 'a'], [1, 2, 'b']])
+    wb.selectRange({ r1: 1, c1: 1, r2: 1, c2: 2 }, { row: 1, column: 1 })
+    wb.clearSelection()
+    expect(last(wb)).toEqual({ kind: 'cells', sheetId: wb.sheetIdAt(0), cells: [{ row: 1, column: 1, input: '' }, { row: 1, column: 2, input: '' }] })
+  })
+
+  it('records a style as opaque, on its sheet', () => {
+    const wb = open()
+    wb.setStyle('font.b', 'true')
+    expect(last(wb)).toEqual({ kind: 'opaque', sheetId: wb.sheetIdAt(0) })
+  })
+
+  it('records a row insert as a structure action', () => {
+    const wb = open()
+    const sheetId = wb.sheetIdAt(0)
+    wb.insertRows(1, 1)
+    expect(last(wb)).toEqual({ kind: 'structure', change: { type: 'insertRows', sheetId, at: 1, count: 1 } })
+  })
+
+  it('records an undo as opaque', () => {
+    const wb = open()
+    wb.setCell(1, 1, 'x')
+    wb.undo()
+    expect(last(wb)).toEqual({ kind: 'opaque' })
+  })
+})
