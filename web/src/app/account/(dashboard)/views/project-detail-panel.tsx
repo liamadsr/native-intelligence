@@ -83,6 +83,7 @@ import {
   InitiativePanelField,
   DatePanelField,
   EnumPanelField,
+  PriorityPanelField,
   type MemberOption,
   type InitiativeOption as PickerInitiativeOption,
 } from '@/components/views/properties'
@@ -121,6 +122,8 @@ interface ProjectDetail {
   icon: string | null
   color: string | null
   status: string
+  /** Migration 691: one of the actions' five values, or null. */
+  priority?: string | null
   is_pinned: boolean
   is_archived: boolean
   start_date: string | null
@@ -956,6 +959,14 @@ export function ProjectDetailPanel({
                             placeholder="Set status"
                           />
                         </div>
+                        </PropertyRow>
+
+                        {/* Priority (migration 691): the actions' field and values. */}
+                        <PropertyRow>
+                        <PriorityPanelField
+                          value={project.priority ?? 'none'}
+                          onChange={(v) => patchProject({ priority: v === 'none' ? null : v })}
+                        />
                         </PropertyRow>
 
                         {/* Lead */}
