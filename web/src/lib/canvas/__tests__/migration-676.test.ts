@@ -128,4 +128,34 @@ describe('migration 676: canvas record and graph, additive only', () => {
     // Out of scope here, on purpose: the activity log, custom fields, citations.
     expect([d.activity, d.customFields, d.citable, d.sourceable]).toEqual([false, false, false, false])
   })
+
+  it('guards what a client update may change, since the update policy reads the row as it was', () => {
+    const i = code.indexOf('create or replace function public.canvas_guard_update()')
+    expect(i).toBeGreaterThan(-1)
+    const fn = code.slice(i, code.indexOf('$$;', i))
+    // Not SECURITY DEFINER: current_user has to be the caller's own role.
+    expect(fn).not.toMatch(/security definer/i)
+    // Server paths pass; every refusal below is for a client.
+    expect(fn).toContain("if current_user not in ('authenticated', 'anon') then\n    return new;")
+    // Each refusal, with the permission errcode.
+    const refusals = [
+      ['new.id is distinct from old.id or new.workspace_id is distinct from old.workspace_id', 'a canvas stays in its workspace'],
+      ['new.created_by_user_id is distinct from old.created_by_user_id', 'who made a canvas does not change'],
+      ['new.visibility is distinct from old.visibility and not v_is_owner', 'only its owner can change who can see a canvas'],
+      ["not v_is_owner and coalesce(public.get_member_role(old.workspace_id)::text, '') not in ('owner', 'admin')", 'only its owner or a workspace admin can hand a canvas to someone else'],
+      ['m.id = new.owner_member_id and m.workspace_id = old.workspace_id', "a canvas''s owner is a member of its workspace"],
+      ["new.visibility = 'private' and new.owner_member_id is null", 'a private canvas needs its owner'],
+    ]
+    for (const [condition, message] of refusals) {
+      expect(fn, condition).toContain(condition)
+      expect(fn, message).toContain(`raise exception '${message}' using errcode = '42501';`)
+    }
+    expect((fn.match(/errcode = '42501'/g) ?? []).length).toBe(refusals.length)
+    // The owner is the caller's own member in the canvas's workspace, read from the old row.
+    expect(fn).toContain('v_member := public.current_member_id(old.workspace_id);')
+    expect(fn).toContain('v_is_owner := old.owner_member_id is not null and v_member is not null and old.owner_member_id = v_member;')
+    // Wired before every update of a canvas, re-runnably.
+    expect(code).toContain('drop trigger if exists canvas_guard_update on public.canvas;')
+    expect(code).toMatch(/create trigger canvas_guard_update\n  before update on public\.canvas\n  for each row execute function public\.canvas_guard_update\(\);/)
+  })
 })

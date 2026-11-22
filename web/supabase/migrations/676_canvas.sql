@@ -212,9 +212,10 @@ alter table public.canvas_item enable row level security;
 
 -- canvas: read what my_canvas_ids() allows; write only as an editor; create a
 -- canvas you own in a workspace you are a non-guest member of; delete only as
--- the owner or a workspace owner/admin. Changing visibility is the owner's
--- call, enforced in the API (updateCanvas): a simple policy can't compare the
--- row's new visibility against the old one for the owner alone.
+-- the owner or a workspace owner/admin. The update policy cannot judge the
+-- new values (its check reads the row as it was), so what an update may
+-- change is the guard trigger's below; the API (updateCanvas) says the same
+-- first, in words.
 drop policy if exists canvas_select on public.canvas;
 create policy canvas_select on public.canvas
   for select to authenticated
@@ -250,6 +251,77 @@ create policy canvas_delete on public.canvas
          and (m.id = canvas.owner_member_id or m.role in ('owner', 'admin'))
     )
   );
+
+-- What a member's own update may change (the managing session's review,
+-- 2026-11-22). canvas_update's WITH CHECK asks canvas_editable_by(id, ...),
+-- which reads the row as it was, so it never judges the new values: without
+-- this an editor could PATCH the row directly, make themselves the owner and
+-- the canvas private, and it would vanish for everyone else. As documents do
+-- (359 document_guard_update, 369 document_visibility_guard), a BEFORE UPDATE
+-- guard on updates from a client:
+--   * id, workspace_id and created_by_user_id never change;
+--   * who sees it (visibility) changes only by its owner;
+--   * its owner changes only by its owner or a workspace owner/admin, and
+--     only to a member of the same workspace;
+--   * a private canvas keeps an owner.
+-- The service role, postgres and the foreign keys' own SET NULL are server
+-- paths (current_user is not a client role) and pass.
+create or replace function public.canvas_guard_update()
+returns trigger
+language plpgsql
+set search_path = public, pg_temp
+as $$
+declare
+  v_member uuid;
+  v_is_owner boolean;
+begin
+  if current_user not in ('authenticated', 'anon') then
+    return new;
+  end if;
+
+  if new.id is distinct from old.id or new.workspace_id is distinct from old.workspace_id then
+    raise exception 'a canvas stays in its workspace' using errcode = '42501';
+  end if;
+  if new.created_by_user_id is distinct from old.created_by_user_id then
+    raise exception 'who made a canvas does not change' using errcode = '42501';
+  end if;
+
+  v_member := public.current_member_id(old.workspace_id);
+  v_is_owner := old.owner_member_id is not null and v_member is not null and old.owner_member_id = v_member;
+
+  if new.visibility is distinct from old.visibility and not v_is_owner then
+    raise exception 'only its owner can change who can see a canvas' using errcode = '42501';
+  end if;
+
+  if new.owner_member_id is distinct from old.owner_member_id then
+    if not v_is_owner and coalesce(public.get_member_role(old.workspace_id)::text, '') not in ('owner', 'admin') then
+      raise exception 'only its owner or a workspace admin can hand a canvas to someone else' using errcode = '42501';
+    end if;
+    if new.owner_member_id is not null and not exists (
+      select 1 from public.member m where m.id = new.owner_member_id and m.workspace_id = old.workspace_id
+    ) then
+      raise exception 'a canvas''s owner is a member of its workspace' using errcode = '42501';
+    end if;
+  end if;
+
+  -- Private with nobody to own it would be a canvas no one can open. One that
+  -- already is (its owner's member row was removed) may stay as it is.
+  if new.visibility = 'private' and new.owner_member_id is null
+     and not (old.visibility = 'private' and old.owner_member_id is null) then
+    raise exception 'a private canvas needs its owner' using errcode = '42501';
+  end if;
+
+  return new;
+end;
+$$;
+
+comment on function public.canvas_guard_update() is
+  'What a client update may change on a canvas (676): never its workspace or creator; its visibility only by its owner; its owner only by its owner or a workspace admin; a private canvas keeps an owner.';
+
+drop trigger if exists canvas_guard_update on public.canvas;
+create trigger canvas_guard_update
+  before update on public.canvas
+  for each row execute function public.canvas_guard_update();
 
 -- canvas_item: read with the canvas; write only as an editor of the canvas,
 -- and the row's workspace must be the canvas's own.
