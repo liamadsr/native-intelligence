@@ -41,7 +41,7 @@ describe('migration 675: spreadsheets', () => {
     const tables = [...sql.matchAll(/create table if not exists public\.(\w+)/gi)].map((m) => m[1])
     expect(tables).toEqual(['spreadsheet', 'spreadsheet_revision', 'spreadsheet_comment'])
     const functions = [...sql.matchAll(/create or replace function public\.(\w+)/gi)].map((m) => m[1])
-    expect(functions).toEqual(['spreadsheet_before_write', 'spreadsheet_track_change', 'spreadsheet_entity_visible_to'])
+    expect(functions).toEqual(['spreadsheet_before_write', 'spreadsheet_track_change', 'spreadsheet_comment_guard', 'spreadsheet_entity_visible_to'])
     // No earlier migration defines these names, so "create or replace" replaces nothing.
     const earlier = migrationsInOrder().filter((m) => m.file !== FILE)
     for (const fn of functions) {
@@ -83,6 +83,40 @@ describe('migration 675: spreadsheets', () => {
     expect(body).toContain('new.workbook is distinct from old.workbook or new.extras is distinct from old.extras or new.title is distinct from old.title')
     expect(body).toContain('new.revision := old.revision + 1;')
     expect(body).toContain('new.workspace_id := old.workspace_id;')
+  })
+
+  it('a member cannot take a spreadsheet over: for a client, who made it never changes and only its maker changes who sees it', () => {
+    const start = sql.indexOf('function public.spreadsheet_before_write')
+    const header = sql.slice(start, sql.indexOf('$', start))
+    // current_user must be the caller's role, so the guard is not a definer.
+    expect(header).not.toMatch(/security definer/i)
+    const body = sql.slice(start, sql.indexOf('$;', start)).replace(/\s+/g, ' ')
+    const guard = body.slice(body.indexOf("if current_user in ('authenticated', 'anon') then"))
+    expect(guard.length).toBeGreaterThan(100)
+    expect(guard).toMatch(/if new\.created_by is distinct from old\.created_by then raise exception '[^']+' using errcode = '42501';/)
+    expect(guard).toMatch(/if new\.visibility is distinct from old\.visibility and old\.created_by is distinct from public\.current_member_id\(old\.workspace_id\) then raise exception '[^']+' using errcode = '42501';/)
+    expect(guard).toContain('new.last_edited_by := public.current_member_id(old.workspace_id);')
+    // It runs on every update of the table.
+    expect(sql).toMatch(/create trigger spreadsheet_before_write\s+before insert or update on public\.spreadsheet\s+for each row/)
+  })
+
+  it('a reader cannot rewrite another person’s comment: its place and author never change, its words are its author’s, a resolve is signed as oneself', () => {
+    const start = sql.indexOf('function public.spreadsheet_comment_guard')
+    expect(start).toBeGreaterThan(0)
+    const header = sql.slice(start, sql.indexOf('$', start))
+    expect(header).not.toMatch(/security definer/i)
+    const body = sql.slice(start, sql.indexOf('$;', start)).replace(/\s+/g, ' ')
+    expect(body).toContain("if current_user not in ('authenticated', 'anon') then return new; end if;")
+    for (const column of ['spreadsheet_id', 'workspace_id', 'author_id', 'parent_id', 'created_at']) {
+      expect(body, column).toContain(`new.${column} is distinct from old.${column}`)
+    }
+    expect(body).toContain('v_me := public.current_member_id(old.workspace_id);')
+    expect(body).toMatch(/\(new\.body is distinct from old\.body or new\.mentions is distinct from old\.mentions\) and old\.author_id is distinct from v_me then raise exception '[^']+' using errcode = '42501';/)
+    expect(body).toMatch(/new\.resolved_by is distinct from old\.resolved_by and new\.resolved_by is not null and new\.resolved_by is distinct from v_me then raise exception '[^']+' using errcode = '42501';/)
+    expect(body.match(/errcode = '42501'/g)).toHaveLength(3)
+    // Resolving and moving the anchor are not among the refusals.
+    expect(body).not.toMatch(/new\.(anchor|sheet_id|resolved_at) is distinct/)
+    expect(sql).toMatch(/drop trigger if exists spreadsheet_comment_guard on public\.spreadsheet_comment;\s+create trigger spreadsheet_comment_guard\s+before update on public\.spreadsheet_comment\s+for each row execute function public\.spreadsheet_comment_guard\(\)/)
   })
 
   it('the history is written by the trigger alone, and read by whoever reads the spreadsheet', () => {

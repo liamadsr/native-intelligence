@@ -15,6 +15,9 @@
 --                          options). revision is a compare-and-swap counter, as
 --                          document.revision is (364): a writer sends the
 --                          revision it read, and the trigger moves it on.
+--                          The same trigger holds a client's own token to
+--                          documents' rules (359, 369): who made it never
+--                          changes, and only its maker changes who sees it.
 --                          sheet_names and digest (the cells' text, cut short)
 --                          are written by the app at each save, for lists and
 --                          search; fts is generated from title and digest.
@@ -30,6 +33,8 @@
 --                          kinds in an enum and in policies that 674's test
 --                          forbids adding to, and a thread here is anchored to
 --                          a sheet and a cell, which a comment row cannot say.
+--                          Every reader resolves a thread and moves its
+--                          anchor; a guard keeps its words to its author.
 --   spreadsheet_entity_visible_to + four RESTRICTIVE entity_link policies:
 --                          a link with a spreadsheet at either end follows the
 --                          spreadsheet's own read rule (673's pattern for teams
@@ -114,6 +119,18 @@ create index if not exists spreadsheet_revision_sheet_idx
 -- title changed, and stamp updated_at. A writer never sets revision itself:
 -- it filters on the one it read (where revision = N), and a second writer
 -- with the same N then matches no row.
+--
+-- It is also the guard for a client's own token (documents' 359
+-- document_guard_update and 369 document_visibility_guard, for this table):
+-- the update policy alone would let any member who reads a workspace
+-- spreadsheet write created_by = themself and visibility = 'private' in one
+-- statement, and take it from everyone, its maker included. So for a client:
+--   - who made it never changes;
+--   - only its maker changes who sees it;
+--   - last_edited_by is the caller, whatever was sent.
+-- The service role (the agents' tools, which check the person first) and a
+-- database owner are not held to these. Not a definer: current_user must be
+-- the caller's role.
 create or replace function public.spreadsheet_before_write()
 returns trigger
 language plpgsql
@@ -129,6 +146,16 @@ begin
     end if;
     new.workspace_id := old.workspace_id;
     new.created_at := old.created_at;
+    if current_user in ('authenticated', 'anon') then
+      if new.created_by is distinct from old.created_by then
+        raise exception 'Who made a spreadsheet cannot be changed.' using errcode = '42501';
+      end if;
+      if new.visibility is distinct from old.visibility
+         and old.created_by is distinct from public.current_member_id(old.workspace_id) then
+        raise exception 'Only the person who made a spreadsheet changes who sees it.' using errcode = '42501';
+      end if;
+      new.last_edited_by := public.current_member_id(old.workspace_id);
+    end if;
   end if;
   new.updated_at := now();
   return new;
@@ -223,6 +250,52 @@ create index if not exists spreadsheet_comment_sheet_idx
 create index if not exists spreadsheet_comment_parent_idx
   on public.spreadsheet_comment (parent_id) where parent_id is not null;
 
+-- What a client may change in a comment. The update policy lets every
+-- reader of the spreadsheet update a comment's row, because every reader
+-- resolves a thread and moves its anchor when cells move; without this a
+-- reader could also rewrite another person's words or sign them as someone
+-- else. So for a client:
+--   - the spreadsheet, the workspace, the author, the thread and the time
+--     it was written never change;
+--   - the words and the mentions are the author's alone to change;
+--   - whoever resolves a thread is recorded as themself.
+create or replace function public.spreadsheet_comment_guard()
+returns trigger
+language plpgsql
+set search_path = public, pg_temp
+as $
+declare
+  v_me uuid;
+begin
+  if current_user not in ('authenticated', 'anon') then
+    return new;
+  end if;
+  if new.spreadsheet_id is distinct from old.spreadsheet_id
+     or new.workspace_id is distinct from old.workspace_id
+     or new.author_id is distinct from old.author_id
+     or new.parent_id is distinct from old.parent_id
+     or new.created_at is distinct from old.created_at then
+    raise exception 'A comment keeps its spreadsheet, its author, its thread and its time.' using errcode = '42501';
+  end if;
+  v_me := public.current_member_id(old.workspace_id);
+  if (new.body is distinct from old.body or new.mentions is distinct from old.mentions)
+     and old.author_id is distinct from v_me then
+    raise exception 'Only its author changes a comment.' using errcode = '42501';
+  end if;
+  if new.resolved_by is distinct from old.resolved_by
+     and new.resolved_by is not null
+     and new.resolved_by is distinct from v_me then
+    raise exception 'A thread is resolved as oneself.' using errcode = '42501';
+  end if;
+  return new;
+end;
+$;
+
+drop trigger if exists spreadsheet_comment_guard on public.spreadsheet_comment;
+create trigger spreadsheet_comment_guard
+  before update on public.spreadsheet_comment
+  for each row execute function public.spreadsheet_comment_guard();
+
 drop trigger if exists spreadsheet_comment_updated_at on public.spreadsheet_comment;
 create trigger spreadsheet_comment_updated_at
   before update on public.spreadsheet_comment
@@ -255,7 +328,10 @@ create policy spreadsheet_insert on public.spreadsheet
   );
 
 -- Whoever reads it edits it. The row must still be one they could read
--- afterwards, so nobody makes another person's spreadsheet private.
+-- afterwards. That alone does not stop a member taking a spreadsheet over
+-- (created_by is theirs to write as far as a policy can tell): the trigger
+-- spreadsheet_before_write refuses that, and a change of who sees it by
+-- anyone but its maker.
 drop policy if exists spreadsheet_update on public.spreadsheet;
 create policy spreadsheet_update on public.spreadsheet
   for update to authenticated
@@ -305,7 +381,8 @@ create policy spreadsheet_comment_insert on public.spreadsheet_comment
   );
 
 -- Anyone who reads the spreadsheet resolves a thread and moves its anchor;
--- the app's routes keep a comment's words to its author.
+-- the trigger spreadsheet_comment_guard keeps a comment's words, its author
+-- and its place to what they were for everyone else.
 drop policy if exists spreadsheet_comment_update on public.spreadsheet_comment;
 create policy spreadsheet_comment_update on public.spreadsheet_comment
   for update to authenticated
