@@ -22,7 +22,7 @@ code or assets come from Macro's repository (AGPL), and no dependency was added.
   description.
   - Action: team, status, priority, assignees, project, labels, cycle, plus due date,
     estimate and milestone.
-  - Project: status, lead, initiative, start and target dates.
+  - Project: status, priority, lead, initiative, start and target dates.
   - Contact: email, phone, title, company, relationship, LinkedIn.
   - Quick types keep their one extra field: a company's domain, a channel's topic.
   - A table's starters are a choice inside the composer.
@@ -120,11 +120,18 @@ No route itself changed.
    and no route. "Create in …" therefore means a project (docs and actions land in it), an
    initiative, a team, a company, a contact or a deal. Adding folders would need a migration
    (685) and was out of scope for a UI unification.
-6. **A project's Priority chip was left out.** Macro's project form has one. The project
-   PATCH route writes `priority`, but no migration in this repository adds that column to
-   `projects`, and I could not check the database. If the column does exist, adding the chip
-   is a few lines: the POST route needs one line, and the pill is the action's. Macro's
-   "Assignees" maps to the project's Lead, which is the one person field the route takes.
+6. **A project's Priority (11-22, migration 691).** The composer has Macro's Priority chip
+   for a project: the actions' pill and the actions' five values (none, low, medium, high,
+   urgent; `lib/projects/priority.ts`). The project card shows it and sets it, under Status.
+   - The update route already wrote `projects.priority`, and DEV had the column, but no
+     migration made it. 691 adds it where it is missing (text, nullable: null is none set),
+     puts right any stored value the check would refuse (a value in another case or with
+     spaces becomes that value; anything else becomes null), and adds
+     `projects_priority_check` with the five values or null.
+   - Both routes now take only one of the five values, or null to clear it, and answer 400
+     to anything else. Nothing else about a project changed: no policy, trigger or function.
+   - Macro's "Assignees" maps to the project's Lead, which is the one person field the
+     route takes.
 7. **A doc made on a company or deal page is not linked to it.** No route links a doc to
    a company. Actions (`about`) and contacts (`company_id`) are linked.
 8. **Kept outside the composer, on purpose:**
