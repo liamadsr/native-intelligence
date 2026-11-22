@@ -141,9 +141,11 @@ describe('registry self-consistency', () => {
     // Mentions everywhere made teams, sequences, prospect lists and knowledge
     // packages graph endpoints last (registry order: last in the tuple).
     const newest = ['team', 'sequence', 'prospect_list', 'knowledge_package']
+    // Canvas (migration 676) was added after the Studio, before the mentions-everywhere kinds.
+    const canvas = ['canvas']
     // Spreadsheets (675) came last of all.
     const last = ['spreadsheet']
-    expect(LINKABLE_ENTITY_TYPES.slice(-(added.length + later.length + newest.length + last.length))).toEqual([...added, ...later, ...newest, ...last])
+    expect(LINKABLE_ENTITY_TYPES.slice(-(added.length + later.length + canvas.length + newest.length + last.length))).toEqual([...added, ...later, ...canvas, ...newest, ...last])
     // None is citable: the claim_source CHECK (264) does not list them.
     for (const id of added) expect(entityDescriptor(id)!.citable, id).toBe(false)
   })

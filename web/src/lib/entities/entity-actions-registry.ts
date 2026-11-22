@@ -37,7 +37,7 @@ import { isMentionableType, type MentionableType } from '@/lib/entity-links/ment
  *   'studio'          the Studio page's card on it (a video, a Studio project);
  *   null              nothing opens it on its own.
  */
-export type EntityOpen = 'record' | 'calendar-event' | 'flow' | 'sequence' | 'prospect_list' | 'eval_suite' | 'team-chat' | 'table-row' | 'studio' | 'team' | 'package' | 'spreadsheet' | null
+export type EntityOpen = 'record' | 'calendar-event' | 'flow' | 'sequence' | 'prospect_list' | 'eval_suite' | 'team-chat' | 'table-row' | 'studio' | 'team' | 'package' | 'spreadsheet' | 'canvas' | null
 
 /**
  * How a kind archives and comes back, as it already does:
@@ -280,6 +280,20 @@ export const ENTITY_ACTIONS: Readonly<Record<EntityType, EntityActionsDescriptor
     archive: { kind: 'none', why: 'A suite is deleted from its own page.' },
     share: false,
     makeTask: false,
+  },
+  // Canvas (migration 676): a whiteboard, opened as the Canvases page's card on
+  // it (open-card.ts), renamed through its own route (PATCH { title }).
+  // Archived on the Canvases page, where it can be restored (as a table is on
+  // the Tables page). Mentionable: Share drops it into a channel, Make a task
+  // links a task 'about' it.
+  canvas: {
+    open: 'canvas',
+    // `/account?canvas=<id>` opens the Canvases card on it.
+    link: true,
+    rename: { route: 'canvases', field: 'title' },
+    archive: { kind: 'none', why: 'A canvas is archived on the Canvases page, where it can be restored.' },
+    share: true,
+    makeTask: true,
   },
 
   // ── Parts of something else, or nothing a person opens on its own.

@@ -60,7 +60,7 @@ of them is a one-line change in `GO_TO`.
 | G C | Calendar | Calendar (the owner's example) |
 | G A | My Actions | Actions |
 | G T | Team chat | Team chat: on the rail and used daily (Teams takes U) |
-| G D | Drive | Drive, on its page last used (Docs at first), as the rail opens it. It was Docs alone until Spreadsheets joined Drive (11-22): every letter was taken, so Spreadsheets is reached through its group |
+| G D | Drive | Drive, on its page last used (Docs at first), as the rail opens it. It was Docs alone until Spreadsheets joined Drive (11-22): every letter was taken, so Spreadsheets, and Canvases after it, are reached through their group |
 | G K | Knowledge | Knowledge |
 | G F | Files | Files |
 | G L | Tables | Lists, Tables' own keyword (T is Team chat) |

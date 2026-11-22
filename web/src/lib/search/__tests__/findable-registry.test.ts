@@ -57,6 +57,7 @@ describe('the lists derived from it', () => {
       'contact',
       'action',
       'document',
+      'canvas',
       'project',
       'initiative',
       'capture',

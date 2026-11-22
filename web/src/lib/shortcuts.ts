@@ -82,7 +82,7 @@ export const GO_TO: readonly GoToDef[] = [
   page('t', 'team-chat', 'Team chat', 'Team chat (on the rail, used daily; Teams takes E)'),
   // Drive as a group since Spreadsheets joined it (11-22): 25 letters were taken by 25 pages, so one more page
   // has no letter of its own. G D opens Drive on its page last used (Docs the first time), as the rail does;
-  // Knowledge, Files and Tables keep their own letters, and Spreadsheets is reached through this one.
+  // Knowledge, Files and Tables keep their own letters; Spreadsheets and Canvases are reached through this one.
   { letter: 'd', target: { type: 'group', id: 'drive' }, label: 'Drive', why: 'Drive, on its page last used (Docs at first), as the rail opens it' },
   page('k', 'knowledge', 'Knowledge', 'Knowledge'),
   page('f', 'files', 'Files', 'Files'),

@@ -30,7 +30,7 @@ const SET_KINDS = ['claim', 'company']
  * ./migration-522.test.ts), the Studio's by 624's own restrictive policies,
  * never these lists (migration-624.test.ts).
  */
-const LATER = ['data_table', 'data_row', 'studio_video', 'studio_project', 'team', 'knowledge_package', 'spreadsheet']
+const LATER = ['data_table', 'data_row', 'studio_video', 'studio_project', 'team', 'knowledge_package', 'spreadsheet', 'canvas']
 
 describe('migration 501: graph edges after review', () => {
   it('holds no backslash and reloads the API schema', () => {

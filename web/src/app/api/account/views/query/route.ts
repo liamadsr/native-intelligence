@@ -1,3 +1,4 @@
+import { layoutCompanyStageGroups, listCompanyStages } from '@/lib/crm/company-stages'
 import type { CompletedFilter } from '@/lib/views/completed-window'
 import { requireWorkspaceMember, requireWorkspaceFeature } from '@/lib/api-auth'
 import { badRequest, serverError } from '@/lib/api-errors'
@@ -384,7 +385,7 @@ export async function POST(request: NextRequest) {
         fetchAllRows(() =>
           supabase
             .from('contact')
-            .select('id, company_id')
+            .select('id, company_id, last_interaction_at, merged_into_contact_id')
             .in('company_id', chunkIds),
         ),
       )
@@ -397,12 +398,18 @@ export async function POST(request: NextRequest) {
 
       if (counts) {
         const countMap = new Map<string, number>()
-        for (const row of counts) {
+        // The company's last interaction (679's column): the newest of its
+        // people's, among the people this reader can see (RLS read above).
+        const lastMap = new Map<string, string>()
+        for (const row of counts as { company_id: string; last_interaction_at?: string | null; merged_into_contact_id?: string | null }[]) {
           countMap.set(row.company_id, (countMap.get(row.company_id) || 0) + 1)
+          const at = row.last_interaction_at
+          if (at && !row.merged_into_contact_id && (!lastMap.has(row.company_id) || at > lastMap.get(row.company_id)!)) lastMap.set(row.company_id, at)
         }
         items = items.map(item => ({
           ...item,
           contact_count: countMap.get(item.id as string) || 0,
+          last_interaction_at: lastMap.get(item.id as string) ?? null,
         }))
       }
     }
@@ -626,6 +633,17 @@ export async function POST(request: NextRequest) {
           grouped = await layoutCustomSelectGroups(supabase, workspaceId, entity_type, grouping, grouped, entity_type === 'data_row' ? table_id : null)
         } catch (err) {
           console.error('[views/query] custom field columns failed', err)
+        }
+      }
+
+      // A company's stage (679): a column per stage in the stages' order,
+      // empty ones too, then No stage, so a card can go to any of them.
+      if (grouping.field === 'stage_id' && entity_type === 'company') {
+        try {
+          const stages = await listCompanyStages(supabase, workspaceId)
+          grouped = layoutCompanyStageGroups(grouped, stages, grouping.direction === 'desc' ? 'desc' : 'asc')
+        } catch (err) {
+          console.error('[views/query] company stage columns failed', err)
         }
       }
 

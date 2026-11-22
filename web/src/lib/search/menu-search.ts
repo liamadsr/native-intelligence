@@ -237,6 +237,7 @@ export type MenuNamedKind =
   | 'data_table'
   | 'spreadsheet'
   | 'data_row'
+  | 'canvas'
   | 'team_chat_channel'
   | 'decision'
   | 'team'

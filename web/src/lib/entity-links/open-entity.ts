@@ -30,6 +30,8 @@ export function entityOpenTarget(type: string, id: string, title?: string | null
       return { type: 'package', id, title: t }
     case 'spreadsheet':
       return { type: 'spreadsheet', id, title: t }
+    case 'canvas':
+      return { type: 'canvas', id, title: t }
     case 'table-row':
       return { type: 'data_row', id, title: t }
     case 'team-chat':

@@ -54,18 +54,29 @@ describe('migration 674: comments on a project and a contact', () => {
 
   it('together with the policies it stands beside, every kind the app comments on can be viewed, written and resolved', () => {
     const wanted = commentableTypes()
-    expect(wanted).toEqual(['action', 'capture', 'contact', 'document', 'project'])
+    // 679 adds a company's discussion with policies of its own (checked below), so
+    // the five kinds here are every kind but that one.
+    expect(wanted.filter((k) => k !== 'company')).toEqual(['action', 'capture', 'contact', 'document', 'project'])
+    expect(wanted).toContain('company')
     const view = [...kindsIn(policy('493_entity_access_read_policies.sql', 'View comments: members \\+ own external')), ...kindsIn(policy(file, 'comment_project_contact_select'))].sort()
     const write = [...kindsIn(policy('088_external_commenters.sql', 'Create comments: members or external via share')), ...kindsIn(policy(file, 'comment_project_contact_insert'))].sort()
     const resolve = [...kindsIn(policy('088_external_commenters.sql', 'Members can resolve comments on their entities')), ...kindsIn(policy(file, 'comment_project_contact_resolve'))].sort()
-    expect(view).toEqual(wanted)
-    expect(write).toEqual(wanted)
-    expect(resolve).toEqual(wanted)
+    const five = wanted.filter((k) => k !== 'company')
+    expect(view).toEqual(five)
+    expect(write).toEqual(five)
+    expect(resolve).toEqual(five)
   })
 
   it('no later migration replaces the policies it relies on without this test being looked at', () => {
     const later = readdirSync(MIGRATIONS).filter((name) => Number.parseInt(name, 10) > 674)
-    for (const name of later) {
+    // 679 was looked at: it adds the company's own three policies (view, write,
+    // resolve, each gated on commentable_type 'company' alone) and replaces none.
+    const m679 = sql('679_crm_companies.sql')
+    expect([...m679.matchAll(/create\s+policy\s+(\w+)\s+on\s+public\.comment\b/gi)].map((m) => m[1])).toEqual(['comment_company_select', 'comment_company_insert', 'comment_company_resolve'])
+    for (const name of ['comment_company_select', 'comment_company_insert', 'comment_company_resolve']) {
+      expect(policy('679_crm_companies.sql', name)).toMatch(/commentable_type::text = 'company'/)
+    }
+    for (const name of later.filter((n) => !n.startsWith('679_'))) {
       expect(sql(name), `${name} redefines a comment policy: check every kind still has a branch`).not.toMatch(/create\s+policy\s+[^;]*on\s+public\.comment\b/i)
     }
   })

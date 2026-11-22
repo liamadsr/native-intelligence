@@ -133,7 +133,10 @@ const CONTACT_VIEW_SELECT = `
 
 const COMPANY_VIEW_SELECT = `
   id, name, domain, industry, employee_count_range, logo_url, tags,
-  custom_fields, created_at, updated_at, workspace_id
+  custom_fields, created_at, updated_at, workspace_id,
+  stage_id, owner_member_id, owner_id:owner_member_id, revenue,
+  stage:company_stage!stage_id(id, name, position),
+  owner:member!owner_member_id(id, display_name, avatar_url)
 `
 
 
@@ -2275,6 +2278,11 @@ export function groupResults(
         groupSortOrder.set(key, ws.sort_order)
       }
     }
+    // A company's stage (679): the stages' own order.
+    if (grouping.field === 'stage_id' && item.stage) {
+      const pos = (item.stage as { position?: number }).position
+      if (typeof pos === 'number' && !groupSortOrder.has(key)) groupSortOrder.set(key, pos)
+    }
 
     if (!groups.has(key)) {
       groups.set(key, { key, label, items: [] })
@@ -2555,6 +2563,8 @@ function getGroupLabel(item: Record<string, unknown>, field: string, key: string
     if (field === 'assignee_id') return 'Unassigned'
     if (field === 'milestone_id') return 'No milestone'
     if (field === 'initiative_id') return 'No initiative'
+    if (field === 'stage_id') return 'No stage'
+    if (field === 'owner_member_id') return 'No owner'
     return 'No value'
   }
 
@@ -2570,9 +2580,13 @@ function getGroupLabel(item: Record<string, unknown>, field: string, key: string
     const ws = item.workflow_state as { name?: string } | null
     return ws?.name || key
   }
-  if (field === 'owner_id') {
+  if (field === 'owner_id' || field === 'owner_member_id') {
     const owner = item.owner as { display_name?: string } | null
     return owner?.display_name || key
+  }
+  if (field === 'stage_id') {
+    const stage = item.stage as { name?: string } | null
+    return stage?.name || key
   }
   if (field === 'assignee_id') {
     const assignee = item.assignee as { display_name?: string } | null

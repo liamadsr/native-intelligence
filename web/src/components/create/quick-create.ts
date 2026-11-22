@@ -77,6 +77,15 @@ export const QUICK_CREATE: Record<CreateQuickTypeId, QuickCreateDef> = {
       return { id: table.id, title, open: () => void openCard({ kind: 'tables', title: 'Tables', target: { type: 'data_table', id: table.id, label: title } }, { from: FROM }) }
     },
   },
+  canvas: {
+    namePlaceholder: 'Canvas name',
+    run: async ({ name }, fetcher = fetch) => {
+      const canvas = record(await post(fetcher, '/api/account/canvases', { ...(name ? { title: name } : {}) }), 'canvas')
+      const title = str(canvas.title, name || 'Untitled canvas')
+      // The Canvases page's own card, open on it (canvases-card.tsx).
+      return { id: canvas.id, title, open: () => void openTarget({ type: 'canvas', id: canvas.id, title }, { from: FROM }) }
+    },
+  },
   spreadsheet: {
     namePlaceholder: 'Spreadsheet name',
     run: async ({ name }, fetcher = fetch) => {

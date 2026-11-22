@@ -52,6 +52,8 @@ export const MENTIONABLE_TYPES = [
   'knowledge_package',
   // A spreadsheet (675): a workspace one is every member's, a private one its maker's (spreadsheetFence).
   'spreadsheet',
+  // Canvas (676): a whiteboard, fenced by its own rule (workspace, or its owner).
+  'canvas',
   // Owner-only (decision 1): mail and agent chats, fenced on user_id.
   'email_thread',
   'conversation',

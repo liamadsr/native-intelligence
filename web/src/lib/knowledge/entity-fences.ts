@@ -44,7 +44,7 @@ import { canonicalEntityType, type LinkableEntityType } from './entity-registry'
  * guest's, and their tables have no member policies at all, so the same
  * fence shape holds them: see studioFence below.
  */
-export const PRIVATE_GRAPH_KINDS = ['calendar_event', 'team_chat_channel', 'team_chat_message', 'decision', 'data_table', 'data_row', 'studio_video', 'studio_project', 'team', 'knowledge_package', 'spreadsheet'] as const
+export const PRIVATE_GRAPH_KINDS = ['calendar_event', 'team_chat_channel', 'team_chat_message', 'decision', 'data_table', 'data_row', 'studio_video', 'studio_project', 'team', 'knowledge_package', 'spreadsheet', 'canvas'] as const
 export type PrivateGraphKind = (typeof PRIVATE_GRAPH_KINDS)[number]
 
 export function isPrivateGraphKind(type: string): type is PrivateGraphKind {
@@ -335,6 +335,33 @@ function studioFence(table: 'studio_video' | 'studio_project'): Fence {
 }
 
 /**
+ * A canvas (676): canvas_visible_to's rule for an explicit user — a member of
+ * the canvas's workspace, and the canvas is workspace-wide or theirs. No grant
+ * arm (676 adds none). Mirrors 676's canvas_entity_visible_to, which its
+ * restrictive entity_link policies ask; the shared entity_visible_to does not
+ * know this kind, so no reader here sends a canvas ref to it.
+ */
+const canvasFence: Fence = async (supabase, userId, ids, workspaceId) => {
+  const wanted = uniq(ids)
+  if (!userId || wanted.length === 0) return new Set()
+  const rows = await rowsByIds(wanted, (c) => {
+    let q = supabase.from('canvas').select('id, workspace_id, visibility, owner_member_id').in('id', c)
+    if (workspaceId) q = q.eq('workspace_id', workspaceId)
+    return q
+  })
+  if (!rows || rows.length === 0) return new Set()
+  const members = await memberIdsByWorkspace(supabase, userId, rows.map((r) => r.workspace_id as string))
+  if (!members) return new Set()
+  const out = new Set<string>()
+  for (const r of rows) {
+    const me = members.get(r.workspace_id as string)
+    if (!me) continue
+    if (r.visibility === 'workspace' || (r.owner_member_id && r.owner_member_id === me)) out.add(r.id as string)
+  }
+  return out
+}
+
+/**
  * A team (673): a member of its workspace reads it, and only its own members
  * when it is private (the team table's "Users can view accessible teams";
  * 673's team_package_entity_visible_to for the graph's edges).
@@ -443,6 +470,7 @@ const FENCES: Record<PrivateGraphKind, Fence> = {
   team: teamFence,
   knowledge_package: packageFence,
   spreadsheet: spreadsheetFence,
+  canvas: canvasFence,
 }
 
 /**
@@ -509,6 +537,7 @@ export const PRIVATE_KIND_LABEL: Record<PrivateGraphKind, string> = {
   team: 'Team (private)',
   knowledge_package: 'Package (private)',
   spreadsheet: 'Spreadsheet (private)',
+  canvas: 'Canvas (private)',
 }
 
 /**
@@ -550,6 +579,10 @@ export const LINK_FENCED_KINDS = [
   // entity_link policies (spreadsheet_entity_visible_to); here a private
   // kind, so hiddenGraphRefs asks spreadsheetFence.
   'spreadsheet',
+  // Canvas (676): fenced by its own restrictive entity_link policies
+  // (canvas_entity_visible_to), not in the shared policies' lists; here it is a
+  // private kind, so hiddenGraphRefs asks canvasFence.
+  'canvas',
 ] as const satisfies readonly LinkableEntityType[]
 export type LinkFencedKind = (typeof LINK_FENCED_KINDS)[number]
 

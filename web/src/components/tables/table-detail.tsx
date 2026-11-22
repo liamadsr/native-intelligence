@@ -178,8 +178,8 @@ export function TableDetail({
           actions={
             table && (
               <span className="flex items-center gap-1">
-                {/* A pipeline that isn't the default can become it (Tables, phase 7). */}
-                {data.canEdit && table.kind === 'pipeline' && !table.is_default && !table.archived_at && table.visibility === 'workspace' && (
+                {/* A pipeline that isn't the default can become it (Tables, phase 7); the default holds deals (679). */}
+                {data.canEdit && table.kind === 'pipeline' && !table.record_kind && !table.is_default && !table.archived_at && table.visibility === 'workspace' && (
                   <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => void makeDefault(table.id, data.reload)}>
                     <Star className="h-3.5 w-3.5" />
                     Make default

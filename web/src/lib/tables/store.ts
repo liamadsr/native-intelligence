@@ -43,7 +43,7 @@ import {
 } from './types'
 
 // `table_kind` reads as `kind` (540 names the column so: 525's _data_apply has a `kind` variable).
-const TABLE_SELECT = 'id, workspace_id, name, icon, description, owner_member_id, visibility, kind:table_kind, is_default, version, position, archived_at, created_at, updated_at'
+const TABLE_SELECT = 'id, workspace_id, name, icon, description, owner_member_id, visibility, kind:table_kind, is_default, record_kind, version, position, archived_at, created_at, updated_at'
 const COLUMN_SELECT = 'id, table_id, key, label, field_type, options, config, position, deleted_at, system'
 export const ROW_SELECT = 'id, table_id, title, custom_fields, position, archived_at, created_at, updated_at, stage_changed_at, closed_at, from_form'
 export const CHANGE_SELECT = 'id, table_id, version, actor_user_id, actor_member_id, source, reason, changes, undo_of, undone_at, created_at, source_ref'

@@ -60,6 +60,7 @@ import {
   Rows3,
   ScrollText,
   Sheet,
+  Shapes,
   SquareTerminal,
   Table2,
   Tag,
@@ -186,6 +187,7 @@ export const ENTITY_IDENTITIES: Record<EntityIdentityKind, EntityIdentity> = {
   // ── Deals and tables ────────────────────────────────────────────────────
   deal: { icon: Handshake, color: 'green', label: 'Deal' },
   data_table: { icon: Table2, color: 'lime', label: 'Table' },
+  canvas: { icon: Shapes, color: 'pink', label: 'Canvas' },
   data_row: { icon: Rows3, color: 'lime', label: 'Row' },
   // A workbook of free cells and formulas (675): beside tables, and green as spreadsheets are everywhere.
   spreadsheet: { icon: Sheet, color: 'green', label: 'Spreadsheet' },
