@@ -24,10 +24,10 @@ import { CREATE_TYPES, type CreateTypeId } from './create/create-types'
 import { CREATE_LETTERS } from './create/create-keys'
 
 /** Where a shortcut can fire: anywhere in the app, or only on one page or panel. */
-export type ShortcutScope = 'global' | 'mail' | 'list' | 'task' | 'page-card' | 'palette' | 'create-menu' | 'composer'
+export type ShortcutScope = 'global' | 'mail' | 'inbox' | 'list' | 'task' | 'page-card' | 'palette' | 'create-menu' | 'composer' | 'editor'
 
 /** The sheet's sections, in its order. */
-export type ShortcutSection = 'General' | 'Go to' | 'Create' | 'Lists' | 'Tasks' | 'Mail'
+export type ShortcutSection = 'General' | 'Go to' | 'Create' | 'Lists' | 'Tasks' | 'Mail' | 'Inbox' | 'Documents'
 
 /**
  * One shortcut's keys, as the sheet writes them: `mod+k` (⌘K on a Mac, Ctrl+K
@@ -90,6 +90,8 @@ export const GO_TO: readonly GoToDef[] = [
   page('c', 'calendar', 'Calendar', 'Calendar (the owner’s example), so Contacts, Captures, Companies and Campaigns take another letter'),
   page('a', 'actions', 'My Actions', 'Actions'),
   page('t', 'team-chat', 'Team chat', 'Team chat (on the rail, used daily; Teams takes E)'),
+  // The inbox (docs/plans/channels-inbox.md): on the rail, used daily, so it takes Campaigns' leftover J (the owner can swap).
+  page('j', 'inbox', 'Inbox', 'a leftover letter, Campaigns’ until the inbox came: I is the agents and every other letter in the word is taken (the owner can swap)'),
   // Drive as a group since Spreadsheets joined it (11-22): 25 letters were taken by 25 pages, so one more page
   // has no letter of its own. G D opens Drive on its page last used (Docs the first time), as the rail does;
   // Knowledge, Files and Tables keep their own letters; Spreadsheets and Canvases are reached through this one.
@@ -107,7 +109,6 @@ export const GO_TO: readonly GoToDef[] = [
   page('y', 'availability', 'Availability', 'availabilitY: A is Actions, V the Studio'),
   page('x', 'prospecting', 'Prospecting', 'prospects, eXplored: P is Projects and every other letter in the word is taken (the owner can swap)'),
   page('q', 'sequences', 'Sequences', 'seQuences: S is SEO'),
-  page('j', 'campaigns', 'Campaigns', 'a leftover letter: every one in the word is taken (the owner can swap)'),
   page('v', 'studio', 'Studio', 'Video: S is SEO'),
   { letter: 's', target: { type: 'group', id: 'seo' }, label: 'SEO', why: 'SEO, on its section last used, as the rail opens it' },
   page('i', 'agents', 'Agents & skills', 'the AI: A is Actions'),
@@ -124,6 +125,7 @@ export const GO_TO: readonly GoToDef[] = [
  */
 export const NO_GO_TO_PAGES: Readonly<Record<string, string>> = {
   library: 'every letter but G is taken: G K, then ] (the next page in Drive)',
+  campaigns: 'its leftover J went to the Inbox (docs/plans/channels-inbox.md): G X opens Outreach, then its sub-nav',
 }
 
 /** A go-to's keys in the registry's notation (`g m`). */
@@ -173,6 +175,17 @@ export const SHORTCUTS_BESIDES_GO_TO: readonly ShortcutDef[] = [
   { id: 'mail-forward', keys: ['f'], label: 'Forward', section: 'Mail', scope: 'mail' },
   { id: 'mail-send', keys: ['mod+enter'], label: 'Send (in the composer)', section: 'Mail', scope: 'mail' },
   { id: 'mail-unread', keys: ['u'], label: 'Mark unread', section: 'Mail', scope: 'mail' },
+  // Inbox (components/inbox/inbox-view.tsx; docs/plans/channels-inbox.md)
+  { id: 'inbox-next', keys: ['j'], label: 'Next item', section: 'Inbox', scope: 'inbox' },
+  { id: 'inbox-previous', keys: ['k'], label: 'Previous item', section: 'Inbox', scope: 'inbox' },
+  { id: 'inbox-open', keys: ['enter', 'o'], label: 'Open the item', section: 'Inbox', scope: 'inbox' },
+  { id: 'inbox-done', keys: ['e'], label: 'Done', section: 'Inbox', scope: 'inbox' },
+  { id: 'inbox-hold', keys: ['h'], label: 'Hold for later', section: 'Inbox', scope: 'inbox' },
+  { id: 'inbox-close', keys: ['escape'], label: 'Close the item', section: 'Inbox', scope: 'inbox', overrides: 'close-page' },
+  // A document, with the caret in it (components/editor/doc-extras; docs/plans/doc-editor-extras.md).
+  // ⌘F stays the browser's (RESERVED_KEYS): find and replace is ⌘⇧F.
+  { id: 'doc-find', keys: ['mod+shift+f'], label: 'Find and replace', section: 'Documents', scope: 'editor' },
+  { id: 'doc-fold', keys: ['mod+enter'], label: 'Fold or unfold the section (in a heading)', section: 'Documents', scope: 'editor' },
 ]
 
 // ── C then a letter, and a composer's keys ─────────────────
@@ -296,6 +309,7 @@ const SCOPES_THAT_MEET: ReadonlyArray<readonly [ShortcutScope, ShortcutScope]> =
   ['list', 'page-card'],
   ['task', 'page-card'],
   ['mail', 'page-card'],
+  ['inbox', 'page-card'],
 ]
 
 /** Can two scopes fire on the same key press? The app-wide one with any; a page's own with its own, and with those it sits in. */

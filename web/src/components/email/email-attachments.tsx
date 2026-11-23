@@ -3,13 +3,35 @@
 /**
  * A message's attachments as chips: an icon for the kind of file, its name and
  * size, and a download button when there is somewhere to download it from
- * (the person's own mailbox, or a share). A calendar file says so; when the
+ * (the person's own mailbox, or a share). With somewhere to read it from, the
+ * chip itself opens the file in the in-app viewer (components/files/
+ * file-viewer.tsx), its bytes read through that same route, so the viewer
+ * sees exactly what the download would (docs/plans/drive-files.md). A
+ * calendar file says so; when the
  * message's invitation is drawn as a card above, its chip is still here, to
  * download the .ics itself.
  */
 import { CalendarDays, Download, File, FileArchive, FileImage, FileSpreadsheet, FileText, FileVideo, Music, Presentation } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { isCalendarAttachment } from '@/lib/email/calendar-invite'
+import { useFileViewer } from '@/components/files/file-viewer'
+import { downloadFile } from '@/lib/download'
+import { routeLoader, type ViewerFile } from '@/lib/files/viewer-file'
+
+/** A mail attachment as the viewer takes it: read through its own attachment route. */
+export function emailViewerFile(attachment: AttachmentChipData, href: string): ViewerFile {
+  return {
+    key: `email:${href}`,
+    name: attachment.name,
+    mimeType: attachment.mimeType,
+    size: attachment.size,
+    sourceLabel: 'Email attachment',
+    load: routeLoader(href),
+    download: async () => {
+      await downloadFile(href, attachment.name)
+    },
+  }
+}
 
 export interface AttachmentChipData {
   name: string
@@ -49,9 +71,11 @@ export function EmailAttachments<T extends AttachmentChipData>({
   /** Where one downloads from; null or absent: listed only. */
   hrefFor?: (attachment: T) => string | null
 }) {
+  const viewer = useFileViewer()
   if (!attachments.length) return null
   return (
     <div className="mt-3 flex flex-wrap gap-2" data-email-attachments="">
+      {viewer.viewer}
       {attachments.map((attachment, i) => {
         const href = hrefFor?.(attachment) ?? null
         const { icon: Icon, tone, label } = attachmentKind(attachment)
@@ -63,13 +87,29 @@ export function EmailAttachments<T extends AttachmentChipData>({
             title={`${attachment.name}${size ? ` · ${size}` : ''}`}
             className="flex max-w-[260px] items-stretch overflow-hidden rounded-lg border border-border/70 bg-muted/30 text-xs"
           >
-            <div className="flex min-w-0 items-center gap-2 px-2.5 py-1.5">
-              <Icon className={`h-4 w-4 shrink-0 ${tone}`} aria-label={label} />
-              <div className="min-w-0">
-                <p className="truncate font-medium leading-tight">{attachment.name}</p>
-                {size && <p className="leading-tight text-muted-foreground">{size}</p>}
+            {href ? (
+              <button
+                type="button"
+                data-email-attachment-open=""
+                onClick={() => viewer.open(emailViewerFile(attachment, href))}
+                aria-label={`Open ${attachment.name}`}
+                className="flex min-w-0 items-center gap-2 px-2.5 py-1.5 text-left transition-colors hover:bg-muted"
+              >
+                <Icon className={`h-4 w-4 shrink-0 ${tone}`} aria-label={label} />
+                <span className="min-w-0">
+                  <span className="block truncate font-medium leading-tight">{attachment.name}</span>
+                  {size && <span className="block leading-tight text-muted-foreground">{size}</span>}
+                </span>
+              </button>
+            ) : (
+              <div className="flex min-w-0 items-center gap-2 px-2.5 py-1.5">
+                <Icon className={`h-4 w-4 shrink-0 ${tone}`} aria-label={label} />
+                <div className="min-w-0">
+                  <p className="truncate font-medium leading-tight">{attachment.name}</p>
+                  {size && <p className="leading-tight text-muted-foreground">{size}</p>}
+                </div>
               </div>
-            </div>
+            )}
             {href && (
               <a
                 href={href}

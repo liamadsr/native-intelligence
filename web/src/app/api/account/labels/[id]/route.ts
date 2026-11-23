@@ -2,10 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getCurrentWorkspaceId } from '@/lib/workspace'
 import { forbidden, notFound } from '@/lib/api-errors'
 import { NextResponse, type NextRequest } from 'next/server'
-
-const LABEL_FIELDS = 'id, name, color, group_name, scopes, created_at'
-
-const VALID_SCOPES = ['action', 'email_thread', 'project', 'initiative', 'capture']
+import { cleanScopes, LABEL_FIELDS, labelWriteError, toLabelResponse, type LabelRow } from '@/lib/tags/label-rows'
 
 export async function PATCH(
   request: NextRequest,
@@ -32,11 +29,9 @@ export async function PATCH(
   if (body.name !== undefined) updates.name = body.name
   if (body.color !== undefined) updates.color = body.color
   if (body.group_name !== undefined) updates.group_name = body.group_name
-  if (body.scopes !== undefined) {
-    updates.scopes = Array.isArray(body.scopes) && body.scopes.length > 0
-      ? body.scopes.filter((s: string) => VALID_SCOPES.includes(s))
-      : null
-  }
+  if (body.scopes !== undefined) updates.scopes = cleanScopes(body.scopes)
+  // A personal tag shared with the workspace (never the other way: 700's guard).
+  if (body.personal === false) updates.owner_user_id = null
 
   const { data, error } = await supabase
     .from('label')
@@ -47,16 +42,14 @@ export async function PATCH(
     .single()
 
   if (error) {
-    if (error.code === '23505') {
-      return NextResponse.json(
-        { error: 'A label with that name already exists' },
-        { status: 409 },
-      )
-    }
+    const known = labelWriteError(error.code)
+    if (known) return NextResponse.json({ error: known.message }, { status: known.status })
+    // No row came back: not visible, or the policies refuse this person the change.
+    if (error.code === 'PGRST116') return forbidden('You cannot change this tag')
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  return NextResponse.json({ label: data })
+  return NextResponse.json({ label: toLabelResponse(data as LabelRow) })
 }
 
 export async function DELETE(
@@ -98,7 +91,7 @@ export async function DELETE(
       .eq('workspace_id', workspaceId)
       .maybeSingle()
     return visible
-      ? forbidden('Only a workspace owner or admin can delete labels')
+      ? forbidden('Only the tag’s creator, or a workspace owner or admin, can delete it')
       : notFound('Label not found')
   }
 

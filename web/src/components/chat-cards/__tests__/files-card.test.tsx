@@ -11,15 +11,21 @@ import * as React from 'react'
 import { act } from 'react'
 import { makeStore, mountRoot } from './page-card-harness'
 
-const hoisted = vi.hoisted(() => ({ download: vi.fn(async () => 'saved'), signed: vi.fn() }))
+const hoisted = vi.hoisted(() => ({ download: vi.fn(async () => 'saved'), signed: vi.fn(), opened: [] as Array<import('@/lib/files/viewer-file').ViewerFile> }))
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 vi.mock('@/lib/download', () => ({ downloadFile: hoisted.download }))
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({ storage: { from: (bucket: string) => ({ createSignedUrl: (path: string, ttl: number) => hoisted.signed(bucket, path, ttl) }) } }),
 }))
-vi.mock('@/components/capture/attachments-carousel', () => ({
-  Lightbox: ({ images, signedUrls, onClose }: { images: Array<{ id: string; file_name: string }>; signedUrls: Record<string, string>; onClose: () => void }) =>
-    React.createElement('div', { 'data-lightbox': signedUrls[images[0].id], 'data-name': images[0].file_name, onClick: onClose }),
+vi.mock('@/components/files/file-viewer', () => ({
+  useFileViewer: () => {
+    const [file, setFile] = React.useState<import('@/lib/files/viewer-file').ViewerFile | null>(null)
+    const open = React.useCallback((f: import('@/lib/files/viewer-file').ViewerFile) => {
+      hoisted.opened.push(f)
+      setFile(f)
+    }, [])
+    return { open, viewer: file ? React.createElement('div', { 'data-viewer': file.url, 'data-name': file.name }) : null }
+  },
 }))
 vi.mock('../card-body', () => ({
   CardRecordPanel: ({ record }: { record: { type: string; id: string } }) => React.createElement('div', { 'data-record-panel': `${record.type}:${record.id}` }),
@@ -150,22 +156,24 @@ describe('FilesCard', () => {
     expect(q('[data-files-row="brief"]')!.closest('[inert]')).not.toBeNull()
   })
 
-  it('opens an image in the attachments viewer and downloads any other file, through a short signed URL', async () => {
+  it('opens any file in the in-app viewer, through a short signed URL; its Download re-signs and saves it', async () => {
+    hoisted.opened.length = 0
     await render()
     await click('[data-files-open="logo"]')
-    expect(hoisted.signed).toHaveBeenCalledWith('attachments', 'u1/x/logo.png', 60)
-    const viewer = document.querySelector<HTMLElement>('[data-lightbox]')!
-    expect(viewer.dataset.lightbox).toBe('https://files.test/u1/x/logo.png')
+    expect(hoisted.signed).toHaveBeenCalledWith('attachments', 'u1/x/logo.png', 600)
+    const viewer = document.querySelector<HTMLElement>('[data-viewer]')!
+    expect(viewer.dataset.viewer).toBe('https://files.test/u1/x/logo.png')
     expect(viewer.dataset.name).toBe('logo.png')
     expect(hoisted.download).not.toHaveBeenCalled()
-    // Escape closes it.
-    await act(async () => {
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
-    })
-    expect(document.querySelector('[data-lightbox]')).toBeNull()
     await click('[data-files-open="quote"]')
+    const quote = hoisted.opened.at(-1)!
+    expect(quote.name).toBe('quote.xlsx')
+    expect(quote.sourceLabel).toBe('Action · Send the quote')
+    expect(quote.downloadOnly).toBe(false)
+    await act(async () => {
+      await quote.download!()
+    })
     expect(hoisted.download).toHaveBeenCalledWith('https://files.test/u1/x/quote.pdf', 'quote.xlsx')
-    expect(document.querySelector('[data-lightbox]')).toBeNull()
   })
 
   it('pages on: Show more reads the next page and adds it', async () => {

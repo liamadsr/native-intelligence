@@ -9,16 +9,17 @@
  *
  *   A row     the file's icon (by its category, a document's by its kind),
  *             its name, where it is attached, its size and when it came.
- *   The file  opens as a record's attachments open it (capture/
- *             attachments-carousel.tsx): an image in the same viewer
- *             (Lightbox), any other file downloaded, through a short signed
- *             URL from the attachments bucket (its own read policy fences it).
+ *   The file  opens in the in-app viewer (components/files/file-viewer.tsx:
+ *             PDF, images, video, audio, text, Word, sheets, slides), from a
+ *             short signed URL from the attachments bucket (its own read
+ *             policy fences it); a kind it can't show is offered as a download.
  *   Its place the capture, action or project opens over the page, inside the
  *             card (a step the header's Back walks), so Drive stays selected.
  *             A table's row (a form's upload, migration 663) is named with
  *             its table, as text: a row opens from its table.
- *   A form's  file a stranger sent: always downloaded (its signed URL asks
- *             storage for an attachment download), an image viewed in place.
+ *   A form's  file a stranger sent: never rendered but as an image; the
+ *             viewer offers it as a download (its signed URL asks storage
+ *             for an attachment download).
  *   Filter    All, Images, Documents (the categories files are filed under),
  *             the page's own tab row, and a search on the name, in the card's
  *             header with every page's search (Liam, 11-22: a page's controls
@@ -27,15 +28,14 @@
  * Flat cost: one read per page shown, none of its own afterwards.
  */
 import * as React from 'react'
-import { createPortal } from 'react-dom'
 import { File as FileIcon, FileCode, FileImage, FileSpreadsheet, FileText, Paperclip, Search } from 'lucide-react'
 import { toast } from 'sonner'
 import { Input } from '@/components/ui/input'
 import { ExpandableSearch } from '@/components/views/expandable-search'
-import { Lightbox } from '@/components/capture/attachments-carousel'
-import type { AttachmentItem } from '@/app/account/(dashboard)/views/capture-utils'
+import { useFileViewer } from '@/components/files/file-viewer'
 import { createClient } from '@/lib/supabase/client'
 import { downloadFile } from '@/lib/download'
+import type { ViewerFile } from '@/lib/files/viewer-file'
 import { cn } from '@/lib/utils'
 import {
   FILE_CATEGORIES,
@@ -74,21 +74,23 @@ function shortDate(iso: string): string {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }) })
 }
 
-/** The viewer's item, as the carousel's Lightbox takes it. */
-function asAttachment(file: WorkspaceFile): AttachmentItem {
+/** The file as the in-app viewer takes it: its bytes through a short signed URL (re-signed for a download). */
+export function viewerFileOf(file: WorkspaceFile, url: string): ViewerFile {
   return {
-    id: file.id,
-    file_name: file.file_name,
-    file_size_bytes: file.file_size_bytes,
-    mime_type: file.mime_type,
-    file_extension: file.file_extension,
-    file_category: file.file_category,
-    storage_path: file.storage_path,
-    thumbnail_path: file.thumbnail_path,
-    note_id: file.parent.type === 'capture' ? file.parent.id : null,
-    action_id: file.parent.type === 'action' ? file.parent.id : null,
-    project_id: file.parent.type === 'project' ? file.parent.id : null,
-    created_at: file.created_at,
+    key: `attachment:${file.id}`,
+    name: file.file_name,
+    mimeType: file.mime_type,
+    size: file.file_size_bytes,
+    url,
+    sourceLabel: `${PARENT_NOUN[file.parent.type]} · ${file.parent.label}`,
+    // A stranger's file (a form's upload) is never rendered in place, an image aside.
+    downloadOnly: !!file.from_form && file.file_category !== 'image',
+    download: async () => {
+      if (!file.storage_path) return
+      const fresh = await signedUrlOf(file.storage_path, file.from_form ? file.file_name : undefined)
+      if (!fresh) throw new Error('Could not download the file')
+      await downloadFile(fresh, file.file_name)
+    },
   }
 }
 
@@ -179,36 +181,21 @@ export default function FilesCard(props: PageCardProps) {
     onCount?.(loading || next !== null ? null : files.length)
   }, [onCount, loading, next, files.length])
 
-  const [viewing, setViewing] = React.useState<{ item: AttachmentItem; url: string } | null>(null)
-  React.useEffect(() => {
-    if (!viewing) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
-      e.stopPropagation()
-      setViewing(null)
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [viewing])
-
-  const openFile = React.useCallback(async (file: WorkspaceFile) => {
-    if (!file.storage_path) return
-    // A stranger's file is never opened in place: storage sends it as a download.
-    const url = await signedUrlOf(file.storage_path, file.from_form && file.file_category !== 'image' ? file.file_name : undefined)
-    if (!url) {
-      toast.error('Could not open the file')
-      return
-    }
-    if (file.file_category === 'image') {
-      setViewing({ item: asAttachment(file), url })
-      return
-    }
-    try {
-      await downloadFile(url, file.file_name)
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Download failed')
-    }
-  }, [])
+  const fileViewer = useFileViewer()
+  const openViewer = fileViewer.open
+  const openFile = React.useCallback(
+    async (file: WorkspaceFile) => {
+      if (!file.storage_path) return
+      // Signed for a few minutes: long enough for a video to stream.
+      const { data } = await createClient().storage.from('attachments').createSignedUrl(file.storage_path, 600)
+      if (!data?.signedUrl) {
+        toast.error('Could not open the file')
+        return
+      }
+      openViewer(viewerFileOf(file, data.signedUrl))
+    },
+    [openViewer],
+  )
 
   return (
     <div className="relative h-full min-h-0">
@@ -304,11 +291,7 @@ export default function FilesCard(props: PageCardProps) {
         </div>
       </CardCovered>
       <RecordOverlay records={records} page={props} />
-      {viewing &&
-        createPortal(
-          <Lightbox images={[viewing.item]} signedUrls={{ [viewing.item.id]: viewing.url }} currentIndex={0} onIndexChange={() => {}} onClose={() => setViewing(null)} />,
-          document.body,
-        )}
+      {fileViewer.viewer}
     </div>
   )
 }
@@ -325,7 +308,7 @@ function FileRow({ file, onOpen, onOpenParent }: { file: WorkspaceFile; onOpen: 
           type="button"
           data-files-open={file.id}
           onClick={onOpen}
-          title={file.file_category === 'image' ? `View ${file.file_name}` : `Download ${file.file_name}`}
+          title={`Open ${file.file_name}`}
           className="block max-w-full truncate text-left text-sm font-medium text-foreground hover:underline"
         >
           {file.file_name}
