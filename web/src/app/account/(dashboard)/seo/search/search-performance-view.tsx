@@ -19,7 +19,9 @@
  *   Header     the period (7 days to 12 months, default 28) and the "…" menu
  *              (in a card, at the card header's right): change the site,
  *              change the Analytics property, stop reading this site
- *              (ConfirmDialog).
+ *              (ConfirmDialog). In a card the four tabs are the header's
+ *              too, a capsule before the period's (Liam, 11-23: "all the
+ *              SEO pages"), and the page starts with the site's line.
  *
  * Connecting goes through the app's one connect flow (useConnectProvider);
  * its return re-reads the status. A read that finds the choice gone
@@ -55,6 +57,8 @@ const TAB_LABEL: Record<SearchTab, string> = {
   opportunities: 'Opportunities',
   analytics: 'Analytics',
 }
+
+const SEARCH_TAB_ITEMS = SEARCH_TABS.map((id) => ({ id, label: TAB_LABEL[id] }))
 
 export interface SearchPerformanceViewProps {
   /** The card's tab (PAGE_KINDS.seo_search.tabs). */
@@ -142,7 +146,8 @@ export function SearchPerformancePage({ tab, onTab, onCount }: SearchPerformance
       actions={
         ready && status && !picking ? (
           <>
-            <FilterChips options={SEARCH_PERIODS} value={period} onChange={setPeriod} label="Period" className="flex-nowrap" />
+            {inCard && <TabPills header label="Search performance" tabs={SEARCH_TAB_ITEMS} value={activeTab} onChange={onTab} />}
+            <FilterChips options={SEARCH_PERIODS} value={period} onChange={setPeriod} label="Period" header={inCard} className={inCard ? undefined : 'flex-nowrap'} />
             <Popover open={menuOpen} onOpenChange={setMenuOpen}>
               <PopoverTrigger asChild>
                 <SeoHeaderMore data-seo-search-menu="" />
@@ -234,14 +239,8 @@ export function SearchPerformancePage({ tab, onTab, onCount }: SearchPerformance
           <span className="text-foreground">{siteLabel(sc.source.site_url)}</span>
           {by ? ` · chosen by ${by}` : ''}
         </p>
-        <TabPills
-          className="mt-3"
-          label="Search performance"
-          tabs={SEARCH_TABS.map((id) => ({ id, label: TAB_LABEL[id] }))}
-          value={activeTab}
-          onChange={onTab}
-        />
-        <div className="mt-4">
+        {!inCard && <TabPills className="mt-3" label="Search performance" tabs={SEARCH_TAB_ITEMS} value={activeTab} onChange={onTab} />}
+        <div className={inCard ? 'mt-3' : 'mt-4'}>
           {activeTab === 'opportunities' ? (
             <OpportunitiesTab
               period={period}

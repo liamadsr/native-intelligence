@@ -285,6 +285,28 @@ a:hover .lucide,
     0 32px 72px -18px rgb(0 0 0 / 0.13);
 }
 
+/* A card header's surfaces keep their distance (card-header-button.ts
+   CARD_HEADER_SPACED; Liam, 11-23: "they should always look well spaced and
+   balanced"). A layer below utilities, so a page's own margin still wins. */
+@layer components {
+  [data-card-header] .ni-header-spaced {
+    margin-inline: 2px;
+  }
+}
+
+/* One rhythm in the controls' pill whatever wrappers a page put its controls
+   in: the slot and the plain layout wrappers directly in it give up their
+   boxes, so every control is the pill's own flex item and the pill's 2px gap
+   and the surfaces' margins set every distance (2px between round icons, 4px
+   beside a surface, 6px between surfaces). A wrapper that positions something
+   (relative), draws something (a surface), is a group with a role, or hides
+   itself at some width keeps its box. Unlayered: it has to win over the
+   wrappers' own `flex`. */
+[data-card-header-pill="controls"] > [data-card-header-slot="right"]:not(:empty),
+[data-card-header-pill="controls"] > [data-card-header-slot="right"] > :is(div, span):not([role]):not(.ni-header-spaced):not(.relative):not([class*="bg-"]):not([class*="border"]):not([class~="hidden"]):not([class*=":hidden"]) {
+  display: contents;
+}
+
 @layer utilities {
 
   .scrollbar-hide {

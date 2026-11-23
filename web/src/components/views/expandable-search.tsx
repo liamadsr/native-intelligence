@@ -78,7 +78,8 @@ export const ExpandableSearch = forwardRef<ExpandableSearchHandle, ExpandableSea
     <div
       ref={rootRef}
       // In a header 24px, as its other controls are (card-header-button.ts).
-      className={cn('relative shrink-0', inHeader ? 'h-6 transition-[width] duration-150 ease-out motion-reduce:transition-none' : 'size-8')}
+      // Open in a header it is a field, and keeps a field's distance from what stands beside it (card-header-button.ts CARD_HEADER_SPACED).
+      className={cn('relative shrink-0', inHeader ? 'h-6 transition-[width] duration-150 ease-out motion-reduce:transition-none' : 'size-8', inHeader && expanded && 'ni-header-spaced')}
       // In a header the field's width is its own: the header makes room for it.
       style={inHeader ? { width: expanded ? width : 24 } : undefined}
       onBlur={(event) => {

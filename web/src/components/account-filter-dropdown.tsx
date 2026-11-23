@@ -269,7 +269,8 @@ export function AccountFilterDropdown({
       <Button
         variant="ghost"
         size="sm"
-        className="h-7 shrink-0 gap-1 rounded-full px-2 text-xs font-normal text-foreground/70 hover:text-foreground"
+        // triggerClassName: a card's header sizes it as its other controls (24px), as it does the dropdown's trigger.
+        className={cn('h-7 shrink-0 gap-1 rounded-full px-2 text-xs font-normal text-foreground/70 hover:text-foreground', triggerClassName)}
         asChild
       >
         <Link href="/account/settings/connectors">

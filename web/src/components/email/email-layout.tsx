@@ -1032,7 +1032,8 @@ export function EmailLayout({ onReplyRequest, card }: EmailLayoutProps) {
               data-unread-toggle=""
               onClick={() => setUnreadOnly((v) => !v)}
               className={cn(
-                'h-6 shrink-0 rounded-full px-2.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none',
+                // A surface: it keeps the header's spacing from what stands beside it (CARD_HEADER_SPACED).
+                'ni-header-spaced h-6 shrink-0 rounded-full px-2.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none',
                 unreadOnly ? 'bg-foreground/[0.1] font-medium text-foreground' : 'bg-foreground/[0.05] text-muted-foreground hover:bg-foreground/[0.1] hover:text-foreground',
               )}
             >

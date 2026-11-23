@@ -36,7 +36,8 @@ export function ViewLayoutSwitcher({
       data-view-layout-switcher=""
       // overflow-hidden: the end segments take the capsule's round ends.
       // Compact (Liam, 11-21: "a bit too large"; 11-22, "good size … like apple made it"): 24px tall like every header control, 28px a segment, 14px icons.
-      className={cn('flex h-6 shrink-0 items-center overflow-hidden rounded-full bg-foreground/[0.05]', className)}
+      // ni-header-spaced: its distance from what stands beside it in a card's header (card-header-button.ts CARD_HEADER_SPACED).
+      className={cn('ni-header-spaced flex h-6 shrink-0 items-center overflow-hidden rounded-full bg-foreground/[0.05]', className)}
     >
       {options.map(({ value: layout, label, Icon }) => (
         <ToggleGroupPrimitive.Item

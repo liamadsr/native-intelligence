@@ -226,6 +226,24 @@ export function CompetitorsPage({ tab, onTab, onCount }: CompetitorsPageProps) {
 
   const isOwn = !!overview && (overview.is_own_site || (!!ownHost && sameSite(overview.domain, ownHost)))
 
+  const startControl = (inHeader: boolean) => (
+    <StartControl
+      header={inHeader}
+      site={site}
+      onSite={(next) => {
+        setSite(next)
+        if (fieldError) setFieldError(null)
+      }}
+      market={market}
+      onMarket={setMarket}
+      locations={domainLocations(markets)}
+      busy={busy}
+      blockedReason={blockedReason}
+      error={fieldError}
+      onSubmit={() => void lookUp({ domain: site, market })}
+    />
+  )
+
   const header = (
     <ViewHeader
       className="gap-3"
@@ -245,7 +263,8 @@ export function CompetitorsPage({ tab, onTab, onCount }: CompetitorsPageProps) {
       // In a card the site on show is the header's breadcrumb, "Competitors ›
       // example.com", the title the way back to the lookups (Liam, 11-22: "the
       // back button should just be the breadcrum"); the spend line is the
-      // header's too.
+      // header's too, and the lookup itself, with a site on show as before
+      // (Liam, 11-23: "all the SEO pages"), once the market is read.
       place={
         overview
           ? {
@@ -259,7 +278,12 @@ export function CompetitorsPage({ tab, onTab, onCount }: CompetitorsPageProps) {
             }
           : undefined
       }
-      actions={<SeoSpendLine view={view} />}
+      actions={
+        <>
+          {inCard && booted && startControl(true)}
+          <SeoSpendLine view={view} />
+        </>
+      }
     />
   )
 
@@ -272,27 +296,21 @@ export function CompetitorsPage({ tab, onTab, onCount }: CompetitorsPageProps) {
     )
   }
 
-  const locations = domainLocations(markets)
   const activeTab: CompetitorTab = tab && (COMPETITOR_TABS as readonly string[]).includes(tab) ? (tab as CompetitorTab) : 'overview'
   return (
     <div data-seo-competitors-page="" data-seo-state={overview ? 'site' : 'index'} className={cn('flex h-full min-h-0 flex-col', inCard && 'pt-2')}>
       {header}
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6">
         <div className="max-w-3xl">
-          <StartControl
-            site={site}
-            onSite={(next) => {
-              setSite(next)
-              if (fieldError) setFieldError(null)
-            }}
-            market={market}
-            onMarket={setMarket}
-            locations={locations}
-            busy={busy}
-            blockedReason={blockedReason}
-            error={fieldError}
-            onSubmit={() => void lookUp({ domain: site, market })}
-          />
+          {inCard ? (
+            fieldError && (
+              <p data-seo-site-error="" className="mb-2 text-left text-xs text-destructive">
+                {fieldError}
+              </p>
+            )
+          ) : (
+            startControl(false)
+          )}
           {banner?.kind === 'limit' && (
             <p data-seo-limit="" className="mt-3 rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
               {banner.message}
@@ -369,8 +387,10 @@ function RecentList({
   opening: string | null
   onOpen: (lookup: SeoLookupSummary) => void
 }) {
+  // In a card nothing stands above it: the lookup is the header's.
+  const inCard = useInCard()
   return (
-    <section data-seo-recent="" className="mt-6">
+    <section data-seo-recent="" className={inCard ? 'mt-1' : 'mt-6'}>
       <h2 className="text-[11px] font-medium text-muted-foreground">Recent</h2>
       <ul className="mt-1 divide-y divide-border">
         {lookups.map((lookup) => {
@@ -424,11 +444,12 @@ function SiteResult({
   onSpent: () => void
   onOff: (err: unknown) => void
 }) {
+  const inCard = useInCard()
   const keywords = useRankedKeywords(overview, { canBuy: !blockedReason, onSpent, onOff })
   const competitors = useCompetitors(overview, { onSpent, onOff })
   const when = relativeWhen(overview.fetched_at)
   return (
-    <div data-seo-site={overview.domain} className="mt-4">
+    <div data-seo-site={overview.domain} className={inCard ? 'mt-1' : 'mt-4'}>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <p data-seo-looked-up="" className="text-xs tabular-nums text-muted-foreground">
           {[describeMarket(overview.location_code, overview.language_code), when ? `Looked up ${when}` : null].filter(Boolean).join(' · ')}

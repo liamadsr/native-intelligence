@@ -45,7 +45,7 @@ import { fetchOverview, fetchOwnSite, fetchRecentOverviews, fetchStoredOverview,
 import { bareHost, hasPagePath, overviewFromLookup, ownSiteLookup, sameSite, siteOfLabel } from './helpers'
 import { OverviewTab } from './overview-tab'
 import { LinksList, PagesList, SitesList } from './profile-lists'
-import { StartControl, type PageScope } from './start-control'
+import { PageScopeChoice, StartControl, type PageScope } from './start-control'
 import { useProfile } from './use-profile'
 
 export const BACKLINK_TABS = ['overview', 'links', 'domains', 'pages'] as const
@@ -209,6 +209,24 @@ export function BacklinksPage({ tab, onTab, onCount }: BacklinksPageProps) {
 
   const isOwn = !!overview && (overview.scope === 'domain' || overview.scope === 'subdomains') && !!ownHost && sameSite(overview.display_target, ownHost)
 
+  const startControl = (inHeader: boolean) => (
+    <StartControl
+      header={inHeader}
+      site={site}
+      onSite={(next) => {
+        setSite(next)
+        if (fieldError) setFieldError(null)
+      }}
+      hasPath={hasPath}
+      pageScope={pageScope}
+      onPageScope={setPageScope}
+      busy={busy}
+      blockedReason={blockedReason}
+      error={fieldError}
+      onSubmit={submit}
+    />
+  )
+
   const header = (
     <ViewHeader
       className="gap-3"
@@ -228,7 +246,8 @@ export function BacklinksPage({ tab, onTab, onCount }: BacklinksPageProps) {
       // In a card the site or page on show is the header's breadcrumb,
       // "Backlinks › example.com", the title the way back to the lookups (Liam,
       // 11-22: "the back button should just be the breadcrum"); the spend line
-      // is the header's too.
+      // is the header's too, and the lookup's field and press, with a site on
+      // show as before (Liam, 11-23: "all the SEO pages").
       place={
         overview
           ? {
@@ -242,7 +261,12 @@ export function BacklinksPage({ tab, onTab, onCount }: BacklinksPageProps) {
             }
           : undefined
       }
-      actions={<SeoSpendLine view={view} />}
+      actions={
+        <>
+          {inCard && booted && startControl(true)}
+          <SeoSpendLine view={view} />
+        </>
+      }
     />
   )
 
@@ -261,20 +285,7 @@ export function BacklinksPage({ tab, onTab, onCount }: BacklinksPageProps) {
       {header}
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6">
         <div className="max-w-3xl">
-          <StartControl
-            site={site}
-            onSite={(next) => {
-              setSite(next)
-              if (fieldError) setFieldError(null)
-            }}
-            hasPath={hasPath}
-            pageScope={pageScope}
-            onPageScope={setPageScope}
-            busy={busy}
-            blockedReason={blockedReason}
-            error={fieldError}
-            onSubmit={submit}
-          />
+          {inCard ? <PageScopeChoice hasPath={hasPath} pageScope={pageScope} onPageScope={setPageScope} error={fieldError} className="mb-2" /> : startControl(false)}
           {banner?.kind === 'limit' && (
             <p data-seo-limit="" className="mt-3 rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
               {banner.message}
@@ -355,8 +366,10 @@ function RecentList({
   opening: string | null
   onOpen: (lookup: SeoLookupSummary) => void
 }) {
+  // In a card nothing stands above it: the lookup is the header's.
+  const inCard = useInCard()
   return (
-    <section data-seo-recent="" className="mt-6">
+    <section data-seo-recent="" className={inCard ? 'mt-1' : 'mt-6'}>
       <h2 className="text-[11px] font-medium text-muted-foreground">Recent</h2>
       <ul className="mt-1 divide-y divide-border">
         {lookups.map((lookup) => {
@@ -410,6 +423,7 @@ function SiteResult({
   onSpent: () => void
   onOff: (err: unknown) => void
 }) {
+  const inCard = useInCard()
   const deps = { canBuy: !blockedReason, onSpent, onOff }
   const links = useProfile('backlinks', overview, deps)
   const sites = useProfile('domains', overview, deps)
@@ -421,7 +435,7 @@ function SiteResult({
     onTab('links')
   }
   return (
-    <div data-seo-target={overview.display_target} className="mt-4">
+    <div data-seo-target={overview.display_target} className={inCard ? 'mt-1' : 'mt-4'}>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <p data-seo-looked-up="" className="text-xs tabular-nums text-muted-foreground">
           {when ? `Looked up ${when}` : 'Looked up'}

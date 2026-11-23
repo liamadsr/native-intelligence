@@ -36,6 +36,8 @@ import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
+import { CardHeaderSlot, useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
+import { CARD_HEADER_CAPSULE, CARD_HEADER_SEGMENT } from '@/components/chat-cards/card-header-button'
 import { BookingLinksSection } from './booking-links-section'
 import { LinkBookingsPanel } from './link-bookings-panel'
 import { LinkInsightsPanel } from './link-insights-panel'
@@ -388,8 +390,26 @@ const TABS: Array<{ id: AvailabilityTab; label: string }> = [
   { id: 'insights', label: 'Insights' },
 ]
 
-/** Availability, and what your booking links made: their bookings (./link-bookings-panel.tsx) and insights (./link-insights-panel.tsx). */
+/**
+ * Availability, and what your booking links made: their bookings (./link-bookings-panel.tsx) and insights (./link-insights-panel.tsx).
+ * In a card, a capsule in its header (Liam, 11-23: the page "still need[s] to be updated", as the inbox's filters went up); on
+ * its own (Settings), the underlined row over the page.
+ */
 function AvailabilityTabs({ tab, onTab }: { tab: AvailabilityTab; onTab: (tab: AvailabilityTab) => void }) {
+  const inCard = useCardHeaderSlots() !== null
+  if (inCard) {
+    return (
+      <CardHeaderSlot side="right">
+        <div role="tablist" aria-label="Availability" data-availability-tabs="header" className={CARD_HEADER_CAPSULE}>
+          {TABS.map((t) => (
+            <button key={t.id} type="button" role="tab" aria-selected={tab === t.id} onClick={() => onTab(t.id)} className={CARD_HEADER_SEGMENT}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </CardHeaderSlot>
+    )
+  }
   return (
     <div role="tablist" aria-label="Availability" className="mb-5 flex gap-4 border-b">
       {TABS.map((t) => (
