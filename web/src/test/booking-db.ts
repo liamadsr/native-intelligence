@@ -8,6 +8,7 @@
  *     answered as a unique key's 23505;
  *   - book_meeting (a booking and a claim per host in one block, lapsed
  *     claims cleared first, `taken` leaving nothing) and
+ *     (705: a booking's form_row_id unique where set, as its index);
  *     move_meeting_booking (a confirmed booking and its claims together,
  *     fenced on its start), as the same steps in one synchronous block.
  *
@@ -140,7 +141,8 @@ export function bookingDb(tables: Record<string, Row[]>, unique: Record<string, 
   tables.host_time_claim ??= []
   const db = memoryDb(tables, {
     host_time_claim: claimsCollide,
-    meeting_booking: (a, b) => a.id === b.id || a.manage_token_hash === b.manage_token_hash,
+    // 705: a form row books once (meeting_booking_form_row_key).
+    meeting_booking: (a, b) => a.id === b.id || a.manage_token_hash === b.manage_token_hash || (a.form_row_id != null && a.form_row_id === b.form_row_id),
     ...unique,
   })
 
@@ -158,7 +160,7 @@ export function bookingDb(tables: Record<string, Row[]>, unique: Record<string, 
       const hosts = (args.p_hosts as unknown[]) ?? []
       if (!hosts.length || !hosts.includes(p.host_user_id)) return { data: { status: 'invalid' }, error: null }
       clearLapsed(hosts)
-      if (tables.meeting_booking.some((r) => r.id === p.id || r.manage_token_hash === p.manage_token_hash)) return { data: { status: 'exists', booking_id: p.id }, error: null }
+      if (tables.meeting_booking.some((r) => r.id === p.id || r.manage_token_hash === p.manage_token_hash || (p.form_row_id != null && r.form_row_id === p.form_row_id))) return { data: { status: 'exists', booking_id: p.id }, error: null }
       const nowIso = new Date().toISOString()
       const row: Row = {
         offer_id: null, link_id: null, channel: null, guest_email: null, guest_phone: null, guest_time_zone: null, guest_note: null, contact_id: null, quote_id: null, guest_id: null,

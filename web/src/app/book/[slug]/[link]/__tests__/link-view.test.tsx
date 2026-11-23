@@ -270,3 +270,54 @@ describe('booking', () => {
     expect(state()).toBe('closed')
   })
 })
+
+describe('a form in front (booking insights phase 4)', () => {
+  const SHAPE = { name: 'Before you book', description: null, submit_label: 'Continue', bot_check: false, access: 'public' as const, fields: [{ name: 'budget', label: 'Budget', type: 'number' as const, required: true }] }
+  const gated = () => found({ form: { state: 'open', shape: SHAPE } })
+  let qualify: (body: Record<string, unknown>) => Response
+
+  beforeEach(() => {
+    qualify = () => reply(200, { ok: true, qualified: true, pass: 'bp1.pass' })
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (String(url).endsWith('/qualify')) return qualify(JSON.parse(String(init?.body)))
+      return url.includes('/times?') ? times() : book(JSON.parse(String(init?.body)))
+    })
+  })
+
+  async function answer(budget: string) {
+    type(q('[data-form] input[name="budget"]'), budget)
+    await act(async () => {
+      ;(q('[data-form]') as HTMLFormElement).dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    })
+    await settle()
+  }
+
+  it('asks the form first and reads no calendar until the answers qualify; then the pass goes with the booking', async () => {
+    await draw(gated())
+    expect(state()).toBe('form')
+    expect(timesRead()).toEqual([])
+    await answer('5000')
+    const posted = fetchMock.mock.calls.find((c) => String(c[0]).endsWith('/qualify'))!
+    expect(posted[0]).toBe('/api/public/booking-links/ava-lin/intro-call/qualify')
+    expect(JSON.parse(String((posted[1] as RequestInit).body))).toMatchObject({ budget: 5000 })
+    expect(state()).toBe('open')
+    expect(timesRead()).toHaveLength(1)
+    await fillAndSubmit()
+    expect(bookBodies()[0]).toMatchObject({ pass: 'bp1.pass' })
+  })
+
+  it('a guest who doesn’t qualify reads the link’s line and sees no times', async () => {
+    qualify = () => reply(200, { ok: true, qualified: false, message: 'We work with teams of 10 or more.' })
+    await draw(gated())
+    await answer('50')
+    expect(state()).toBe('not-qualified')
+    expect(container.textContent).toContain('We work with teams of 10 or more.')
+    expect(timesRead()).toEqual([])
+  })
+
+  it('a form that can’t be answered now closes the page', async () => {
+    await draw(found({ form: { state: 'closed' } }))
+    expect(state()).toBe('form-closed')
+    expect(timesRead()).toEqual([])
+  })
+})

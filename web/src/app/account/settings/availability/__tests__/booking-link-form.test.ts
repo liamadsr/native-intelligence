@@ -5,7 +5,7 @@
  * what changed (hosts always with how they share). Made-up people.
  */
 import { describe, expect, it } from 'vitest'
-import { createBody, draftOf, draftProblem, linkSummary, newDraft, noticeLabel, patchBody, typedSlug, withTitle, withValue, type SettingsLink } from '../booking-link-form'
+import { OWN_WEEK_DEFAULT, createBody, dailyCapLabel, draftOf, draftProblem, linkSummary, newDraft, noticeLabel, patchBody, typedSlug, withTitle, withValue, type SettingsLink } from '../booking-link-form'
 
 const AVA = 'a0000000-0000-4000-8000-00000000000a'
 const BEN = 'b0000000-0000-4000-8000-00000000000b'
@@ -110,5 +110,42 @@ describe('the labels', () => {
     expect(linkSummary({ duration_minutes: 60, host_mode: 'all', hosts: [AVA, BEN] }, nameOf)).toBe('1 hr · Ava Lin and Ben Ruiz')
     expect(linkSummary({ duration_minutes: 45, host_mode: 'any', hosts: [AVA, BEN, 'c'] }, nameOf)).toBe('45 min · any of 3')
     expect(linkSummary({ duration_minutes: 45, host_mode: 'all', hosts: [AVA, BEN, 'c'] }, nameOf)).toBe('45 min · Ava Lin and 2 others')
+  })
+})
+
+describe('daily limit, own hours and dated changes (booking insights phase 3)', () => {
+  const saved = {
+    id: 'l1', url: null, profile: 'ava', slug: 'intro', purpose: 'meeting' as const, title: 'Intro', description: null,
+    duration_minutes: 30, buffer_before_minutes: 0, buffer_after_minutes: 0, notice_minutes: 240, window_days: 30,
+    questions: [], video: true, location: null, ask_first: false, host_mode: 'one' as const, hosts: ['u1'], owner_user_id: 'u1', active: true, can_edit: true,
+  }
+
+  it('a new link sends them only when set', () => {
+    const plain = createBody({ ...newDraft('u1'), title: 'Intro' })
+    expect(plain).not.toHaveProperty('daily_cap')
+    expect(plain).not.toHaveProperty('weekly_hours')
+    const set = createBody({ ...newDraft('u1'), title: 'Intro', dailyCap: 3, ownHours: true, timeZone: 'America/New_York', dateOverrides: { '2031-01-02': [] } })
+    expect(set).toMatchObject({ daily_cap: 3, time_zone: 'America/New_York', date_overrides: { '2031-01-02': [] } })
+    expect((set.weekly_hours as unknown[]).length).toBe(7)
+  })
+
+  it('a change sends only what changed, a week with its zone', () => {
+    const draft = draftOf(saved)
+    expect(patchBody(saved, draft)).toEqual({})
+    expect(patchBody(saved, { ...draft, dailyCap: 2 })).toEqual({ daily_cap: 2 })
+    const own = patchBody(saved, { ...draft, ownHours: true, timeZone: 'America/Chicago' })
+    expect(Object.keys(own).sort()).toEqual(['time_zone', 'weekly_hours'])
+    const withOwn = { ...saved, weekly_hours: OWN_WEEK_DEFAULT, time_zone: 'America/Chicago', date_overrides: { '2031-01-02': [] } }
+    expect(patchBody(withOwn, draftOf(withOwn))).toEqual({})
+    expect(patchBody(withOwn, { ...draftOf(withOwn), ownHours: false })).toEqual({ weekly_hours: null, time_zone: null, date_overrides: null })
+  })
+
+  it('refuses a broken week or date, and a week with nothing open', () => {
+    const base = { ...newDraft('u1'), title: 'Intro', ownHours: true }
+    expect(draftProblem(base)).toBeNull()
+    expect(draftProblem({ ...base, weekly: [[], [{ start: '10:00', end: '09:00' }], [], [], [], [], []] })).toMatch(/Monday/)
+    expect(draftProblem({ ...base, weekly: [[], [], [], [], [], [], []] })).toMatch(/at least one day/)
+    expect(draftProblem({ ...base, dateOverrides: { '2031-01-02': [{ start: '09:00', end: '12:00' }, { start: '11:00', end: '13:00' }] } })).toMatch(/2031-01-02: the ranges overlap/)
+    expect(dailyCapLabel(0)).toBe('No limit')
   })
 })
