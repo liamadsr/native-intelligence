@@ -8,7 +8,8 @@
  *        → { id } a grant (view unless `level` says edit, migration 512), as the person (only someone who may share
  *        the record: a private doc's or capture's creator, a restricted
  *        contact's creator or an admin, a company's admin). 403 otherwise,
- *        409 when that grantee already has one.
+ *        409 when that grantee already has one. A member it is shared with
+ *        is told (record_shared, src/lib/entity-access/notify.ts).
  * Runs as the person, under RLS (src/lib/entity-access/store.ts).
  */
 import { NextResponse, type NextRequest } from 'next/server'
@@ -16,6 +17,7 @@ import { requireWorkspaceMember } from '@/lib/api-auth'
 import { badRequest, conflict, forbidden, notFound, serverError } from '@/lib/api-errors'
 import { addEntityGrant, loadEntityAccess } from '@/lib/entity-access/store'
 import { isGrantLevel, isGrantableType, isGranteeKind } from '@/lib/entity-access/model'
+import { notifyRecordShared } from '@/lib/entity-access/notify'
 import { isUuid } from '@/lib/team-chat/types'
 
 export async function GET(request: NextRequest) {
@@ -56,7 +58,18 @@ export async function POST(request: NextRequest) {
     { kind, id: granteeId },
     level ?? 'view',
   )
-  if ('id' in result) return NextResponse.json({ id: result.id }, { status: 201 })
+  if ('id' in result) {
+    await notifyRecordShared(auth.supabase, {
+      workspaceId: auth.workspaceId,
+      actorMemberId: auth.member.id,
+      type,
+      id,
+      granteeKind: kind,
+      granteeId,
+      level: level ?? 'view',
+    })
+    return NextResponse.json({ id: result.id }, { status: 201 })
+  }
   if (result.error === 'forbidden') return forbidden(result.message)
   if (result.error === 'exists') return conflict(result.message)
   if (result.error === 'invalid') return badRequest(result.message)

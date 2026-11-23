@@ -51,11 +51,22 @@ export function createCanvasTools(
   workspaceId: string,
   strictWorkspace = false,
   createWorkspacePolicy: CreateWorkspacePolicy = 'session',
+  /**
+   * May an EDIT grant (migration 688) let this turn change a canvas shared
+   * with the person? False on a guest's or a linked agent's turn and on an
+   * unattended run (CreateToolsOptions: index.ts's editGrants, as tables').
+   */
+  editGrants = false,
+  /** A guest's or a linked agent's turn: no grant opens a canvas at all (519's rule; 688's canvas_visible_ungranted). */
+  omitGrants = false,
 ) {
   /** The canvas, if this person may open it (and, for a write, change it). Fenced by the database's own rule. */
-  async function open(canvasId: string, write: boolean): Promise<{ ok: true; canvas: { id: string; workspace_id: string; title: string; visibility: string }; canEdit: boolean } | { ok: false; error: string }> {
+  async function open(canvasId: string, write: boolean): Promise<{ ok: true; canvas: { id: string; workspace_id: string; title: string; visibility: string }; canEdit: boolean; canComment: boolean } | { ok: false; error: string }> {
     if (!UUID.test(canvasId)) return { ok: false, error: 'canvas_id is the id of a canvas (find one with search).' }
-    const visible = await supabase.rpc('canvas_visible_to', { p_canvas_id: canvasId, p_user_id: userId })
+    // Its own rule (workspace-wide or theirs), and the one that also reads grants.
+    const ungranted = await supabase.rpc('canvas_visible_ungranted', { p_canvas_id: canvasId, p_user_id: userId })
+    if (ungranted.error) return { ok: false, error: ungranted.error.message }
+    const visible = omitGrants ? ungranted : await supabase.rpc('canvas_visible_to', { p_canvas_id: canvasId, p_user_id: userId })
     if (visible.error) return { ok: false, error: visible.error.message }
     if (visible.data !== true) return { ok: false, error: 'No canvas with that id that this person can open.' }
     const { data, error } = await supabase.from('canvas').select('id, workspace_id, title, visibility, archived_at').eq('id', canvasId).maybeSingle()
@@ -65,9 +76,14 @@ export function createCanvasTools(
     // A turn held to one workspace reads nothing from another.
     if (strictWorkspace && row.workspace_id !== workspaceId) return { ok: false, error: 'That canvas is in another workspace.' }
     const editable = await supabase.rpc('canvas_editable_by', { p_canvas_id: canvasId, p_user_id: userId })
-    const canEdit = !editable.error && editable.data === true && !row.archived_at
+    // Editable and seen by its own rule: its own rule edits it (canvas_editable_by without the grant,
+    // since editable already means not a guest). Otherwise only an edit grant does, which this turn may not use.
+    const canEdit = !editable.error && editable.data === true && !row.archived_at && (editGrants || ungranted.data === true)
     if (write && !canEdit) return { ok: false, error: row.archived_at ? 'That canvas is archived.' : 'This person can view that canvas but not change it.' }
-    return { ok: true, canvas: { id: row.id, workspace_id: row.workspace_id, title: row.title, visibility: row.visibility }, canEdit }
+    // Who comments (682, 688): whoever opens it by its own rule, or through an EDIT grant (a view grant
+    // reads the threads and writes none), and an edit grant only on a turn that may use one.
+    const canComment = ungranted.data === true || (editGrants && !editable.error && editable.data === true)
+    return { ok: true, canvas: { id: row.id, workspace_id: row.workspace_id, title: row.title, visibility: row.visibility }, canEdit, canComment }
   }
 
   const load = async (canvasId: string): Promise<CanvasItem[]> => (await listItems(supabase, canvasId)).map(rowToItem).filter((it): it is CanvasItem => !!it)
@@ -168,9 +184,10 @@ export function createCanvasTools(
       }),
       execute: async ({ canvas_id, body, item_id, reply_to, mention_member_ids }) => {
         try {
-          // Anyone who can open a canvas comments on it, as a person can.
+          // Anyone who can open a canvas comments on it, as a person can; a view grant (688) does not.
           const found = await open(canvas_id, false)
           if (!found.ok) return { success: false, error: found.error }
+          if (!found.canComment) return { success: false, error: 'This person can view that canvas but not comment on it.' }
           const ws = found.canvas.workspace_id
           const me = await memberIn(ws)
           if (!me) return { success: false, error: 'This person is not a member of that canvas\'s workspace.' }
@@ -208,6 +225,7 @@ export function createCanvasTools(
         try {
           const found = await open(canvas_id, false)
           if (!found.ok) return { success: false, error: found.error }
+          if (!found.canComment) return { success: false, error: 'This person can view that canvas but not comment on it.' }
           const me = await memberIn(found.canvas.workspace_id)
           if (!me) return { success: false, error: 'This person is not a member of that canvas\'s workspace.' }
           const thread = await getComment(supabase, canvas_id, thread_id)

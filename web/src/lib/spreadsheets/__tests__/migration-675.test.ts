@@ -57,8 +57,9 @@ describe('migration 675: spreadsheets', () => {
     expect(tables).toEqual(['spreadsheet', 'spreadsheet_revision', 'spreadsheet_comment'])
     const functions = [...sql.matchAll(/create or replace function public\.(\w+)/gi)].map((m) => m[1])
     expect(functions).toEqual(['spreadsheet_before_write', 'spreadsheet_track_change', 'spreadsheet_comment_guard', 'spreadsheet_entity_visible_to'])
-    // No earlier migration defines these names, so "create or replace" replaces nothing.
-    const earlier = migrationsInOrder().filter((m) => m.file !== FILE)
+    // No earlier migration defines these names, so "create or replace" replaces nothing. (688, later,
+    // restates spreadsheet_entity_visible_to with a grant arm: docs/plans/record-sharing.md.)
+    const earlier = migrationsInOrder().filter((m) => m.num < 675)
     for (const fn of functions) {
       expect(earlier.filter((m) => new RegExp(`function\\s+(public\\.)?"?${fn}"?\\s*\\(`, 'i').test(m.sql)).map((m) => m.file)).toEqual([])
     }

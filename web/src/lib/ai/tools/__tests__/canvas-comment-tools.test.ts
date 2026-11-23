@@ -38,7 +38,8 @@ function db(): SupabaseClient {
       return q
     },
     rpc: async (fn: string, args: Record<string, string>) => {
-      if (fn === 'canvas_visible_to') return { data: args.p_canvas_id === CV && args.p_user_id === ME, error: null }
+      // Opened by its own rule (688's canvas_visible_ungranted says the same): a viewer here is not one by a grant.
+      if (fn === 'canvas_visible_to' || fn === 'canvas_visible_ungranted') return { data: args.p_canvas_id === CV && args.p_user_id === ME, error: null }
       if (fn === 'canvas_editable_by') return { data: false, error: null }
       return { data: null, error: null }
     },

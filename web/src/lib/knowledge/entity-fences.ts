@@ -335,13 +335,43 @@ function studioFence(table: 'studio_video' | 'studio_project'): Fence {
 }
 
 /**
+ * The rows among `hidden` (records of `type` the person's own rule hides, each
+ * in a workspace they are a member of) that a grant opens for them: 688's
+ * grant arm, through grants.ts's mirror of has_entity_grant, one workspace at
+ * a time. None on a guest's or a linked agent's turn (519's rule: a grant
+ * shares a record with the person, never with whoever they let talk to their
+ * agent).
+ */
+async function openedByGrant(
+  supabase: SupabaseClient,
+  userId: string,
+  type: 'spreadsheet' | 'canvas',
+  hidden: Array<{ id: string; workspace_id: string }>,
+  opts: GrantOpts,
+): Promise<Set<string>> {
+  if (hidden.length === 0 || opts.grants === false) return new Set()
+  // Loaded here, not at the top: the grant mirror reads this file's team chat fence.
+  const { grantedEntityIds } = await import('@/lib/entity-access/grants')
+  const byWorkspace = new Map<string, string[]>()
+  for (const r of hidden) byWorkspace.set(r.workspace_id, [...(byWorkspace.get(r.workspace_id) ?? []), r.id])
+  const out = new Set<string>()
+  await Promise.all(
+    [...byWorkspace.entries()].map(async ([ws, ids]) => {
+      for (const id of await grantedEntityIds(supabase, { userId, workspaceId: ws }, type, ids)) out.add(id)
+    }),
+  )
+  return out
+}
+
+/**
  * A canvas (676): canvas_visible_to's rule for an explicit user — a member of
- * the canvas's workspace, and the canvas is workspace-wide or theirs. No grant
- * arm (676 adds none). Mirrors 676's canvas_entity_visible_to, which its
+ * the canvas's workspace, and the canvas is workspace-wide, theirs, or shared
+ * with them by a grant (688; never on a guest's or linked agent's turn: 688's
+ * canvas_visible_ungranted). Mirrors 676's canvas_entity_visible_to, which its
  * restrictive entity_link policies ask; the shared entity_visible_to does not
  * know this kind, so no reader here sends a canvas ref to it.
  */
-const canvasFence: Fence = async (supabase, userId, ids, workspaceId) => {
+const canvasFence: Fence = async (supabase, userId, ids, workspaceId, opts = {}) => {
   const wanted = uniq(ids)
   if (!userId || wanted.length === 0) return new Set()
   const rows = await rowsByIds(wanted, (c) => {
@@ -353,11 +383,14 @@ const canvasFence: Fence = async (supabase, userId, ids, workspaceId) => {
   const members = await memberIdsByWorkspace(supabase, userId, rows.map((r) => r.workspace_id as string))
   if (!members) return new Set()
   const out = new Set<string>()
+  const hidden: Array<{ id: string; workspace_id: string }> = []
   for (const r of rows) {
     const me = members.get(r.workspace_id as string)
     if (!me) continue
     if (r.visibility === 'workspace' || (r.owner_member_id && r.owner_member_id === me)) out.add(r.id as string)
+    else hidden.push({ id: r.id as string, workspace_id: r.workspace_id as string })
   }
+  for (const id of await openedByGrant(supabase, userId, 'canvas', hidden, opts)) out.add(id)
   return out
 }
 
@@ -434,10 +467,11 @@ const packageFence: Fence = async (supabase, userId, ids, workspaceId) => {
 
 /**
  * A spreadsheet (675): spreadsheet_select's rule for an explicit user. A
- * member of its workspace reads a workspace one, and their own private one.
- * No grants (675 has none for the kind).
+ * member of its workspace reads a workspace one, their own private one, and
+ * one shared with them by a grant (688; never on a guest's or linked agent's
+ * turn: 688's spreadsheet_visible_ungranted).
  */
-const spreadsheetFence: Fence = async (supabase, userId, ids, workspaceId) => {
+const spreadsheetFence: Fence = async (supabase, userId, ids, workspaceId, opts = {}) => {
   const wanted = uniq(ids)
   if (!userId || wanted.length === 0) return new Set()
   const rows = await rowsByIds(wanted, (c) => {
@@ -448,14 +482,16 @@ const spreadsheetFence: Fence = async (supabase, userId, ids, workspaceId) => {
   if (!rows || rows.length === 0) return new Set()
   const members = await memberIdsByWorkspace(supabase, userId, rows.map((r) => r.workspace_id as string))
   if (!members) return new Set()
-  return new Set(
-    rows
-      .filter((r) => {
-        const me = members.get(r.workspace_id as string)
-        return !!me && (r.visibility === 'workspace' || r.created_by === me)
-      })
-      .map((r) => r.id as string),
-  )
+  const out = new Set<string>()
+  const hidden: Array<{ id: string; workspace_id: string }> = []
+  for (const r of rows) {
+    const me = members.get(r.workspace_id as string)
+    if (!me) continue
+    if (r.visibility === 'workspace' || r.created_by === me) out.add(r.id as string)
+    else hidden.push({ id: r.id as string, workspace_id: r.workspace_id as string })
+  }
+  for (const id of await openedByGrant(supabase, userId, 'spreadsheet', hidden, opts)) out.add(id)
+  return out
 }
 
 const FENCES: Record<PrivateGraphKind, Fence> = {

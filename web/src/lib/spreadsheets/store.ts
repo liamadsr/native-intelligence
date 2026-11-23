@@ -99,6 +99,19 @@ export async function getSpreadsheet(
   return (data as unknown as SpreadsheetRecord | null) ?? null
 }
 
+/**
+ * May this person change the spreadsheet's content? 688's
+ * spreadsheet_editable_by: a member who reads a workspace one (675: whoever
+ * reads it edits it), its maker, or someone an EDIT grant reaches (never a
+ * guest). A view grantee reads it and may not. The database decides every
+ * write in any case; this is what the editor shows (read-only or not).
+ */
+export async function spreadsheetEditableBy(supabase: SupabaseClient, id: string, userId: string): Promise<boolean> {
+  const { data, error } = await supabase.rpc('spreadsheet_editable_by', { p_spreadsheet_id: id, p_user_id: userId })
+  if (error) throw new Error(error.message)
+  return data === true
+}
+
 export async function getSpreadsheetSummary(
   supabase: SupabaseClient,
   workspaceId: string,

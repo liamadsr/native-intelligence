@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Model } from '@ironcalc/wasm'
 import { visiblePrivateKindIds } from '@/lib/knowledge/entity-fences'
+import { hasEditGrant } from '@/lib/entity-access/grants'
 import {
   MAX_CELL_CHARS,
   MAX_COLUMNS,
@@ -75,9 +76,33 @@ export function createSpreadsheetTools(
   workspaceId: string,
   strictWorkspace = false,
   createWorkspacePolicy: CreateWorkspacePolicy = 'session',
+  /**
+   * May an EDIT grant (migration 688) let this turn change a spreadsheet
+   * shared with the person? False on a guest's or a linked agent's turn and on
+   * an unattended run (index.ts's editGrants, as tables').
+   */
+  editGrants = false,
+  /** A guest's or a linked agent's turn: no grant opens a spreadsheet at all (519's rule). */
+  omitGrants = false,
 ) {
-  /** The ids among `ids` the person may read in `ws` (a workspace one, or their own private one). */
-  const readableIds = (ws: string, ids: string[]) => visiblePrivateKindIds(supabase, 'spreadsheet', userId, ids, ws)
+  /**
+   * The ids among `ids` the person may read in `ws`: a workspace one, their
+   * own private one, or one shared with them (688; never on a guest's or a
+   * linked agent's turn).
+   */
+  const readableIds = (ws: string, ids: string[]) => visiblePrivateKindIds(supabase, 'spreadsheet', userId, ids, ws, omitGrants ? { grants: false } : {})
+
+  /**
+   * May this turn change it? 675's rule (whoever reads a workspace one, or its
+   * maker), or an EDIT grant when the turn may use one. A VIEW grant reads and
+   * never writes. These tools may run on a service-role client, where RLS
+   * stops nothing, so this is the write's gate.
+   */
+  async function writable(ws: string, record: { id: string; visibility: string; created_by: string | null }, me: string): Promise<boolean> {
+    if (record.visibility === 'workspace' || record.created_by === me) return true
+    if (!editGrants) return false
+    return hasEditGrant(supabase, { userId, workspaceId: ws }, 'spreadsheet', record.id)
+  }
 
   /** The person's member id in `ws`, for created_by / last_edited_by; null when they are not a member. */
   async function memberId(ws: string): Promise<string | null> {
@@ -167,6 +192,8 @@ export function createSpreadsheetTools(
         const { ws, record } = found.value
         const me = await memberId(ws)
         if (!me) return { success: false, error: "This person is not a member of that spreadsheet's workspace." }
+        // A view grant (688) reads the threads and writes none, as for a person.
+        if (!(await writable(ws, record, me))) return { success: false, error: 'This person can view that spreadsheet but not comment on it.' }
         const words = body.trim()
         let model: Model | null = null
         try {
@@ -212,6 +239,8 @@ export function createSpreadsheetTools(
         const { ws, record } = found.value
         const me = await memberId(ws)
         if (!me) return { success: false, error: "This person is not a member of that spreadsheet's workspace." }
+        // A view grant (688) reads the threads and writes none, as for a person.
+        if (!(await writable(ws, record, me))) return { success: false, error: 'This person can view that spreadsheet but not comment on it.' }
         try {
           if (!UUID.test(thread_id)) return { success: false, error: "thread_id is a thread id from read_spreadsheet's comments." }
           const thread = await getComment(supabase, thread_id)
@@ -548,6 +577,7 @@ export function createSpreadsheetTools(
         const { ws, record } = found.value
         const me = await memberId(ws)
         if (!me) return { success: false, error: 'You are not a member of that workspace.' }
+        if (!(await writable(ws, record, me))) return { success: false, error: 'This person can view that spreadsheet but not change it.' }
         if (operations.length > MAX_OPERATIONS) return { success: false, error: `At most ${MAX_OPERATIONS} operations per call.` }
         let model: Model | null = null
         try {

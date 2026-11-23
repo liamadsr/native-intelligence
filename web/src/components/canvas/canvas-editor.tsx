@@ -356,6 +356,33 @@ export default function CanvasEditor({ canvasId, onBack, onTitle }: CanvasEditor
     }
   }, [canvasId])
 
+  /**
+   * The canvas's sharing changed (the server said so in the presence room,
+   * lib/canvas/access-notice.ts): ask again, as this person. Refused: it is
+   * no longer theirs to open, so the canvas closes (and the room with it).
+   * Allowed with a different `can_edit`: it opens again in the new mode.
+   */
+  const loadedRef = React.useRef(loaded)
+  loadedRef.current = loaded
+  const recheckAccess = React.useRef<() => Promise<void>>(async () => {})
+  recheckAccess.current = async () => {
+    const r = await fetch(`/api/account/canvases/${canvasId}`).catch(() => null)
+    if (!r) return
+    if (r.status === 404 || r.status === 403) {
+      setLoaded(null)
+      setError('This canvas is no longer shared with you.')
+      return
+    }
+    if (!r.ok) return
+    const j = (await r.json()) as { canvas: CanvasRecord; items: CanvasItemRow[]; can_edit?: boolean; viewer?: string }
+    const canEdit = j.can_edit !== false
+    const was = loadedRef.current
+    if (!was || was.canEdit === canEdit) return
+    const items = (j.items ?? []).map(rowToItem).filter((it): it is CanvasItem => !!it)
+    setLoaded({ canvas: j.canvas, items, canEdit, outbox: canEdit && j.viewer ? new Outbox(browserStorage(), canvasId, j.viewer) : null, unsent: null })
+    setNotice(canEdit ? 'You can now edit this canvas.' : 'You can still view this canvas, but no longer change it.')
+  }
+
   const onTitleRef = React.useRef(onTitle)
   onTitleRef.current = onTitle
   React.useEffect(() => {
@@ -445,6 +472,9 @@ export default function CanvasEditor({ canvasId, onBack, onTitle }: CanvasEditor
         sender?.stop()
         sender = null
         presence.current = null
+      },
+      accessChanged: () => {
+        if (live) void recheckAccess.current()
       },
     })
     void supabase.auth.getUser().then(({ data }) => {
