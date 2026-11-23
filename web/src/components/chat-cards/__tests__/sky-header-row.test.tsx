@@ -93,4 +93,29 @@ describe('the header up on the sky', () => {
     // The rail's header ends at 266; 8px after it, from the card's left at 70.
     expect(row().style.paddingLeft).toBe('204px')
   })
+
+  it('Interactive in the controls’ pill: its width (and its margin and the pill’s gap) kept out of the page controls’ room, as it comes, grows and goes', async () => {
+    const withToggle = (shown: boolean) => (
+      <SkyHeaderRow data-card-header="">
+        <div>My actions</div>
+        <div data-card-header-pill="controls">{shown && <span data-listen-header="">Interactive</span>}</div>
+      </SkyHeaderRow>
+    )
+    await act(async () => root.render(withToggle(false)))
+    expect(row().style.getPropertyValue('--sky-reserve')).toBe('0px')
+    await act(async () => root.render(withToggle(true)))
+    const toggle = column.querySelector('[data-listen-header]')!
+    place(toggle, { left: 1100, top: 12, width: 92, height: 24 })
+    resize(toggle)
+    expect(row().style.getPropertyValue('--sky-reserve')).toBe('98px')
+    // Next and the mic come: wider.
+    place(toggle, { left: 1050, top: 12, width: 144, height: 24 })
+    resize(toggle)
+    expect(row().style.getPropertyValue('--sky-reserve')).toBe('150px')
+    // Nothing to read here: it goes, and the room comes back.
+    await act(async () => root.render(withToggle(false)))
+    expect(row().style.getPropertyValue('--sky-reserve')).toBe('0px')
+    // The pills stay put: the row's right padding, the controls' pill's negative margin.
+    expect(row().className).toContain('pr-[var(--sky-reserve,0px)]')
+  })
 })

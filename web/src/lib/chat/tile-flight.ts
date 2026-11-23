@@ -452,6 +452,12 @@ function hideHome(home: HTMLElement): () => void {
  */
 export const TILE_FLIGHT_RIDER_ATTR = 'data-tile-flight-rider'
 /**
+ * Inside a rider, what its copy keeps the room of but does not show: what a
+ * clone cannot draw (the Interactive toggle's liquid metal is a WebGL canvas,
+ * blank in a copy, which left its label on bare glass).
+ */
+export const TILE_FLIGHT_HIDE_ATTR = 'data-tile-flight-hide'
+/**
  * Off a rider's copy: what a live element's selectors, focus or labels would
  * find twice. `data-card-header` itself stays (the copy keeps the header's
  * look: studio.css sizes Studio's header buttons under it); its parts'
@@ -475,6 +481,7 @@ function riderCopiesOf(frame: HTMLElement | null, at: { left: number; top: numbe
       for (const name of RIDER_DROPPED_ATTRS) node.removeAttribute(name)
       for (const name of node.getAttributeNames()) if (name.startsWith('data-card-header-')) node.removeAttribute(name)
     }
+    for (const hidden of Array.from(copy.querySelectorAll<HTMLElement>(`[${TILE_FLIGHT_HIDE_ATTR}]`))) hidden.style.visibility = 'hidden'
     copy.setAttribute('data-tile-flight-rider-copy', '')
     Object.assign(copy.style, {
       position: 'absolute',

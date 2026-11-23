@@ -504,6 +504,8 @@ describe('ListenModeToggle', () => {
     await until(() => metal() !== null)
     const outer = container.firstElementChild as HTMLElement
     expect(outer.hasAttribute('data-listen-header')).toBe(true)
+    // Not drawn on the header's flight copy: its metal can't be copied.
+    expect(outer.hasAttribute('data-tile-flight-hide')).toBe(true)
     // The toggle: the header's 24px, its metal and its ring as in the bar.
     expect(toggle()!.classList.contains('h-6')).toBe(true)
     expect(toggle()!.querySelector('svg')?.classList.contains('size-2.5')).toBe(true)
@@ -513,8 +515,9 @@ describe('ListenModeToggle', () => {
     expect(ring()!.getAttribute('data-listen-ring')).toBe('on')
     // Next and the mic: 24px rounds with no surface of their own, before the toggle, outside the metal.
     for (const b of [nextButton()!, micButton()!]) {
-      for (const c of ['size-6', 'rounded-full']) expect(b.classList.contains(c)).toBe(true)
-      for (const c of ['h-9', 'bg-white', 'border', 'shadow-sm']) expect(b.classList.contains(c)).toBe(false)
+      // A transparent border, so the mic's phases colour it as in the bar.
+      for (const c of ['size-6', 'rounded-full', 'border', 'border-transparent']) expect(b.classList.contains(c)).toBe(true)
+      for (const c of ['h-9', 'bg-white', 'shadow-sm']) expect(b.classList.contains(c)).toBe(false)
       expect(toggle()!.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
       expect(metal()!.parentElement!.contains(b)).toBe(false)
     }

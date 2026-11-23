@@ -15,6 +15,12 @@
  * row lets presses through (the top bar under it stays a drag surface in the
  * Mac app); its pills take them.
  *
+ * It is the page's controls' size container (a calendar sheds controls as it
+ * narrows: calendar-header.tsx). Interactive's width in the controls' pill is
+ * kept out of that room (`--sky-reserve`: the row's right padding, the pill's
+ * negative margin, so the pills stay where they are), as the capsule it was
+ * beside the header used to be, so the page's controls shed in time.
+ *
  * It rides the card's flight into its tile and back (TILE_FLIGHT_RIDER_ATTR,
  * lib/chat/tile-flight.ts), so it never stays behind the card as it goes.
  *
@@ -27,11 +33,16 @@ import { cn } from '@/lib/utils'
 import { COLUMN_CARD_SKIN } from '@/components/attention/card-skin'
 import { FULL_SCREEN_CONTROL_ATTR } from './outside-card-press'
 import { TILE_FLIGHT_RIDER_ATTR } from '@/lib/chat/tile-flight'
+import { LISTEN_HEADER_ATTR } from '@/components/read-aloud/listen-mode-toggle'
 
 /** The rail's header's height (its 32px buttons, p-1, the 1px edge): the pills match it. */
 export const SKY_HEADER_H = 42
 /** The gap after the rail's header, as the top bar's controls keep (top-bar.tsx). */
 const AFTER_RAIL_HEADER_PX = 8
+/** Interactive's room in the controls' pill beyond its own box: its right margin (4px) and the pill's gap (2px). */
+const RESERVE_EXTRA_PX = 6
+/** The variable the row's right padding and the controls' pill's negative margin read (show-tool-card.tsx). */
+export const SKY_RESERVE_VAR = '--sky-reserve'
 
 /** One pill: the rail's header's glass, edge and round ends. */
 export const SKY_PILL = cn('pointer-events-auto flex h-full items-center rounded-full border border-border/60', COLUMN_CARD_SKIN)
@@ -61,10 +72,37 @@ export function SkyHeaderRow({ children, ...rest }: { children: React.ReactNode 
       row.style.top = `${Math.round(r.top - c.top)}px`
       row.style.paddingLeft = `${Math.max(0, Math.round(r.right + AFTER_RAIL_HEADER_PX - c.left))}px`
     }
-    measure()
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+    // Interactive in the controls' pill: its width, out of the page's controls' room.
+    const reserve = () => {
+      const toggle = row.querySelector<HTMLElement>(`[${LISTEN_HEADER_ATTR}]`)
+      const w = toggle ? toggle.getBoundingClientRect().width : 0
+      row.style.setProperty(SKY_RESERVE_VAR, `${w > 0 ? Math.round(w) + RESERVE_EXTRA_PX : 0}px`)
+    }
+    const measureAll = () => {
+      measure()
+      reserve()
+    }
+    measureAll()
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measureAll)
     for (const el of [column, column.parentElement, rail]) if (el) observer?.observe(el)
-    return () => observer?.disconnect()
+    // It comes and goes (something to read, or not) and changes width (Next, the mic): watched as the header's content changes.
+    let watched: Element | null = null
+    const watch = () => {
+      const toggle = row.querySelector(`[${LISTEN_HEADER_ATTR}]`)
+      if (toggle !== watched) {
+        if (watched) observer?.unobserve(watched)
+        watched = toggle
+        if (toggle) observer?.observe(toggle)
+      }
+      reserve()
+    }
+    const mutations = typeof MutationObserver === 'undefined' ? null : new MutationObserver(watch)
+    mutations?.observe(row, { childList: true, subtree: true })
+    watch()
+    return () => {
+      observer?.disconnect()
+      mutations?.disconnect()
+    }
   }, [])
 
   return (
@@ -74,7 +112,7 @@ export function SkyHeaderRow({ children, ...rest }: { children: React.ReactNode 
       {...{ [FULL_SCREEN_CONTROL_ATTR]: '', [TILE_FLIGHT_RIDER_ATTR]: '' }}
       // A container, as the header was, so a page's controls can shed as the card narrows (the calendar's).
       // z-20: above the card, so a menu a page drops from its header without a portal (Studio's More) opens over the page.
-      className={cn('@container pointer-events-none absolute inset-x-0 z-20 flex items-center gap-2', rest.className)}
+      className={cn('@container pointer-events-none absolute inset-x-0 z-20 flex items-center gap-2 pr-[var(--sky-reserve,0px)]', rest.className)}
       style={ROW_STYLE}
     >
       {children}

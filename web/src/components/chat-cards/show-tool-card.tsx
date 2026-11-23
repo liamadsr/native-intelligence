@@ -943,7 +943,7 @@ export function ShowToolCard({
               Interactive (listen mode, the desktop app) leads it, the same toggle as the top bar's at the header's
               24px, as its other controls (Liam, 11-23: "that button also shows in the header so it's not a
               different thing"); first, so the page's controls and Minimize never move as it comes and goes. */}
-          <div data-card-header-pill="controls" className={cn(SKY_PILL, 'ml-auto shrink-0 gap-0.5 px-2 [&:not(:has(button))]:hidden')}>
+          <div data-card-header-pill="controls" className={cn(SKY_PILL, '-mr-[var(--sky-reserve,0px)] ml-auto shrink-0 gap-0.5 px-2 [&:not(:has(button))]:hidden')}>
             <ListenModeToggle variant="header" />
             {controls}
           </div>

@@ -77,6 +77,10 @@ import { useAssistantName } from '@/lib/voice/assistant-name-store'
 import { toggleInteractiveMute, useInteractiveVoice, type InteractivePhase } from '@/lib/voice/interactive-store'
 import { useVoiceStatus } from '@/lib/voice/status-store'
 import { useListenNextHere, useListenReadableHere } from './listen-frame'
+import { TILE_FLIGHT_HIDE_ATTR } from '@/lib/chat/tile-flight'
+
+/** On the toggle in a page's header: the header keeps its width out of the room its page's controls measure (sky-header-row.tsx). */
+export const LISTEN_HEADER_ATTR = 'data-listen-header'
 
 /**
  * The colourful border listen mode being on puts on the button: a conic
@@ -134,8 +138,9 @@ export function ListenModeToggle({ className, variant = 'bar' }: { className?: s
     // so the pill is the toggle's alone. The button stays the same element as
     // listen mode turns on and off, and as the Next button comes and goes
     // before it, so it keeps focus.
+    // In a header: not drawn on the header's flight copy (its metal can't be copied), and its width kept out of the page's controls' room.
     <span
-      {...(header ? { 'data-listen-header': '' } : {})}
+      {...(header ? { [LISTEN_HEADER_ATTR]: '', [TILE_FLIGHT_HIDE_ATTR]: '' } : {})}
       className={cn('relative inline-flex shrink-0 items-center', header ? 'mr-1 gap-0.5' : 'gap-1.5', className)}
     >
       {/* Before the toggle, not after: the top bar's cluster is right-aligned,
@@ -248,7 +253,8 @@ const BAR_PILL =
 
 /** In a page's header: its 24px round buttons (card-header-button.ts CARD_HEADER_ICON_BUTTON's look), no surface of their own. */
 const HEADER_ROUND =
-  'relative grid size-6 shrink-0 place-items-center rounded-full text-muted-foreground/70 transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none'
+  // A transparent border, so the mic's phases (PHASE_STYLE: heard, answering, follow-up) colour it as in the bar.
+  'relative grid size-6 shrink-0 place-items-center rounded-full border border-transparent text-muted-foreground/70 transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none'
 
 /** Per phase: how the mic's pill shows it, on its own border and fill. Quiet
  *  (the plain pill) while listening. */
