@@ -18,6 +18,7 @@ import { toIlikeSearchTerm } from '@/lib/crm/ilike-search-term'
 import { filterRetrievalPassages, type RetrievalPassage } from '@/lib/ai/decisions/retrieval-filter'
 import { wrapUntrusted, type UntrustedKind } from '@/lib/email/untrusted'
 import { dropNowDocuments } from '@/lib/now/now-file'
+import { visibleAttachmentIds } from '@/lib/attachments/visibility'
 
 /** deep_search passages as a model reads them: each `chunk_text` inside the untrusted marker (A5). */
 export function fenceChunks<T>(rows: T[], kind: UntrustedKind): T[] {
@@ -40,11 +41,11 @@ function sanitizeProviderError(err: unknown, fallback: string): string {
 /**
  * Which of `captureIds` are `visibility = 'workspace'` in this workspace.
  *
- * rag_search / attachment_rag_search are keyed on the CHUNK's user_id — the
- * capture's OWNER at index time — so an unattended run "as" the creator still
- * gets that creator's own private chunks back. Post-filter on the parent capture
- * so the omit-private contract holds. Batched; fails closed (a capture that
- * doesn't come back is treated as hidden).
+ * rag_search is keyed on the CHUNK's user_id — the capture's OWNER at index
+ * time — so an unattended run "as" the creator still gets that creator's own
+ * private chunks back. Post-filter on the parent capture so the omit-private
+ * contract holds. (attachment_rag_search's hits go through keptAttachmentIds.)
+ * Batched; fails closed (a capture that doesn't come back is treated as hidden).
  */
 async function workspaceVisibleCaptureIds(
   supabase: SupabaseClient,
@@ -59,6 +60,30 @@ async function workspaceVisibleCaptureIds(
     .eq('visibility', 'workspace')
     .in('id', captureIds)
   return new Set(((data ?? []) as Array<{ id: string }>).map((r) => r.id))
+}
+
+/**
+ * Which attachment hits a toolset keeps, on top of the RPC's own fence (708:
+ * hybrid_search_attachments and attachment_rag_search ask
+ * attachment_readable_by, the attachments table's read rule for the
+ * requester, every parent kind):
+ *   - an unattended run (`omitPrivateCaptures`): only what every member reads,
+ *     so no private capture's file and no table row's file at all.
+ *     attachment_rag_search is keyed to the run's CREATOR, so its fence
+ *     answers for them and their private files would come back.
+ *   - a guest's or a linked agent's turn (`omitGrants`): the person's own rule
+ *     with no grant (a capture or table shared with the person is not theirs).
+ * null = keep every hit. Otherwise the ids to keep; fails closed.
+ */
+export async function keptAttachmentIds(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  ids: readonly string[],
+  run: { userId: string; omitPrivateCaptures: boolean; omitGrants: boolean },
+): Promise<Set<string> | null> {
+  if (run.omitPrivateCaptures) return visibleAttachmentIds(supabase, { workspaceId, userId: null }, ids)
+  if (run.omitGrants) return visibleAttachmentIds(supabase, { workspaceId, userId: run.userId }, ids, { grants: false })
+  return null
 }
 
 interface UnifiedResultRow {
@@ -727,7 +752,10 @@ export function createSearchTools(
               p_requesting_user_id: requestingUserId,
             })
             if (error) return { results: [] as HybridRow[], error: error.message }
-            const rows = ((data as HybridRow[]) || []).map((r) => ({
+            let hits = (data as HybridRow[]) || []
+            const kept = await keptAttachmentIds(supabase, workspaceId, hits.map((r) => r.result_id), { userId, omitPrivateCaptures, omitGrants })
+            if (kept) hits = hits.filter((r) => kept.has(r.result_id))
+            const rows = hits.map((r) => ({
               ...r,
               // A file's text is whoever wrote the file's (A5): marked as data.
               excerpt: wrapUntrusted(r.excerpt, 'FILE'),
@@ -1370,23 +1398,14 @@ export function createSearchTools(
                 })
                 if (error) return { workspace: w, rows: [], error: error.message }
                 let rows = (data as Array<Record<string, unknown>>) || []
-                if (omitPrivateCaptures) {
-                  // Same caller-keyed gap as rag_search: an attachment inherits
-                  // its parent capture's visibility, so drop chunks whose parent
-                  // capture is private. Parentless attachments are unaffected.
-                  const parentIds = [
-                    ...new Set(
-                      rows
-                        .map((r) => r.parent_capture_id as string | null)
-                        .filter((id): id is string => Boolean(id)),
-                    ),
-                  ]
-                  const visible = await workspaceVisibleCaptureIds(supabase, w.id, parentIds)
-                  rows = rows.filter((r) => {
-                    const parent = r.parent_capture_id as string | null
-                    return !parent || visible.has(parent)
-                  })
-                }
+                // 708's fence answers for p_user_id; an unattended or guest turn keeps less (keptAttachmentIds).
+                const kept = await keptAttachmentIds(
+                  supabase,
+                  w.id,
+                  rows.map((r) => r.attachment_id as string),
+                  { userId, omitPrivateCaptures, omitGrants },
+                )
+                if (kept) rows = rows.filter((r) => kept.has(r.attachment_id as string))
                 return { workspace: w, rows, error: undefined as string | undefined }
               }),
             )

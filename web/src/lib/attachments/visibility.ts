@@ -48,7 +48,10 @@ export async function filterVisibleAttachments<T extends AttachmentFenceRow>(
   supabase: SupabaseClient,
   scope: { workspaceId: string; userId: string | null },
   rows: readonly T[],
+  /** `grants` false on a guest's or a linked agent's turn: a capture or table shared with the person is not theirs. */
+  opts: { grants?: boolean } = {},
 ): Promise<T[]> {
+  const grants = opts.grants !== false
   const { workspaceId, userId } = scope
   const captureIds = uniq(rows.filter((r) => r.note_id && r.user_id !== userId).map((r) => r.note_id))
   let readable = new Set<string>()
@@ -59,12 +62,12 @@ export async function filterVisibleAttachments<T extends AttachmentFenceRow>(
     )
     if (!error) {
       const visible = ((data ?? []) as Array<{ id?: unknown }>).map((c) => c.id).filter((id): id is string => typeof id === 'string')
-      readable = await withGrantedIds(supabase, { userId, workspaceId }, 'capture', captureIds, visible)
+      readable = grants ? await withGrantedIds(supabase, { userId, workspaceId }, 'capture', captureIds, visible) : new Set(visible)
     } else {
       console.warn('[attachments] capture fence read failed:', error.message)
     }
   }
-  const [onRows, driveHidden] = await Promise.all([rowFence(supabase, scope, rows), driveFence(supabase, scope, rows)])
+  const [onRows, driveHidden] = await Promise.all([rowFence(supabase, scope, rows, grants), driveFence(supabase, scope, rows)])
   return rows.filter((r) => {
     if (driveHidden.has(r.id)) return false
     const row = onRows.rowOf.get(r.id)
@@ -168,6 +171,7 @@ export async function visibleAttachmentIds(
   supabase: SupabaseClient,
   scope: { workspaceId: string; userId: string | null },
   ids: readonly string[],
+  opts: { grants?: boolean } = {},
 ): Promise<Set<string>> {
   const wanted = uniq(ids)
   if (wanted.length === 0) return new Set()
@@ -181,7 +185,7 @@ export async function visibleAttachmentIds(
     return new Set()
   }
   const rows = (data ?? []) as AttachmentFenceRow[]
-  return new Set((await filterVisibleAttachments(supabase, scope, rows)).map((r) => r.id))
+  return new Set((await filterVisibleAttachments(supabase, scope, rows, opts)).map((r) => r.id))
 }
 
 /**
