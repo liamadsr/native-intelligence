@@ -105,6 +105,7 @@ vi.mock('@/components/views/unified-view-layout', () => ({
 
 import { EvalsRequestError } from '../api'
 import { EvalSuiteDetail } from '../suite-detail'
+import { CardHeaderSlotsProvider } from '@/components/chat-cards/card-header-slot'
 import { caseRow, runRow, suiteRow } from './fixtures'
 
 let container: HTMLDivElement
@@ -1009,5 +1010,42 @@ describe('EvalSuiteDetail — mid-edit clobber', () => {
     ) as HTMLTextAreaElement
     expect(after.value).toBe('Catches stalls on price')
     vi.useRealTimers()
+  })
+})
+
+// Liam, 11-23: "these details view pages … that show the different pages at
+// the top … feel out of place": in a card, Overview / Cases / Runs are a
+// capsule in the card's header, and the strip over the page is gone.
+describe('EvalSuiteDetail — its tabs in a card’s header', () => {
+  it('a capsule in the right slot, counted; a press switches and is reported; no strip in the page', async () => {
+    fetchSuite.mockResolvedValue({
+      suite: suiteRow(),
+      cases: [caseRow({ id: 'c1' }), caseRow({ id: 'c2' })],
+      runs: [runRow({ id: 'run-1' })],
+    })
+    const right = document.createElement('div')
+    document.body.appendChild(right)
+    const onTabChange = vi.fn()
+    try {
+      await act(async () => {
+        root.render(
+          <CardHeaderSlotsProvider value={{ left: null, right }}>
+            <EvalSuiteDetail suiteId="suite-1" onBack={() => {}} onTabChange={onTabChange} />
+          </CardHeaderSlotsProvider>,
+        )
+      })
+      await act(async () => {})
+      const capsule = right.querySelector<HTMLElement>('[data-detail-tabs="header"]')!
+      expect(capsule).not.toBeNull()
+      expect(Array.from(capsule.querySelectorAll('[role="tab"]')).map((b) => b.textContent)).toEqual(['Overview', 'Cases2', 'Runs1'])
+      expect(capsule.querySelector('[data-detail-tab="overview"]')!.getAttribute('aria-selected')).toBe('true')
+      // No pills in the page itself.
+      expect(Array.from(container.querySelectorAll('button[aria-pressed]')).some((b) => (b.textContent ?? '').startsWith('Cases'))).toBe(false)
+      await act(async () => capsule.querySelector<HTMLButtonElement>('[data-detail-tab="cases"]')!.click())
+      expect(onTabChange).toHaveBeenCalledWith('cases')
+      expect(container.querySelector('[data-testid="view-layout-eval_case"]')).toBeTruthy()
+    } finally {
+      right.remove()
+    }
   })
 })
