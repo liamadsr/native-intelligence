@@ -298,16 +298,6 @@ const FULL_SCREEN_PAGE = fullScreenSizes('calc(100cqh - 1rem)')
  * before today, whatever those variables say.
  */
 const CARD_PANEL_TOP_VAR = '--card-panel-top'
-/**
- * The layer's left padding beside the rail (the className): its usual 10px,
- * or what clears the rail's header (its right edge on <html>,
- * rail/app-rail.tsx) by a panel's gutter (12px, PANEL_GUTTER_PX), the larger.
- * The second wins only while the Recent panel is closed and the layer reaches
- * under that header. So the page, and its header island over it, always start
- * after the header, edge to edge with each other (Liam, 11-22: the island
- * "always the same size as the view it's sitting on"). In the class, like
- * every use of --page-panel-w: from `md` up beside the rail only.
- */
 const FULL_SCREEN_LAYER_STYLE = {
   // `left` is on the className: past the page panel only from `md` up beside
   // the rail (an inline style would hold below `md` too).
@@ -725,12 +715,12 @@ export function ShowToolCard({
   const rightSlotRef = React.useCallback((right: HTMLElement | null) => setSlots((s) => (s.right === right ? s : { ...s, right })), [])
   const trailSlotRef = React.useCallback((trail: HTMLElement | null) => setSlots((s) => (s.trail === trail ? s : { ...s, trail })), [])
 
-  // Full screen beside the rail, the header is an island of its own (Liam,
-  // 11-21: "a standalone island for the header controls … it should hover
-  // over the main content area"): in the top bar's row, level with the rail's
-  // header, as wide as the page under it (11-22: "always the same size as the
-  // view it's sitting on"; the layer starts the page after the rail's header,
-  // its left padding, by FULL_SCREEN_LAYER_STYLE); the page starts with its content.
+  // Full screen beside the rail, the header is a row of its own at the top of
+  // the page, as the side panel's rows are at the top of the panel beside it
+  // (Liam, 11-22: "could we somehow make these two feel like one thing?",
+  // then "make it match the side panel"): the page level with the panel, the
+  // header inset like a panel row, in a lit row's tint and corners. It was an
+  // island in the top bar's row before (11-21).
   const besideRail = React.useSyncExternalStore(subscribeBesideAppRail, besideAppRail, () => false)
   const headerIsland = shownFullScreen && besideRail
 
@@ -927,20 +917,24 @@ export function ShowToolCard({
     // Back and Forward lead it, as they led a window's header; full screen
     // beside the rail they are the rail header's, for the page in front
     // (Liam, 11-21), so not here too.
-    // As an island (headerIsland): a capsule in the rail header's skin, 42px
-    // like it, its bottom 5px over the page's top (the gap under the rail's
-    // header), edge to edge with the page; a press on it is the
-    // card's, never an outside press. The title first, the page's controls
-    // and Close at its far end.
+    // Beside the rail full screen (headerIsland): the page's first row, where
+    // and as a side panel row is in the panel (page-panel's rows: 7px in from
+    // the sides, 11px from the top, 32px; ROW_LIT's tint), so its centre is
+    // level with the panel's first row; a pill (Liam, 11-22: "round out the
+    // corners more", then "a bit less tall and more slick … clean like apple
+    // made it"). Its controls are 24px (card-header-button.ts), 4px in from
+    // its ends, so a round one sits concentric in its round end. A press on it is the card's, never an outside press.
+    // The title first, the page's controls and Close at its far end.
     <div
       data-card-header=""
       {...(island ? { 'data-card-header-island': '', [FULL_SCREEN_CONTROL_ATTR]: '' } : {})}
       className={
         island
-          ? // 18px in: its icon on the page's leading line, over the tab pills and a row's checkbox, its title on the content line, over a list's rows (view-toolbar.tsx alignToContent).
+          ? // 7px in and 12px more: its icon on the page's leading line (19px from the outer edge), over the tab pills and a row's checkbox, its title on the content line (41px), over a list's rows (view-toolbar.tsx alignToContent).
             // A container, as the inline header is, so a page's controls can shed as it narrows (the calendar's).
-            cn('@container absolute inset-x-0 bottom-[calc(100%+5px)] z-10 flex h-[42px] items-center gap-2 rounded-full border border-border/60 py-1 pl-[18px] pr-1', COLUMN_CARD_SKIN)
-          : '@container relative z-10 flex h-10 shrink-0 items-center gap-2 border-b px-4'
+            // z-20: above the body (z-10, after it in the frame), so a menu a page drops from its header without a portal (Studio's More, its costs) opens over the page, not under it.
+            '@container relative z-20 mx-[6px] mt-[10px] flex h-8 shrink-0 items-center gap-2 rounded-full bg-foreground/[0.08] pl-3 pr-1'
+          : '@container relative z-20 flex h-10 shrink-0 items-center gap-2 border-b px-4'
       }
     >
       {!island && (
@@ -970,7 +964,7 @@ export function ShowToolCard({
               aria-label={back.label}
               title={back.label}
               data-card-header-back=""
-              className="max-w-[12rem] shrink-0 truncate rounded text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+              className="block h-6 max-w-[12rem] shrink-0 truncate rounded leading-6 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
             >
               {spec.title}
             </button>
@@ -996,7 +990,7 @@ export function ShowToolCard({
             aria-label="Full screen"
             title="Full screen"
             data-card-header-fullscreen=""
-            className={cn('ml-1 grid size-7 shrink-0 place-items-center', CARD_HEADER_ICON_BUTTON)}
+            className={cn('ml-1 grid size-6 shrink-0 place-items-center', CARD_HEADER_ICON_BUTTON)}
           >
             <Maximize2 className="size-3.5" strokeWidth={1.75} />
           </button>
@@ -1013,9 +1007,9 @@ export function ShowToolCard({
             title="Close"
             data-testid="card-close"
             data-card-header-close=""
-            className="ml-1 grid size-7 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+            className="ml-1 grid size-6 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
           >
-            <X className="size-4" strokeWidth={1.75} />
+            <X className="size-3.5" strokeWidth={1.75} />
           </button>
         )}
       </div>
@@ -1077,7 +1071,7 @@ export function ShowToolCard({
             // wide side padding given up beside the call's column. Beside the
             // rail the card takes the room too, a panel's gap from each side
             // (Liam, 11-21: "the width of the entire panel could be larger").
-            className="card-focus-backdrop card-page-layer fixed top-0 bottom-[var(--call-dock-b,0px)] right-[var(--call-dock-w,0px)] z-50 flex flex-col items-center px-4 pb-6 pt-14 outline-none sm:px-16 sm:[html[data-call-dock]_&]:px-4 md:[html[data-app-rail]_&]:px-2.5 md:[html[data-app-rail]_&]:pl-[max(0.625rem,calc(var(--app-header-right,0px)_+_12px_-_var(--app-rail-w,0px)_-_var(--page-panel-w,0px)))] md:pt-2 md:[html[data-app-rail]_&]:[--card-layer-top:min(var(--app-header-bottom,0px),var(--card-panel-top))] md:[html[data-app-rail]_&]:pt-[calc(var(--card-panel-top)_-_var(--card-layer-top))] left-[var(--app-rail-w,0px)] md:[html[data-app-rail]_&]:left-[calc(var(--app-rail-w,0px)_+_var(--page-panel-w,0px))] md:[html[data-app-rail]_&]:bottom-[calc(var(--composer-reserve,0px)_+_var(--call-dock-b,0px))]"
+            className="card-focus-backdrop card-page-layer fixed top-0 bottom-[var(--call-dock-b,0px)] right-[var(--call-dock-w,0px)] z-50 flex flex-col items-center px-4 pb-6 pt-14 outline-none sm:px-16 sm:[html[data-call-dock]_&]:px-4 md:[html[data-app-rail]_&]:px-2.5 md:pt-2 md:[html[data-app-rail]_&]:[--card-layer-top:min(var(--app-header-bottom,0px),var(--card-panel-top))] md:[html[data-app-rail]_&]:pt-[calc(var(--card-panel-top)_-_var(--card-layer-top))] left-[var(--app-rail-w,0px)] md:[html[data-app-rail]_&]:left-[calc(var(--app-rail-w,0px)_+_var(--page-panel-w,0px))] md:[html[data-app-rail]_&]:bottom-[calc(var(--composer-reserve,0px)_+_var(--call-dock-b,0px))]"
             style={FULL_SCREEN_LAYER_STYLE}
             // A press anywhere outside the card (the space all round, beside
             // the button under it) puts it back in its message. From `md` up
@@ -1097,10 +1091,9 @@ export function ShowToolCard({
             <FullScreenInteractive />
             <div className={FULL_SCREEN_STAGE}>
             <div className={cn(FULL_SCREEN_COLUMN, 'relative')} style={sizes.column}>
-              {headerIsland && renderHeader(true)}
               <div ref={fullScreenFrameRef} {...{ [CARD_FRAME_ATTR]: '' }} className={cn('relative flex w-full flex-col overflow-hidden shadow-2xl', CARD_GLASS_FRAME)} style={sizes.frame}>
                 <CardGlass />
-                {!headerIsland && header}
+                {headerIsland ? renderHeader(true) : header}
                 <BodySlot host={bodyHost} className="relative z-10 min-h-0 flex-1" />
                 {pulse}
               </div>

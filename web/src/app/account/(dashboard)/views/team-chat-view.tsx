@@ -43,7 +43,6 @@ import { BarChart3, BellOff, ChevronLeft, ClipboardList, CircleCheck, Lock, Mess
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
@@ -1526,7 +1525,7 @@ function ChannelPane({
           </CardHeaderTrail>
           <CardHeaderSlot side="right">
             <div data-team-chat-header-controls="" className="flex items-center gap-0.5">
-              <CallButton channel={channel} label={callLabel} className="grid size-7 place-items-center rounded-full p-0 hover:bg-foreground/[0.06]" />
+              <CallButton channel={channel} label={callLabel} className="grid size-6 place-items-center rounded-full p-0 hover:bg-foreground/[0.06]" />
               <TeamChatNotifyMenu kind={channel.kind} level={channel.notify} mutedUntil={channel.muted_until} onChange={onNotify} onSnooze={onSnooze} inHeader headerButtonClass={CARD_HEADER_ICON_BUTTON} />
             </div>
           </CardHeaderSlot>

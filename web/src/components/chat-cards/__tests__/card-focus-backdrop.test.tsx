@@ -122,9 +122,8 @@ describe('a full-screen card', () => {
       for (const c of uses) expect(c.startsWith('md:[html[data-app-rail]_&]:'), c).toBe(true)
       expect(layer.getAttribute('style') ?? '', offset).not.toContain(offset)
     }
-    // Beside the rail the page starts after the rail's header by a gutter while the Recent panel is closed, so the
-    // header island over it is the page's width (Liam, 11-22); with the panel open, its usual 10px.
-    expect(layer.className).toContain('md:[html[data-app-rail]_&]:pl-[max(0.625rem,calc(var(--app-header-right,0px)_+_12px_-_var(--app-rail-w,0px)_-_var(--page-panel-w,0px)))]')
+    // The page starts at the layer's own padding: its header is its first row now, not an island in the top bar's row (Liam, 11-22).
+    expect(layer.className).not.toContain('--app-header-right')
     // Its right and bottom end where a call the person is in begins (call-place.ts); the window's edges without one.
     expect(layer.className).toContain('right-[var(--call-dock-w,0px)]')
     expect(layer.className).toContain('bottom-[var(--call-dock-b,0px)]')

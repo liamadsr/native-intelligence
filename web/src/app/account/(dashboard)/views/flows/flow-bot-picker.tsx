@@ -27,6 +27,7 @@ import { AgentIcon } from '@/components/agents/agent-icon'
 import { announceTeammatesChanged } from '@/lib/bots/teammates-changed'
 import { SYSTEM_TEAMMATE_BLURBS, type SystemTeammateKey } from '@/lib/work/system-teammates'
 import { cn } from '@/lib/utils'
+import { CARD_HEADER_PILL_BUTTON } from '@/components/chat-cards/card-header-button'
 import { SEEDED_BOT_KEYS, type EditorBot, type EditorState, type FlowBotOption, type FlowBotOptions, type FlowBotSummary } from './flow-types'
 
 /** What a new agent is called until it's named: the server names an unnamed one after the face it hands it. */
@@ -66,10 +67,13 @@ export function FlowBotChip({
   editor,
   options,
   onOpen,
+  inHeader = false,
 }: {
   editor: EditorState
   options: FlowBotOptions | null
   onOpen: () => void
+  /** In a card's header: the header's 24px pill, as Test and Save beside it. */
+  inHeader?: boolean
 }) {
   const look = currentBotLook(editor.bot, options, editor.botSummary, editor.name)
   const missing = !look && !!editor.id
@@ -77,7 +81,10 @@ export function FlowBotChip({
     <Button
       variant="outline"
       size="sm"
-      className={cn('h-8 gap-1.5', missing && 'border-amber-500/50 text-amber-700 dark:text-amber-400')}
+      className={cn(
+        inHeader ? cn(CARD_HEADER_PILL_BUTTON, 'border-0 shadow-none [&_svg]:size-3.5') : 'h-8 gap-1.5',
+        missing && (inHeader ? 'text-amber-700 dark:text-amber-400' : 'border-amber-500/50 text-amber-700 dark:text-amber-400'),
+      )}
       onClick={onOpen}
       title="Its agent: who tells you about this loop"
       data-flow-bot-chip=""

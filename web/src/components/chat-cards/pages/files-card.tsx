@@ -49,6 +49,7 @@ import { folderPath, type DriveFolder } from '@/lib/drive/folders'
 import { emailViewerFile, teamChatFileLink, teamChatViewerFile, uploadFileLink, uploadViewerFile } from '@/lib/files/sources'
 import { cn } from '@/lib/utils'
 import { CardCovered } from '../card-covered'
+import { CARD_HEADER_PILL_BUTTON } from '../card-header-button'
 import { CardHeaderSlot, useCardHeaderSlots } from '../card-header-slot'
 import { RecordOverlay, usePageRecords } from './record-overlay'
 import type { PageCardProps } from './page-card'
@@ -214,7 +215,7 @@ export default function FilesCard(props: PageCardProps) {
           <CardHeaderSlot side="right">
             <div data-files-search-control="" className="flex items-center gap-1.5">
               <ExpandableSearch value={typed} onChange={setTyped} label="Search files" placeholder={view.email ? 'Search your mail' : 'Search files'} />
-              <UploadButton uploading={uploading} onClick={() => picker.current?.click()} />
+              <UploadButton inHeader uploading={uploading} onClick={() => picker.current?.click()} />
             </div>
           </CardHeaderSlot>
         )}
@@ -372,16 +373,21 @@ export default function FilesCard(props: PageCardProps) {
   )
 }
 
-function UploadButton({ uploading, onClick }: { uploading: boolean; onClick: () => void }) {
+/** Upload: in the card's header, the header's 24px pill (as New spreadsheet, New canvas); outside a card, the row's own. */
+function UploadButton({ uploading, onClick, inHeader = false }: { uploading: boolean; onClick: () => void; inHeader?: boolean }) {
   return (
     <button
       type="button"
       data-drive-upload=""
       onClick={onClick}
       disabled={uploading}
-      className="inline-flex h-7 items-center gap-1 rounded-lg px-2 text-xs text-muted-foreground hover:bg-muted/60 hover:text-foreground disabled:opacity-50"
+      className={
+        inHeader
+          ? CARD_HEADER_PILL_BUTTON
+          : 'inline-flex h-7 items-center gap-1 rounded-lg px-2 text-xs text-muted-foreground hover:bg-muted/60 hover:text-foreground disabled:opacity-50'
+      }
     >
-      <Upload className="size-3.5" aria-hidden />
+      <Upload className="size-3.5" aria-hidden strokeWidth={inHeader ? 1.75 : undefined} />
       {uploading ? 'Uploading…' : 'Upload'}
     </button>
   )

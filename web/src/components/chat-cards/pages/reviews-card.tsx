@@ -20,6 +20,7 @@
  * The section, filters and layout are remembered on this device.
  */
 import * as React from 'react'
+import Link from 'next/link'
 import { formatDistanceToNowStrict } from 'date-fns'
 import { GitPullRequest, LayoutGrid, List, Loader2, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -38,7 +39,10 @@ import {
   type ReviewFilters,
   type ReviewPr,
 } from '@/lib/github/reviews'
+import { ViewLayoutSwitcher } from '@/components/views/view-layout-switcher'
+import type { LayoutOption } from '@/components/views/view-layouts'
 import { CardCovered } from '../card-covered'
+import { CARD_HEADER_ICON_BUTTON } from '../card-header-button'
 import { CardHeaderSlot, useCardHeaderSlots } from '../card-header-slot'
 import { RecordOverlay, usePageRecords } from './record-overlay'
 import { usePagePlace, type PageCardProps } from './page-card'
@@ -48,6 +52,12 @@ import { ChecksIcon, PrStateIcon } from './reviews/icons'
 const PREFS_KEY = 'ni:reviews:prefs'
 
 type Layout = 'list' | 'board'
+
+/** List and Board, in the card's header as every views page's layouts are. */
+const LAYOUTS: LayoutOption[] = [
+  { value: 'list', label: 'List', Icon: List },
+  { value: 'board', label: 'Board', Icon: LayoutGrid },
+]
 
 interface Prefs {
   filters: ReviewFilters
@@ -194,17 +204,21 @@ export default function ReviewsCard(props: PageCardProps) {
     <div className="relative h-full min-h-0">
       <CardCovered covered={!!records.current}>
         {inCard && (
+          // The page's own controls in its header (Liam, 11-22): the layouts and Refresh, 24px like every header control.
           <CardHeaderSlot side="right">
-            <button
-              type="button"
-              aria-label="Refresh"
-              title="Refresh"
-              data-reviews-refresh=""
-              onClick={() => void reload()}
-              className="flex size-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-            >
-              <RefreshCw className={cn('size-3.5', loading && 'animate-spin')} />
-            </button>
+            <div className="flex items-center gap-1">
+              <ViewLayoutSwitcher options={LAYOUTS} value={prefs.layout} onChange={(layout) => update(null, layout === 'board' ? 'board' : 'list')} />
+              <button
+                type="button"
+                aria-label="Refresh"
+                title="Refresh"
+                data-reviews-refresh=""
+                onClick={() => void reload()}
+                className={cn('grid size-6 shrink-0 place-items-center', CARD_HEADER_ICON_BUTTON)}
+              >
+                <RefreshCw className={cn('size-3.5', loading && 'animate-spin')} strokeWidth={1.75} />
+              </button>
+            </div>
           </CardHeaderSlot>
         )}
         <div className="flex h-full min-h-0">
@@ -233,6 +247,7 @@ export default function ReviewsCard(props: PageCardProps) {
                     </button>
                   ))}
                 </div>
+                {!inCard && (
                 <div role="radiogroup" aria-label="Layout" className="ml-1 flex items-center gap-0.5 rounded-lg border border-border p-0.5">
                   <button type="button" role="radio" aria-checked={prefs.layout === 'list'} aria-label="List" title="List" data-reviews-layout="list" onClick={() => update(null, 'list')} className={iconChip(prefs.layout === 'list')}>
                     <List className="size-3.5" />
@@ -241,6 +256,7 @@ export default function ReviewsCard(props: PageCardProps) {
                     <LayoutGrid className="size-3.5" />
                   </button>
                 </div>
+                )}
               </div>
             </div>
             <FilterRow filters={f} onChange={(patch) => update(patch)} />
@@ -250,9 +266,9 @@ export default function ReviewsCard(props: PageCardProps) {
                   <GitPullRequest className="h-7 w-7 text-muted-foreground/60" aria-hidden />
                   <p className="max-w-sm text-sm text-muted-foreground">{error.message}</p>
                   {notConnected && (
-                    <a href="/account/settings/connectors" className="text-sm font-medium text-foreground underline underline-offset-2">
+                    <Link href="/account/settings/connectors" className="text-sm font-medium text-foreground underline underline-offset-2">
                       Open Connectors
-                    </a>
+                    </Link>
                   )}
                 </div>
               ) : prs.length === 0 && loading ? (

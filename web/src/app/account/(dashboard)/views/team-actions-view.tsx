@@ -355,7 +355,7 @@ export function TeamActionsView({
     ) : null
 
   const headerIconButton = inCard
-    ? cn('grid size-7 shrink-0 place-items-center', CARD_HEADER_ICON_BUTTON)
+    ? cn('grid size-6 shrink-0 place-items-center', CARD_HEADER_ICON_BUTTON)
     : 'h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground'
 
   const teamSettingsButton = onOpenTeamSettings ? (

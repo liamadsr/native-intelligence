@@ -48,7 +48,7 @@ export const SeoHeaderMore = React.forwardRef<HTMLButtonElement, ButtonAttrs>(fu
         title="More"
         aria-label="More"
         {...props}
-        className={cn('grid size-7 shrink-0 place-items-center data-[state=open]:bg-foreground/[0.06] data-[state=open]:text-foreground', CARD_HEADER_ICON_BUTTON)}
+        className={cn('grid size-6 shrink-0 place-items-center data-[state=open]:bg-foreground/[0.06] data-[state=open]:text-foreground', CARD_HEADER_ICON_BUTTON)}
       >
         <MoreHorizontal className="size-4" strokeWidth={1.75} aria-hidden />
       </button>

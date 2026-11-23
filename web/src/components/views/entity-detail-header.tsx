@@ -181,7 +181,7 @@ export function EntityDetailHeader({
               {menuItems && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <button type="button" aria-label="More actions" className={cn('grid size-7 shrink-0 place-items-center', CARD_HEADER_ICON_BUTTON)}>
+                    <button type="button" aria-label="More actions" className={cn('grid size-6 shrink-0 place-items-center', CARD_HEADER_ICON_BUTTON)}>
                       <MoreHorizontal className="size-4" strokeWidth={1.75} />
                     </button>
                   </DropdownMenuTrigger>
