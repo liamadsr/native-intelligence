@@ -242,6 +242,8 @@ describe('surface exclusions (structural, keyed on the verified token surface)',
       'create_booking_link',
       'update_booking_link',
       'delete_booking_link',
+      // Booking insights: a guest's attendance is marked only in the person's own chat.
+      'mark_booking_attendance',
       // Forms (phase 1): a form's public link is made and changed only in the person's own chat.
       'create_form',
       'update_form',

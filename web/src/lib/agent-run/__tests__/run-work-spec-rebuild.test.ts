@@ -289,6 +289,9 @@ describe('computeWorkRunCeiling', () => {
         // Documents phase 1: rolling a document back is the person's call, an
         // internal (artifact) write, out as attended-only.
         'restore_document_revision',
+        // Booking insights: marking a past booking attended or a no-show is the host's
+        // own call, an internal write, out as attended-only.
+        'mark_booking_attendance',
         // Canon D2: undoing one edit at section level, the same call one section at a time.
         'revert_section_edit',
         // Flows-connectors F2: the person's connections, all out as attended-only.

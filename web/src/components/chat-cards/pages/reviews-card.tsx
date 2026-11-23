@@ -41,7 +41,7 @@ import {
 import { CardCovered } from '../card-covered'
 import { CardHeaderSlot, useCardHeaderSlots } from '../card-header-slot'
 import { RecordOverlay, usePageRecords } from './record-overlay'
-import type { PageCardProps } from './page-card'
+import { usePagePlace, type PageCardProps } from './page-card'
 import { PullPanel } from './reviews/pull-panel'
 import { ChecksIcon, PrStateIcon } from './reviews/icons'
 
@@ -153,8 +153,18 @@ export default function ReviewsCard(props: PageCardProps) {
   }, [])
 
   const { prs, cursor, total, loading, error, reload, more } = useReviews(prefs.filters)
-  const [openKey, setOpenKey] = React.useState<string | null>(null)
-  const open = openKey ? prs.find((p) => prKey(p.repo, p.number) === openKey) ?? null : null
+  // The panel open is the card's place (`owner/name#12`): a GitHub notice opens the card on it, and Back walks it.
+  const place = usePagePlace(props)
+  const openKey = place.at?.type === 'github_pr' ? place.at.id : null
+  const setOpenKey = React.useCallback(
+    (key: string | null) => {
+      if (!key) return place.go(null)
+      const pr = prs.find((p) => prKey(p.repo, p.number) === key)
+      place.go({ type: 'github_pr', id: key, ...(pr ? { label: pr.title } : {}) })
+    },
+    [place, prs],
+  )
+  const open = openKey ? (prs.find((p) => prKey(p.repo, p.number) === openKey) ?? stubPr(openKey, place.at?.label)) : null
   const [focus, setFocus] = React.useState(0)
 
   React.useEffect(() => {
@@ -296,6 +306,18 @@ export default function ReviewsCard(props: PageCardProps) {
       <RecordOverlay records={records} page={props} />
     </div>
   )
+}
+
+/** A pull request not in the list (a notice opened it): its panel reads the rest. */
+function stubPr(key: string, title?: string): ReviewPr | null {
+  const m = /^([^#\s]+\/[^#\s]+)#(\d+)$/.exec(key)
+  if (!m) return null
+  const [, repo, n] = m
+  return {
+    id: key, repo, number: Number(n), title: title ?? key, url: `https://github.com/${repo}/pull/${n}`, state: 'open', draft: false,
+    mergeable: null, mergeState: null, reviewDecision: null, checks: null, createdAt: '', updatedAt: '', additions: 0, deletions: 0,
+    changedFiles: 0, headRef: null, headSha: null, baseRef: null, author: null, labels: [], assignees: [], permission: null, mergeMethods: [], linked: [],
+  }
 }
 
 function chip(on: boolean) {
@@ -459,11 +481,12 @@ function Board({ prs, onOpen, openKey }: { prs: ReviewPr[]; onOpen: (pr: ReviewP
   }, [prs])
   return (
     <div className="pt-1">
-      <div className="flex gap-3">
+      {/* Six columns that share the width, scrolling sideways only when it is narrow. */}
+      <div className="grid min-w-[840px] grid-cols-6 gap-3">
         {BOARD_COLUMNS.map((c) => {
           const list = columns.by.get(c)!
           return (
-            <section key={c} data-reviews-column={c} aria-label={BOARD_COLUMN_LABEL[c]} className="flex w-60 shrink-0 flex-col rounded-xl bg-muted/30 p-2">
+            <section key={c} data-reviews-column={c} aria-label={BOARD_COLUMN_LABEL[c]} className="flex min-w-0 flex-col rounded-xl bg-muted/30 p-2">
               <h3 className="flex items-center justify-between px-1 pb-2 text-xs font-medium text-muted-foreground">
                 <span>{BOARD_COLUMN_LABEL[c]}</span>
                 <span className="tabular-nums">{list.length}</span>

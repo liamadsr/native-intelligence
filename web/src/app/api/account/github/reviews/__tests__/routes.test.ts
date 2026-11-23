@@ -15,7 +15,9 @@ const hoisted = vi.hoisted(() => ({
   readFiles: vi.fn(),
   merge: vi.fn(),
   linked: vi.fn(async () => new Map()),
+  identity: [] as Array<[string, unknown]>,
 }))
+vi.mock('@/lib/github/identity', () => ({ recordGithubIdentity: async (_s: unknown, userId: string, gh: unknown) => (hoisted.identity.push([userId, gh]), true) }))
 
 vi.mock('@/lib/api-auth', () => ({ requireWorkspaceMember: async () => hoisted.auth }))
 vi.mock('@/lib/supabase/service', () => ({ getServiceClient: () => ({ service: true }) }))
@@ -47,6 +49,7 @@ beforeEach(() => {
   hoisted.readFiles.mockReset()
   hoisted.merge.mockReset()
   hoisted.linked.mockClear()
+  hoisted.identity.length = 0
 })
 
 const post = (body: unknown) => new Request('http://localhost/api/account/github/reviews/merge', { method: 'POST', body: JSON.stringify(body) })
@@ -73,6 +76,8 @@ describe('GET /api/account/github/reviews', () => {
     expect(hoisted.linked).toHaveBeenCalledWith({ user: true }, 'ws-1', expect.any(Array))
     const body = await res.json()
     expect(body.prs.map((p: { number: number }) => p.number)).toEqual([1])
+    // Who they are on GitHub, as GitHub named the viewer for their own token (migration 694).
+    expect(hoisted.identity).toEqual([['user-1', { id: 1, login: 'dana' }]])
   })
 
   it('answers GitHub’s refusal in words', async () => {

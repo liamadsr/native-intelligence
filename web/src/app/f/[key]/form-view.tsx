@@ -90,7 +90,29 @@ function postedValue(field: PublicFormField, value: Value | undefined): unknown 
   return text
 }
 
-function OpenForm({ link, invite, shape }: { link: string; invite: string | null; shape: PublicFormShape }) {
+/**
+ * The form itself. On its own page (/f/<key>) it posts to the form's intake
+ * and thanks the person. A booking link's form (booking insights phase 4)
+ * gives `endpoint` (its own route, which runs the same intake, and
+ * `${endpoint}/challenge`), `onSent` (what the answer means is the link's to
+ * say) and `framed: false` (it sits inside the booking page's card).
+ */
+export function OpenForm({
+  link,
+  invite,
+  shape,
+  endpoint,
+  onSent,
+  framed = true,
+}: {
+  link: string
+  invite: string | null
+  shape: PublicFormShape
+  endpoint?: string
+  onSent?: (data: Record<string, unknown>) => void
+  framed?: boolean
+}) {
+  const Frame = framed ? Shell : Bare
   const [values, setValues] = useState<Record<string, Value>>({})
   const [files, setFiles] = useState<File[]>([])
   const fileField = shape.fields.find((f) => f.type === 'file') ?? null
@@ -102,7 +124,7 @@ function OpenForm({ link, invite, shape }: { link: string; invite: string | null
   // One id per page: a post sent twice (a double press, a retry) is stored once.
   const [submissionId] = useState(() => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : String(Math.random()).slice(2)))
   const challenge = useRef<Promise<{ token: string; answer: string }> | null>(null)
-  const base = `/api/intake/forms/${encodeURIComponent(link)}`
+  const base = endpoint ?? `/api/intake/forms/${encodeURIComponent(link)}`
   const query = invite ? `?i=${encodeURIComponent(invite)}` : ''
 
   // The challenge is fetched and worked as the page loads, so it is ready (and old enough) by the time a person presses Send.
@@ -163,6 +185,10 @@ function OpenForm({ link, invite, shape }: { link: string; invite: string | null
         setBusy(false)
         return
       }
+      if (onSent) {
+        setBusy(false)
+        return onSent(data as Record<string, unknown>)
+      }
       setDone(shape.thanks ?? data.thanks ?? THANKS)
     } catch {
       setError(FAILED)
@@ -172,18 +198,18 @@ function OpenForm({ link, invite, shape }: { link: string; invite: string | null
 
   if (done !== null) {
     return (
-      <Shell>
+      <Frame>
         <CardHeader>
           <p className="text-sm" data-form-done>
             {done}
           </p>
         </CardHeader>
-      </Shell>
+      </Frame>
     )
   }
 
   return (
-    <Shell>
+    <Frame>
       <CardHeader>
         <CardTitle className="text-2xl">{shape.name}</CardTitle>
         {shape.description && <CardDescription className="whitespace-pre-line">{shape.description}</CardDescription>}
@@ -205,8 +231,13 @@ function OpenForm({ link, invite, shape }: { link: string; invite: string | null
           </Button>
         </form>
       </CardContent>
-    </Shell>
+    </Frame>
   )
+}
+
+/** No frame: the form inside someone else's card. */
+function Bare({ children }: { children: ReactNode }) {
+  return <div data-form-bare="">{children}</div>
 }
 
 /** The post as one multipart body: each value as text (a list as one part per item), then the files under `name`. */

@@ -16,6 +16,9 @@
  *   Booking links   pages anyone books a time with you from
  *                   (./booking-links-section.tsx).
  *
+ * Two more tabs: Bookings, what your links booked (./link-bookings-panel.tsx),
+ * and Insights over a range (./link-insights-panel.tsx).
+ *
  * Read once when the page opens; nothing polls.
  *
  * Its own page under Calendar now (Liam, 11-11: "Availability (Right now
@@ -34,6 +37,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 import { BookingLinksSection } from './booking-links-section'
+import { LinkBookingsPanel } from './link-bookings-panel'
+import { LinkInsightsPanel } from './link-insights-panel'
 
 export interface DayRange {
   start: string
@@ -110,6 +115,7 @@ export function weekProblem(weekly: readonly (readonly DayRange[])[]): string | 
 }
 
 export function AvailabilitySettingsView() {
+  const [tab, setTab] = useState<AvailabilityTab>('setup')
   const [hours, setHours] = useState<HoursBody | null>(null)
   const [week, setWeek] = useState<DayRange[][] | null>(null)
   const [sharing, setSharing] = useState<Sharing | null>(null)
@@ -190,6 +196,11 @@ export function AvailabilitySettingsView() {
     <div className="h-full overflow-y-auto" data-availability-view="">
       {/* No heading: the page card's header names it. */}
       <div className="mx-auto max-w-2xl px-5 pt-3 pb-6">
+        <AvailabilityTabs tab={tab} onTab={setTab} />
+        {tab === 'bookings' && <LinkBookingsPanel />}
+        {tab === 'insights' && <LinkInsightsPanel />}
+        {tab === 'setup' && (
+          <>
         <p className="text-sm text-muted-foreground">When you can meet. Native Intelligence offers times inside your working hours and around everything busy on the calendars that count.</p>
 
         {loadError && <p className="mt-8 text-sm text-destructive">{loadError}</p>}
@@ -362,7 +373,36 @@ export function AvailabilitySettingsView() {
             <BookingLinksSection />
           </>
         )}
+          </>
+        )}
       </div>
+    </div>
+  )
+}
+
+type AvailabilityTab = 'setup' | 'bookings' | 'insights'
+
+const TABS: Array<{ id: AvailabilityTab; label: string }> = [
+  { id: 'setup', label: 'Availability' },
+  { id: 'bookings', label: 'Bookings' },
+  { id: 'insights', label: 'Insights' },
+]
+
+/** Availability, and what your booking links made: their bookings (./link-bookings-panel.tsx) and insights (./link-insights-panel.tsx). */
+function AvailabilityTabs({ tab, onTab }: { tab: AvailabilityTab; onTab: (tab: AvailabilityTab) => void }) {
+  return (
+    <div role="tablist" aria-label="Availability" className="mb-5 flex gap-4 border-b">
+      {TABS.map((t) => (
+        <button
+          key={t.id}
+          role="tab"
+          aria-selected={tab === t.id}
+          onClick={() => onTab(t.id)}
+          className={cn('-mb-px border-b-2 pb-2 text-sm', tab === t.id ? 'border-foreground font-medium text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}
+        >
+          {t.label}
+        </button>
+      ))}
     </div>
   )
 }

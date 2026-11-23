@@ -1,5 +1,6 @@
 'use client'
 
+import { copyBranchName } from '@/lib/github/copy-branch-name'
 import * as React from 'react'
 import { useIsWindowFocused } from './tab-active'
 import { toast } from 'sonner'
@@ -1913,6 +1914,17 @@ export function UnifiedViewLayout({
       { ...base, key: 'a', handler: () => openRowProperty('assignee') },
       { ...base, key: 'l', handler: () => openRowProperty('labels') },
       { ...base, key: 'd', shift: true, handler: () => openRowProperty('due_at') },
+      // ⇧⌘B: the row's branch name, for GitHub (docs/plans/github-reviews.md).
+      {
+        ...base,
+        key: 'b',
+        mod: true,
+        shift: true,
+        handler: () => {
+          const row = (data as Array<{ id?: unknown; identifier?: unknown; title?: unknown }> | null | undefined)?.find((r) => r?.id === liveFocusedId)
+          if (row && typeof row.identifier === 'string') void copyBranchName(row.identifier, typeof row.title === 'string' ? row.title : null)
+        },
+      },
       {
         ...base,
         key: 'i',
@@ -1922,7 +1934,7 @@ export function UnifiedViewLayout({
         },
       },
     ]
-  }, [ownsKeys, taskKeysOn, openRowProperty, currentMemberId, liveFocusedId, patchItem])
+  }, [ownsKeys, taskKeysOn, openRowProperty, currentMemberId, liveFocusedId, patchItem, data])
   useHotkeys(taskKeys)
 
   // ── Flow status indicators ───────────────────────────────

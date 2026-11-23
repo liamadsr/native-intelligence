@@ -229,6 +229,9 @@ const TOOL_LABELS: Record<string, string> = {
   list_booking_links: 'List booking links',
   create_booking_link: 'Create booking link',
   update_booking_link: 'Update booking link',
+  list_link_bookings: 'List bookings',
+  get_booking_insights: 'Booking insights',
+  mark_booking_attendance: 'Mark attendance',
   delete_booking_link: 'Turn off booking link',
   // Studio (src/lib/ai/tools/studio.ts)
   list_studio_projects: 'List Studio projects',

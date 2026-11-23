@@ -57,4 +57,9 @@ describe('openNotificationTarget', () => {
     expect(opened[1]).toMatchObject({ workspaceId: 'ws-2', spec: { kind: 'spreadsheets', target: { type: 'spreadsheet', id: 'ss-1' } } })
     expect(notificationCardTarget({ type: 'canvas', id: 'cv-1', title: '' })).toEqual({ type: 'canvas', id: 'cv-1', title: null })
   })
+
+  it('a GitHub notice: its pull request on the Reviews page (docs/plans/github-reviews.md)', () => {
+    openNotificationTarget({ type: 'github_pr', id: 'acme/app#7', title: 'Fix the login' }, { foreignWorkspaceId: null })
+    expect(opened[0].spec).toMatchObject({ kind: 'reviews', target: { type: 'github_pr', id: 'acme/app#7', label: 'Fix the login' } })
+  })
 })

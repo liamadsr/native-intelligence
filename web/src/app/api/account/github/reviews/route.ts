@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { parseReviewFilters, prKey } from '@/lib/github/reviews'
 import { linkedActionsFor, searchReviews } from '@/lib/github/reviews-server'
 import { githubErrorResponse, requireReviews } from '@/lib/github/reviews-auth'
+import { recordGithubIdentity } from '@/lib/github/identity'
+import { getServiceClient } from '@/lib/supabase/service'
 
 /**
  * GET /api/account/github/reviews — one page of the person's pull requests for
@@ -21,6 +23,8 @@ export async function GET(request: Request) {
   const after = params.get('after')
   try {
     const page = await searchReviews(auth.token, filters, after && after.length <= 200 ? after : null)
+    // GitHub just named the viewer for the person's own token: keep who they are there (migration 694).
+    if (page.viewer.id && page.viewer.login && !after) await recordGithubIdentity(getServiceClient(), auth.user.id, { id: page.viewer.id, login: page.viewer.login })
     const links = await linkedActionsFor(auth.supabase, auth.workspaceId, page.prs)
     let prs = page.prs.map((p) => ({ ...p, linked: links.get(prKey(p.repo, p.number)) ?? [] }))
     if (filters.linked === 'linked') prs = prs.filter((p) => p.linked.length > 0)

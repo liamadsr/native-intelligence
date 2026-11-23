@@ -246,6 +246,18 @@ describe('ReviewsCard', () => {
   })
 })
 
+describe('opened on one pull request (a GitHub notice)', () => {
+  it('opens its panel, even one not in the section listed', async () => {
+    list = [READY]
+    pull = (_repo, n) => json({ pr: pr(n, { title: 'From a notice' }), body: '', checks: [], files: [], mergeBlocker: 'It is a draft.' })
+    const onSpec: PageCardSpec = { kind: 'reviews', title: 'Reviews', target: { type: 'github_pr', id: 'acme/app#9', label: 'From a notice' } }
+    await mount.render(React.createElement(ReviewsCard, { toolCallId: 'rev-2', spec: onSpec, store: makeStore('rev-2', onSpec), fullScreen: true }))
+    await settle()
+    expect(asked).toContain('/api/account/github/reviews/pull?repo=acme%2Fapp&number=9')
+    expect(q('[data-reviews-panel="acme/app#9"]')!.textContent).toContain('From a notice')
+  })
+})
+
 describe('cleanBody', () => {
   it('drops HTML comments', () => {
     expect(cleanBody('<!-- hi -->\nBody <!--\nmore\n--> end')).toBe('Body  end')

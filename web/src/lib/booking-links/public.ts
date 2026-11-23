@@ -6,6 +6,8 @@
  *   GET  /api/public/booking-links/<profile>/<slug>         the link's page data
  *   GET  /api/public/booking-links/<profile>/<slug>/times   its open times (?from=YYYY-MM-DD&days=7&tz=Zone)
  *   POST /api/public/booking-links/<profile>/<slug>/book    book one
+ *   POST /api/public/booking-links/<profile>/<slug>/qualify the link's form first, when it has one (./form-gate.ts)
+ *   GET  /api/public/booking-links/<profile>/<slug>/qualify/challenge  that form's bot check
  *   GET  /api/public/book/<slug>                            an old /book/<slug> address: the link it is now
  *
  * A business's job link (purpose 'job') answers through the same routes:
@@ -48,6 +50,7 @@ import { normalizeE164 } from '@/lib/twilio/phone'
 import type { PageLoad } from '@/lib/time-offers/display'
 import { bookFromLink, readGuest, readGuestAnswers, type LinkBookingDeps, type LinkBookingFailure } from './book'
 import { clientKeyOf } from './client'
+import { gateForm, verifyPass, type GateForm } from './form-gate'
 import { countClientAttempts, countGuestBookings, countLinkAttempts, getJobLink, getLinkByAddress, getProfileByHandle, recordLinkAttempt } from './store'
 import { capPerDay, readLinkTimes, type LinkTimesResult } from './times'
 import {
@@ -78,6 +81,10 @@ export interface LinkPublicDeps {
   canText?: (workspaceId: string) => Promise<boolean>
   /** The zone the hosts' times are worked in (default: the link's own, else the organizer's working hours'). */
   zoneOf?: (link: BookingLink) => Promise<string>
+  /** A link's form, as its page draws it (default: ./form-gate.ts gateForm). */
+  gateForm?: (link: BookingLink) => Promise<GateForm>
+  /** The pass's key (default: the server's). */
+  passSecret?: string
   /** A job link's open slots (default: the business's, src/lib/customers/slots.ts findOpenSlots). */
   jobTimes?: (business: { workspaceId: string; ownerUserId: string }, range: { fromDate: string; days: number }) => Promise<{ slots: Array<{ start: string; end: string }>; timeZone: string }>
 }
@@ -91,6 +98,11 @@ const NO_STORE = { 'Cache-Control': 'no-store' }
 async function liveLink(deps: LinkPublicDeps, profile: string, slug: string): Promise<BookingLink | null> {
   const link = await getLinkByAddress(deps.supabase, profile, slug)
   return link && link.active && (link.hosts.length || link.purpose === 'job') ? link : null
+}
+
+/** A link a guest may use at an address (see liveLink): what the form gate's routes open. */
+export function liveLinkAt(supabase: SupabaseClient, profile: string, slug: string): Promise<BookingLink | null> {
+  return liveLink({ supabase }, profile, slug)
 }
 
 async function linkZone(deps: LinkPublicDeps, link: BookingLink): Promise<string> {
@@ -108,12 +120,13 @@ async function linkZone(deps: LinkPublicDeps, link: BookingLink): Promise<string
 export async function publicLink(link: BookingLink, deps: LinkPublicDeps): Promise<PublicLinkData> {
   const hostName = deps.hostName ?? ((ws: string, id: string) => hostDisplayName(deps.supabase, ws, id))
   const canText = deps.canText ?? (async (ws: string) => !!(await activeBusinessNumber(deps.supabase, ws)))
-  const [names, zone, texts] = await Promise.all([
+  const [names, zone, texts, gate] = await Promise.all([
     link.purpose === 'job'
       ? businessName(deps.supabase, link.workspaceId).then((n) => [n])
       : Promise.all(link.hosts.map((h) => hostName(link.workspaceId, h.userId).catch(() => null))).then((all) => all.filter((n): n is string => !!n)),
     linkZone(deps, link),
     link.purpose === 'job' ? Promise.resolve(true) : canText(link.workspaceId).catch(() => false),
+    link.formId && link.purpose === 'meeting' ? (deps.gateForm ?? ((l: BookingLink) => gateForm(l, { supabase: deps.supabase })))(link) : Promise.resolve({ kind: 'none' } as GateForm),
   ])
   return {
     profile: link.profileHandle ?? '',
@@ -132,6 +145,7 @@ export async function publicLink(link: BookingLink, deps: LinkPublicDeps): Promi
     location: link.video || link.callHere ? null : link.location,
     ask_first: link.purpose === 'job' || link.askFirst,
     contact: link.purpose === 'job' ? 'phone' : texts ? 'email_or_phone' : 'email',
+    ...(gate.kind === 'open' ? { form: { state: 'open' as const, shape: gate.shape } } : gate.kind === 'closed' ? { form: { state: 'closed' as const } } : {}),
   }
 }
 
@@ -305,6 +319,8 @@ function bookFailure(result: LinkBookingFailure): Response {
       return apiError(result.message, { status: 400, code: result.code, ...(result.field ? { details: { field: result.field } } : {}) })
     case 'SLOT_TAKEN':
       return apiError(result.message, { status: 409, code: 'SLOT_TAKEN' })
+    case 'PASS_USED':
+      return apiError(result.message, { status: 409, code: 'PASS_USED' })
     case 'CLOSED':
       return apiError(result.message, { status: 410, code: 'CLOSED' })
     case 'UNAVAILABLE':
@@ -317,7 +333,7 @@ function bookFailure(result: LinkBookingFailure): Response {
   }
 }
 
-/** POST /api/public/booking-links/<profile>/<slug>/book. Body: { start, name, email?, phone?, answers?, note?, time_zone?, website (honeypot) }. */
+/** POST /api/public/booking-links/<profile>/<slug>/book. Body: { start, name, email?, phone?, answers?, note?, time_zone?, pass? (a gated link's, ./form-gate.ts), website (honeypot) }. */
 export async function handleBookLink(request: Request, profile: string, slug: string, deps: LinkPublicDeps): Promise<Response> {
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
   if (!body || typeof body !== 'object') return badRequest('Send the booking as JSON.')
@@ -383,6 +399,13 @@ export async function handleBookLink(request: Request, profile: string, slug: st
     return Response.json(out, { status: 201 })
   }
 
+  // A link with a form in front takes only a guest who qualified: their pass names the form's row.
+  let formRow: string | null = null
+  if (link.formId) {
+    formRow = verifyPass(body.pass, link.id, now, deps.passSecret)
+    if (!formRow) return apiError('Answer the questions first.', { status: 403, code: 'FORM_NEEDED' })
+  }
+
   const email = typeof body.email === 'string' ? body.email : null
   const phone = typeof body.phone === 'string' ? body.phone : null
   try {
@@ -406,6 +429,7 @@ export async function handleBookLink(request: Request, profile: string, slug: st
         answers: body.answers && typeof body.answers === 'object' && !Array.isArray(body.answers) ? (body.answers as Record<string, unknown>) : null,
         note: typeof body.note === 'string' ? body.note : null,
         timeZone: typeof body.time_zone === 'string' ? body.time_zone : null,
+        formRowId: formRow,
       },
     },
     { now: deps.now, ...(deps.readTimes ? { readTimes: deps.readTimes } : {}), ...deps.book },

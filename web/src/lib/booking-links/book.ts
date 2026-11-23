@@ -73,11 +73,13 @@ export interface LinkBookingInput {
   note?: string | null
   /** The guest's zone, as their browser has it. */
   timeZone?: string | null
+  /** The form row a gated link's pass vouches for (./form-gate.ts): written in the booking's own insert, so it books once. */
+  formRowId?: string | null
 }
 
 export type LinkBookingFailure = {
   ok: false
-  code: 'BAD_INPUT' | 'NEEDS_CONTACT' | 'NEEDS_EMAIL' | 'SLOT_TAKEN' | 'UNAVAILABLE' | 'NO_CALENDAR' | 'CLOSED' | 'TOO_MANY_PENDING' | 'FAILED'
+  code: 'BAD_INPUT' | 'NEEDS_CONTACT' | 'NEEDS_EMAIL' | 'SLOT_TAKEN' | 'UNAVAILABLE' | 'NO_CALENDAR' | 'CLOSED' | 'TOO_MANY_PENDING' | 'PASS_USED' | 'FAILED'
   message: string
   /** The question an answer was missing for. */
   field?: string
@@ -159,6 +161,16 @@ async function sameBooking(supabase: SupabaseClient, linkId: string, startIso: s
   return rows.find((b) => (who.email && b.guestEmail === who.email) || (who.phone && b.guestPhone === who.phone)) ?? null
 }
 
+/** What a guest whose pass already booked reads. */
+export const PASS_USED = 'This pass has already been used; answer the form again.'
+
+/** Whether a booking already took this form row. Throws on a failed read. */
+async function passUsed(supabase: SupabaseClient, formRowId: string): Promise<boolean> {
+  const { count, error } = await supabase.from('meeting_booking').select('id', { count: 'exact', head: true }).eq('form_row_id', formRowId)
+  if (error) throw new Error(`meeting_booking read failed: ${error.message}`)
+  return (count ?? 0) > 0
+}
+
 /** Book a time on a link (see the header). The link must be a meeting link; the caller has checked it is live. */
 export async function bookFromLink(supabase: SupabaseClient, args: { link: BookingLink; input: LinkBookingInput }, deps: LinkBookingDeps = {}): Promise<LinkBookingResult> {
   const { link, input } = args
@@ -181,6 +193,8 @@ export async function bookFromLink(supabase: SupabaseClient, args: { link: Booki
 
     const repeat = await sameBooking(supabase, link.id, startIso, guest)
     if (repeat) return { ok: true, already: true, booking: repeat, manageUrl: manageUrl(origin, manageTokenFor(repeat.id, deps.secret)) }
+    // A pass books once: refused here before any calendar is read, and by the unique index (705) if two race.
+    if (input.formRowId && (await passUsed(supabase, input.formRowId))) return fail('PASS_USED', PASS_USED)
 
     // The time, live: every host's calendar now.
     const read = await (deps.readTimes ?? ((l, r) => readLinkTimes(l, r, { supabase, now: () => now })))(link, { from: at, to: at + 1 })
@@ -234,10 +248,13 @@ export async function bookFromLink(supabase: SupabaseClient, args: { link: Booki
         manage_token_hash: manageTokenHash(manageTokenFor(id, deps.secret)),
         other_host_ids: others,
         host_time_zone: read.timeZone,
+        ...(input.formRowId ? { form_row_id: input.formRowId } : {}),
       },
       askFirst ? new Date(now + LINK_REQUEST_HOLD_MS).toISOString() : null,
     )
     if (outcome.status === 'taken') return fail('SLOT_TAKEN', 'That time was just taken. Pick another.')
+    // The id is new each time, so a unique clash here is the form row's: the pass was used by a booking side by side.
+    if (outcome.status === 'exists' && input.formRowId) return fail('PASS_USED', PASS_USED)
     if (outcome.status !== 'booked') return fail('FAILED', "That didn't go through. Try again in a moment.")
     const link_ = manageUrl(origin, manageTokenFor(id, deps.secret))
 

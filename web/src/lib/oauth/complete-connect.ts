@@ -27,6 +27,7 @@ import { reconcileThreadCopies } from '@/lib/email/account-scope'
 import { trackServerEvent } from '@/lib/posthog'
 import { setReauthRequiredAt } from '@/lib/oauth/token-manager'
 import { encryptOAuthToken, encryptOAuthTokenOrNull } from '@/lib/oauth/token-crypto'
+import { githubUserOf, recordGithubIdentity } from '@/lib/github/identity'
 
 export interface CompleteConnectInput {
   provider: OAuthProvider
@@ -386,6 +387,14 @@ export async function completeOAuthConnect(input: CompleteConnectInput): Promise
     // not applied yet) is swallowed, so it can't fail the connect.
     if (existingAccount && tokenSaved) {
       await setReauthRequiredAt(supabase, accountId, null)
+    }
+
+    // Who the person is on GitHub, as GitHub answers for their own token
+    // (github_identity, migration 694): how the pull-request automation and
+    // GitHub's notices know them. Best-effort: never fails the connect.
+    if (provider === 'github' && tokenSaved) {
+      const gh = await githubUserOf(tokens.access_token)
+      if (gh) await recordGithubIdentity(supabase, userId, gh)
     }
 
     // For email capability: set up webhook subscription immediately so real-time

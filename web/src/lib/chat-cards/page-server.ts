@@ -170,6 +170,8 @@ async function candidates(scope: PageScope, type: PagePlaceType, resolved: Resol
     case 'seo_rank_tracker':
     case 'seo_ai_tracker':
     case 'seo_local_business':
+    // A pull request on the Reviews page (docs/plans/github-reviews.md): GitHub's, opened by the person or a notice.
+    case 'github_pr':
       // Only ever opened by the person (inside a suite, on a bot's page, from a guest's or a link's card, team chat, a site audit), never named by the agent.
       return []
   }
@@ -425,6 +427,7 @@ async function checkPlace(scope: PageScope, kind: PageKind, place: PagePlace): P
     case 'seo_rank_tracker':
     case 'seo_ai_tracker':
     case 'seo_local_business':
+    case 'github_pr':
       // A bot's page, a work item's panel, a guest's or a link's conversation, team chat, a site audit: read_card answers them before reading any place.
       return null
   }
