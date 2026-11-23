@@ -38,7 +38,7 @@ import { ViewHeader } from '../../views/view-header'
 import { SeoRequestError, errorMessage } from '../api'
 import { CenteredError, CenteredLoader } from '../load-states'
 import { SeoDataNotice, SeoSpendLine, buyBlockedReason, useSeoData } from '../shared/data-status'
-import { SeoPlaceLabel, useInCard } from '../shared/header-controls'
+import { SEO_HEADER_SPEND, SeoPlaceLabel, useInCard } from '../shared/header-controls'
 import { TabPills } from '../shared/tab-pills'
 import { relativeWhen } from '../ui-helpers'
 import { fetchOverview, fetchOwnSite, fetchRecentOverviews, fetchStoredOverview, paidFailure, type BacklinksTarget } from './api'
@@ -264,7 +264,7 @@ export function BacklinksPage({ tab, onTab, onCount }: BacklinksPageProps) {
       actions={
         <>
           {inCard && booted && startControl(true)}
-          <SeoSpendLine view={view} />
+          <SeoSpendLine view={view} className={inCard ? SEO_HEADER_SPEND : undefined} />
         </>
       }
     />

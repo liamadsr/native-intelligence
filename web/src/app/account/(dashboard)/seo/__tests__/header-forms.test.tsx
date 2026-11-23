@@ -123,7 +123,7 @@ describe('Competitors: the lookup', () => {
     expect(country.className).toContain('h-6')
     // Short of room, the country gives way (its value still applies), never the field or the press.
     expect(country.className).toContain('hidden')
-    expect(country.className).toContain('@[36rem]:inline-flex')
+    expect(country.className).toContain('@[40rem]:inline-flex')
     const press = form.querySelector<HTMLButtonElement>('[data-seo-look-up]')!
     expect(press.type).toBe('submit')
     expect(press.textContent).toBe('Look up')
@@ -142,7 +142,7 @@ describe('Competitors: the lookup', () => {
     const language = right.querySelector<HTMLElement>('[data-seo-language]')!
     expect(language.className).toContain('h-6')
     expect(language.className).toContain('hidden')
-    expect(language.className).toContain('@[44rem]:inline-flex')
+    expect(language.className).toContain('@[48rem]:inline-flex')
   })
 
   it('outside a card: the page’s own labelled form, nothing in a header', async () => {

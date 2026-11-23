@@ -27,7 +27,7 @@ import { seoMarketOptions } from '@/lib/seo/keywords/view'
 import { cn } from '@/lib/utils'
 import { ViewHeader } from '../../views/view-header'
 import { SeoSpendLine, buyBlockedReason, useSeoData } from '../shared/data-status'
-import { useInCard } from '../shared/header-controls'
+import { SEO_HEADER_SPEND, useInCard } from '../shared/header-controls'
 import { TabPills } from '../shared/tab-pills'
 import { readStoredMarket, writeStoredMarket, type Market } from './keyword-helpers'
 import { ResearchTab } from './research-tab'
@@ -96,7 +96,7 @@ export function KeywordsPage({ tab, onTab, onCount }: KeywordsPageProps) {
           inCard ? (
             <>
               {active === 'research' && <span ref={setFormHost} data-kw-form-host="" className="contents" />}
-              <SeoSpendLine view={seoData.view} />
+              <SeoSpendLine view={seoData.view} className={SEO_HEADER_SPEND} />
               {tabs}
             </>
           ) : (

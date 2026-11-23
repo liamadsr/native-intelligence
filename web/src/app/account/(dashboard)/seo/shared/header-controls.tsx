@@ -101,8 +101,8 @@ export function SeoHeaderForm({
   )
 }
 
-/** The header form's field: 24px, round, about 14rem, giving way to a narrower row. */
-export const SEO_HEADER_FIELD = cn(CARD_HEADER_FIELD, 'w-56 min-w-32')
+/** The header form's field: 24px, round, 9rem in a narrow header, 14rem from 44rem up (the header row is a size container). */
+export const SEO_HEADER_FIELD = cn(CARD_HEADER_FIELD, 'w-36 @[44rem]:w-56')
 
 /** A Select's trigger as the header's choice (Country, Language): words and a chevron. */
 export const SEO_HEADER_CHOICE = cn(CARD_HEADER_CHOICE, 'w-auto min-w-0 max-w-40 justify-start border-0 bg-transparent py-0 shadow-none focus:ring-0')
@@ -112,8 +112,14 @@ export const SEO_HEADER_CHOICE = cn(CARD_HEADER_CHOICE, 'w-auto min-w-0 max-w-40
  * the language first, then the country; their values still apply. The field
  * and the press always stay.
  */
-export const SEO_HEADER_HIDE_LANGUAGE = 'hidden @[44rem]:inline-flex'
-export const SEO_HEADER_HIDE_COUNTRY = 'hidden @[36rem]:inline-flex'
+export const SEO_HEADER_HIDE_LANGUAGE = 'hidden @[48rem]:inline-flex'
+export const SEO_HEADER_HIDE_COUNTRY = 'hidden @[40rem]:inline-flex'
+/**
+ * The month's spend beside a header form: only where the header has room
+ * (a review, 11-23: in a 634px card the form, the spend and Keywords' tabs
+ * ran past the frame, which cut off the tabs and Minimize).
+ */
+export const SEO_HEADER_SPEND = 'hidden @[52rem]:inline'
 
 /** The header form's press: a pill with a short verb (Look up, Find keywords). */
 export function SeoHeaderSubmit({ busy, children, ...props }: Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'className' | 'type'> & { busy?: boolean }) {

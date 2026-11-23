@@ -295,15 +295,16 @@ a:hover .lucide,
 }
 
 /* One rhythm in the controls' pill whatever wrappers a page put its controls
-   in: the slot and the plain layout wrappers directly in it give up their
-   boxes, so every control is the pill's own flex item and the pill's 2px gap
+   in: the slot and the plain layout divs directly in it give up their boxes
+   (in the sky header's controls pill and the in-chat card's header alike),
+   so every control is the row's own flex item and the row's 2px gap
    and the surfaces' margins set every distance (2px between round icons, 4px
    beside a surface, 6px between surfaces). A wrapper that positions something
    (relative), draws something (a surface), is a group with a role, or hides
    itself at some width keeps its box. Unlayered: it has to win over the
    wrappers' own `flex`. */
-[data-card-header-pill="controls"] > [data-card-header-slot="right"]:not(:empty),
-[data-card-header-pill="controls"] > [data-card-header-slot="right"] > :is(div, span):not([role]):not(.ni-header-spaced):not(.relative):not([class*="bg-"]):not([class*="border"]):not([class~="hidden"]):not([class*=":hidden"]) {
+[data-card-header] [data-card-header-slot="right"]:not(:empty),
+[data-card-header] [data-card-header-slot="right"] > div:not([role]):not(.ni-header-spaced):not(.relative):not(.sr-only):not([class*="bg-"]):not([class*="border"]):not([class~="hidden"]):not([class*=":hidden"]) {
   display: contents;
 }
 
