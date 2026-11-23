@@ -79,6 +79,7 @@ import { CARD_HEADER_ICON_BUTTON } from './card-header-button'
 import { useLiveCaptureDockSlot } from './card-dock-slot'
 import { CARD_GLASS_FRAME, CardGlass } from './card-glass'
 import { COLUMN_CARD_SKIN } from '@/components/attention/card-skin'
+import { SKY_PILL, SkyHeaderRow } from './sky-header-row'
 import { frontCard, holdFrontCard } from './front-card'
 import { besideAppRail, minimizeCard, minimizeSoon, minimizedCard, minimizedFlightKey, recheckMinimized, subscribeBesideAppRail, subscribeMinimized } from './minimized-card'
 import { landTileFlight } from '@/lib/chat/tile-flight'
@@ -910,41 +911,51 @@ export function ShowToolCard({
   // notes): closed from its header. A card from the chat closes with its
   // Minimize, under it: back into its message.
   const pageClose = kept && shownFullScreen && !dockMatch
-  const renderHeader = (island: boolean) => (
+  const renderHeader = (island: boolean) => {
     // The title and the controls only: the count and the card's number are
     // the agent's business (its note), not the reader's. A container, for the
     // page's own controls in its slots.
     // Back and Forward lead it, as they led a window's header; full screen
     // beside the rail they are the rail header's, for the page in front
     // (Liam, 11-21), so not here too.
-    // Beside the rail full screen (headerIsland): the page's first row, where
-    // and as a side panel row is in the panel (page-panel's rows: 7px in from
-    // the sides, 11px from the top, 32px; ROW_LIT's tint), so its centre is
-    // level with the panel's first row; a pill (Liam, 11-22: "round out the
-    // corners more", then "a bit less tall and more slick … clean like apple
-    // made it"). Its controls are 24px (card-header-button.ts), 4px in from
-    // its ends, so a round one sits concentric in its round end. A press on it is the card's, never an outside press.
-    // The title first, the page's controls and Close at its far end.
-    <div
-      data-card-header=""
-      {...(island ? { 'data-card-header-island': '', [FULL_SCREEN_CONTROL_ATTR]: '' } : {})}
-      className={
-        island
-          ? // 7px in and 12px more: its icon on the page's leading line (19px from the outer edge), over the tab pills and a row's checkbox, its title on the content line (41px), over a list's rows (view-toolbar.tsx alignToContent).
-            // A container, as the inline header is, so a page's controls can shed as it narrows (the calendar's).
-            // z-20: above the body (z-10, after it in the frame), so a menu a page drops from its header without a portal (Studio's More, its costs) opens over the page, not under it.
-            '@container relative z-20 mx-[6px] mt-[10px] flex h-8 shrink-0 items-center gap-2 rounded-full bg-foreground/[0.08] pl-3 pr-1'
-          : '@container relative z-20 flex h-10 shrink-0 items-center gap-2 border-b px-4'
-      }
-    >
-      {!island && (
+    // Beside the rail full screen (headerIsland): up on the sky above the
+    // card, two glass pills in the window's top row, level with the rail's
+    // header (sky-header-row.tsx; Liam, 11-23: "Lets try G"), the title's at
+    // the card's left edge, the controls' at its right. Its controls are 24px
+    // (card-header-button.ts), concentric in the pill's round end. A press on
+    // either is the card's, never an outside press.
+    const title = (
+      <>
+        <div ref={leftSlotRef} data-card-header-slot="left" className="flex shrink-0 items-center empty:hidden" />
+        <KindIcon spec={spec} className="size-3.5 shrink-0 text-muted-foreground" />
+        {titleText(island)}
+      </>
+    )
+    if (island) {
+      return (
+        <SkyHeaderRow data-card-header="" data-card-header-island="">
+          <div data-card-header-pill="title" className={cn(SKY_PILL, 'min-w-0 gap-2 pl-3.5 pr-4')}>
+            {title}
+          </div>
+          {/* Hidden while it holds no control (a card from the chat with no page controls: its Minimize is under it). */}
+          <div data-card-header-pill="controls" className={cn(SKY_PILL, 'ml-auto shrink-0 gap-0.5 px-2 [&:not(:has(button))]:hidden')}>
+            {controls}
+          </div>
+        </SkyHeaderRow>
+      )
+    }
+    return (
+      <div data-card-header="" className="@container relative z-20 flex h-10 shrink-0 items-center gap-2 border-b px-4">
         <div className={cn('flex shrink-0 items-center', shownFullScreen && 'md:[html[data-app-rail]_&]:hidden')}>
           <CardHistoryButtons history={history} />
         </div>
-      )}
-      <div ref={leftSlotRef} data-card-header-slot="left" className="flex shrink-0 items-center empty:hidden" />
-      <KindIcon spec={spec} className="size-3.5 shrink-0 text-muted-foreground" />
-      {openRecord?.label ? (
+        {title}
+        <div className="ml-auto flex items-center gap-0.5">{controls}</div>
+      </div>
+    )
+  }
+  const titleText = (island: boolean) =>
+      openRecord?.label ? (
         // A record open over the page: the page, then the record, one line.
         <div data-card-header-trail="" className="flex min-w-0 flex-1 items-center gap-1.5 text-[13px]">
           <span className="max-w-[40%] shrink-0 truncate text-muted-foreground">{spec.title}</span>
@@ -974,46 +985,47 @@ export function ShowToolCard({
           {back && <ChevronRight aria-hidden className="size-3.5 shrink-0 text-muted-foreground/60" strokeWidth={1.75} />}
           <div ref={trailSlotRef} data-card-header-slot="trail" className="flex min-w-0 items-center gap-1.5 empty:hidden" />
         </div>
+      )
+  const controls = (
+    <>
+      {/* No Save as view here (Liam, 11-21: "remove this save button from
+          every page"): a list's changes are saved from its toolbar (Save
+          as new view, view-toolbar.tsx). */}
+      <div ref={rightSlotRef} data-card-header-slot="right" className="flex shrink-0 items-center empty:hidden" />
+      {/* The live capture's notepad: Full screen here in its header, not
+          round over its corner (Liam, 11-20: nothing floats at the foot of
+          the capture's page; its corner sat on the page's last row). */}
+      {dockMatch && !fullScreen && (
+        <button
+          type="button"
+          onClick={() => store.enterFullScreen(toolCallId)}
+          aria-label="Full screen"
+          title="Full screen"
+          data-card-header-fullscreen=""
+          className={cn('ml-1 grid size-6 shrink-0 place-items-center', CARD_HEADER_ICON_BUTTON)}
+        >
+          <Maximize2 className="size-3.5" strokeWidth={1.75} />
+        </button>
       )}
-      <div className="ml-auto flex items-center gap-0.5">
-        {/* No Save as view here (Liam, 11-21: "remove this save button from
-            every page"): a list's changes are saved from its toolbar (Save
-            as new view, view-toolbar.tsx). */}
-        <div ref={rightSlotRef} data-card-header-slot="right" className="flex shrink-0 items-center empty:hidden" />
-        {/* The live capture's notepad: Full screen here in its header, not
-            round over its corner (Liam, 11-20: nothing floats at the foot of
-            the capture's page; its corner sat on the page's last row). */}
-        {dockMatch && !fullScreen && (
-          <button
-            type="button"
-            onClick={() => store.enterFullScreen(toolCallId)}
-            aria-label="Full screen"
-            title="Full screen"
-            data-card-header-fullscreen=""
-            className={cn('ml-1 grid size-6 shrink-0 place-items-center', CARD_HEADER_ICON_BUTTON)}
-          >
-            <Maximize2 className="size-3.5" strokeWidth={1.75} />
-          </button>
-        )}
-        {/* A page the person opened (the app rail, `/`): its one close, here
-            in its own header (Liam, 11-09: the floating X "feels so out of
-            place", and Minimize did the same as it). */}
-        {pageClose && (
-          <button
-            type="button"
-            // As an empty press or Esc: its flight into the tile first (minimizeFromFullScreen), one sequence whatever closes it.
-            onClick={minimizeFromFullScreen}
-            aria-label="Close"
-            title="Close"
-            data-testid="card-close"
-            data-card-header-close=""
-            className="ml-1 grid size-6 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
-          >
-            <X className="size-3.5" strokeWidth={1.75} />
-          </button>
-        )}
-      </div>
-    </div>
+      {/* A page the person opened (the app rail, `/`): its one way out, here
+          in its own header (Liam, 11-09: the floating X "feels so out of
+          place", and Minimize did the same as it). Minimize's icon, not an X
+          (Liam, 11-23): it never closes the page, it flies into its tile. */}
+      {pageClose && (
+        <button
+          type="button"
+          // As an empty press or Esc: its flight into the tile first (minimizeFromFullScreen), one sequence whatever closes it.
+          onClick={minimizeFromFullScreen}
+          aria-label="Minimize"
+          title="Minimize"
+          data-testid="card-close"
+          data-card-header-close=""
+          className="ml-1 grid size-6 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+        >
+          <Minimize2 className="size-3.5" strokeWidth={1.75} />
+        </button>
+      )}
+    </>
   )
   // One header drawn at a time (its slots are one pair of hosts): the island
   // full screen beside the rail, else the row at the card's top.
@@ -1093,10 +1105,12 @@ export function ShowToolCard({
             <div className={cn(FULL_SCREEN_COLUMN, 'relative')} style={sizes.column}>
               <div ref={fullScreenFrameRef} {...{ [CARD_FRAME_ATTR]: '' }} className={cn('relative flex w-full flex-col overflow-hidden shadow-2xl', CARD_GLASS_FRAME)} style={sizes.frame}>
                 <CardGlass />
-                {headerIsland ? renderHeader(true) : header}
+                {!headerIsland && header}
                 <BodySlot host={bodyHost} className="relative z-10 min-h-0 flex-1" />
                 {pulse}
               </div>
+              {/* Beside the rail: up on the sky above the card, level with the rail's header (sky-header-row.tsx). */}
+              {headerIsland && renderHeader(true)}
               {/* Minimize: for a card from the chat (back into its message) or
                   the capture's notes; a page the person opened has its X in
                   its header instead (Liam, 11-09: the two did the same). */}

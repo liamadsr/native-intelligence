@@ -440,6 +440,58 @@ function hideHome(home: HTMLElement): () => void {
   }
 }
 
+/**
+ * What rides with a frame on its flight, drawn outside it: beside the frame in
+ * its parent, marked with this (a full-screen page's header, up on the sky
+ * above its card: components/chat-cards/sky-header-row.tsx). Hidden with the
+ * frame, and copied onto the window so it moves and scales with it (Liam,
+ * 11-23: "the header lags behind"): fading out on the way into the tile (a
+ * tile has no header), in on the way back.
+ */
+export const TILE_FLIGHT_RIDER_ATTR = 'data-tile-flight-rider'
+/** Off a rider's copy: what a live element's selectors, focus or labels would find twice. */
+const RIDER_DROPPED_ATTRS = ['id', 'data-testid', 'tabindex', 'autofocus', 'aria-labelledby', 'aria-describedby', 'aria-controls', 'aria-owns', TILE_FLIGHT_RIDER_ATTR]
+
+/** The riders beside `frame` (its parent's children marked TILE_FLIGHT_RIDER_ATTR). */
+function ridersOf(frame: HTMLElement | null): HTMLElement[] {
+  const parent = frame?.parentElement
+  return parent ? Array.from(parent.querySelectorAll<HTMLElement>(`:scope > [${TILE_FLIGHT_RIDER_ATTR}]`)) : []
+}
+
+/** Copies of `frame`'s riders as they stand, placed in the window's own coordinates (its top-left at `at`), for the mover. */
+function riderCopiesOf(frame: HTMLElement | null, at: { left: number; top: number }): HTMLElement[] {
+  return ridersOf(frame).flatMap((rider) => {
+    const r = rider.getBoundingClientRect()
+    if (r.width < 1 || r.height < 1) return []
+    const copy = rider.cloneNode(true) as HTMLElement
+    for (const node of [copy, ...Array.from(copy.querySelectorAll('*'))]) {
+      for (const name of RIDER_DROPPED_ATTRS) node.removeAttribute(name)
+      for (const name of node.getAttributeNames()) if (name.startsWith('data-card-header')) node.removeAttribute(name)
+    }
+    copy.setAttribute('data-tile-flight-rider-copy', '')
+    Object.assign(copy.style, {
+      position: 'absolute',
+      left: `${r.left - at.left}px`,
+      top: `${r.top - at.top}px`,
+      right: 'auto',
+      width: `${r.width}px`,
+      height: `${r.height}px`,
+      margin: '0',
+      transform: 'none',
+      opacity: '1',
+      pointerEvents: 'none',
+      willChange: 'opacity',
+    })
+    return [copy]
+  })
+}
+
+/** Shows what the flight hid when it ends: a frame (and its riders) put away with its card only if it is still there a moment on. */
+function showAgain(f: TileFlight, el: HTMLElement): void {
+  if (f.kind === 'into' && f.handed) showIfKept(el)
+  else el.style.opacity = ''
+}
+
 interface TileFlight {
   /** Into the tile, or out of it back to the frame. */
   kind: 'into' | 'out'
@@ -449,6 +501,8 @@ interface TileFlight {
   animations: Animation[]
   /** The frame, hidden while the flight is over it (into: from its launch; out: from its mount till the copy reaches it). */
   target: HTMLElement | null
+  /** The frame's riders (TILE_FLIGHT_RIDER_ATTR), hidden with it: their copies ride the window. */
+  riders: HTMLElement[]
   /** Into: the tile, once drawn (landTileHome), hidden till the handover. */
   home: HTMLElement | null
   /** The copy has reached its place. */
@@ -514,7 +568,9 @@ function takeOff(kind: 'into' | 'out', snap: TileSnapshot, end: TileEnd, frame: 
   const edge = document.createElement('div')
   edge.setAttribute('data-tile-flight-edge', '')
   Object.assign(edge.style, { position: 'absolute', boxSizing: 'border-box', borderStyle: 'solid', borderColor: end.edge, pointerEvents: 'none', willChange: 'opacity' })
-  mover.append(shade, copy, edge)
+  // Into the tile: the frame's riders (its header up on the sky) on the window, moving and scaling with it.
+  const riders = kind === 'into' ? riderCopiesOf(frame, rect) : []
+  mover.append(shade, copy, edge, ...riders)
   flyer.append(mover)
   document.body.append(flyer)
 
@@ -550,6 +606,8 @@ function takeOff(kind: 'into' | 'out', snap: TileSnapshot, end: TileEnd, frame: 
 
   const move = mover.animate(moves, playOptions())
   const animations = [move, copy.animate(clips, outlineOptions()), edge.animate(rings, outlineOptions()), edge.animate(toTile, playOptions()), shade.animate(toFrame, playOptions())]
+  // Gone by the hand-over, where the window is all but the tile's size: a tile has no header.
+  for (const rider of riders) animations.push(rider.animate([{ opacity: 1 }, { opacity: 0 }], { duration: TILE_HANDOFF_MS, easing: 'ease-out', fill: 'forwards' }))
   return { flyer, move, animations }
 }
 
@@ -569,11 +627,9 @@ function endTileFlight(): void {
   if (f.handoffTimer) clearTimeout(f.handoffTimer)
   for (const a of f.animations) a.cancel()
   f.flyer.remove()
-  if (f.target) {
-    // Into the tile, its card already told to leave: the frame goes with it, never back for a frame.
-    if (f.kind === 'into' && f.handed) showIfKept(f.target)
-    else f.target.style.opacity = ''
-  }
+  // Into the tile, its card already told to leave: the frame goes with it, never back for a frame.
+  if (f.target) showAgain(f, f.target)
+  for (const rider of f.riders) showAgain(f, rider)
   f.reveal()
   const cancelled = f.handed ? null : f.cancelled
   f.cancelled = null
@@ -646,7 +702,10 @@ export function launchIntoTile(
   endTileFlight()
   const { flyer, move, animations } = takeOff('into', snap, to, frame)
   if (frame) frame.style.opacity = '0'
-  const f: TileFlight = { kind: 'into', key, flyer, move, animations, target: frame, home: null, done: false, reveal: noop, handoff: handoff ?? null, handed: !handoff, cancelled: cancelled ?? null, timer: null, handoffTimer: null }
+  // Its riders too: their copies are on the window now (takeOff).
+  const riders = ridersOf(frame)
+  for (const rider of riders) rider.style.opacity = '0'
+  const f: TileFlight = { kind: 'into', key, flyer, move, animations, target: frame, riders, home: null, done: false, reveal: noop, handoff: handoff ?? null, handed: !handoff, cancelled: cancelled ?? null, timer: null, handoffTimer: null }
   // Landed: the flyer goes and the tile is whole, in one go (one frame).
   fly(f, () => !!f.home)
   return true
@@ -720,7 +779,7 @@ export function launchTileFlight(
   endTileFlight()
   const { flyer, move, animations } = takeOff('out', snap, from, null)
   const reveal = hideHome(tile)
-  const f: TileFlight = { kind: 'out', key, flyer, move, animations, target: null, home: null, done: false, reveal, handoff: handoff ?? null, handed: !handoff, cancelled: cancelled ?? null, timer: null, handoffTimer: null }
+  const f: TileFlight = { kind: 'out', key, flyer, move, animations, target: null, riders: [], home: null, done: false, reveal, handoff: handoff ?? null, handed: !handoff, cancelled: cancelled ?? null, timer: null, handoffTimer: null }
   // The frame is there, hidden: it shows as the copy goes. Not yet: the copy waits on its place for it.
   fly(f, () => !!f.target)
   return true
@@ -743,10 +802,27 @@ export function landTileFlight(key: string, frame: HTMLElement | null): () => vo
   }
   f.target = frame
   frame.style.opacity = '0'
+  // Its riders (its header up on the sky) arrive with it: copies on the window for the rest of the way, fading in.
+  const riders = ridersOf(frame)
+  const mover = f.flyer.querySelector<HTMLElement>('[data-tile-flight-window]')
+  const copies = mover ? riderCopiesOf(frame, frame.getBoundingClientRect()) : []
+  if (mover && copies.length) {
+    mover.append(...copies)
+    const left = Math.max(1, MINIMIZE_FLIGHT_MS - (Number(f.move.currentTime) || 0))
+    for (const copy of copies) {
+      copy.style.opacity = '0'
+      f.animations.push(copy.animate([{ opacity: 0 }, { opacity: 1 }], { duration: left, easing: 'ease-in', fill: 'forwards' }))
+    }
+  }
+  for (const rider of riders) rider.style.opacity = '0'
+  f.riders = riders
   return () => {
     if (tileFlight !== f || f.target !== frame) return
     frame.style.opacity = ''
+    for (const rider of riders) rider.style.opacity = ''
+    for (const copy of copies) copy.remove()
     f.target = null
+    f.riders = []
   }
 }
 

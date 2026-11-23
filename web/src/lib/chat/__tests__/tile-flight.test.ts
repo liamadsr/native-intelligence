@@ -18,6 +18,7 @@ import { FLIGHT_GLASS_CLASS, SEARCH_FLIGHT_MS, applyCopyScroll, coverScale, reve
 import {
   MINIMIZE_FLIGHT_MS,
   TILE_FLIGHT_EASING,
+  TILE_FLIGHT_RIDER_ATTR,
   TILE_HANDOFF_MS,
   __resetTileFlightForTests,
   composerObstacle,
@@ -461,6 +462,65 @@ describe('the flights', () => {
     expect(document.querySelectorAll('[data-tile-flight]')).toHaveLength(1)
     vi.advanceTimersByTime(TILE_HANDOFF_MS * 2)
     expect(handoff).not.toHaveBeenCalled()
+  })
+
+  it('the frame’s riders (its header up on the sky, beside it in its column): hidden with it, copied onto the window where they stand, stripped, fading out by the hand-over; on the way back copied on again as the frame mounts, fading in, and shown as it lands (Liam, 11-23: "the header lags behind")', async () => {
+    const column = document.createElement('div')
+    document.body.append(column)
+    const frame = frameEl()
+    column.append(frame)
+    const rider = box({ left: FRAME.left + 40, top: FRAME.top - 47, width: 300, height: 42 }, { [TILE_FLIGHT_RIDER_ATTR]: '', 'data-card-header': '' })
+    rider.innerHTML = '<div data-card-header-pill="controls"><button data-testid="card-close" data-card-header-close="" aria-label="Minimize">-</button></div>'
+    column.append(rider)
+    const contextOf = (el: Element) => animate.mock.calls[(animate.mock.contexts as Element[]).indexOf(el)]
+
+    launchIntoTile('minimize:team', flightCopyOf(stillCopyOf(frame)), END, frame, { handoff: vi.fn(), cancelled: vi.fn() })
+    expect(frame.style.opacity).toBe('0')
+    expect(rider.style.opacity).toBe('0')
+    const copy = part('window').querySelector<HTMLElement>('[data-tile-flight-rider-copy]')!
+    expect(copy).not.toBeNull()
+    expect([copy.style.position, copy.style.left, copy.style.top, copy.style.width, copy.style.height]).toEqual(['absolute', '40px', '-47px', '300px', '42px'])
+    // No second header for a selector to find: its attributes and test ids are off the copy.
+    expect(copy.hasAttribute(TILE_FLIGHT_RIDER_ATTR)).toBe(false)
+    expect(copy.hasAttribute('data-card-header')).toBe(false)
+    expect(copy.querySelector('[data-testid], [data-card-header-close], [data-card-header-pill]')).toBeNull()
+    expect(document.querySelectorAll('[data-card-header-close]')).toHaveLength(1)
+    expect(contextOf(copy)).toEqual([[{ opacity: 1 }, { opacity: 0 }], { duration: TILE_HANDOFF_MS, easing: 'ease-out', fill: 'forwards' }])
+    // Ended before the hand-over: shown again with its frame.
+    flyIntoTile(flightCopyOf(stillCopyOf(frame)), tileEl())
+    expect(frame.style.opacity).toBe('')
+    expect(rider.style.opacity).toBe('')
+
+    // Back out of the tile: the frame and its header mount half way, hidden under the copy.
+    __resetTileFlightForTests()
+    document.body.innerHTML = ''
+    const snap = flightCopyOf(stillCopyOf(frameEl()))!
+    document.querySelector('[data-chat-card-frame]')!.remove()
+    launchTileFlight('minimized:team', tileEl(), snap, { handoff: vi.fn() })
+    vi.advanceTimersByTime(TILE_HANDOFF_MS)
+    const back = document.createElement('div')
+    document.body.append(back)
+    const mounted = box(FRAME)
+    back.append(mounted)
+    const header = box({ left: FRAME.left, top: FRAME.top - 47, width: 948, height: 42 }, { [TILE_FLIGHT_RIDER_ATTR]: '' })
+    back.append(header)
+    const off = landTileFlight('minimized:team', mounted)
+    expect(header.style.opacity).toBe('0')
+    const arriving = part('window').querySelector<HTMLElement>('[data-tile-flight-rider-copy]')!
+    expect([arriving.style.left, arriving.style.top]).toEqual(['0px', '-47px'])
+    expect(contextOf(arriving)).toEqual([[{ opacity: 0 }, { opacity: 1 }], { duration: MINIMIZE_FLIGHT_MS, easing: 'ease-in', fill: 'forwards' }])
+    // React's development double mount: taken off (its copy too), then mounted again.
+    off()
+    expect(header.style.opacity).toBe('')
+    expect(part('window').querySelectorAll('[data-tile-flight-rider-copy]')).toHaveLength(0)
+    landTileFlight('minimized:team', mounted)
+    expect(part('window').querySelectorAll('[data-tile-flight-rider-copy]')).toHaveLength(1)
+    // Landed: the copy goes and the frame and its header show, in one go.
+    finish.get(part('window'))![0]()
+    await settle()
+    expect(flyer()).toBeNull()
+    expect(mounted.style.opacity).toBe('')
+    expect(header.style.opacity).toBe('')
   })
 
   it('passes behind the composer too, and never has a hole where the window stands or lands', () => {

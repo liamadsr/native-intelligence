@@ -120,14 +120,14 @@ describe('the kept pages', () => {
 })
 
 describe('a page the person opened', () => {
-  it('draws nothing out of full screen but its parked page; its X says Close', async () => {
+  it('draws nothing out of full screen but its parked page; its way out says Minimize', async () => {
     await render(['p1'])
     expect(container.querySelector('[data-chat-card="p1"]')).toBeNull()
     expect(container.querySelector('[data-chat-card-pill="p1"]')).toBeNull()
     await act(async () => store.enterFullScreen('p1'))
     await settle()
     const close = document.querySelector('[data-chat-card-fullscreen="p1"] [data-testid="card-close"]') as HTMLButtonElement
-    expect(close.getAttribute('aria-label')).toBe('Close')
+    expect(close.getAttribute('aria-label')).toBe('Minimize')
     // In the page's own header, and the one way out: no Minimize under it (Liam, 11-09).
     expect(close.closest('[data-card-header]')).not.toBeNull()
     expect(document.querySelector('[data-chat-card-fullscreen="p1"] [data-testid="card-minimize"]')).toBeNull()
