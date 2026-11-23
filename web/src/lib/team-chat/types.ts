@@ -196,6 +196,9 @@ export type TeamChatRecordMention = LabeledMentionRef
 export const TEAM_CHAT_MESSAGE_COLUMNS =
   'id, channel_id, author_kind, author_member_id, agent_for_member_id, agent_name, in_reply_to, thread_root_id, client_id, body, mentions, mentions_agent, record_mentions, attachments, link_preview, created_at, edited_at, deleted_at, kind, call_id, email_share_id, guest_id, guest_name, poll_id'
 
+/** The same before migration 703 (no poll_id): ./store.ts messageColumns reads with these until it is there. */
+export const TEAM_CHAT_MESSAGE_COLUMNS_BEFORE_703 = TEAM_CHAT_MESSAGE_COLUMNS.replace(', poll_id', '')
+
 /** The most replies a thread's pane loads at once. */
 export const TEAM_CHAT_THREAD_MAX = 200
 /** The most emoji one member puts on one message (migration 557's cap). */

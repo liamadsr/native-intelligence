@@ -38,7 +38,7 @@ export function teamChatCreateItems(input: TeamChatCreateInput): ComposerCreateI
   const source = input.source && !input.source.deleted_at ? input.source : null
   items.push({
     id: 'task',
-    label: 'New task from this conversation',
+    label: 'New task from chat',
     icon: CircleCheck,
     onSelect: () =>
       source

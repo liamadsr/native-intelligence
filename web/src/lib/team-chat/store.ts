@@ -18,6 +18,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { MEETING_RECENT_MS } from '@/lib/meeting-links/section'
 import {
   TEAM_CHAT_MESSAGE_COLUMNS,
+  TEAM_CHAT_MESSAGE_COLUMNS_BEFORE_703,
   TEAM_CHAT_PAGE_SIZE,
   TEAM_CHAT_THREAD_MAX,
   dmOtherMember,
@@ -53,6 +54,27 @@ export function teamChatErrorOf(error: { code?: string; message?: string } | nul
   if (code === '23505') return new TeamChatError('conflict', `${what}: already exists`)
   if (code === '22023' || code === '23514' || code === '22P02') return new TeamChatError('bad_request', `${what}: invalid`)
   return new TeamChatError('failed', `${what} failed${error?.message ? `: ${error.message}` : ''}`)
+}
+
+/**
+ * The columns a message is read with: with poll_id once migration 703 is
+ * there, without it before (so a deploy that lands ahead of 703 still reads
+ * team chat). Asked once per server process and kept once it is there; a
+ * "not yet" is asked again after a minute.
+ */
+let pollColumn: { at: number; there: boolean } | null = null
+export async function messageColumns(supabase: SupabaseClient, now: number = Date.now()): Promise<string> {
+  if (pollColumn?.there) return TEAM_CHAT_MESSAGE_COLUMNS
+  if (pollColumn && now - pollColumn.at < 60_000) return TEAM_CHAT_MESSAGE_COLUMNS_BEFORE_703
+  const { error } = await supabase.from('team_chat_message').select('poll_id').limit(0)
+  const there = !(error && isMissingColumnError(error, 'poll_id'))
+  pollColumn = { at: now, there }
+  return there ? TEAM_CHAT_MESSAGE_COLUMNS : TEAM_CHAT_MESSAGE_COLUMNS_BEFORE_703
+}
+
+/** Tests only. */
+export function resetMessageColumns(): void {
+  pollColumn = null
 }
 
 interface ChannelRow {
@@ -198,7 +220,8 @@ export async function listMessagesAround(
 ): Promise<{ messages: TeamChatMessage[]; hasOlder: boolean; hasNewer: boolean } | null> {
   const target = await getMessage(supabase, messageId)
   if (!target || target.channel_id !== channelId || target.thread_root_id) return null
-  const page = () => supabase.from('team_chat_message').select(TEAM_CHAT_MESSAGE_COLUMNS).eq('channel_id', channelId).is('thread_root_id', null)
+  const columns = await messageColumns(supabase)
+  const page = () => supabase.from('team_chat_message').select(columns).eq('channel_id', channelId).is('thread_root_id', null)
   const [older, newer] = await Promise.all([
     page().lt('created_at', target.created_at).order('created_at', { ascending: false }).limit(TEAM_CHAT_AROUND_BEFORE + 1),
     page().gte('created_at', target.created_at).order('created_at', { ascending: true }).limit(TEAM_CHAT_AROUND_AFTER + 1),
@@ -226,7 +249,7 @@ export async function listMessages(
   const limit = Math.min(Math.max(opts.limit ?? TEAM_CHAT_PAGE_SIZE, 1), 200)
   let query = supabase
     .from('team_chat_message')
-    .select(TEAM_CHAT_MESSAGE_COLUMNS)
+    .select(await messageColumns(supabase))
     .eq('channel_id', channelId)
     .is('thread_root_id', null)
     .order('created_at', { ascending: false })
@@ -239,7 +262,7 @@ export async function listMessages(
 
 /** One message the person may read, or null. */
 export async function getMessage(supabase: SupabaseClient, messageId: string): Promise<TeamChatMessage | null> {
-  const { data, error } = await supabase.from('team_chat_message').select(TEAM_CHAT_MESSAGE_COLUMNS).eq('id', messageId).maybeSingle<TeamChatMessage>()
+  const { data, error } = await supabase.from('team_chat_message').select(await messageColumns(supabase)).eq('id', messageId).maybeSingle<TeamChatMessage>()
   if (error) throw teamChatErrorOf(error, 'message read')
   return data ?? null
 }
@@ -248,7 +271,7 @@ export async function getMessage(supabase: SupabaseClient, messageId: string): P
 export async function listThread(supabase: SupabaseClient, rootId: string): Promise<TeamChatMessage[]> {
   const { data, error } = await supabase
     .from('team_chat_message')
-    .select(TEAM_CHAT_MESSAGE_COLUMNS)
+    .select(await messageColumns(supabase))
     .eq('thread_root_id', rootId)
     .order('created_at', { ascending: false })
     .limit(TEAM_CHAT_THREAD_MAX)
@@ -432,13 +455,13 @@ export async function postMessage(
       attachments: input.attachments ?? [],
       client_id: input.clientId ?? null,
     })
-    .select(TEAM_CHAT_MESSAGE_COLUMNS)
+    .select(await messageColumns(supabase))
     .single<TeamChatMessage>()
   if (error?.code === '23505' && input.clientId) {
     // Sent before (a retry after an answer that never arrived): the row it made.
     const { data: sent, error: readError } = await supabase
       .from('team_chat_message')
-      .select(TEAM_CHAT_MESSAGE_COLUMNS)
+      .select(await messageColumns(supabase))
       .eq('author_member_id', input.memberId)
       .eq('client_id', input.clientId)
       .maybeSingle<TeamChatMessage>()
@@ -460,7 +483,7 @@ export async function editMessage(
     .from('team_chat_message')
     .update({ body: input.body, mentions: input.mentions, record_mentions: input.recordMentions ?? [] })
     .eq('id', messageId)
-    .select(TEAM_CHAT_MESSAGE_COLUMNS)
+    .select(await messageColumns(supabase))
     .maybeSingle<TeamChatMessage>()
   if (error) throw teamChatErrorOf(error, 'message edit')
   return data ?? null

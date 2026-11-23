@@ -1542,7 +1542,7 @@ export const ChatInput = memo(function ChatInput({
                         type="button"
                         data-composer-create={item.id}
                         disabled={item.disabled}
-                        className="flex w-full items-center gap-2.5 rounded-2xl px-2 py-2 text-sm hover:bg-muted/50 disabled:opacity-50"
+                        className="flex w-full items-center text-left gap-2.5 rounded-2xl px-2 py-2 text-sm hover:bg-muted/50 disabled:opacity-50"
                         onClick={() => {
                           setPlusMenuOpen(false)
                           item.onSelect()
