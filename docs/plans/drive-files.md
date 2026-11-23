@@ -111,8 +111,9 @@ A file is never sent to an outside service.
   - the attachments bucket's read rule (663), which reads `attachments` as the caller, so
     the bytes follow the same rule;
   - both `entity_visible_to` overloads, restated from 664;
-  - `hybrid_search_attachments`, restated from 275;
-  - `attachment_rag_search`, restated from 223.
+  - `attachment_readable_by`, restated from 708 with one AND. 708 (the file-search fence,
+    released before this) makes `hybrid_search_attachments` and `attachment_rag_search` ask
+    it, so `find` and `deep_search` follow the Drive rule without 696 restating either one.
 
   A test holds each restated body equal to its source with only the Drive lines added.
 - **Filing shares it, so only its uploader files, moves or unfiles it.** This is three
@@ -127,7 +128,7 @@ A file is never sent to an outside service.
 - A partial index on team chat messages that carry files.
 
 **Rehearsal, local Postgres 16.** Stand-ins stood in for the app's tables, with `auth.uid()`
-read from a setting and 690 and 693 applied first. The installed pgvector is 0.6, which
+read from a setting and 690, 693 and 708 applied first. The installed pgvector is 0.6, which
 has no `halfvec`, so the rehearsal copy reads `halfvec(3072)` as `vector(3)`. Applied twice,
 then 40 checks, all passing:
 
@@ -266,8 +267,10 @@ refused in this session, so pdf.js runs on the page's thread (see decision 6).
    file downloads.
 8. **`.xls` (old binary Excel), `.doc` and `.ppt` download.** No permissive reader is in the
    tree.
-9. **Found while restating 275's and 223's searches, not changed:** neither search fences a
-   table row's file (663) by its table. A member could find a private table's form upload
-   by its text through `find` or `deep_search`. 696 adds only the Drive arm, as asked. A
-   row arm belongs in its own change, with the forms owner.
-10. **Chat file text is full text only**, no vectors, as 561's message search.
+9. **Found while restating 275's and 223's searches:** neither fenced a table row's file
+   (663) by its table. 708 (a separate session, released first) fixes it with
+   `attachment_readable_by`. 696 now extends that helper instead of restating the searches.
+10. **Migration numbers.** 696, 697 and 706 are applied after 708 and the 700s batch. The
+    managing session is asked for numbers after that batch, so the repo's
+    "newest definition" tests agree with the order they are applied in.
+11. **Chat file text is full text only**, no vectors, as 561's message search.

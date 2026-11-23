@@ -1,10 +1,10 @@
 /**
  * Migration 696: Drive uploads, a file's place in a folder, and when a file
  * was opened (docs/plans/drive-files.md, phase 2). Pins the file:
- *   - the four functions it restates are their newest sources (664's two
- *     entity_visible_to overloads, 275's hybrid_search_attachments, 223's
- *     attachment_rag_search) character for character once 696's Drive lines
- *     are taken out, so nothing else in them moved;
+ *   - the three functions it restates are their newest sources (664's two
+ *     entity_visible_to overloads, 708's attachment_readable_by, which both
+ *     attachment searches ask) character for character once 696's Drive
+ *     lines are taken out, so nothing else in them moved;
  *   - drive_folder_item_readable is 690's with one arm added;
  *   - the read rule is restrictive, and a Drive upload is filed only by its
  *     uploader; attachments_has_parent still needs a parent for an ordinary
@@ -69,20 +69,15 @@ describe('migration 696', () => {
     }
   })
 
-  it('restates the two attachment searches with one AND each', () => {
-    const hsa = 'CREATE OR REPLACE FUNCTION public.hybrid_search_attachments('
+  it('restates 708’s attachment_readable_by with only the Drive upload AND, and leaves the two searches to it', () => {
+    const head = 'create or replace function public.attachment_readable_by(p_attachment_id uuid, p_user_id uuid)'
     expect(
-      without(block(SQL, hsa), [
-        ["              -- 696: a Drive upload is its uploader's, or its folder's readers'.\n              AND (NOT a.drive_upload OR public.drive_upload_visible_to(a.id, v_requester))\n", ''],
+      without(block(SQL, head), [
+        ["        -- A Drive upload (696): its uploader, or a non-guest member while it is filed in a folder.\n        and (not a.drive_upload or public.drive_upload_visible_to(a.id, p_user_id))\n", ''],
       ]),
-    ).toBe(block(read('275_requester_identity_search_rpcs.sql'), hsa))
-    const ars = 'CREATE OR REPLACE FUNCTION public.attachment_rag_search('
-    const arsEnd = '$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;\n'
-    expect(
-      without(block(SQL, ars, arsEnd), [
-        ["      -- 696: a Drive upload is its uploader's, or its folder's readers'.\n      AND (NOT a.drive_upload OR public.drive_upload_visible_to(a.id, v_user_id))\n", ''],
-      ]),
-    ).toBe(block(read('223_capture_visibility.sql'), ars, arsEnd))
+    ).toBe(block(read('708_attachment_search_fence.sql'), head))
+    expect(SQL).not.toContain('FUNCTION public.hybrid_search_attachments(')
+    expect(SQL).not.toContain('FUNCTION public.attachment_rag_search(')
   })
 
   it('restates drive_folder_item_readable from 690 with the attachment arm only', () => {
