@@ -100,7 +100,8 @@ describe('the app rail', () => {
       'home',
       // Drive: Docs, Knowledge, Files · Calendar: Captures (Liam, 11-11): one icon each.
       // Projects and Initiatives nest under Tasks (Liam, 11-11): no icons of their own.
-      'drive', 'mail', 'team-chat', 'actions', 'calendar',
+      // Reviews (docs/plans/github-reviews.md) after My Actions.
+      'drive', 'mail', 'team-chat', 'actions', 'reviews', 'calendar', 'inbox',
       // Contacts: Companies, Contacts, Deals · Outreach: Prospecting, Sequences, Campaigns (Liam, 11-11),
       // and the Studio (Liam, 11-13: "part of the outreach page"): no icon of its own.
       // SEO: Site audit (one icon; its sections join it as they land).
@@ -397,7 +398,7 @@ const savedBar = () => {
   return last ? JSON.parse(String((last[1] as RequestInit).body)).rail_pages : undefined
 }
 const DEFAULT_BAR = [
-  'drive', 'mail', 'team-chat', 'actions', 'calendar',
+  'drive', 'mail', 'team-chat', 'actions', 'reviews', 'calendar', 'inbox',
   'contacts', 'outreach', 'seo',
   'agents',
 ]
@@ -454,9 +455,9 @@ describe('the person’s bar', () => {
     await act(async () => {
       item('calendar')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', altKey: true, bubbles: true, cancelable: true }))
     })
-    expect(bar().slice(0, 5)).toEqual(['drive', 'mail', 'team-chat', 'calendar', 'actions'])
+    expect(bar().slice(0, 6)).toEqual(['drive', 'mail', 'team-chat', 'actions', 'calendar', 'reviews'])
     expect(document.activeElement).toBe(item('calendar'))
-    expect(container.querySelector('[data-app-rail-announce]')?.textContent).toBe('Calendar moved to 4 of 9')
+    expect(container.querySelector('[data-app-rail-announce]')?.textContent).toBe('Calendar moved to 5 of 11')
     expect(lines()).toBe(0)
     await act(async () => {
       item('calendar')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', altKey: true, bubbles: true, cancelable: true }))
@@ -555,7 +556,7 @@ describe('the person’s bar', () => {
     edition.current = withEffectiveSurface(getEdition('full'), { email: 'off' })
     localStorage.setItem(RAIL_PAGES_STORAGE_KEY, JSON.stringify({ order: ['mail', 'team-chat', 'docs'], hidden: [] }))
     await render()
-    expect(bar().slice(0, 3)).toEqual(['team-chat', 'actions', 'calendar'])
+    expect(bar().slice(0, 4)).toEqual(['team-chat', 'actions', 'reviews', 'calendar'])
     // Docs saved before Drive: Drive stands there.
     expect(bar()).toContain('drive')
     expect(bar()).not.toContain('mail')
@@ -592,7 +593,7 @@ describe('dragging an icon up or down the bar', () => {
     expect(dropLine().style.display).toBe('')
     const mail = item('mail')!
     await act(async () => mail.dispatchEvent(pointer('pointerdown', centre(1))))
-    // Past Calendar's centre (slot 4): the line between Calendar and Captures.
+    // Past Reviews' centre (slot 4): the line between Reviews and Calendar.
     await act(async () => window.dispatchEvent(pointer('pointermove', centre(4) + 2)))
     expect(mail.hasAttribute('data-dragging')).toBe(true)
     expect(dropLine().style.display).toBe('block')
@@ -609,8 +610,8 @@ describe('dragging an icon up or down the bar', () => {
     expect(asked).toEqual([])
     expect(dropLine().style.display).toBe('')
     expect(item('mail')!.hasAttribute('data-dragging')).toBe(false)
-    expect(bar().slice(0, 5)).toEqual(['drive', 'team-chat', 'actions', 'calendar', 'mail'])
-    expect(savedBar()?.order.slice(0, 5)).toEqual(['drive', 'team-chat', 'actions', 'calendar', 'mail'])
+    expect(bar().slice(0, 5)).toEqual(['drive', 'team-chat', 'actions', 'reviews', 'mail'])
+    expect(savedBar()?.order.slice(0, 5)).toEqual(['drive', 'team-chat', 'actions', 'reviews', 'mail'])
   })
 
   it('takes a press that barely moves as a click, and Esc puts a drag back', async () => {
@@ -745,7 +746,7 @@ describe('page groups (Liam, 11-11: "Contacts: Companies, Contacts, Deals · Out
     // Drive where Docs was; Agents where Flows was, its first member saved.
     // Outreach shows again: this bar hid its three pages but kept the Studio's own icon, and the Studio lives in
     // Outreach now (11-13). SEO came after this bar was saved: a page it doesn't mention, shown, after the rest.
-    expect(bar()).toEqual(['contacts', 'calendar', 'drive', 'mail', 'team-chat', 'actions', 'agents', 'outreach', 'seo'])
+    expect(bar()).toEqual(['contacts', 'calendar', 'inbox', 'drive', 'mail', 'team-chat', 'actions', 'reviews', 'agents', 'outreach', 'seo'])
     // The next save keeps rail ids in the order, and a hidden group as its members.
     await rightClick('mail')
     await pick('unpin')

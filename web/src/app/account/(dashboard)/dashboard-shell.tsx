@@ -33,6 +33,7 @@ import { TeamsProvider } from '../teams-context'
 import { NotificationProvider } from '../notification-context'
 import { InAppMessageProvider } from '../in-app-message-context'
 import { InAppMessageToaster } from '../in-app-message-toaster'
+import { GlobalFileViewer } from '@/components/files/global-file-viewer'
 import { InAppMessageDialog } from '../in-app-message-dialog'
 import { DesktopNudgeToast } from './desktop-nudge-toast'
 import { TrayStartCaptureHandler } from '@/components/desktop/tray-start-capture-handler'
@@ -689,6 +690,8 @@ export function DashboardShell({
       <UsageLimitDialog />
       <CaptureRecoveryPrompt />
       <InAppMessageToaster />
+      {/* Files opened from where no viewer lives (a search result): components/files. */}
+      <GlobalFileViewer />
       <InAppMessageDialog />
       <CelebrationOverlay />
       {mounted && createPortal(

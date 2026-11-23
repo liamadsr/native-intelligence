@@ -118,6 +118,8 @@ const TOOL_LABELS: Record<string, string> = {
   create_form: 'Make form',
   update_form: 'Change form',
   create_form_invites: 'Make invite links',
+  read_team_chat_poll: 'Read a poll',
+  post_team_chat_poll: 'Post a poll',
   archive_rows: 'Archive rows',
   undo_table_change: 'Undo the table change',
   // The agent's checklist for a long job (agents' native update_plan; the chat

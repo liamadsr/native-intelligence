@@ -18,15 +18,24 @@
  * where it is checked: each shows what it came from (a kind and a domain,
  * never an address), and one that rested on untrusted outside text carries a
  * quiet "from a web page" label on its row, so it is easy to spot and undo.
+ *
+ * Editing sessions, the timeline and Fork (docs/plans/doc-editor-extras.md,
+ * phase 4): the list groups one author's changes less than 30 minutes apart
+ * into a session (lib/documents/revision-sessions.ts), the timeline under it
+ * scrubs through every version oldest to newest (its full text), and "Fork into
+ * a new document" copies a version into a new document in the original's
+ * project, folder and visibility.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Bot, Globe, History, Loader2, RotateCcw, Undo2, User } from 'lucide-react'
+import { Bot, ChevronDown, ChevronRight, GitFork, Globe, History, Loader2, RotateCcw, Undo2, User } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { relativeTime } from '@/lib/work/presentation'
 import { diffLines, diffStats, foldDiff } from '@/lib/documents/line-diff'
 import { DiffFoldRow, DiffLineRow } from './diff-line-row'
 import { describeRevisionAuthor, describeRevisionSources, type RevisionDetail, type RevisionSummary } from '@/lib/documents/revision-format'
 import { changedSection } from '@/lib/documents/section-diff'
+import { groupRevisionSessions } from '@/lib/documents/revision-sessions'
+import { emitEntityCreated } from '@/lib/entity-events'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -44,17 +53,25 @@ export interface RestoredDocument {
   revision: number
 }
 
+export interface ForkedDocument {
+  id: string
+  title: string
+}
+
 export function DocumentHistory({
   documentId,
   currentRevision,
   canRestore,
   onRestored,
+  onForked,
 }: {
   documentId: string
   /** The document's revision now; the list refreshes when it moves. */
   currentRevision: number | null
   canRestore: boolean
   onRestored: (doc: RestoredDocument) => void
+  /** A version was forked into a new document (open it). Without it, Fork isn't offered. */
+  onForked?: (doc: ForkedDocument) => void
 }) {
   const [revisions, setRevisions] = useState<RevisionSummary[] | null>(null)
   const [listError, setListError] = useState<string | null>(null)
@@ -66,6 +83,9 @@ export function DocumentHistory({
   const [restoring, setRestoring] = useState(false)
   const [restoreError, setRestoreError] = useState<string | null>(null)
   const [reverting, setReverting] = useState(false)
+  const [forking, setForking] = useState(false)
+  // Sessions opened (or closed) by hand; the newest, and the selected one's, start open.
+  const [toggled, setToggled] = useState<Record<string, boolean>>({})
 
   const loadList = useCallback(() => {
     fetch(`/api/account/documents/${documentId}/revisions?limit=50`)
@@ -124,6 +144,25 @@ export function DocumentHistory({
   }, [detail])
 
   const detailSources = detail ? describeRevisionSources(detail.revision.sources) : null
+
+  const sessions = useMemo(() => (revisions ? groupRevisionSessions(revisions) : []), [revisions])
+
+  async function fork() {
+    if (!detail || forking || !onForked) return
+    setForking(true)
+    setRestoreError(null)
+    try {
+      const res = await fetch(`/api/account/documents/${documentId}/revisions/${detail.revision.revision_number}/fork`, { method: 'POST' })
+      const json = await res.json().catch(() => null)
+      if (!res.ok || !json?.document?.id) throw new Error(json?.error || 'Couldn’t fork this version')
+      emitEntityCreated({ entityType: 'document', id: json.document.id })
+      onForked({ id: json.document.id, title: json.document.title ?? '' })
+    } catch (e) {
+      setRestoreError(e instanceof Error ? e.message : 'Couldn’t fork this version')
+    } finally {
+      setForking(false)
+    }
+  }
 
   async function revertEdit() {
     if (!detail || reverting) return
@@ -184,44 +223,99 @@ export function DocumentHistory({
   const latest = revisions[0].revision_number
   const isCurrent = detail ? detail.revision.revision_number === (currentRevision ?? latest) : false
 
+  function renderRow(r: RevisionSummary, nested: boolean) {
+    const active = r.revision_number === selected
+    const current = r.revision_number === (currentRevision ?? latest)
+    const agent = r.author_kind === 'agent' || r.author_kind === 'system'
+    return (
+      <li key={r.revision_number} className={nested ? 'pl-3' : undefined}>
+        <button
+          type="button"
+          onClick={() => setSelected(r.revision_number)}
+          aria-current={active ? 'true' : undefined}
+          className={cn(
+            'flex w-full flex-col gap-0.5 rounded-md px-2.5 py-2 text-left transition-colors',
+            active ? 'bg-muted' : 'hover:bg-muted/50',
+          )}
+        >
+          <span className="flex items-center gap-1.5 text-xs">
+            {agent ? <Bot className="h-3 w-3 shrink-0 text-muted-foreground" /> : <User className="h-3 w-3 shrink-0 text-muted-foreground" />}
+            <span className="min-w-0 flex-1 truncate font-medium text-foreground">{describeRevisionAuthor(r)}</span>
+            <span className="shrink-0 text-muted-foreground">{relativeTime(r.updated_at)}</span>
+          </span>
+          <span className="flex items-center gap-1.5 pl-[18px] text-xs text-muted-foreground">
+            <span className="min-w-0 flex-1 truncate">{r.change_summary || (r.author_kind ? 'Edited' : 'Before history began')}</span>
+            {current && <span className="shrink-0 rounded bg-foreground/10 px-1 text-[10px] font-medium text-foreground">Current</span>}
+          </span>
+          {r.outside && (
+            <span className="flex items-center gap-1 pl-[18px] text-[11px] text-muted-foreground" data-testid="revision-outside">
+              <Globe className="h-2.5 w-2.5 shrink-0" />
+              <span className="min-w-0 truncate">from {r.outside}</span>
+            </span>
+          )}
+        </button>
+      </li>
+    )
+  }
+
   return (
     <div className="flex min-h-0 flex-col gap-4 py-4 sm:flex-row">
-      <ol className="flex shrink-0 flex-col gap-0.5 sm:w-64" aria-label="Versions">
-        {revisions.map((r) => {
-          const active = r.revision_number === selected
-          const current = r.revision_number === (currentRevision ?? latest)
-          const agent = r.author_kind === 'agent' || r.author_kind === 'system'
+      <div className="flex shrink-0 flex-col gap-3 sm:w-64">
+      <ol className="flex flex-col gap-0.5" aria-label="Versions">
+        {sessions.map((session, si) => {
+          if (session.revisions.length === 1) return renderRow(session.revisions[0], false)
+          const holdsSelected = session.revisions.some((r) => r.revision_number === selected)
+          const open = toggled[session.key] ?? (si === 0 || holdsSelected)
+          const agent = session.author_kind === 'agent' || session.author_kind === 'system'
           return (
-            <li key={r.revision_number}>
+            <li key={`s:${session.key}`}>
               <button
                 type="button"
-                onClick={() => setSelected(r.revision_number)}
-                aria-current={active ? 'true' : undefined}
-                className={cn(
-                  'flex w-full flex-col gap-0.5 rounded-md px-2.5 py-2 text-left transition-colors',
-                  active ? 'bg-muted' : 'hover:bg-muted/50',
-                )}
+                onClick={() => setToggled((t) => ({ ...t, [session.key]: !open }))}
+                aria-expanded={open}
+                className="flex w-full items-center gap-1.5 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors hover:bg-muted/50"
               >
-                <span className="flex items-center gap-1.5 text-xs">
-                  {agent ? <Bot className="h-3 w-3 shrink-0 text-muted-foreground" /> : <User className="h-3 w-3 shrink-0 text-muted-foreground" />}
-                  <span className="min-w-0 flex-1 truncate font-medium text-foreground">{describeRevisionAuthor(r)}</span>
-                  <span className="shrink-0 text-muted-foreground">{relativeTime(r.updated_at)}</span>
+                {open ? <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />}
+                {agent ? <Bot className="h-3 w-3 shrink-0 text-muted-foreground" /> : <User className="h-3 w-3 shrink-0 text-muted-foreground" />}
+                <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+                  {describeRevisionAuthor(session)} · {session.revisions.length} changes
                 </span>
-                <span className="flex items-center gap-1.5 pl-[18px] text-xs text-muted-foreground">
-                  <span className="min-w-0 flex-1 truncate">{r.change_summary || (r.author_kind ? 'Edited' : 'Before history began')}</span>
-                  {current && <span className="shrink-0 rounded bg-foreground/10 px-1 text-[10px] font-medium text-foreground">Current</span>}
-                </span>
-                {r.outside && (
-                  <span className="flex items-center gap-1 pl-[18px] text-[11px] text-muted-foreground" data-testid="revision-outside">
-                    <Globe className="h-2.5 w-2.5 shrink-0" />
-                    <span className="min-w-0 truncate">from {r.outside}</span>
-                  </span>
-                )}
+                <span className="shrink-0 text-muted-foreground">{relativeTime(session.ended_at)}</span>
               </button>
+              {open && <ol className="flex flex-col gap-0.5">{session.revisions.map((r) => renderRow(r, true))}</ol>}
             </li>
           )
         })}
       </ol>
+      {revisions.length > 1 && (
+        <label className="flex flex-col gap-1 px-2.5 text-xs text-muted-foreground">
+          <span className="flex items-center justify-between">
+            <span>Timeline</span>
+            <span className="tabular-nums">{selected !== null ? `Version ${selected}` : ''}</span>
+          </span>
+          <input
+            type="range"
+            min={0}
+            max={revisions.length - 1}
+            step={1}
+            value={Math.max(0, revisions.length - 1 - revisions.findIndex((r) => r.revision_number === selected))}
+            onChange={(e) => {
+              const r = revisions[revisions.length - 1 - Number(e.target.value)]
+              if (!r) return
+              setSelected(r.revision_number)
+              setView('text')
+            }}
+            aria-label="Scrub through the versions, oldest to newest"
+            aria-valuetext={selected !== null ? `Version ${selected}` : undefined}
+            className="w-full accent-foreground"
+          />
+          <span className="flex justify-between text-[10px]">
+            <span>Oldest</span>
+            <span>Now</span>
+          </span>
+        </label>
+      )}
+      </div>
 
       <div className="min-w-0 flex-1">
         {detailLoading && !detail ? (
@@ -259,6 +353,18 @@ export function DocumentHistory({
                 >
                   {reverting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Undo2 className="h-3 w-3" />}
                   Revert just this edit
+                </button>
+              )}
+              {onForked && (
+                <button
+                  type="button"
+                  onClick={fork}
+                  disabled={forking}
+                  title="A new document with this version’s text, in the same project, folder and visibility"
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs hover:bg-muted disabled:opacity-50"
+                >
+                  {forking ? <Loader2 className="h-3 w-3 animate-spin" /> : <GitFork className="h-3 w-3" />}
+                  Fork into a new document
                 </button>
               )}
               {canRestore && !isCurrent && (

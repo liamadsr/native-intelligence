@@ -248,6 +248,8 @@ describe('surface exclusions (structural, keyed on the verified token surface)',
       'create_form',
       'update_form',
       'create_form_invites',
+      // Channel polls: a poll reaches teammates, only from the person's card in their own chat.
+      'post_team_chat_poll',
       // ... nor puts one up: show and read_card both stay off the device.
       'show',
       // A contact's web enrichment waits up to 45 s: more than a 60 s device ask can hold.

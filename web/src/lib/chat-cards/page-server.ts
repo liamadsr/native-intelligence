@@ -822,6 +822,15 @@ export async function readPageCard(
       note: 'This card is the Files page: every file attached to a capture, action or project the person can see. Read one record\'s files with list_attachments (capture_id, action_id or project_id), and a file\'s text with get_attachment_content.',
     }
   }
+  // Reviews (docs/plans/github-reviews.md): the person's own GitHub pull requests, read live with their token on their session, never from here.
+  if (kind === 'reviews') {
+    return {
+      success: true,
+      card: entry.n,
+      title: entry.title,
+      note: 'This card is the Reviews page: the person\'s GitHub pull requests, read live from GitHub with their own sign-in. Its rows are not readable from here; a pull request linked to an action is read with get_pr_status (by action).',
+    }
+  }
   // The Studio: what the person is on, as the Studio tools read it (never the whole edit).
   if (kind === 'studio') return readStudioCard(scope, entry)
   // SEO's Site audit: the audits are read with the audit tools, on the

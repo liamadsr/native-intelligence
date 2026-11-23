@@ -204,6 +204,8 @@ describe('computeWorkRunCeiling', () => {
         // Custom vocabulary (migration 430): removing a word is a delete. (The
         // add/update tools are internal writes and refuse unattended runs themselves.)
         'delete_vocabulary_word',
+        // Snippets (migration 699): deleting one is a delete (and always asks the person first).
+        'delete_snippet',
         // Studio (migration 620): moving a video to the trash is classed a delete; the
         // Studio's reads and its artifact writes stay in.
         'archive_studio_video',
@@ -319,6 +321,8 @@ describe('computeWorkRunCeiling', () => {
         'create_form',
         'update_form',
         'create_form_invites',
+        // Channel polls: posting a poll reaches teammates, only on the person's own card.
+        'post_team_chat_poll',
         // GEN-1169: deleting a document is a delete, only on the person's own card.
         // (Archiving and restoring are internal writes and stay in.)
         'delete_document',

@@ -69,10 +69,11 @@ describe('the shortcut registry', () => {
     expect(goToFor({ home: true })?.letter).toBe('h')
   })
 
-  it('uses one letter a–z per go-to, never G itself, and the owner’s G M, G C, G H', () => {
+  it('uses one letter a–z per go-to, G itself only for Reviews (the last letter free), and the owner’s G M, G C, G H', () => {
     const letters = GO_TO.map((g) => g.letter)
     expect(new Set(letters).size).toBe(letters.length)
-    expect(letters.every((l) => /^[a-z]$/.test(l) && l !== GO_TO_PREFIX)).toBe(true)
+    expect(letters.every((l) => /^[a-z]$/.test(l))).toBe(true)
+    expect(GO_TO.filter((g) => g.letter === GO_TO_PREFIX).map((g) => g.label)).toEqual(['Reviews'])
     expect(goToFor({ slug: 'mail' })?.letter).toBe('m')
     expect(goToFor({ slug: 'calendar' })?.letter).toBe('c')
     expect(goToFor({ slug: 'projects' })?.letter).toBe('p')
