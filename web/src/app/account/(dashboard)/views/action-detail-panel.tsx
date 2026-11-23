@@ -1324,7 +1324,7 @@ export function ActionDetailPanel({
   }
 
   const labelToggleInFlight = useRef(new Set<string>())
-  async function toggleLabel(labelId: string, isAttached: boolean) {
+  async function toggleLabel(labelId: string, isAttached: boolean, picked?: { id: string; name: string; color: string }) {
     if (!action) return
     if (labelToggleInFlight.current.has(labelId)) return
     labelToggleInFlight.current.add(labelId)
@@ -1334,7 +1334,8 @@ export function ActionDetailPanel({
     if (isAttached) {
       updated = { ...action, labels: (action.labels ?? []).filter((l) => l.id !== labelId) }
     } else {
-      const label = allLabels.find((l) => l.id === labelId)
+      // A tag just made with `#` is not in the cached list yet: the pick carries it.
+      const label = allLabels.find((l) => l.id === labelId) ?? (picked as ActionLabel | undefined)
       updated = label ? { ...action, labels: [...action.labels, label] } : action
     }
     setAction(updated)
@@ -2088,6 +2089,13 @@ export function ActionDetailPanel({
                 onUpdate={handleDescriptionChange}
                 placeholder="Add description..."
                 recordMentions
+                tagging={{
+                  scope: 'action',
+                  // `#` in the description tags the action.
+                  onPick: (tag) => {
+                    if (!action.labels?.some((l) => l.id === tag.id)) void toggleLabel(tag.id, false, tag)
+                  },
+                }}
               />
             </div>
 
