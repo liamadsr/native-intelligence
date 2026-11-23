@@ -274,11 +274,11 @@ function CardCalendarHeader({
                 capability="calendar"
                 selectedAccountIds={filterAccountIds ?? null}
                 onSelectionChange={onFilterChange}
-                triggerClassName="border-transparent bg-foreground/[0.05] shadow-none hover:bg-foreground/[0.1]"
+                triggerClassName="h-6 border-transparent bg-foreground/[0.05] shadow-none hover:bg-foreground/[0.1]"
               />
             </span>
           )}
-          <CopyAvailabilityButton compact className={cn(CARD_HEADER_ICON_BUTTON, FROM_40)} />
+          <CopyAvailabilityButton compact className={cn("size-6 shadow-none", CARD_HEADER_ICON_BUTTON, FROM_40)} />
           <AddEventDialog>
             <button type="button" className={iconButton} aria-label="New event" title="New event">
               <Plus className="size-3.5" strokeWidth={1.75} />

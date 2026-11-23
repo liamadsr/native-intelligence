@@ -379,9 +379,10 @@ function Tile({
           24px corners go soft, its middle stays sharp. One small blur over the
           still copy (the copy's own blurs stay off), masked to a band that eases out. */}
       {card.preview && <div aria-hidden data-minimized-card-edge-blur="" className={TILE_EDGE_BLUR} />}
-      {/* Clear it: the open view's header close (show-tool-card.tsx
-          `data-card-header-close`: a 28px circle, the X at size-4 and 1.75,
-          muted to foreground, the same hover tint), on a round backing of the
+      {/* Clear it: like the open view's header close (show-tool-card.tsx
+          `data-card-header-close`: a circle, the X at 1.75, muted to
+          foreground, the same hover tint; 28px here, where the header's is
+          24px since 11-22, as a tile needs the bigger target), on a round backing of the
           panels' floating skin with its 1px edge so it reads on any page
           (Liam, 11-11: "make it match the x button on the open view with the
           round border behind it"). Top right, inside the tile's 24px corner

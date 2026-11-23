@@ -932,8 +932,9 @@ export function ShowToolCard({
         island
           ? // 7px in and 12px more: its icon on the page's leading line (19px from the outer edge), over the tab pills and a row's checkbox, its title on the content line (41px), over a list's rows (view-toolbar.tsx alignToContent).
             // A container, as the inline header is, so a page's controls can shed as it narrows (the calendar's).
-            '@container relative z-10 mx-[6px] mt-[10px] flex h-8 shrink-0 items-center gap-2 rounded-full bg-foreground/[0.08] pl-3 pr-1'
-          : '@container relative z-10 flex h-10 shrink-0 items-center gap-2 border-b px-4'
+            // z-20: above the body (z-10, after it in the frame), so a menu a page drops from its header without a portal (Studio's More, its costs) opens over the page, not under it.
+            '@container relative z-20 mx-[6px] mt-[10px] flex h-8 shrink-0 items-center gap-2 rounded-full bg-foreground/[0.08] pl-3 pr-1'
+          : '@container relative z-20 flex h-10 shrink-0 items-center gap-2 border-b px-4'
       }
     >
       {!island && (

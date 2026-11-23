@@ -615,7 +615,7 @@ export function FlowCanvasEditor({ flowId, initialRunId = null, onClose, onSaved
                 <Button
                   variant="outline"
                   size="sm"
-                  className={inCard ? cn(CARD_HEADER_PILL_BUTTON, 'shadow-none') : 'h-8 gap-1.5'}
+                  className={inCard ? cn(CARD_HEADER_PILL_BUTTON, 'shadow-none [&_svg]:size-3.5') : 'h-8 gap-1.5'}
                   onClick={handleTestFire}
                   disabled={firing}
                 >
@@ -627,7 +627,7 @@ export function FlowCanvasEditor({ flowId, initialRunId = null, onClose, onSaved
                   Test
                 </Button>
               )}
-              <Button size="sm" className={inCard ? cn(CARD_HEADER_PILL_BUTTON, 'shadow-none') : 'h-8 gap-1.5'} onClick={handleSave} disabled={saving}>
+              <Button size="sm" className={inCard ? cn(CARD_HEADER_PILL_BUTTON, 'shadow-none [&_svg]:size-3.5') : 'h-8 gap-1.5'} onClick={handleSave} disabled={saving}>
                 {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                 {editor.id ? 'Save' : 'Create'}
               </Button>

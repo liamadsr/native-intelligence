@@ -1293,8 +1293,8 @@
 /* In a page's card header (StudioHeaderScope): the header is a 32px row and every control in it is 24px and round, as on
    every other page (Liam, 11-22: "a bit less tall and more slick … clean like apple made it"). */
 [data-card-header] .ni-studio .with-rail .app-header .hdr-right[data-studio-header-actions]{gap:2px}
-[data-card-header] .ni-studio .with-rail .app-header .hdr-right[data-studio-header-actions]>button,[data-card-header] .ni-studio .with-rail .app-header .hdr-right[data-studio-header-actions] .cost-chip,[data-card-header] .ni-studio .with-rail .app-header .hdr-right[data-studio-header-actions] .hdr-menu-wrap>button{height:24px;border-radius:999px;font-size:12px;gap:4px}
-[data-card-header] .ni-studio .with-rail .app-header .hdr-right[data-studio-header-actions]>button:not(.hdr-record):not(.primary),[data-card-header] .ni-studio .with-rail .app-header .hdr-right[data-studio-header-actions] .hdr-menu-wrap>button{width:24px;padding:0}
+[data-card-header] .ni-studio .with-rail .app-header .hdr-right[data-studio-header-actions]>button,[data-card-header] .ni-studio .with-rail .app-header .hdr-right[data-studio-header-actions] .cost-chip,[data-card-header] .ni-studio .with-rail .app-header .hdr-right[data-studio-header-actions] .hdr-menu-wrap>button{height:24px;min-width:24px;border-radius:999px;font-size:12px;gap:4px}
+[data-card-header] .ni-studio .with-rail .app-header .hdr-right[data-studio-header-actions]>button:not(.hdr-record):not(.primary),[data-card-header] .ni-studio .with-rail .app-header .hdr-right[data-studio-header-actions] .hdr-menu-wrap>button{width:24px;min-width:24px;padding:0}
 [data-card-header] .ni-studio .with-rail .app-header .hdr-right[data-studio-header-actions] :is(.hdr-record,.primary,.cost-chip){padding:0 10px}
 [data-card-header] .ni-studio .with-rail .app-header .hdr-right[data-studio-header-actions] .primary{margin-left:2px}
 [data-card-header] .ni-studio .with-rail .app-header .hdr-right[data-studio-header-actions] :is(button,.cost-chip) svg{width:14px;height:14px}
