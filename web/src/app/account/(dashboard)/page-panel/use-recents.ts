@@ -104,8 +104,13 @@ export function useRecents(active: boolean, frontId: string | null = null): Rece
         readFeedEntries(paletteRecentUrl(RECENTS_MINE_LIMIT)),
         readRecentSources(),
       ])
-      // The window moved to another workspace meanwhile: this answer is not its.
-      if (getClientWorkspaceId() !== forWorkspace) return
+      // The window moved to another workspace meanwhile (or learned its own,
+      // on a first load): this answer is not its. Read again for the one it
+      // is in now, rather than wait for a focus or a card to close.
+      if (getClientWorkspaceId() !== forWorkspace) {
+        again.current = true
+        return
+      }
       const readAt = new Date()
       setLists((was) => {
         const same = was.workspaceId === forWorkspace

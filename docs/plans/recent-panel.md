@@ -111,7 +111,7 @@ tool is ever added) would call the same server function with the same session, s
      `--single-transaction`**, first. A failed build leaves an INVALID index: drop it
      (`drop index concurrently if exists …`) and run the file again.
    - **713, `my_recent_work(p_workspace, p_since, p_limit)` → `(kind, id, at)`**, its own
-     transaction, applied after 712 as usual. `SECURITY INVOKER`, pinned `search_path`, no member
+     transaction (its own begin/commit), so also applied WITHOUT `--single-transaction`, after 712. `SECURITY INVOKER`, pinned `search_path`, no member
      or user argument ("me" is `auth.uid()` and `current_member_id(ws)`), revoked from anon. Kinds:
      `team_chat_channel` (one row per channel: messages incl. thread replies, active reactions,
      poll votes; re-checked with `team_chat_can_read`), `document` (body edits), `spreadsheet`,

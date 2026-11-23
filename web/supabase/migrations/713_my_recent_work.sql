@@ -27,9 +27,10 @@
 -- the others out of a fixed-size read; each kind answers its newest
 -- `p_limit` (1..100) records since `p_since`, on 712's indexes.
 --
--- Its own transaction (begin/commit below); apply it AFTER 712, with
--- ON_ERROR_STOP=1 and --single-transaction as usual. It reloads the data API's
--- schema itself (the last line).
+-- Its own transaction (begin/commit below), so apply it AFTER 712 WITHOUT
+-- --single-transaction (the file's own begin/commit is the transaction), with
+-- ON_ERROR_STOP=1. It reloads the data API's schema itself (the last line,
+-- after the commit).
 
 begin;
 

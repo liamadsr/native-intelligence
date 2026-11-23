@@ -5,7 +5,8 @@
  * By hand, outside this suite, both files were applied twice on a local
  * Postgres 16 with stand-ins for the tables they read (auth.uid() read from a
  * setting; 474/572's team_chat_can_read, 359's current_member_id, owner-only
- * chat rules), 712 without --single-transaction and 713 with it, and asked as
+ * chat rules), each without --single-transaction (712 can't run in one, 713
+ * has its own begin/commit), and asked as
  * two members of one workspace: A got A's DM, channels, private doc,
  * spreadsheet, canvas and non-home chat, never B's; B got the channels B
  * reacted and voted in and B's team channel, never A's DM; once B left that
@@ -65,6 +66,7 @@ describe('713: my_recent_work answers only the caller’s own work, under their 
     expect(body).toMatch(/^\s*begin;/m)
     expect(body).toMatch(/set local lock_timeout = '5s';/)
     expect(body).toMatch(/commit;\s*notify pgrst, 'reload schema';\s*$/)
+    expect(F).toMatch(/WITHOUT\s+-- --single-transaction/)
   })
 })
 

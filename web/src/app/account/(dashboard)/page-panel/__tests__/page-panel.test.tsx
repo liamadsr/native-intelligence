@@ -30,7 +30,9 @@ import type { FeedEntry } from '@/lib/entities/feed-model'
 
 const opened = vi.hoisted(() => [] as Array<{ target: unknown; from: string }>)
 const composer = vi.hoisted(() => ({ height: 0 }))
-vi.mock('@/lib/workspace-fetch', () => ({ getClientWorkspaceId: () => 'ws-home' }))
+// The window's workspace, as its requests name it: a test may have it learned only while the first reads are out.
+const windowWs = vi.hoisted(() => ({ id: 'ws-home' as string | null }))
+vi.mock('@/lib/workspace-fetch', () => ({ getClientWorkspaceId: () => windowWs.id }))
 vi.mock('@/components/desktop-titlebar', () => ({ useHasTrafficLights: () => false, useIsDesktop: () => false }))
 const filesOpened: string[] = []
 vi.mock('@/components/files/global-file-viewer', () => ({
@@ -107,6 +109,7 @@ let root: Root
 beforeEach(() => {
   opened.length = 0
   filesOpened.length = 0
+  windowWs.id = 'ws-home'
   composer.height = 0
   inbox = [entry('action', ACTION, 'Send the Fernhill quote', ago(10), false)]
   recent = [entry('document', DOC, 'Q4 renewals plan', ago(3 * 24 * 60), true)]
@@ -261,6 +264,22 @@ describe('the page panel', () => {
     act(() => rows()[0].click())
     expect(filesOpened).toEqual([FILE])
     expect(opened).toEqual([])
+  })
+
+  it('a first load whose workspace is learned while its reads are out reads again for it, never staying empty', async () => {
+    // Before the window knows its workspace: the reads go out naming none, and it is learned meanwhile.
+    windowWs.id = null
+    const plain = fetch as unknown as ReturnType<typeof vi.fn>
+    const answer = plain.getMockImplementation()!
+    // Learned as the answers come back, after the panel's last render: nothing else would render it again.
+    plain.mockImplementation(async (url: string) => {
+      const res = (await answer(url)) as Response
+      return { ...res, ok: res.ok, json: async () => ((windowWs.id = 'ws-home'), res.json()) } as Response
+    })
+    act(() => root.render(<Row />))
+    await flush()
+    await flush()
+    expect(titles()).toEqual(['Send the Fernhill quote', 'Q4 renewals plan'])
   })
 
   it('keys while it has the focus: J/K and the arrows move, Enter and Shift+Enter open, never while typing', async () => {
