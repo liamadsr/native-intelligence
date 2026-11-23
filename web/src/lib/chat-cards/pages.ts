@@ -93,6 +93,8 @@ export const PAGE_PLACE_TYPES = [
   'seo_rank_tracker',
   'seo_ai_tracker',
   'seo_local_business',
+  // One pull request on the Reviews page (`owner/name#12`): a GitHub notice opens it there.
+  'github_pr',
 ] as const
 export type PagePlaceType = (typeof PAGE_PLACE_TYPES)[number]
 
@@ -325,6 +327,8 @@ export const PAGE_KINDS: Record<PageKind, PageKindDef> = {
     label: 'Reviews',
     rows: 'pull requests',
     view: 'todo',
+    // A GitHub notice (migration 695) opens one pull request's panel: `owner/name#12`.
+    target: { types: ['github_pr'] },
     personOnly: true,
   },
   // Studio (migration 620): making videos and ads. A Studio project groups
@@ -435,6 +439,7 @@ export const PLACE_NOUN: Record<PagePlaceType, string> = {
   seo_rank_tracker: 'rank tracker',
   seo_ai_tracker: 'AI visibility tracker',
   seo_local_business: 'business',
+  github_pr: 'pull request',
 }
 
 export function isPageKind(value: unknown): value is PageKind {

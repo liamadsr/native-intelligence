@@ -153,11 +153,11 @@ describe('migration 671', () => {
 
   it('adds `mentioned` to the app’s notification types; 688 widens the check next', () => {
     const types = [...(/notification_type_check check \(type = any \(array\[([^\]]*)\]\)\)/.exec(BODY)?.[1] ?? '').matchAll(/'([a-z_]+)'/g)].map((v) => v[1])
-    // 688 (record sharing) adds 'record_shared' after it, and is the newest word on the check since.
-    expect(types).toEqual(NOTIFICATION_TYPES.filter((t) => t !== 'record_shared'))
+    // 688 (record sharing) adds 'record_shared' after it, then 695 (GitHub notices) the GitHub types; 695 is the newest word since.
+    expect(types).toEqual(NOTIFICATION_TYPES.filter((t) => t !== 'record_shared' && t !== 'github_review_requested' && t !== 'github_pr_comment' && t !== 'github_checks_failed'))
     expect(types[types.length - 1]).toBe('mentioned')
     const newest = [...migrationsInOrder()].reverse().find((m) => /add constraint notification_type_check/i.test(m.sql))!.file
-    expect(newest).toBe('688_record_sharing.sql')
+    expect(newest).toBe('695_github_notifications.sql')
     expect(BODY.indexOf('drop constraint if exists notification_type_check')).toBeLessThan(BODY.indexOf('add constraint notification_type_check'))
   })
 

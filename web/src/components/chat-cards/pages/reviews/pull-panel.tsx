@@ -218,7 +218,7 @@ function Overview({ data, onOpenAction }: { data: PullAnswer; onOpenAction: (id:
     <div className="flex flex-col gap-5">
       <section>
         <h3 className="pb-1.5 text-xs font-medium text-muted-foreground">Description</h3>
-        {body ? <div className="text-sm"><Markdown readAloudSections={false}>{body}</Markdown></div> : <p className="text-sm text-muted-foreground">No description.</p>}
+        {body ? <Markdown readAloudSections={false} className="prose prose-sm dark:prose-invert max-w-none prose-headings:mb-1 prose-headings:mt-3 prose-headings:text-sm prose-headings:font-semibold">{body}</Markdown> : <p className="text-sm text-muted-foreground">No description.</p>}
       </section>
       <section>
         <h3 className="flex items-center gap-1.5 pb-1.5 text-xs font-medium text-muted-foreground">
@@ -273,7 +273,7 @@ function Files({ files, total, url }: { files: ReviewFile[]; total: number; url:
       ))}
       {total > files.length && (
         <p className="text-xs text-muted-foreground">
-          {total - files.length} more files: <a href={`${url}/files`} target="_blank" rel="noopener noreferrer" className="underline">see them on GitHub</a>.
+          {total - files.length} more {total - files.length === 1 ? 'file' : 'files'}: <a href={`${url}/files`} target="_blank" rel="noopener noreferrer" className="underline">see them on GitHub</a>.
         </p>
       )}
     </div>

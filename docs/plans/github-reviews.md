@@ -97,8 +97,16 @@ remains the final judge (branch protection, required reviews). No agent tool mer
 phase.
 
 **Keys.** G then V is taken by Studio, and every other letter but G is taken (the registry
-test refuses a clash). Proposal: **G G** for Reviews ("GitHub"), Studio keeps G V. See
-Decisions. In the list, J/K/Enter work as in every list (it reuses the list keyboard).
+test refuses a clash). Built: **G G** for Reviews ("GitHub"), Studio keeps G V. See
+Decisions. In the list, J/K (and the arrows) move and Enter or O opens, as in other lists
+(the card's own handler: its rows are GitHub's, not a views-system list).
+
+**Built in phase 1:** `src/lib/github/reviews.ts` (pure: filters → search, GraphQL, board
+column, merge blocker, patch parser), `reviews-server.ts` (GitHub calls with the person's
+token, linked actions through their own client), `reviews-auth.ts`; routes
+`/api/account/github/reviews`, `…/reviews/pull`, `…/reviews/merge`; the card
+`components/chat-cards/pages/reviews-card.tsx` with `reviews/pull-panel.tsx` and
+`reviews/icons.tsx`; the registries (pages, `/` menu, rail after My Actions, icons, G G).
 
 ## Phase 2: status from pull requests (migration 694)
 
@@ -108,13 +116,25 @@ case-insensitively against the workspace's team prefixes), and a new `create` ev
 branch pushed): a branch naming an action is remembered in `action_github_branch` until a
 pull request from it arrives.
 
-**Who it moves for (the fence).** An action moves only when the branch's pusher or the
-PR's author is a member of the action's workspace with their GitHub account connected
-(the new `github_identity` row ties GitHub's numeric user id to our user), their
-`author_association` is OWNER, MEMBER or COLLABORATOR, and the action's team has the switch
-on. A stranger's PR on a public repository that names ENG-42 links (as today) but moves
-nothing. This also fixes, for moves, the existing webhook's habit of matching ENG-42 in
-every workspace that has any GitHub connection.
+**Who it moves for (the fence).** An action moves only when:
+- the repository is one its workspace added (`workspace_github_repo`, owners and admins
+  add them in a team's settings, "GitHub" section, which lists the workspace's repos);
+- the branch's pusher or the PR's author is a member (not a guest) of that workspace,
+  known by `github_identity` (GitHub's numeric id, written only from what GitHub answered
+  for the person's own token: on connect, and when they open Reviews);
+- a PR's `author_association` is OWNER, MEMBER or COLLABORATOR;
+- the action's team has the switch on.
+So ENG-1 in two workspaces only ever moves the one whose repository it is and whose
+member did the work (`pr-automation.test.ts`, "two workspaces share the ENG prefix").
+Branch-name links are made inside this fence only. The webhook's older title/body linking
+(any workspace with a GitHub connection) is left as it was, so no existing link stops
+forming; those links never move anything outside the fence (Decisions).
+
+**Idempotent and in order.** Each move is written only while the action is still where it
+was read. The link remembers the newest `updated_at` the automation applied and its last
+step: an older event moves nothing (a late "opened" after "merged"), and a step only goes
+forward (begin < review < done), "back" only from an open PR and only from where the
+automation itself put it. A redelivery finds nothing left to do.
 
 **Moves** (onto each team's own states, reusing agent-finish.ts's pure functions):
 
@@ -144,23 +164,37 @@ item in the action's menu.
 state (open, draft, merged, closed), from new columns on `action_github_pr` the webhook
 fills (`additions`, `deletions`, `changed_files`, `author_github_id`).
 
+**Built in phase 2:** `src/lib/github/pr-automation.ts`, `identity.ts`, `branch-name.ts`,
+`copy-branch-name.ts`; the webhook's `create` event and its pull_request path; the team's
+"GitHub" section (`components/github/github-automation-section.tsx`, in the team's
+settings) and `/api/account/github/automation` (the repos); `github_automation` on the
+team PATCH; ⇧⌘B in task lists and the action panel; size and state on the panel's PR rows.
+
 ### Migration 694 (`694_github_reviews.sql`, its own `begin; … commit;`)
 
-- `github_identity` (user_id, github_user_id bigint, login, updated_at; unique per
-  github_user_id): filled on connect (`complete-connect.ts`) and refreshed when the person
-  opens Reviews (we call GitHub's `/user` with their token anyway). RLS on: a person reads
-  their own row; no client insert/update/delete (service role only).
+- `github_identity` (user_id, github_user_id bigint, login lower case, updated_at; unique
+  per github_user_id): filled on connect (`complete-connect.ts`, GitHub's `/user` for the
+  new token) and refreshed when the person opens Reviews (GitHub's `viewer` for their
+  token). RLS on: a person reads their own row; no client insert/update/delete. A trigger
+  on `connected_account` deletes it with the person's last GitHub connection.
+- `workspace_github_repo` (workspace_id, repo_full_name lower case, added_by): members
+  read; owners and admins add (as themselves) and remove; no update.
 - `action_github_branch` (workspace_id, action_id, repo_full_name, branch,
   status_before_id, created_at; unique per action, repo, branch). RLS on: select follows the
   action's visibility (`exists (select 1 from actions a where a.id = action_id)`, which runs
   the actions/team policies); no client writes.
 - `action_github_pr` + `additions`, `deletions`, `changed_files`, `author_github_id`,
-  `status_before_id`, `auto_moved_at`. A client-update guard in the 359/369/675 style keeps
-  `status_before_id`, `auto_moved_at` and `author_github_id` server-only (the existing
-  member update policy stays for title/state, which the app writes on a manual link).
-- `team.github_automation boolean not null default true`.
-- Parses with `psql` on a local Postgres with the baseline; rehearsed there with several
-  users (a private team's action invisible to a non-member through the new tables).
+  `status_before_id`, `auto_moved_at`, `auto_step`, `pr_updated_at`. A client guard in the
+  675 style (`current_user` authenticated/anon) clears those on a client insert and refuses
+  a client update of them, or of the link's action or workspace (the existing member
+  policies stay for linking, renaming and unlinking).
+- `team.github_automation boolean not null default true`. The team's update policy is
+  already owners, admins and the team's leads, the same people who change its other
+  settings, so it needs no guard of its own (checked in the rehearsal).
+- Rehearsed on a local Postgres 16 (the baseline's definitions of the tables, functions
+  and policies it touches, Supabase's roles and `auth.uid()` stood in), applied twice
+  cleanly; `supabase/tests/694_github_reviews.sql` runs 20 checks as three people in two
+  workspaces with a private team: all passed.
 
 ## Phase 3: GitHub notices in the inbox (migration 695)
 
@@ -183,6 +217,11 @@ of a comment in the body. 695 also adds `github_pull_request` (repo, number,
 author_github_id, head_sha; RLS on, no policies: service role only), filled from
 `pull_request` events, so a check-suite failure can find its author without a token.
 
+**Built in phase 3:** `src/lib/github/pr-notices.ts` and its webhook wiring; the
+`github_pr` target opens the Reviews page on that pull request (`notification-panel.tsx`,
+`notification-open.ts`, `open-card.ts`, the Reviews card's place). 695 is rehearsed the same
+way: `supabase/tests/695_github_notifications.sql`, 5 checks, all passed.
+
 ## What the owner must change on GitHub
 
 No change to the OAuth App's scopes: `repo` already covers search, reading pull requests,
@@ -197,8 +236,19 @@ tick:
 
 Already needed and presumably ticked: Pull requests, Check suites, Check runs. An
 organization that restricts third-party OAuth apps must approve the app for Reviews to see
-its repositories (GitHub's own setting). Each person reconnects GitHub once after phase 2
-rolls out only if their `github_identity` row is missing; opening Reviews fills it too.
+its repositories (GitHub's own setting).
+
+Then, in the app: an owner or admin adds each repository in a team's settings, "GitHub"
+(the list is the workspace's). Nothing moves until a repository is added. People who
+connected GitHub before this rolls out have no `github_identity` row until they open
+Reviews once or reconnect GitHub; until then their pull requests move nothing and they get
+no GitHub notices.
+
+**A repository without the webhook, or without the new events ticked, just gets less:**
+no `create` event means no "branch created → in progress"; no comment/review events mean
+no comment notices; nothing errors. A repository no workspace added links as before and
+moves nothing. Migrations 694 and 695 must be applied before the code that uses them is
+rolled out (the webhook writes the new columns).
 
 ## New dependencies
 
@@ -214,8 +264,14 @@ None planned (GraphQL through `fetch`; the diff renderer is our own).
    started state (In Progress) and no further; we don't create a state for them.
 4. **Closed without merging.** Back to the state before the automation's first move for
    that PR (or its branch), only if no person moved it since.
-5. **Fence.** Moves only for PRs/branches by a workspace member with GitHub connected and
-   repo association OWNER/MEMBER/COLLABORATOR. Linking stays as today.
+5. **Fence.** Moves only in a workspace that added the repo, for PRs/branches by its
+   member with GitHub connected, repo association OWNER/MEMBER/COLLABORATOR. New
+   branch-name links only inside the fence; the older title/body links (any workspace
+   with a GitHub connection) are kept as they were, so nothing that links today stops.
+   Fencing those too is a one-line change if the owner wants it (they then form only in
+   workspaces that added the repo).
+11. **Repositories are the workspace's**, chosen by owners and admins, managed from any
+    team's settings. Nothing moves until one is added.
 6. **Board column for closed, unmerged PRs**: none (counted under the board, listed in List).
 7. **⇧⌘B** is Chrome's "show bookmarks bar"; inside the app we take it (preventDefault) while
    an action is selected. Alternative: ⌘⇧. as Linear.
@@ -229,5 +285,6 @@ None planned (GraphQL through `fetch`; the diff renderer is our own).
 
 ## Status
 
-- Phase 1: in progress (no migration).
-- Phases 2 and 3: waiting on the managing session's OK for migrations 694 and 695.
+- Phase 1: built and tested (no migration).
+- Phases 2 and 3: built and tested; migrations 694 and 695 approved by the managing
+  session, rehearsed on a local Postgres only.

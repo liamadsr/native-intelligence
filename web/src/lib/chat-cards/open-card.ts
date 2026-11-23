@@ -169,6 +169,8 @@ export type OpenTarget =
   | { type: 'studio_video' | 'studio_project'; id: string; title?: string | null; tab?: string | null }
   /** A canvas, open on the Canvases page's card (migration 676). */
   | { type: 'canvas'; id: string; title?: string | null }
+  /** One pull request, open in the Reviews page's panel (`id`: `owner/name#12`; docs/plans/github-reviews.md). */
+  | { type: 'github_pr'; id: string; title?: string | null }
   | { type: 'page'; slug: string }
 
 export interface TargetCard {
@@ -354,6 +356,10 @@ export function cardForTarget(target: OpenTarget, now: Date = new Date()): Targe
     case 'canvas':
       return {
         spec: { kind: 'canvases', title: label(target.title, 'Canvas'), target: { type: 'canvas', id: target.id, label: label(target.title, 'Canvas') } },
+      }
+    case 'github_pr':
+      return {
+        spec: { kind: 'reviews', title: 'Reviews', target: { type: 'github_pr', id: target.id, label: label(target.title, target.id) } },
       }
   }
   return null

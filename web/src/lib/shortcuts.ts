@@ -159,6 +159,8 @@ export const SHORTCUTS_BESIDES_GO_TO: readonly ShortcutDef[] = [
   { id: 'task-labels', keys: ['l'], label: 'Labels', section: 'Tasks', scope: 'task' },
   { id: 'task-due', keys: ['shift+d'], label: 'Due date', section: 'Tasks', scope: 'task' },
   { id: 'remind', keys: ['shift+h'], label: 'Remind me', section: 'Tasks', scope: 'task' },
+  // docs/plans/github-reviews.md: a branch named for the action links it, and moves it as its pull request moves.
+  { id: 'task-branch', keys: ['mod+shift+b'], label: 'Copy branch name (for GitHub)', section: 'Tasks', scope: 'task' },
   // Mail (components/email/email-layout.tsx)
   { id: 'mail-compose', keys: ['c'], label: 'Write an email', section: 'Mail', scope: 'mail', overrides: 'create' },
   { id: 'mail-search', keys: ['/'], label: 'Search mail', section: 'Mail', scope: 'mail', overrides: 'search' },

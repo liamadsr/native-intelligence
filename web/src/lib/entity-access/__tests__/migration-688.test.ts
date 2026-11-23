@@ -170,8 +170,10 @@ describe('migration 688: notifications', () => {
     expect(checkList(sql, 'notification_target_type_check')).toEqual([...checkList(sourceOf('679_crm_companies.sql'), 'notification_target_type_check'), 'canvas', 'spreadsheet'])
     // 687 (comments on canvases and spreadsheets) wrote the same list first: 687 then 688 leaves it as it was.
     expect(checkList(sql, 'notification_target_type_check')).toEqual(checkList(sourceOf('687_notification_canvas_spreadsheet.sql'), 'notification_target_type_check'))
+    // 695 (GitHub notices) widens it next with 'github_pr', and is the newest word since.
     const newest = [...all].reverse().find((m) => /add constraint notification_target_type_check/i.test(m.sql))!.file
-    expect(newest).toBe(FILE)
+    expect(newest).toBe('695_github_notifications.sql')
+    expect(checkList(sourceOf('695_github_notifications.sql'), 'notification_target_type_check')).toEqual([...checkList(sql, 'notification_target_type_check'), 'github_pr'])
   })
 
   it('each check is dropped, added not valid, then validated', () => {
