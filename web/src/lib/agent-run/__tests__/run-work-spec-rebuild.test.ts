@@ -204,6 +204,8 @@ describe('computeWorkRunCeiling', () => {
         // Custom vocabulary (migration 430): removing a word is a delete. (The
         // add/update tools are internal writes and refuse unattended runs themselves.)
         'delete_vocabulary_word',
+        // Snippets (migration 699): deleting one is a delete (and always asks the person first).
+        'delete_snippet',
         // Studio (migration 620): moving a video to the trash is classed a delete; the
         // Studio's reads and its artifact writes stay in.
         'archive_studio_video',
