@@ -737,7 +737,8 @@ const LABEL_JUNCTION_TABLE: Partial<Record<ViewEntityType, string>> = {
 const LABEL_JUNCTION_ENTITY_ID: Partial<Record<ViewEntityType, string>> = {
   action: 'action_id',
   capture: 'capture_id',
-  email_thread: 'email_thread_id',
+  // 038's column is thread_id: email_thread_id matched nothing, so this filter never worked for mail
+  email_thread: 'thread_id',
   initiative: 'initiative_id',
   project: 'project_id',
 }
