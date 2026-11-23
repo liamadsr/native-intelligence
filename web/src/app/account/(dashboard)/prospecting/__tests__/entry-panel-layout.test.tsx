@@ -28,6 +28,8 @@ import { createRoot, type Root } from 'react-dom/client'
 import { EntryPanel, type EntryPanelProps } from '../entry-panel'
 import { entry } from './fixtures'
 import type { ProspectListEntryRow } from '@/lib/prospecting/types'
+import { CardHeaderSlotsProvider } from '@/components/chat-cards/card-header-slot'
+import { WindowPropertiesProvider } from '@/components/views/window-properties'
 
 let container: HTMLDivElement
 let root: Root
@@ -458,5 +460,37 @@ describe('EntryPanel — people found, none kept', () => {
     expect(text()).toContain('No people found yet')
     await render({ entry: solenne(), people: [person('p1', 'Someone Else', 'Partner')] })
     expect(container.querySelector('[data-prospect-people-known]')).toBeNull()
+  })
+})
+
+// Liam, 11-23: "these details view pages … that show the different pages at
+// the top … feel out of place": in a card, the tabs are a capsule in the
+// card's header, and the toolbar is left empty once the verbs sit in the
+// Properties popover.
+describe('EntryPanel — its tabs in a card’s header', () => {
+  it('a capsule in the right slot, People counted; a press switches the tab; no pills in the page', async () => {
+    const right = document.createElement('div')
+    document.body.appendChild(right)
+    try {
+      await act(async () => {
+        root.render(
+          <CardHeaderSlotsProvider value={{ left: null, right }}>
+            <WindowPropertiesProvider>
+              <EntryPanel entry={giftwell()} people={[person('p1', 'Kurt Ravensby', 'Co-CEO')]} onSave={() => {}} onDismiss={() => {}} />
+            </WindowPropertiesProvider>
+          </CardHeaderSlotsProvider>,
+        )
+      })
+      const capsule = right.querySelector<HTMLElement>('[data-detail-tabs="header"]')!
+      expect(capsule).not.toBeNull()
+      expect(Array.from(capsule.querySelectorAll('[data-prospect-tab]')).map((b) => b.textContent)).toEqual(['Overview', 'Details', 'People1'])
+      expect(capsule.querySelector('[data-prospect-tab="overview"]')!.getAttribute('aria-selected')).toBe('true')
+      expect(toolbar().childNodes.length).toBe(0)
+      await click(capsule.querySelector('[data-prospect-tab="people"]')!)
+      expect(capsule.querySelector('[data-prospect-tab="people"]')!.getAttribute('aria-selected')).toBe('true')
+      expect(text()).toContain('Kurt Ravensby')
+    } finally {
+      right.remove()
+    }
   })
 })

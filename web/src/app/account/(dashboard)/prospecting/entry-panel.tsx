@@ -79,6 +79,7 @@ import { CopyValueButton } from '@/components/views/copy-value-button'
 import { PropertyGroup } from '@/components/views/property-group'
 import { usePropertiesVisible } from '@/components/views/use-properties-visible'
 import { WindowProperties, WindowActions } from '@/components/views/window-properties'
+import { DetailTabsInHeader, useDetailTabsInHeader } from '@/components/chat-cards/detail-tabs'
 import { cn } from '@/lib/utils'
 import type { DetailField } from '@/lib/crm/enrichment-details'
 import {
@@ -264,11 +265,23 @@ function PanelFrame<T extends string>({
 }) {
   const panelBodyRef = useRef<HTMLDivElement>(null)
   const propertiesOpen = usePropertiesVisible(panelBodyRef)
+  const tabsInHeader = useDetailTabsInHeader()
 
   return (
     <div className="relative flex h-full min-h-0 flex-col">
+      {/* In a card, the tabs are a capsule in the card's header, and the
+          toolbar keeps only what is left in it (Liam, 11-23: "these details
+          view pages … that show the different pages at the top … feel out of
+          place"); empty (the verbs in the Properties popover), it is gone. */}
+      <DetailTabsInHeader
+        label="Prospect"
+        tabs={tabs.map((tab) => ({ id: tab, label: TAB_LABELS[tab] ?? tab, count: counts?.[tab], data: { 'data-prospect-tab': tab } }))}
+        value={activeTab}
+        onChange={onTab}
+      />
       {/* Sub-header toolbar — the CRM panel's, pill for pill. */}
-      <div data-prospect-toolbar className="flex h-10 shrink-0 items-center px-3">
+      <div data-prospect-toolbar className="flex h-10 shrink-0 items-center px-3 empty:hidden">
+        {!tabsInHeader && (
         <div className="flex items-center gap-1">
           {tabs.map((tab) => {
             const count = counts?.[tab]
@@ -294,6 +307,7 @@ function PanelFrame<T extends string>({
             )
           })}
         </div>
+        )}
         <WindowActions className="ml-auto flex items-center gap-1">{verbs}</WindowActions>
       </div>
 

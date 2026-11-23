@@ -66,6 +66,7 @@ import { ContactDuplicatesDialog } from '../components/contact-duplicates-dialog
 import { EntityTitleInput } from '@/components/views/entity-title-input'
 import { usePropertiesVisible } from '@/components/views/use-properties-visible'
 import { WindowProperties, WindowActions } from '@/components/views/window-properties'
+import { DetailTabsInHeader, useDetailTabsInHeader } from '@/components/chat-cards/detail-tabs'
 import { UnifiedViewLayout } from '@/components/views/unified-view-layout'
 import { PropertyGroup } from '@/components/views/property-group'
 import { OptionalProperty, PropertyRow, PropertyRows } from '@/components/views/property-layout'
@@ -302,6 +303,7 @@ export function ContactDetailPanel({
   const [deleting, setDeleting] = useState(false)
   const [duplicatesOpen, setDuplicatesOpen] = useState(false)
   const [activeTab, setActiveTab] = usePanelSection<ContactSection>(section, onSectionChange, 'overview', CONTACT_SECTIONS)
+  const tabsInHeader = useDetailTabsInHeader()
   // Known synchronously from the workspace-switcher context — passed to
   // Comments so it doesn't refetch the workspace payload on every mount.
   const currentMemberId = useCurrentMemberId()
@@ -652,7 +654,22 @@ export function ContactDetailPanel({
           a row's checkbox stand on, left of the content line (Liam, 11-21:
           "the pills should be more to the left"; view-toolbar.tsx
           alignToContent); 48px tall, its end where a row's content ends. */}
-      <div data-detail-tabs="" className="flex h-12 shrink-0 items-center pl-[18px] pr-[17px]">
+      {/* In a card, the sections are a capsule in the card's header and this
+          row keeps only what is left in it (Liam, 11-23: "these details view
+          pages … that show the different pages at the top … feel out of
+          place"); empty (the actions in the Properties popover), it is gone. */}
+      <DetailTabsInHeader
+        label="Contact"
+        tabs={CONTACT_SECTIONS.map(tab => ({
+          id: tab,
+          label: tab.charAt(0).toUpperCase() + tab.slice(1),
+          count: tab === 'actions' ? contact?.actions.length : tab === 'captures' ? contact?.captures.length : tab === 'sequences' ? sequenceCount : undefined,
+        }))}
+        value={activeTab}
+        onChange={setActiveTab}
+      />
+      <div data-detail-tabs="" className="flex h-12 shrink-0 items-center pl-[18px] pr-[17px] empty:hidden">
+        {!tabsInHeader && (
         <div className="flex items-center gap-1">
           {CONTACT_SECTIONS.map(tab => (
             <button
@@ -678,6 +695,7 @@ export function ContactDetailPanel({
             </button>
           ))}
         </div>
+        )}
         <WindowActions className="ml-auto flex items-center gap-1">
           {/* Sequences tab CTA — lives in the panel's toolbar (the embed body
                     below is the shared views experience and carries no bespoke
@@ -969,7 +987,7 @@ export function ContactDetailPanel({
               )}
 
               {activeTab === 'agents' && (
-                <div className="min-h-0 flex-1 overflow-y-auto pl-10 pr-3.5">
+                <div className={cn('min-h-0 flex-1 overflow-y-auto pl-10 pr-3.5', tabsInHeader && 'pt-4')}>
                   <EntityActivitySection entityType="contact" entityId={contactId} />
                 </div>
               )}

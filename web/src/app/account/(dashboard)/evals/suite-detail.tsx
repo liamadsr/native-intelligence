@@ -77,6 +77,7 @@ import { PropertyGroup } from '@/components/views/property-group'
 import { UnifiedViewLayout } from '@/components/views/unified-view-layout'
 import { usePropertiesVisible } from '@/components/views/use-properties-visible'
 import { WindowProperties, WindowActions } from '@/components/views/window-properties'
+import { DetailTabsInHeader, useDetailTabsInHeader } from '@/components/chat-cards/detail-tabs'
 import { emitEntityDeleted } from '@/lib/entity-events'
 import { estimateRunCostUsd } from '@/lib/evals/estimate'
 import {
@@ -276,6 +277,8 @@ export function EvalSuiteDetail({
     'overview',
     EVAL_SUITE_TABS,
   )
+  // In a card the tabs are a capsule in the card's header (DetailTabsInHeader below).
+  const tabsInHeader = useDetailTabsInHeader()
 
   /**
    * The suite fetch. Its ONLY dependency is `suiteId` — deliberately, and this
@@ -710,9 +713,23 @@ export function EvalSuiteDetail({
         }
       />
 
+      {/* In a card, the tabs are a capsule in the card's header and the strip
+          below is gone (Liam, 11-23: "these details view pages … that show
+          the different pages at the top … feel out of place"). */}
+      <DetailTabsInHeader
+        label="Suite"
+        tabs={[
+          { id: 'overview', label: 'Overview' },
+          { id: 'cases', label: 'Cases', count: cases.length },
+          { id: 'runs', label: 'Runs', count: runs.length },
+        ]}
+        value={activeTab}
+        onChange={setActiveTab}
+      />
       {/* The tab strip — the company panel's sub-header row, same markup and
           same classes. Directly under the header, above the two-column body,
           so it reads as belonging to the page rather than to either column. */}
+      {!tabsInHeader && (
       <div className="flex h-10 shrink-0 items-center px-3">
         <div className="flex items-center gap-1">
           <TabPill
@@ -737,6 +754,7 @@ export function EvalSuiteDetail({
           </TabPill>
         </div>
       </div>
+      )}
 
       <div ref={panelBodyRef} className="flex min-h-0 flex-1 justify-center">
         <div className="mx-auto flex min-h-0 w-full max-w-[736px] min-w-0 flex-col">

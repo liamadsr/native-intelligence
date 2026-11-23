@@ -65,6 +65,8 @@ vi.mock('@/lib/cached-fetch', () => ({
 
 import { ActionDetailPanel, parseActionMacJob } from '../action-detail-panel'
 import { resetEnvironmentStore } from '@/lib/local-agent/environment-client'
+import { CardHeaderSlotsProvider } from '@/components/chat-cards/card-header-slot'
+import { WindowPropertiesProvider } from '@/components/views/window-properties'
 
 const DETAIL_URL = '/api/account/actions/act-1'
 const SID = '5e1c2a3b-4d5e-4f60-8a71-92b3c4d5e6f7'
@@ -264,5 +266,42 @@ describe('ActionDetailPanel — the job on the person’s Mac', () => {
     for (let i = 0; i < 3; i++) await act(async () => { await vi.advanceTimersByTimeAsync(50) })
     const post = calls.find((c) => c.url === `${DETAIL_URL}/start-agent` && c.init?.method === 'POST')!
     expect(JSON.parse(String(post.init?.body))).toEqual({ environmentId: 'env-mac', folderId: 'f-core' })
+  })
+})
+
+// Liam, 11-23: "these details view pages … that show the different pages at
+// the top … feel out of place": in a card, the action's views are a capsule
+// in the card's header, the Mac tab among them; the page's row is left empty.
+describe('ActionDetailPanel — its views in a card’s header', () => {
+  it('a capsule in the right slot (Details, Cloud run, the Mac, Agents); a press opens the Mac job; no row of pills in the page', async () => {
+    job = { sessionId: SID, status: 'running', worker: 'claude-code', deviceName: 'Studio Mac', folderLabel: 'site', live: true }
+    const right = document.createElement('div')
+    document.body.appendChild(right)
+    try {
+      await act(async () => {
+        root.render(
+          h(CardHeaderSlotsProvider, { value: { left: null, right } }, h(WindowPropertiesProvider, null, h(ActionDetailPanel, { actionId: 'act-1', onClose: vi.fn() }))),
+        )
+      })
+      for (let i = 0; i < 3; i++) await act(async () => { await vi.advanceTimersByTimeAsync(20) })
+      const capsule = right.querySelector<HTMLElement>('[data-detail-tabs="header"]')!
+      expect(capsule).not.toBeNull()
+      expect(Array.from(capsule.querySelectorAll('[data-detail-tab]')).map((b) => b.getAttribute('data-detail-tab'))).toEqual(['details', 'cloud', 'mac', 'agents'])
+      expect(capsule.querySelector('[data-detail-tab="details"]')!.getAttribute('aria-selected')).toBe('true')
+      const mac = capsule.querySelector<HTMLButtonElement>('[data-action-mac-tab]')!
+      expect(mac.textContent).toContain('Claude Code')
+      expect(mac.querySelector('[data-action-mac-tab-working]')).not.toBeNull()
+      // The page's own row holds nothing now (its actions are in the Properties popover).
+      expect(q('[data-action-toolbar]')!.childNodes.length).toBe(0)
+      expect(container.querySelector('[data-action-mac-tab]')).toBeNull()
+      await act(async () => mac.click())
+      await act(async () => { await vi.advanceTimersByTimeAsync(50) })
+      expect(mac.getAttribute('aria-selected')).toBe('true')
+      expect(q('[data-local-agent-panel]')?.getAttribute('data-local-agent-panel')).toBe(SID)
+    } finally {
+      act(() => root.unmount())
+      root = createRoot(container)
+      right.remove()
+    }
   })
 })

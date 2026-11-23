@@ -36,7 +36,8 @@ export function LinkedDealsList({ deals, onOpen }: { deals: readonly LinkedDeal[
   const open = deals.filter((d) => d.status === 'open')
   const pipelines = new Set(deals.map((d) => d.pipeline_id))
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto pl-10 pr-3.5 pb-6" data-linked-deals="">
+    // pt-3: its own air at the top, as a detail page's section tabs may be up in the card's header now.
+    <div className="min-h-0 flex-1 overflow-y-auto pl-10 pr-3.5 pt-3 pb-6" data-linked-deals="">
       {open.length > 0 && (
         <p className="py-2 text-xs text-muted-foreground">
           {open.length} open{formatDealTotals(open) ? ` · ${formatDealTotals(open)}` : ''}

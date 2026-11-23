@@ -62,6 +62,7 @@ import { EntityTitleInput } from '@/components/views/entity-title-input'
 import { ProjectPanelField, type ProjectOption as PickerProjectOption } from '@/components/views/properties'
 import { usePropertiesVisible } from '@/components/views/use-properties-visible'
 import { WindowProperties, WindowActions } from '@/components/views/window-properties'
+import { DetailTabsInHeader, useDetailTabsInHeader } from '@/components/chat-cards/detail-tabs'
 import { PropertyGroup } from '@/components/views/property-group'
 import { OptionalProperty, PropertyRow, PropertyRows } from '@/components/views/property-layout'
 import { Input } from '@/components/ui/input'
@@ -827,6 +828,8 @@ export function CaptureDetailPanel({
     tab === 'live-chat' ? !!liveChatConversationId : tab === 'tools' ? isActiveRecording : true
   // A section restored (or left open) with nothing to show is the overview.
   const activeSection: CaptureSection = sectionShown(pickedSection) ? pickedSection : 'overview'
+  // In a card the sections are a capsule in the card's header (DetailTabsInHeader below).
+  const tabsInHeader = useDetailTabsInHeader()
   // During a live capture Voice ID is in the live agent's HUD (the desktop's
   // window, or the web's floating panel), not on this card
   // (voice-id-hud-publisher.tsx useLiveHudUp). It's back here once the
@@ -2962,6 +2965,23 @@ export function CaptureDetailPanel({
     .map((p) => p.email)
     .filter((e): e is string => !!e)
 
+  // A section's words, the same in the card's header and in the page's row.
+  const sectionLabel = (tab: CaptureSection) =>
+    tab === 'transcripts' ? (
+      // A leaf: it counts the final lines from the recording
+      // stores, so a flush never re-renders this page.
+      <TranscriptsTabLabel
+        isActiveRecording={isActiveRecording}
+        persistedTranscript={capture?.transcript ?? null}
+        holdsLiveSegments={holdsLiveSegments}
+        alert={isActiveRecording && isDesktopApp() && systemAudioNeedsAttention(recording.systemAudioStatus)}
+      />
+    ) : tab === 'tools' ? (
+      <ToolsTabLabel />
+    ) : (
+      CAPTURE_SECTION_LABELS[tab]
+    )
+
   return (
     <div
       ref={setCaptureEl}
@@ -3010,10 +3030,26 @@ export function CaptureDetailPanel({
         </div>
       )}
 
+      {/* In a card, the sections are a capsule in the card's header, and this
+          row keeps only what is left in it (Liam, 11-23: "these details view
+          pages … that show the different pages at the top … feel out of
+          place"); empty (the actions in the Properties popover), it is gone. */}
+      <DetailTabsInHeader
+        label="Capture"
+        tabs={CAPTURE_SECTIONS.filter(sectionShown).map((tab) => ({
+          id: tab,
+          title: CAPTURE_SECTION_LABELS[tab],
+          data: { 'data-capture-tab': tab },
+          label: sectionLabel(tab),
+        }))}
+        value={activeSection}
+        onChange={setActiveSection}
+      />
       {/* Header */}
-      <div className="flex h-10 shrink-0 items-center gap-2 px-5">
+      <div className="flex h-10 shrink-0 items-center gap-2 px-5 empty:hidden">
         {/* The tabs. On a narrow card (the live capture's notepad, the
             desktop's capture window) they scroll sideways rather than wrap. */}
+        {!tabsInHeader && (
         <div data-capture-tabs="" className="-my-1 flex min-w-0 items-center gap-1 overflow-x-auto py-1 [scrollbar-width:none]">
           {CAPTURE_SECTIONS.filter(sectionShown).map((tab) => (
             <button
@@ -3029,27 +3065,11 @@ export function CaptureDetailPanel({
                   : 'bg-background text-muted-foreground border-border hover:bg-muted hover:text-foreground',
               )}
             >
-              {tab === 'transcripts' ? (
-                // A leaf: it counts the final lines from the recording
-                // stores, so a flush never re-renders this page.
-                <TranscriptsTabLabel
-                  isActiveRecording={isActiveRecording}
-                  persistedTranscript={capture?.transcript ?? null}
-                  holdsLiveSegments={holdsLiveSegments}
-                  alert={
-                    isActiveRecording &&
-                    isDesktopApp() &&
-                    systemAudioNeedsAttention(recording.systemAudioStatus)
-                  }
-                />
-              ) : tab === 'tools' ? (
-                <ToolsTabLabel />
-              ) : (
-                CAPTURE_SECTION_LABELS[tab]
-              )}
+              {sectionLabel(tab)}
             </button>
           ))}
         </div>
+        )}
         <WindowActions className="ml-auto flex items-center gap-1">
           {/* Visibility is creator-only and only offered in shared workspaces. */}
           {canOfferVisibilityControl(
