@@ -96,6 +96,22 @@ describe('applyCommentMentions', () => {
     expect(tables.entity_access[0]).toMatchObject({ entity_type: 'document', entity_id: DOC, grantee_kind: 'member', grantee_member_id: BEN, level: 'view', source: 'mention', granted_by: ANA })
   })
 
+  it('shares a mentioned spreadsheet or canvas the same way, view only (decision 12)', async () => {
+    const SHEET = 'f0000000-0000-4000-8000-000000000001'
+    const BOARD = 'f0000000-0000-4000-8000-000000000002'
+    await applyCommentMentions(memoryDb(tables), {
+      workspaceId: WS,
+      userId: ANA_USER,
+      memberId: ANA,
+      commentable: { type: 'action', id: TASK },
+      mentions: { memberIds: [BEN], records: [{ type: 'spreadsheet', id: SHEET, label: 'Q3 plan' }, { type: 'canvas', id: BOARD, label: 'Launch board' }] },
+    })
+    expect(tables.entity_access.map((g) => [g.entity_type, g.entity_id, g.grantee_member_id, g.level, g.source])).toEqual([
+      ['spreadsheet', SHEET, BEN, 'view', 'mention'],
+      ['canvas', BOARD, BEN, 'view', 'mention'],
+    ])
+  })
+
   it('does nothing for a comment that mentions no record', async () => {
     await applyCommentMentions(memoryDb(tables), { workspaceId: WS, userId: ANA_USER, memberId: ANA, commentable: { type: 'action', id: TASK }, mentions: { memberIds: [BEN], records: [] } })
     expect(tables.entity_link).toEqual([])
