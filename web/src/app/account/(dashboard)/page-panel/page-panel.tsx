@@ -92,6 +92,7 @@ import { useSelectedPlace, type SelectedPlace } from '../rail/selected-place'
 import { useSidePanelState } from '../side-panels/side-panels'
 import type { PanelMode } from '../side-panels/space-plan'
 import { HomeRecentsPanel } from './home-recents'
+import { ReviewsPanel } from './reviews-panel'
 import { TasksPanel } from './tasks-panel'
 import { MailPanel } from './mail-panel'
 import { TeamChatPanel } from './team-chat-panel'
@@ -137,6 +138,8 @@ export const PAGE_PANELS: Readonly<{ home: PagePanel } & Partial<Record<RailPage
   // Team chat's sub-nav (Liam, 11-11: "make the team-chat one look like
   // this"): team-chat-panel.tsx.
   'team-chat': TeamChatPanel,
+  // Reviews' sub-nav (docs/plans/github-reviews.md): reviews-panel.tsx.
+  reviews: ReviewsPanel,
   ...PAGE_GROUP_PANELS,
 }
 

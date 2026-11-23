@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 /**
- * The Reviews card (docs/plans/github-reviews.md, phase 1): a section's pull
- * requests from GET /api/account/github/reviews, its filters, List and Board,
- * a pull request's panel (description, checks, linked actions, files) and a
- * merge that always confirms first.
+ * The Reviews card (docs/plans/github-reviews.md, "Reviews on the app's own
+ * list"): a section's pull requests from GET /api/account/github/reviews on
+ * the shared ViewList and ViewBoard, the view's filters narrowing GitHub's
+ * search, a pull request opened over the list as a record (description,
+ * files, checks, properties, linked actions) and a merge that always confirms
+ * first, pinned to the head commit shown.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as React from 'react'
@@ -13,6 +15,16 @@ import { makeStore, mountRoot } from './page-card-harness'
 const hoisted = vi.hoisted(() => ({ toastSuccess: vi.fn(), toastError: vi.fn() }))
 vi.mock('sonner', () => ({ toast: { success: hoisted.toastSuccess, error: hoisted.toastError } }))
 vi.mock('@/components/ui/markdown', () => ({ Markdown: ({ children }: { children: string }) => React.createElement('div', { 'data-md': '' }, children) }))
+// jsdom cannot size the shared list's virtualizer: every row drawn.
+vi.mock('@tanstack/react-virtual', () => ({
+  useVirtualizer: (opts: { count: number; estimateSize: () => number }) => ({
+    getVirtualItems: () => Array.from({ length: opts.count }, (_, index) => ({ index, key: index, start: index * opts.estimateSize(), size: opts.estimateSize(), end: (index + 1) * opts.estimateSize() })),
+    getTotalSize: () => opts.count * opts.estimateSize(),
+    measureElement: () => {},
+    measure: () => {},
+    scrollToIndex: () => {},
+  }),
+}))
 vi.mock('../card-body', () => ({
   CardRecordPanel: ({ record }: { record: { type: string; id: string } }) => React.createElement('div', { 'data-record-panel': `${record.type}:${record.id}` }),
   useOpenRecords: () => {
@@ -22,7 +34,7 @@ vi.mock('../card-body', () => ({
 }))
 
 import ReviewsCard from '../pages/reviews-card'
-import { cleanBody } from '../pages/reviews/pull-panel'
+import { cleanBody } from '../pages/reviews/pull-detail'
 import type { PageCardSpec } from '@/lib/chat-cards/pages'
 import type { ReviewPr } from '@/lib/github/reviews'
 
@@ -106,6 +118,7 @@ beforeEach(() => {
 afterEach(() => {
   mount.unmount()
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
 })
 
 const settle = async () => {
@@ -114,83 +127,93 @@ const settle = async () => {
   })
 }
 const q = <T extends Element = HTMLElement>(sel: string) => (mount.container.querySelector<T>(sel) ?? document.body.querySelector<T>(sel))
-const rows = () => Array.from(mount.container.querySelectorAll<HTMLElement>('[data-reviews-row]')).map((r) => r.dataset.reviewsRow)
+const rows = () => Array.from(mount.container.querySelectorAll<HTMLElement>('[data-list-row-id]')).map((r) => r.dataset.listRowId)
+const row = (id: string) => `[data-list-row-id="${id}"]`
 const click = async (sel: string) => {
   await act(async () => q(sel)!.click())
   await settle()
 }
 
-async function render() {
-  await mount.render(React.createElement(ReviewsCard, { toolCallId: 'rev-1', spec, store: makeStore('rev-1', spec), fullScreen: true }))
+async function render(lists?: Record<string, unknown>) {
+  const store = makeStore('rev-1', spec)
+  if (lists) store.update('rev-1', { lists })
+  await mount.render(React.createElement(ReviewsCard, { toolCallId: 'rev-1', spec, store, fullScreen: true }))
   await settle()
 }
 
 describe('ReviewsCard', () => {
-  it('opens on review requests, open, recently updated, and lists each pull request', async () => {
+  it('opens on review requests, open, recently updated, and lists each pull request on the shared list', async () => {
     await render()
     expect(asked[0]).toBe('/api/account/github/reviews?section=review_requests')
     expect(rows()).toEqual(['acme/app#1', 'acme/app#2', 'acme/app#3', 'acme/app#4'])
-    const row = q('[data-reviews-row="acme/app#1"]')!
-    expect(row.textContent).toContain('Change 1')
-    expect(row.textContent).toContain('acme/app#1')
-    expect(row.textContent).toContain('Approved')
-    expect(row.textContent).toContain('+12')
-    expect(row.querySelector('[data-reviews-linked="act-1"]')!.textContent).toBe('ENG-1')
+    const r = q(row('acme/app#1'))!
+    expect(r.textContent).toContain('Change 1')
+    expect(r.textContent).toContain('#1')
+    expect(r.textContent).toContain('Approved')
+    expect(r.textContent).toContain('+12')
+    expect(r.textContent).toContain('ENG-1')
   })
 
-  it('asks again for each section and filter, and remembers them on this device', async () => {
+  it('asks again for each section and state, and remembers them on this device', async () => {
     await render()
     await click('[data-reviews-section="authored"]')
     expect(asked.at(-1)).toBe('/api/account/github/reviews?section=authored')
     await click('[data-reviews-state="all"]')
     expect(asked.at(-1)).toBe('/api/account/github/reviews?section=authored&state=all')
-    const repo = q<HTMLInputElement>('[data-reviews-filter="repo"]')!
-    await act(async () => {
-      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
-      setter.call(repo, 'acme/app')
-      repo.dispatchEvent(new Event('input', { bubbles: true }))
-    })
-    await act(async () => {
-      repo.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-    })
-    await settle()
-    expect(asked.at(-1)).toBe('/api/account/github/reviews?section=authored&state=all&repo=acme%2Fapp')
-    const sort = q<HTMLSelectElement>('[data-reviews-filter="sort"]')!
-    await act(async () => {
-      sort.value = 'created'
-      sort.dispatchEvent(new Event('change', { bubbles: true }))
-    })
-    await settle()
-    expect(asked.at(-1)).toContain('sort=created')
-    expect(JSON.parse(localStorage.getItem('ni:reviews:prefs')!).filters).toMatchObject({ section: 'authored', state: 'all', repo: 'acme/app', sort: 'created' })
+    expect(JSON.parse(localStorage.getItem('ni:reviews:prefs')!)).toEqual({ section: 'authored', state: 'all' })
   })
 
-  it('draws the board by column, closed-unmerged ones noted under it', async () => {
-    await render()
-    await click('[data-reviews-layout="board"]')
-    const col = (c: string) => Array.from(q(`[data-reviews-column="${c}"]`)!.querySelectorAll<HTMLElement>('[data-reviews-card]')).map((e) => e.dataset.reviewsCard)
-    expect(col('ready')).toEqual(['acme/app#1'])
-    expect(col('draft')).toEqual(['acme/app#2'])
-    expect(col('checks_failing')).toEqual(['acme/app#3'])
-    expect(col('merged')).toEqual([])
+  it("narrows GitHub's search by the view's plain filters and sort, and applies the rest to the rows", async () => {
+    await render({
+      github_pr: {
+        filters: [
+          { id: 'f1', field: 'repo', operator: 'is', value: ['acme/app'] },
+          { id: 'f2', field: 'checks', operator: 'is', value: ['failing'] },
+        ],
+        ordering: [{ field: 'created_at', direction: 'desc' }],
+      },
+    })
+    expect(asked[0]).toContain('repo=acme%2Fapp')
+    expect(asked[0]).toContain('sort=created')
+    expect(rows()).toEqual(['acme/app#3'])
+  })
+
+  it('draws the board by stage, closed-unmerged ones noted under it', async () => {
+    await render({ github_pr: { layout: 'board' } })
+    expect(rows().sort()).toEqual(['acme/app#1', 'acme/app#2', 'acme/app#3'])
     expect(q('[data-reviews-closed-note]')!.textContent).toContain('1 closed without merging')
   })
 
-  it('opens the panel: description without template comments, checks, linked actions, the diff, and GitHub for reviewing', async () => {
+  it('opens a pull request over the list: description without template comments, checks, properties, linked actions, and GitHub for reviewing', async () => {
+    const open = vi.fn()
+    vi.stubGlobal('open', open)
     await render()
-    await click('[data-reviews-row="acme/app#1"]')
+    await click(row('acme/app#1'))
     expect(asked).toContain('/api/account/github/reviews/pull?repo=acme%2Fapp&number=1')
     const panel = q('[data-reviews-panel="acme/app#1"]')!
     expect(panel.querySelector('[data-md]')!.textContent).toBe('Fixes the login.')
-    expect(panel.querySelector('[data-reviews-checks]')!.textContent).toContain('test')
-    expect(panel.querySelector<HTMLAnchorElement>('[data-reviews-github]')!.href).toBe('https://github.com/acme/app/pull/1')
-    await click('[data-reviews-panel] [data-reviews-linked="act-1"]')
+    await click('[data-reviews-tab="checks"]')
+    expect(q('[data-reviews-checks]')!.textContent).toContain('test')
+    expect(q('[data-reviews-prop="Review"]')!.textContent).toContain('Approved')
+    expect(q('[data-reviews-prop="Repository"]')!.textContent).toContain('acme/app')
+    await click('[data-reviews-github]')
+    expect(open).toHaveBeenCalledWith('https://github.com/acme/app/pull/1', '_blank', 'noopener,noreferrer')
+    await click('[data-reviews-linked="act-1"]')
     expect(q('[data-record-panel="action:act-1"]')).not.toBeNull()
+  })
+
+  it('steps to the next pull request from the open one', async () => {
+    await render()
+    await click(row('acme/app#1'))
+    const next = Array.from(document.body.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.querySelector('.lucide-chevron-down'))!
+    await act(async () => next.click())
+    await settle()
+    expect(q('[data-reviews-panel="acme/app#2"]')).not.toBeNull()
   })
 
   it('shows the files changed as a read-only diff', async () => {
     await render()
-    await click('[data-reviews-row="acme/app#1"]')
+    await click(row('acme/app#1'))
     await click('[data-reviews-tab="files"]')
     const file = q('[data-reviews-file="src/a.ts"]')!
     expect(Array.from(file.querySelectorAll<HTMLElement>('[data-diff]')).map((r) => r.dataset.diff)).toEqual(['hunk', 'del', 'add', 'ctx'])
@@ -199,7 +222,7 @@ describe('ReviewsCard', () => {
 
   it('merges only after the confirm, pinned to the head it showed, with the method picked', async () => {
     await render()
-    await click('[data-reviews-row="acme/app#1"]')
+    await click(row('acme/app#1'))
     await click('[data-reviews-merge]')
     // Nothing merges before the confirm.
     expect(posts).toEqual([])
@@ -213,7 +236,7 @@ describe('ReviewsCard', () => {
 
   it('offers no merge while something blocks it, and says what', async () => {
     await render()
-    await click('[data-reviews-row="acme/app#2"]')
+    await click(row('acme/app#2'))
     expect(q<HTMLButtonElement>('[data-reviews-merge]')!.disabled).toBe(true)
     expect(q('[data-reviews-merge-blocker]')!.textContent).toBe('It is a draft.')
   })
@@ -221,7 +244,7 @@ describe('ReviewsCard', () => {
   it('says GitHub refused the merge in its own words', async () => {
     mergeAnswer = () => json({ error: 'Required status check is expected.', code: 'merge_refused' }, 409)
     await render()
-    await click('[data-reviews-row="acme/app#1"]')
+    await click(row('acme/app#1'))
     await click('[data-reviews-merge]')
     await act(async () => document.body.querySelector<HTMLElement>('[data-reviews-merge-confirm]')!.click())
     await settle()
@@ -236,11 +259,15 @@ describe('ReviewsCard', () => {
   })
 
   it('moves with J and K, and opens with Enter', async () => {
+    // jsdom lays nothing out: the list reads as shown.
+    vi.spyOn(Element.prototype, 'getClientRects').mockReturnValue([{}] as unknown as DOMRectList)
+    // Nor has it CSS.escape, which scrolling the row into view uses.
+    vi.stubGlobal('CSS', { escape: (v: string) => v.replace(/["\\]/g, '\\$&') })
     await render()
-    const listbox = q('[role="listbox"]')!
-    listbox.focus()
-    await act(async () => listbox.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', bubbles: true })))
-    await act(async () => listbox.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })))
+    const key = (k: string) => act(async () => { document.body.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true })) })
+    await key('j')
+    await key('j')
+    await key('Enter')
     await settle()
     expect(q('[data-reviews-panel="acme/app#2"]')).not.toBeNull()
   })

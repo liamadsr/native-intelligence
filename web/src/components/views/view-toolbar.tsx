@@ -32,6 +32,8 @@ interface ViewToolbarProps {
   embedded?: boolean
   /** A chat card: no view tabs (it is its own view), just the filter and settings buttons. */
   hideTabs?: boolean
+  /** False for a list with no saved views (Reviews: its rows are GitHub's): the ribbon offers no "Save as new view". */
+  canSaveViews?: boolean
   /** The page's own view tabs (a scope's) only below `md` (CSS): from there up a page's sub-nav beside the rail holds them. Saved views and the create button stay. */
   scopeTabsBelowMdOnly?: boolean
   /** A slimmer row, for a card inline in the chat. */
@@ -124,7 +126,7 @@ const getSnapshot = () => true
 const getServerSnapshot = () => false
 
 export function ViewToolbar({
-  embedded = false, hideTabs = false, scopeTabsBelowMdOnly = false, compact = false, alignToContent = false, entityType, teamId, views, activeViewId, onViewChange,
+  embedded = false, hideTabs = false, canSaveViews = true, scopeTabsBelowMdOnly = false, compact = false, alignToContent = false, entityType, teamId, views, activeViewId, onViewChange,
   onCreateView, onUpdateView, onDuplicateView, onDeleteView,
   config, onConfigChange, onScopeReset, crmScopesEnabled = true, captureScopesEnabled = true,
   lockedScopeFields,
@@ -659,6 +661,7 @@ export function ViewToolbar({
               </button>
             )}
 
+            {canSaveViews && (
             <button
               onClick={handleOverlaySaveAsNew}
               className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1 text-xs rounded-full border bg-background text-muted-foreground border-border hover:bg-muted hover:text-foreground transition-colors whitespace-nowrap"
@@ -666,6 +669,7 @@ export function ViewToolbar({
               <FilePlus2 className="h-3 w-3" />
               Save as new view
             </button>
+            )}
             </div>
           </div>
         </div>
