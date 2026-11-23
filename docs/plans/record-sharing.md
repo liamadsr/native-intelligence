@@ -613,6 +613,7 @@ whose `can_edit` is false.
 `GRANTING_HELD_TYPES` is empty: the Share button and menu item, the chips,
 `shared_with` and new grants by hand all work for both kinds.
 
-**Outcome A (yes):** an @-mention of your own private spreadsheet or canvas
-in a comment, beside a teammate, shares it with them, view only, as for
-documents and tables (`comment-mentions.ts`).
+**Outcome B (no):** an @-mention of a spreadsheet or canvas in a comment
+links it and notifies the teammate, but never shares it. Only its Share
+button does (`MENTION_SHARE_SKIP_TYPES`, `comment-mentions.ts`). Documents
+and tables keep sharing by mention.

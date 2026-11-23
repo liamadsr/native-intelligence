@@ -96,7 +96,7 @@ describe('applyCommentMentions', () => {
     expect(tables.entity_access[0]).toMatchObject({ entity_type: 'document', entity_id: DOC, grantee_kind: 'member', grantee_member_id: BEN, level: 'view', source: 'mention', granted_by: ANA })
   })
 
-  it('shares a mentioned spreadsheet or canvas the same way, view only (decision 12)', async () => {
+  it('never shares a mentioned spreadsheet or canvas: only its Share button does (decision 12); the edge is still drawn', async () => {
     const SHEET = 'f0000000-0000-4000-8000-000000000001'
     const BOARD = 'f0000000-0000-4000-8000-000000000002'
     await applyCommentMentions(memoryDb(tables), {
@@ -106,9 +106,10 @@ describe('applyCommentMentions', () => {
       commentable: { type: 'action', id: TASK },
       mentions: { memberIds: [BEN], records: [{ type: 'spreadsheet', id: SHEET, label: 'Q3 plan' }, { type: 'canvas', id: BOARD, label: 'Launch board' }] },
     })
-    expect(tables.entity_access.map((g) => [g.entity_type, g.entity_id, g.grantee_member_id, g.level, g.source])).toEqual([
-      ['spreadsheet', SHEET, BEN, 'view', 'mention'],
-      ['canvas', BOARD, BEN, 'view', 'mention'],
+    expect(tables.entity_access).toEqual([])
+    expect(tables.entity_link.map((e) => [e.target_type, e.target_id])).toEqual([
+      ['spreadsheet', SHEET],
+      ['canvas', BOARD],
     ])
   })
 

@@ -39,6 +39,14 @@ export function isGrantableType(type: unknown): type is GrantableType {
  */
 export const GRANTING_HELD_TYPES: ReadonlySet<GrantableType> = new Set<GrantableType>()
 
+/**
+ * Kinds an @-mention in a comment never shares (the owner's decision 12,
+ * docs/plans/record-sharing.md): mentioning your own private spreadsheet or
+ * canvas beside a teammate links it and notifies them, but only the Share
+ * button gives them access. Documents and tables keep sharing by mention.
+ */
+export const MENTION_SHARE_SKIP_TYPES: ReadonlySet<GrantableType> = new Set<GrantableType>(['spreadsheet', 'canvas'])
+
 /** Who a grant names. A channel's grantees are whoever can read it. */
 export const GRANTEE_KINDS = ['member', 'team', 'channel'] as const
 export type GranteeKind = (typeof GRANTEE_KINDS)[number]
