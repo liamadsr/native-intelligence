@@ -14,6 +14,8 @@ export function teamChatErrorResponse(err: unknown, where: string): Response {
         return forbidden()
       case 'conflict':
         return conflict('A channel with that name already exists')
+      case 'busy':
+        return conflict('End the call before deleting the meeting chat', undefined, 'CALL_LIVE')
       case 'bad_request':
         return badRequest()
       default:

@@ -7,7 +7,10 @@
  * ended (src/lib/meeting-links/section.ts). Each row: its title and when (in
  * the viewer's own zone), Join (the link's same-origin POST, as opening the
  * link as a member does), and Copy link; for the host, New link and Revoke.
- * The title opens its conversation. Nothing when there are none.
+ * The title opens its conversation. Nothing when there are none. For
+ * whoever may manage its chat (`canManage`: its host, or the workspace's
+ * owner or admin; migration 714) the menu also has Rename and Delete meeting
+ * chat, which open the page's own dialogs (`onManage`).
  *
  * Asked when the section mounts, when `refreshKey` changes (a meeting made,
  * a call's state changed) and when the tab comes back; no timer runs.
@@ -18,10 +21,10 @@
  * beside them, its lit tint and muted glyph.
  */
 import { useCallback, useEffect, useState } from 'react'
-import { Link2, MoreHorizontal, Video } from 'lucide-react'
+import { Link2, MoreHorizontal, Pencil, Trash2, Video } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { enterPathOf, fetchMyMeetings, requestNewLink, requestRevoke } from '@/lib/meeting-links/client'
 import { meetingSection, meetingWhen, type MyMeeting, type SectionMeeting } from '@/lib/meeting-links/section'
 
@@ -34,6 +37,8 @@ export function MeetingsSection({
   initial,
   now: fixedNow,
   dense = false,
+  canManage,
+  onManage,
 }: {
   /** Changed: ask again (a meeting made, a call started or ended). */
   refreshKey: unknown
@@ -48,6 +53,10 @@ export function MeetingsSection({
   now?: number
   /** The sub-nav's rows (see above). */
   dense?: boolean
+  /** The person may rename and delete this meeting's chat (its conversation's can_manage, migration 714). */
+  canManage?: (channelId: string) => boolean
+  /** Open the page's Rename or Delete meeting chat dialog on it. */
+  onManage?: (channelId: string, what: 'edit' | 'delete') => void
 }) {
   const [meetings, setMeetings] = useState<MyMeeting[] | null>(initial ?? null)
   const [now, setNow] = useState(() => fixedNow ?? Date.now())
@@ -82,7 +91,16 @@ export function MeetingsSection({
   return (
     <div data-meetings-section="">
       {shown.map((m) => (
-        <MeetingRow key={m.id} meeting={m} now={now} active={m.channel_id === activeChannelId} onOpen={() => onOpen(m.channel_id)} onChanged={() => void load()} dense={dense} />
+        <MeetingRow
+          key={m.id}
+          meeting={m}
+          now={now}
+          active={m.channel_id === activeChannelId}
+          onOpen={() => onOpen(m.channel_id)}
+          onChanged={() => void load()}
+          dense={dense}
+          onManage={onManage && canManage?.(m.channel_id) ? (what) => onManage(m.channel_id, what) : undefined}
+        />
       ))}
     </div>
   )
@@ -95,7 +113,10 @@ function MeetingRow({
   onOpen,
   onChanged,
   dense,
+  onManage,
 }: {
+  /** Rename or Delete its chat (the person may: migration 714); absent, neither is offered. */
+  onManage?: (what: 'edit' | 'delete') => void
   meeting: SectionMeeting
   now: number
   active: boolean
@@ -184,7 +205,7 @@ function MeetingRow({
           </button>
         </form>
       )}
-      {meeting.url || meeting.is_host ? (
+      {meeting.url || meeting.is_host || onManage ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
@@ -207,6 +228,17 @@ function MeetingRow({
               <DropdownMenuItem onSelect={() => void revoke()} className="text-destructive focus:text-destructive">
                 Revoke link
               </DropdownMenuItem>
+            )}
+            {onManage && (
+              <>
+                {(meeting.url || meeting.is_host) && <DropdownMenuSeparator />}
+                <DropdownMenuItem onSelect={() => onManage('edit')} data-meeting-rename="">
+                  <Pencil className="h-4 w-4" /> Rename…
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => onManage('delete')} className="text-destructive focus:text-destructive" data-meeting-delete="">
+                  <Trash2 className="h-4 w-4" /> Delete meeting chat…
+                </DropdownMenuItem>
+              </>
             )}
           </DropdownMenuContent>
         </DropdownMenu>
