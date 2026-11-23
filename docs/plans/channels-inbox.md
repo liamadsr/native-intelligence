@@ -132,7 +132,7 @@ Verbs, on every item:
     (`openEntity`).
   - Opening marks the item's notifications read.
 - **J / K** move through the list (and the open item follows while the pane is open). **Esc**
-  closes the pane. Registered in `src/lib/shortcuts.ts` under a new `inbox` scope, so the
+  closes the pane. **G J** opens the Inbox (decision 14). Registered in `src/lib/shortcuts.ts` under a new `inbox` scope, so the
   conflict test keeps them apart from Mail's own J/K/E.
 
 Filters along the top: All, Messages (team chat), Mentions & assignments, Mail, Held.
@@ -228,16 +228,19 @@ The team chat composer's + menu gets a "Create" group under Add files:
 - **New task from this conversation**: the action composer, its title prefilled from the
   channel's latest message (or the thread's root), linked back to it through the existing
   `about: team_chat_message` (`openTaskComposer`).
-- **New doc**: the Create dialog's doc composer (`openCreateDialog({ type: 'document' })`). The
-  new doc's link is put in the box, ready to send.
-- **New form**: forms belong to a table (`components/tables/forms-panel.tsx`). This makes a
-  table from the "form" starter, opens it with its forms panel, and puts the link in the box.
-  If a starter that suits doesn't exist, it makes a plain table and opens its forms panel.
+- **New doc**: the Create dialog's doc composer (`openCreateDialog({ type: 'document' })`).
+- **New form**: forms belong to a table (`components/tables/forms-panel.tsx`). A small dialog
+  (a name, one question) makes a table named for it (`POST /api/account/tables`) and its
+  form for the workspace's signed-in members (`POST /api/account/tables/[id]/forms`). The
+  form's link, shown only once when it's made, goes into the message box, ready to send. The
+  toast's "Open table" opens the table, where the form's other fields and its answers are.
 - **Start a call**: the same as the header's call button (`CallButton`); hidden where calls
   aren't offered.
 
 `ChatInput` takes an optional `createItems` prop (label, icon, onSelect). The main chat passes
-none, so its menu is unchanged.
+none, so its menu is unchanged. The team chat box adds its own New poll and New form (their
+dialogs post where that box writes, a thread's box into its thread). A thread's menu has no
+Start a call.
 
 ## Tests and checks
 
@@ -278,4 +281,20 @@ none, so its menu is unchanged.
 10. **A poll's author closes it. So may the owner of the agent that posted it.** Workspace
     admins get no override.
 11. **No result notice when a poll closes** (people see the card). It can be added later.
-12. **New form** makes a table with a form, since a form is always a table's.
+12. **New form** makes a table with a form, since a form is always a table's. The form takes
+    one question at first (the row's title), for signed-in members only. More fields are added
+    on the table.
+13. **The inbox page brings back a page that `retire-notifications-page.md` retired.** The
+    owner's request asks for one inbox. This one stores no items: it lists the person's own
+    notifications live, by conversation, plus their mail that needs them.
+14. **G J opens the Inbox.** Every other letter was taken, and J was Campaigns' leftover
+    letter. Campaigns now has no go-to of its own; it is reached through Outreach (G X).
+15. **The Inbox's rail icon is last in the work group**, after Calendar, so everyone's saved
+    bar keeps its places. It can be moved like any icon.
+16. **An agent's poll notifies only its owner**, which is notify.ts's existing rule for an
+    agent's messages. Teammates see it in the channel (unread counts) and vote there.
+17. **Mail opens in Mail's own card** on its thread, not inside the inbox's pane. Team chat
+    opens in the pane, and records open over the inbox in its card.
+18. **H holds until tomorrow morning; the row's clock picks another time.**
+19. **Message reads find out whether `poll_id` exists** (one probe per server process). A
+    deploy that lands before 703 still reads team chat, without polls.
