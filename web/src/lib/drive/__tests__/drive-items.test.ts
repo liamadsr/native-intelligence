@@ -9,6 +9,7 @@ const item = (key: string, createdAt: string, extra: Partial<DriveItem> = {}): D
   size: null,
   type: 'other',
   createdAt,
+  modifiedAt: createdAt,
   where: '',
   creator: {},
   ...extra,
@@ -48,6 +49,9 @@ describe('the sources as items', () => {
       user_id: 'u1',
     })
     expect(up).toMatchObject({ key: 'upload:f1', type: 'pdf', where: 'Project · Website refresh', creator: { userId: 'u1' } })
+    const base = up.upload!
+    expect(itemFromUpload({ ...base, parent: { type: 'drive', id: 'f1', label: 'Drive' } }).where).toBe('Drive · only you')
+    expect(itemFromUpload({ ...base, parent: { type: 'drive', id: 'f1', label: 'Plans', folder: { id: 'fo', name: 'Plans' } } }).where).toBe('Folder · Plans')
     const chat = itemFromChat({ key: 'c/u/a.png', name: 'a.png', size: 1, mimeType: 'image/png', createdAt: '2026-11-21T10:00:00Z', messageId: 'm', authorMemberId: 'mem1', channel: { id: 'c', kind: 'channel', name: 'design' } })
     expect(chat).toMatchObject({ source: 'team_chat', where: '#design', creator: { memberId: 'mem1' }, type: 'image' })
     expect(itemFromChat({ ...chat.chat!, channel: { id: 'c', kind: 'dm', name: null } }).where).toBe('Direct message')
@@ -76,6 +80,13 @@ describe('sortDriveItems', () => {
     expect(sortDriveItems(items, 'created').map((i) => i.key)).toEqual(['a', 'c10', 'c9', 'b'])
     expect(sortDriveItems(items, 'name').map((i) => i.key)).toEqual(['a', 'b', 'c9', 'c10'])
     expect(sortDriveItems(items, 'size').map((i) => i.key)).toEqual(['c9', 'b', 'a', 'c10'])
+  })
+
+  it('sorts by last change, and by last opened with never-opened files after', () => {
+    const changed = [item('x', '2026-11-01T00:00:00Z', { modifiedAt: '2026-11-30T00:00:00Z' }), item('y', '2026-11-20T00:00:00Z')]
+    expect(sortDriveItems(changed, 'modified').map((i) => i.key)).toEqual(['x', 'y'])
+    const opened = [item('p', '2026-11-22T00:00:00Z'), item('q', '2026-11-01T00:00:00Z', { openedAt: '2026-11-23T00:00:00Z' }), item('r', '2026-11-02T00:00:00Z', { openedAt: '2026-11-21T00:00:00Z' })]
+    expect(sortDriveItems(opened, 'opened').map((i) => i.key)).toEqual(['q', 'r', 'p'])
   })
 })
 

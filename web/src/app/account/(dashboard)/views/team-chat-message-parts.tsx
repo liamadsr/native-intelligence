@@ -15,9 +15,10 @@ import { cn } from '@/lib/utils'
 import { ReactionPickerPopover } from '@/app/account/(dashboard)/chat/reaction-picker'
 import { formatFileSize, isInlineImage } from '@/lib/team-chat/files'
 import { cachedTeamChatFileUrl, teamChatFileUrl } from '@/lib/team-chat/upload-client'
+export { teamChatViewerFile }
 import { lastReplyLabel, replyCountLabel, type ReactionGroup } from '@/lib/team-chat/compose'
 import { useFileViewer } from '@/components/files/file-viewer'
-import { downloadFile } from '@/lib/download'
+import { teamChatFileLink, teamChatViewerFile } from '@/lib/files/sources'
 import { isFigmaUrl } from '@/lib/files/viewer-kind'
 import type { ViewerFile } from '@/lib/files/viewer-file'
 import type { TeamChatAttachment, TeamChatLinkPreview, TeamChatThreadSummary } from '@/lib/team-chat/types'
@@ -99,30 +100,9 @@ function useFileUrl(path: string): string | null {
 /** The tallest and widest an inline image is drawn, px. */
 const IMAGE_MAX = { width: 320, height: 240 }
 
-/**
- * A message's file as the in-app viewer takes it: a short signed URL the
- * bucket's read policy (team_chat_can_read, 558) signs only for the channel's
- * readers, signed again for the download if it has run out.
- */
-export function teamChatViewerFile(attachment: TeamChatAttachment, url: string): ViewerFile {
-  return {
-    key: `team-chat:${attachment.path}`,
-    name: attachment.name,
-    mimeType: attachment.type,
-    size: attachment.size,
-    url,
-    sourceLabel: 'Team chat',
-    download: async () => {
-      const fresh = cachedTeamChatFileUrl(attachment.path) ?? (await teamChatFileUrl(attachment.path))
-      if (!fresh) throw new Error('Could not download the file')
-      await downloadFile(fresh, attachment.name)
-    },
-  }
-}
-
 /** Open a message's file in the viewer, signing its link again when the cached one has run out. */
 async function openInViewer(attachment: TeamChatAttachment, open: (file: ViewerFile) => void) {
-  const url = cachedTeamChatFileUrl(attachment.path) ?? (await teamChatFileUrl(attachment.path))
+  const url = await teamChatFileLink(attachment.path)
   if (url) open(teamChatViewerFile(attachment, url))
 }
 

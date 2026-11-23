@@ -15,6 +15,9 @@ import { chunkText, extractAttachmentText, TEXT_EXTRACTABLE_EXTENSIONS } from '@
 import { extensionOf } from '@/lib/files/viewer-kind'
 import type { TeamChatAttachment } from '@/lib/team-chat/types'
 
+/** The event that asks for a message's files to be read (sent by the messages route). */
+export const TEAM_CHAT_FILES_POSTED = 'team-chat/files.posted'
+
 /** The bucket team chat files live in (558). */
 export const TEAM_CHAT_FILES_BUCKET = 'team-chat-files'
 

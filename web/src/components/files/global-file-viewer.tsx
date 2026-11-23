@@ -12,7 +12,7 @@
 import * as React from 'react'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
-import { downloadFile } from '@/lib/download'
+import { uploadViewerFile } from '@/lib/files/sources'
 import type { ViewerFile } from '@/lib/files/viewer-file'
 import { FileViewer } from './file-viewer'
 
@@ -53,19 +53,7 @@ export async function openAttachmentById(id: string): Promise<boolean> {
     toast.error('That file can’t be opened')
     return false
   }
-  openFileViewer({
-    key: `attachment:${file.id}`,
-    name: file.file_name,
-    mimeType: file.mime_type,
-    size: file.file_size_bytes,
-    url: signed.signedUrl,
-    downloadOnly: !!file.from_form && file.file_category !== 'image',
-    download: async () => {
-      const { data } = await supabase.storage.from('attachments').createSignedUrl(path, 60, file.from_form ? { download: file.file_name } : undefined)
-      if (!data?.signedUrl) throw new Error('Could not download the file')
-      await downloadFile(data.signedUrl, file.file_name)
-    },
-  })
+  openFileViewer(uploadViewerFile({ ...file, storage_path: path }, signed.signedUrl))
   return true
 }
 

@@ -14,7 +14,11 @@
  * caller may read (team_chat_can_read), never a deleted message.
  *
  * Files keep the attachments rule explicit too (a file on a capture is only as
- * visible as that capture), and calendar events are the caller's own.
+ * visible as that capture), and calendar events are the caller's own. A file
+ * is found by its name and by the words inside it (docs/plans/drive-files.md,
+ * phase 3): an upload's extracted text read on the service client and fenced
+ * by the same rule; a team chat file's through team_chat_file_search (697) on
+ * the caller's client, shown with the messages (it opens where it was sent).
  *
  * Studio videos and Studio projects (migration 620) are read on the service
  * client: the Studio's tables have no member policies. The route says whether
@@ -46,6 +50,7 @@ import {
   type MenuSearchRow,
 } from '@/lib/search/menu-search'
 import { filterVisibleAttachments } from '@/lib/attachments/visibility'
+import { searchChatFileText, searchUploadText } from '@/lib/drive/file-search'
 import { searchRecipes, type SupabaseLike } from './recipe-search'
 
 export interface MenuQueryContext {
@@ -458,17 +463,35 @@ async function searchAttachments(ctx: MenuQueryContext): Promise<MenuSearchRow[]
     'attachment',
     words.reduce((b, w) => b.ilike('file_name', `%${w}%`), q).order('created_at', { ascending: false }).limit(words.length ? FETCH : limit),
   )
-  const visible = await filterVisibleAttachments(supabase, { workspaceId, userId }, rows)
+  const [visible, inside] = await Promise.all([
+    filterVisibleAttachments(supabase, { workspaceId, userId }, rows),
+    // The words inside a file, once they are long enough to mean something.
+    normalizeQuery(query).length >= BODY_MIN_QUERY ? searchUploadText(ctx.service, { workspaceId, userId }, query, limit) : Promise.resolve({ hits: [] }),
+  ])
+  const byName = new Set(visible.map((f) => f.id))
   return rank(
-    visible.map((f) => ({
-      kind: 'attachment' as const,
-      id: f.id,
-      title: f.file_name || 'Untitled file',
-      category: f.file_category,
-      parent: fileParent(f),
-      createdAt: f.created_at,
-      score: scoreText(f.file_name, query),
-    })),
+    [
+      ...visible.map((f) => ({
+        kind: 'attachment' as const,
+        id: f.id,
+        title: f.file_name || 'Untitled file',
+        category: f.file_category,
+        parent: fileParent(f),
+        createdAt: f.created_at,
+        score: scoreText(f.file_name, query),
+      })),
+      ...inside.hits
+        .filter((h) => !byName.has(h.attachmentId))
+        .map((h) => ({
+          kind: 'attachment' as const,
+          id: h.attachmentId,
+          title: h.fileName || 'Untitled file',
+          category: null,
+          parent: h.noteId ? { type: 'capture' as const, id: h.noteId } : h.actionId ? { type: 'action' as const, id: h.actionId } : h.projectId ? { type: 'project' as const, id: h.projectId } : null,
+          createdAt: h.createdAt,
+          score: BODY_MATCH_SCORE,
+        })),
+    ],
     limit,
   )
 }
@@ -561,8 +584,24 @@ async function searchTeamChatMessages(ctx: MenuQueryContext): Promise<MenuSearch
   const { supabase, workspaceId, query, limit } = ctx
   // Nothing typed, or too little to be a word: none (team chat lists its own).
   if (normalizeQuery(query).length < 2) return []
-  const rows = await rowsOf<TeamChatHitRow>('team_chat_message', supabase.rpc('team_chat_search', { ws: workspaceId, q: query.slice(0, 200), lim: limit }))
-  return rows.map((r) => ({
+  const [rows, files] = await Promise.all([
+    rowsOf<TeamChatHitRow>('team_chat_message', supabase.rpc('team_chat_search', { ws: workspaceId, q: query.slice(0, 200), lim: limit })),
+    // The words inside the files sent there (697): the caller's own channels, as the messages.
+    searchChatFileText(supabase, { workspaceId }, query, limit),
+  ])
+  const fileRows = files.hits.map((h) => ({
+    kind: 'team_chat_message' as const,
+    id: h.messageId,
+    title: `${h.fileName}: ${h.snippet || 'a match inside the file'}`,
+    place: h.channelKind === 'channel' ? `#${h.channelName ?? 'channel'}` : 'Direct message',
+    author: 'A file',
+    channelId: h.channelId,
+    threadRootId: null,
+    createdAt: h.createdAt,
+    score: MESSAGE_MATCH_SCORE,
+  }))
+  const said = new Set(rows.map((r) => r.id))
+  return [...rows.map((r) => ({
     kind: 'team_chat_message' as const,
     id: r.id,
     title: (r.snippet ?? '').replace(/\s+/g, ' ').trim() || 'A message',
@@ -572,7 +611,7 @@ async function searchTeamChatMessages(ctx: MenuQueryContext): Promise<MenuSearch
     threadRootId: r.thread_root_id,
     createdAt: r.created_at,
     score: MESSAGE_MATCH_SCORE,
-  }))
+  })), ...fileRows.filter((f) => !said.has(f.id))].slice(0, limit)
 }
 
 // ── The Studio (titles only; service client, the route's `studio` gate) ─────

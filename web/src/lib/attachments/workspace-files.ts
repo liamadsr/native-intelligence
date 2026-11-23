@@ -35,11 +35,14 @@ import { resolveEntityLabels } from '@/lib/knowledge/graph-map/source'
 import type { FileParentType, WorkspaceFile, WorkspaceFilesPage, WorkspaceFilesQuery } from './workspace-files-model'
 
 const FILE_FIELDS =
-  'id, workspace_id, file_name, file_size_bytes, mime_type, file_extension, file_category, storage_path, thumbnail_path, note_id, action_id, project_id, data_row_id, from_form, created_at'
+  'id, workspace_id, user_id, file_name, file_size_bytes, mime_type, file_extension, file_category, storage_path, thumbnail_path, note_id, action_id, project_id, data_row_id, from_form, drive_upload, created_at, updated_at'
 
 interface AttachmentRow {
   id: string
   workspace_id: string
+  user_id?: string | null
+  drive_upload?: boolean | null
+  updated_at?: string | null
   file_name: string
   file_size_bytes: number | null
   mime_type: string | null
@@ -56,7 +59,9 @@ interface AttachmentRow {
 }
 
 /** The record a file is attached to: its capture, else its action, else its table row, else its project (an action's or capture's file carries its project too). */
-export function fileParentOf(row: Pick<AttachmentRow, 'note_id' | 'action_id' | 'project_id' | 'data_row_id'>): { type: FileParentType; id: string } | null {
+export function fileParentOf(row: Pick<AttachmentRow, 'note_id' | 'action_id' | 'project_id' | 'data_row_id'> & { id?: string; drive_upload?: boolean | null }): { type: FileParentType; id: string } | null {
+  // A Drive upload (696) hangs off no record: it names itself.
+  if (row.drive_upload && row.id) return { type: 'drive', id: row.id }
   if (row.note_id) return { type: 'capture', id: row.note_id }
   if (row.action_id) return { type: 'action', id: row.action_id }
   if (row.data_row_id) return { type: 'row', id: row.data_row_id }
@@ -74,8 +79,13 @@ export async function listWorkspaceFiles(
   supabase: SupabaseClient,
   workspaceId: string,
   query: WorkspaceFilesQuery,
+  /** The caller, for `owner` (My files / Shared with me). */
+  userId?: string,
 ): Promise<WorkspaceFilesPage> {
   let read = supabase.from('attachments').select(FILE_FIELDS).eq('workspace_id', workspaceId)
+  if (query.owner === 'mine' && userId) read = read.eq('user_id', userId)
+  if (query.owner === 'others' && userId) read = read.neq('user_id', userId)
+  if (query.ids) read = read.in('id', [...query.ids])
   if (query.category) read = read.eq('file_category', query.category)
   if (query.q) read = read.ilike('file_name', `%${likeLiteral(query.q)}%`)
   const { data, error } = await read
@@ -92,19 +102,22 @@ export async function listWorkspaceFiles(
   const byType = new Map<string, Set<string>>()
   for (const row of page) {
     const parent = fileParentOf(row)
-    if (!parent || parent.type === 'row') continue
+    if (!parent || parent.type === 'row' || parent.type === 'drive') continue
     const ids = byType.get(parent.type) ?? new Set<string>()
     ids.add(parent.id)
     byType.set(parent.type, ids)
   }
   const labels = byType.size ? await resolveEntityLabels(supabase, workspaceId, byType) : new Map<string, string>()
   const onRows = await rowLabels(supabase, workspaceId, page.map((r) => r.data_row_id).filter((id): id is string => !!id))
+  const folders = await driveFolders(supabase, workspaceId, page.filter((r) => r.drive_upload).map((r) => r.id))
 
   const files: WorkspaceFile[] = []
   for (const row of page) {
     const parent = fileParentOf(row)
     const onRow = parent?.type === 'row' ? onRows.get(parent.id) : undefined
-    const label = parent ? (parent.type === 'row' ? onRow?.label : labels.get(`${parent.type}:${parent.id}`)) : undefined
+    const folder = parent?.type === 'drive' ? folders.get(parent.id) : undefined
+    // A Drive upload reached here through its own read rule (696): its label is its folder's, or Drive.
+    const label = parent ? (parent.type === 'row' ? onRow?.label : parent.type === 'drive' ? (folder?.name ?? 'Drive') : labels.get(`${parent.type}:${parent.id}`)) : undefined
     if (!parent || !label) continue
     files.push({
       id: row.id,
@@ -116,11 +129,35 @@ export async function listWorkspaceFiles(
       storage_path: row.storage_path,
       thumbnail_path: row.thumbnail_path,
       created_at: row.created_at,
-      parent: { ...parent, label, ...(onRow ? { table: onRow.table } : {}) },
+      updated_at: row.updated_at ?? null,
+      user_id: row.user_id ?? null,
+      parent: { ...parent, label, ...(onRow ? { table: onRow.table } : {}), ...(folder ? { folder } : {}) },
       ...(row.from_form ? { from_form: true } : {}),
     })
   }
   return { files, next_offset: more ? query.offset + query.limit : null }
+}
+
+/**
+ * The folder each Drive upload among `ids` is filed in, read through the
+ * viewer's own RLS (folders are every non-guest member's, 690). A failed read
+ * names none: the file is still listed, under Drive.
+ */
+async function driveFolders(supabase: SupabaseClient, workspaceId: string, ids: string[]): Promise<Map<string, { id: string; name: string }>> {
+  const out = new Map<string, { id: string; name: string }>()
+  if (!ids.length) return out
+  const { data, error } = await supabase
+    .from('drive_folder_item')
+    .select('item_id, folder_id, drive_folder(id, name)')
+    .eq('workspace_id', workspaceId)
+    .eq('item_type', 'attachment')
+    .in('item_id', ids)
+  if (error) return out
+  for (const r of (data ?? []) as Array<{ item_id: string; drive_folder: { id: string; name: string } | Array<{ id: string; name: string }> | null }>) {
+    const f = Array.isArray(r.drive_folder) ? r.drive_folder[0] : r.drive_folder
+    if (f) out.set(r.item_id, { id: f.id, name: f.name })
+  }
+  return out
 }
 
 /**

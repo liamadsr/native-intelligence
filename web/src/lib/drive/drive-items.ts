@@ -69,8 +69,12 @@ export interface DriveItem {
   mimeType: string | null
   size: number | null
   type: DriveType
-  /** When it arrived (ISO). Files don't change once sent, so this is also when it last changed. */
+  /** When it arrived (ISO). */
   createdAt: string
+  /** When it last changed (an upload renamed); its arrival for a file that never changes. */
+  modifiedAt: string
+  /** When the person last opened it in Drive, when they have. */
+  openedAt?: string | null
   /** Where it lives, in words ("Project · Website refresh", "#design", "Re: Q3 plan"). */
   where: string
   /** Who put it there, when known: a member (uploads and chat carry theirs), or a sender's address. */
@@ -80,7 +84,7 @@ export interface DriveItem {
   mail?: MailFile
 }
 
-const PARENT_NOUN: Record<WorkspaceFile['parent']['type'], string> = { capture: 'Capture', action: 'Action', row: 'Row', project: 'Project' }
+export const PARENT_NOUN: Record<WorkspaceFile['parent']['type'], string> = { capture: 'Capture', action: 'Action', row: 'Row', project: 'Project', drive: 'Drive' }
 
 export function itemFromUpload(file: WorkspaceFile & { user_id?: string | null }): DriveItem {
   return {
@@ -91,7 +95,13 @@ export function itemFromUpload(file: WorkspaceFile & { user_id?: string | null }
     size: file.file_size_bytes,
     type: driveTypeOf(file.file_name, file.mime_type),
     createdAt: file.created_at,
-    where: `${PARENT_NOUN[file.parent.type]} · ${file.parent.label}${file.parent.table ? ` in ${file.parent.table.name}` : ''}`,
+    modifiedAt: file.updated_at ?? file.created_at,
+    where:
+      file.parent.type === 'drive'
+        ? file.parent.folder
+          ? `Folder · ${file.parent.folder.name}`
+          : 'Drive · only you'
+        : `${PARENT_NOUN[file.parent.type]} · ${file.parent.label}${file.parent.table ? ` in ${file.parent.table.name}` : ''}`,
     creator: { userId: file.user_id ?? null },
     upload: file,
   }
@@ -106,6 +116,7 @@ export function itemFromChat(file: DriveChatFile): DriveItem {
     size: file.size,
     type: driveTypeOf(file.name, file.mimeType),
     createdAt: file.createdAt,
+    modifiedAt: file.createdAt,
     where: file.channel.kind === 'dm' ? 'Direct message' : `#${file.channel.name ?? 'channel'}`,
     creator: { memberId: file.authorMemberId },
     chat: file,
@@ -121,23 +132,46 @@ export function itemFromMail(file: MailFile): DriveItem {
     size: file.size,
     type: driveTypeOf(file.name, file.mimeType),
     createdAt: file.date ?? new Date(0).toISOString(),
+    modifiedAt: file.date ?? new Date(0).toISOString(),
     where: file.subject?.trim() || '(no subject)',
     creator: { label: file.fromName || file.fromEmail },
     mail: file,
   }
 }
 
-export type DriveSort = 'created' | 'name' | 'size'
+export const DRIVE_SORTS = ['modified', 'created', 'opened', 'name', 'size'] as const
+export type DriveSort = (typeof DRIVE_SORTS)[number]
 
-/** Sorted copy: newest first, by name A–Z, or largest first; ties newest first, then by key. */
+export const DRIVE_SORT_LABELS: Readonly<Record<DriveSort, string>> = {
+  modified: 'Last modified',
+  created: 'Date added',
+  opened: 'Last opened',
+  name: 'Name',
+  size: 'Size',
+}
+
+/**
+ * Sorted copy: newest changed, newest added or most recently opened first
+ * (never-opened files after, newest first), by name A–Z, or largest first;
+ * ties newest first, then by key.
+ */
 export function sortDriveItems(items: readonly DriveItem[], sort: DriveSort): DriveItem[] {
-  const at = (i: DriveItem) => Date.parse(i.createdAt) || 0
-  const byNewest = (a: DriveItem, b: DriveItem) => at(b) - at(a) || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)
+  const t = (s: string | null | undefined) => (s ? Date.parse(s) || 0 : 0)
+  const byNewest = (a: DriveItem, b: DriveItem) => t(b.createdAt) - t(a.createdAt) || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)
   return [...items].sort((a, b) => {
     if (sort === 'name') return a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true }) || byNewest(a, b)
     if (sort === 'size') return (b.size ?? -1) - (a.size ?? -1) || byNewest(a, b)
+    if (sort === 'modified') return t(b.modifiedAt) - t(a.modifiedAt) || byNewest(a, b)
+    if (sort === 'opened') return t(b.openedAt) - t(a.openedAt) || byNewest(a, b)
     return byNewest(a, b)
   })
+}
+
+/** The time a row shows for a sort: when it changed, arrived or was opened. */
+export function driveItemTime(item: DriveItem, sort: DriveSort): string | null {
+  if (sort === 'modified') return item.modifiedAt
+  if (sort === 'opened') return item.openedAt ?? null
+  return item.createdAt
 }
 
 /**

@@ -109,6 +109,9 @@ interface RegisterBody {
   note_id?: unknown
   action_id?: unknown
   project_id?: unknown
+  /** A Drive upload (696): on no record; `folder_id` files it at once. */
+  drive_upload?: unknown
+  folder_id?: unknown
 }
 
 const STORAGE_PATH_SEGMENT = /^[0-9a-zA-Z_-]+$/
@@ -120,7 +123,12 @@ const UUID_FILENAME = /^[0-9a-f-]+\.[0-9a-z]+$/i
  * the 'attachments' storage bucket. Body is JSON:
  *   { storage_path, file_name, file_size_bytes, mime_type,
  *     note_id?, action_id?, project_id? }
- * At least one parent (note_id, action_id, project_id) is required.
+ * At least one parent (note_id, action_id, project_id) is required, unless
+ * it is a Drive upload ({ drive_upload: true, folder_id? }, migration 696):
+ * a file on no record, its uploader's alone until it is filed in a folder
+ * (then every non-guest member's). Its path's middle segment is `drive`.
+ * Filing goes through drive_folder_item as the caller, so the database's own
+ * rules decide (only the uploader files it, in a folder of this workspace).
  */
 export async function POST(request: NextRequest) {
   const auth = await requireWorkspace()
@@ -141,11 +149,16 @@ export async function POST(request: NextRequest) {
   const noteId = typeof body.note_id === 'string' && body.note_id ? body.note_id : null
   const actionId = typeof body.action_id === 'string' && body.action_id ? body.action_id : null
   let projectId = typeof body.project_id === 'string' && body.project_id ? body.project_id : null
+  const driveUpload = body.drive_upload === true
+  const folderId = driveUpload && typeof body.folder_id === 'string' && /^[0-9a-f-]{36}$/i.test(body.folder_id) ? body.folder_id : null
 
   if (!storagePath || !fileName) {
     return badRequest('storage_path and file_name are required.')
   }
-  if (!noteId && !actionId && !projectId) {
+  if (driveUpload && (noteId || actionId || projectId)) {
+    return badRequest('A Drive upload is on no record.')
+  }
+  if (!driveUpload && !noteId && !actionId && !projectId) {
     return badRequest('One of note_id, action_id, or project_id is required.')
   }
 
@@ -170,6 +183,9 @@ export async function POST(request: NextRequest) {
   }
   const [, parentSegment, objectName] = segments
   if (!STORAGE_PATH_SEGMENT.test(parentSegment) || !UUID_FILENAME.test(objectName)) {
+    return badRequest('Invalid storage path.')
+  }
+  if (driveUpload && parentSegment !== 'drive') {
     return badRequest('Invalid storage path.')
   }
   if (getFileExtension(objectName) !== ext) {
@@ -243,14 +259,17 @@ export async function POST(request: NextRequest) {
 
   const category = fileCategory(mimeType)
 
-  let countQuery = supabase
-    .from('attachments')
-    .select('id', { count: 'exact', head: true })
-    .eq('workspace_id', workspaceId)
-  if (noteId) countQuery = countQuery.eq('note_id', noteId)
-  if (actionId) countQuery = countQuery.eq('action_id', actionId)
-  if (!noteId && !actionId && projectId) countQuery = countQuery.eq('project_id', projectId)
-  const { count } = await countQuery
+  let count: number | null = 0
+  if (!driveUpload) {
+    let countQuery = supabase
+      .from('attachments')
+      .select('id', { count: 'exact', head: true })
+      .eq('workspace_id', workspaceId)
+    if (noteId) countQuery = countQuery.eq('note_id', noteId)
+    if (actionId) countQuery = countQuery.eq('action_id', actionId)
+    if (!noteId && !actionId && projectId) countQuery = countQuery.eq('project_id', projectId)
+    count = (await countQuery).count
+  }
 
   const isEmbeddable = INDEXABLE_ATTACHMENT_EXTENSIONS.has(ext)
 
@@ -270,6 +289,7 @@ export async function POST(request: NextRequest) {
       storage_bucket: 'attachments',
       storage_path: storagePath,
       display_order: count || 0,
+      ...(driveUpload ? { drive_upload: true } : {}),
     })
     .select(ATTACHMENT_FIELDS)
     .single()
@@ -277,6 +297,16 @@ export async function POST(request: NextRequest) {
   if (error) {
     await supabase.storage.from('attachments').remove([storagePath])
     return serverError(error.message)
+  }
+
+  // Filed as the caller: the database files it only for its uploader, in a folder of this workspace.
+  let filed: string | null = null
+  if (driveUpload && folderId) {
+    const { error: fileError } = await supabase
+      .from('drive_folder_item')
+      .insert({ item_type: 'attachment', item_id: data.id, folder_id: folderId, workspace_id: workspaceId })
+    if (fileError) console.warn('[attachments] drive upload not filed:', fileError.message)
+    else filed = folderId
   }
 
   if (isEmbeddable) {
@@ -293,5 +323,5 @@ export async function POST(request: NextRequest) {
     })
   }
 
-  return NextResponse.json({ attachment: data })
+  return NextResponse.json({ attachment: data, ...(driveUpload ? { folder_id: filed } : {}) })
 }

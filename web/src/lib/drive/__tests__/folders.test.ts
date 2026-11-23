@@ -15,8 +15,8 @@ describe('Drive folders, in the app', () => {
     expect(folderName(3)).toBeNull()
   })
 
-  it('holds docs, tables, spreadsheets and canvases, nothing else', () => {
-    expect([...FOLDER_ITEM_TYPES]).toEqual(['document', 'data_table', 'spreadsheet', 'canvas'])
+  it('holds docs, tables, spreadsheets, canvases and Drive uploads (696), nothing else', () => {
+    expect([...FOLDER_ITEM_TYPES]).toEqual(['document', 'data_table', 'spreadsheet', 'canvas', 'attachment'])
     expect(isFolderItemType('contact')).toBe(false)
   })
 
@@ -75,9 +75,12 @@ describe('migration 690', () => {
     }
   })
 
-  it('names the same kinds the app files', () => {
+  it('names the kinds the app files: 690 the first four, 696 adds the Drive upload', () => {
     const check = sql.match(/item_type in \(([^)]*)\)/)?.[1] ?? ''
-    expect([...check.matchAll(/'([a-z_]+)'/g)].map((m) => m[1])).toEqual([...FOLDER_ITEM_TYPES])
+    expect([...check.matchAll(/'([a-z_]+)'/g)].map((m) => m[1])).toEqual(FOLDER_ITEM_TYPES.filter((t) => t !== 'attachment'))
+    const sql696 = readFileSync(join(process.cwd(), 'supabase/migrations/696_drive_uploads.sql'), 'utf8')
+    const check696 = sql696.match(/item_type in \(([^)]*)\)\) not valid/)?.[1] ?? ''
+    expect([...check696.matchAll(/'([a-z_]+)'/g)].map((m) => m[1])).toEqual([...FOLDER_ITEM_TYPES])
   })
 
   it('its guards are not definers (the caller’s own row security reads the parent and the record)', () => {

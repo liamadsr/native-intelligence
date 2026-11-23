@@ -7,9 +7,7 @@
  */
 import { inngest } from './client'
 import { getServiceClient } from '@/lib/admin'
-import { indexTeamChatMessageFiles } from '@/lib/drive/chat-file-text'
-
-export const TEAM_CHAT_FILES_POSTED = 'team-chat/files.posted'
+import { indexTeamChatMessageFiles, TEAM_CHAT_FILES_POSTED } from '@/lib/drive/chat-file-text'
 
 export const teamChatFileIndex = inngest.createFunction(
   {

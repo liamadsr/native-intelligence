@@ -9,6 +9,7 @@ import {
   emailHoldExpiry,
 } from '@/lib/inngest/email-functions'
 import { attachmentIndex } from '@/lib/inngest/attachment-embedding'
+import { teamChatFileIndex } from '@/lib/inngest/team-chat-file-index'
 import {
   flowDispatchOnStatusChange,
   flowDispatchOnSchedule,
@@ -120,6 +121,7 @@ export const { GET, POST, PUT } = serve({
     emailUnderstandArrivals,
     emailHoldExpiry,
     attachmentIndex,
+    teamChatFileIndex,
     flowDispatchOnStatusChange,
     flowDispatchOnSchedule,
     flowDispatchOnCaptureProcessed,

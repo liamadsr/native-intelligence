@@ -10,11 +10,16 @@
  * record or takes it out.
  *
  * Opening a folder, and the path back up, move the CARD the way a tab moves,
- * through usePagePlace: nothing navigates. A record opens as the app opens it.
+ * through usePagePlace: nothing navigates. A record opens as the app opens it;
+ * a file (a Drive upload, migration 696) in the in-app viewer.
+ *
+ * Files dropped on a folder's row, or on the open folder, are uploaded to
+ * Drive and filed there (docs/plans/drive-files.md, phase 2): every non-guest
+ * member reads them then. M on a focused row moves it (Move to…).
  */
 import * as React from 'react'
 import { formatDistanceToNow } from 'date-fns'
-import { ChevronRight, FileText, Folder, FolderInput, FolderPlus, MoreHorizontal, Pencil, Plus, Shapes, Sheet, Table2, Trash2, X } from 'lucide-react'
+import { ChevronRight, File as FileIcon, FileText, Folder, FolderInput, FolderPlus, MoreHorizontal, Pencil, Plus, Shapes, Sheet, Table2, Trash2, X } from 'lucide-react'
 import { FLOATING_CARD_CLASS } from '@/components/attention/card-skin'
 import { CardHeaderSlot } from '../card-header-slot'
 import { CARD_HEADER_PILL_BUTTON } from '../card-header-button'
@@ -31,6 +36,11 @@ import {
   type FolderItemType,
 } from '@/lib/drive/folders'
 import { usePagePlace, type PageCardProps } from './page-card'
+import { toast } from 'sonner'
+import { openAttachmentById } from '@/components/files/global-file-viewer'
+import { uploadAttachments } from '@/lib/attachments/upload-client'
+import { dragHasFiles, filesFromTransfer } from '@/lib/attachments/dropped-files'
+import { cn } from '@/lib/utils'
 
 const FROM = 'folders'
 
@@ -39,6 +49,7 @@ const ITEM_ICON: Record<FolderItemType, React.ComponentType<{ className?: string
   data_table: Table2,
   spreadsheet: Sheet,
   canvas: Shapes,
+  attachment: FileIcon,
 }
 
 /** What New makes in a folder, in the Create menu's words. */
@@ -65,7 +76,55 @@ export function openFolderItem(item: Pick<FolderItem, 'type' | 'id' | 'title'>):
     case 'data_table':
       openCard({ kind: 'tables', title: 'Tables', target: { type: 'data_table', id: item.id, label: item.title } }, { from: FROM })
       return
+    case 'attachment':
+      void openAttachmentById(item.id)
+      return
   }
+}
+
+/** Upload files to Drive and file them in a folder: the folder's readers (every non-guest member) see them then. */
+export async function uploadToFolder(files: File[], folder: Pick<DriveFolder, 'id' | 'name'>): Promise<number> {
+  if (!files.length) return 0
+  const { uploaded, firstError } = await uploadAttachments(files, { drive: { folderId: folder.id } })
+  if (uploaded) toast.success(`${uploaded === 1 ? '1 file' : `${uploaded} files`} added to ${folder.name}`)
+  if (firstError) toast.error(firstError)
+  return uploaded
+}
+
+/** Drag-and-drop of files onto one element: highlighted while files are over it. */
+function useFolderDrop(onFiles: (files: File[]) => void) {
+  const [over, setOver] = React.useState(false)
+  const depth = React.useRef(0)
+  const props = {
+    onDragEnter: (e: React.DragEvent) => {
+      if (!dragHasFiles(e.dataTransfer)) return
+      e.preventDefault()
+      e.stopPropagation()
+      depth.current++
+      setOver(true)
+    },
+    onDragOver: (e: React.DragEvent) => {
+      if (!dragHasFiles(e.dataTransfer)) return
+      e.preventDefault()
+      e.stopPropagation()
+      e.dataTransfer.dropEffect = 'copy'
+    },
+    onDragLeave: (e: React.DragEvent) => {
+      if (!dragHasFiles(e.dataTransfer)) return
+      e.stopPropagation()
+      depth.current = Math.max(0, depth.current - 1)
+      if (depth.current === 0) setOver(false)
+    },
+    onDrop: (e: React.DragEvent) => {
+      if (!dragHasFiles(e.dataTransfer)) return
+      e.preventDefault()
+      e.stopPropagation()
+      depth.current = 0
+      setOver(false)
+      onFiles(filesFromTransfer(e.dataTransfer))
+    },
+  }
+  return { over, props }
 }
 
 async function send(url: string, method: string, body?: unknown): Promise<string | null> {
@@ -187,6 +246,7 @@ export function FoldersPageCard(props: PageCardProps) {
   const empty = !loading && subfolders.length === 0 && (items?.length ?? 0) === 0
 
   return (
+    <FolderDropZone folder={current} onUploaded={() => void load()}>
     <div className="flex h-full min-h-0 flex-col gap-3 p-4" data-folders-card="">
       <CardHeaderSlot side="right">
         <div className="relative flex items-center gap-1.5">
@@ -267,7 +327,19 @@ export function FoldersPageCard(props: PageCardProps) {
       ) : (
         <ul className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto" data-folder-list="">
           {subfolders.map((f) => (
-            <li key={f.id} data-folder-row={f.id} className={`group flex items-center gap-2 px-3 py-2 ${FLOATING_CARD_CLASS}`}>
+            <FolderRowDrop
+              key={f.id}
+              folder={f}
+              onUploaded={() => void load()}
+              data-folder-row={f.id}
+              onKeyDown={(e) => {
+                if (renaming !== f.id && (e.key === 'm' || e.key === 'M') && !e.metaKey && !e.ctrlKey && !e.altKey && (e.target as HTMLElement).tagName !== 'INPUT') {
+                  e.preventDefault()
+                  setMovingFor(`folder:${f.id}`)
+                }
+              }}
+              className={`group flex items-center gap-2 px-3 py-2 ${FLOATING_CARD_CLASS}`}
+            >
               {renaming === f.id ? (
                 <input
                   autoFocus
@@ -281,7 +353,7 @@ export function FoldersPageCard(props: PageCardProps) {
                   className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-sm"
                 />
               ) : (
-                <button type="button" onClick={() => go(f)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+                <button type="button" onClick={() => go(f)} title={`Open ${f.name} (M to move; drop files here to add them)`} className="flex min-w-0 flex-1 items-center gap-2 text-left">
                   <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
                   <span className="truncate text-sm font-medium text-foreground">{f.name}</span>
                 </button>
@@ -303,14 +375,24 @@ export function FoldersPageCard(props: PageCardProps) {
                   onClose={() => setMovingFor(null)}
                 />
               )}
-            </li>
+            </FolderRowDrop>
           ))}
           {(items ?? []).map((it) => {
             const Icon = ITEM_ICON[it.type]
             const key = `${it.type}:${it.id}`
             return (
-              <li key={key} data-folder-item={key} className={`group flex items-center gap-2 px-3 py-2 ${FLOATING_CARD_CLASS}`}>
-                <button type="button" onClick={() => openFolderItem(it)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+              <li
+                key={key}
+                data-folder-item={key}
+                onKeyDown={(e) => {
+                  if ((e.key === 'm' || e.key === 'M') && !e.metaKey && !e.ctrlKey && !e.altKey) {
+                    e.preventDefault()
+                    setMovingFor(key)
+                  }
+                }}
+                className={`group flex items-center gap-2 px-3 py-2 ${FLOATING_CARD_CLASS}`}
+              >
+                <button type="button" onClick={() => openFolderItem(it)} title={`Open ${it.title} (M to move)`} className="flex min-w-0 flex-1 items-center gap-2 text-left">
                   <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
                   <span className="truncate text-sm text-foreground">{it.title}</span>
                   <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">{FOLDER_ITEM_LABEL[it.type]}</span>
@@ -338,6 +420,35 @@ export function FoldersPageCard(props: PageCardProps) {
         </ul>
       )}
     </div>
+    </FolderDropZone>
+  )
+}
+
+/** The open folder takes files dropped anywhere on it (a subfolder's row takes its own). */
+function FolderDropZone({ folder, onUploaded, children }: { folder: DriveFolder | null; onUploaded: () => void; children: React.ReactNode }) {
+  const drop = useFolderDrop((files) => {
+    if (folder) void uploadToFolder(files, folder).then((n) => n && onUploaded())
+  })
+  if (!folder) return <>{children}</>
+  return (
+    <div {...drop.props} data-folder-drop={folder.id} data-file-drop-zone="" className={cn('relative h-full min-h-0', drop.over && 'rounded-xl ring-2 ring-foreground/20')}>
+      {children}
+      {drop.over && (
+        <div className="pointer-events-none absolute inset-x-4 bottom-4 rounded-lg bg-background/90 px-3 py-2 text-center text-xs text-foreground shadow" data-folder-drop-hint="">
+          Drop to add to {folder.name}. Everyone in the workspace will see it.
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** A subfolder's row: files dropped on it are uploaded and filed there. */
+function FolderRowDrop({ folder, onUploaded, children, className, ...rest }: { folder: DriveFolder; onUploaded: () => void; children: React.ReactNode; className?: string } & React.HTMLAttributes<HTMLLIElement>) {
+  const drop = useFolderDrop((files) => void uploadToFolder(files, folder).then((n) => n && onUploaded()))
+  return (
+    <li {...rest} {...drop.props} data-file-drop-zone="" className={cn(className, drop.over && 'ring-2 ring-foreground/30')}>
+      {children}
+    </li>
   )
 }
 

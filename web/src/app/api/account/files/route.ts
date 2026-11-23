@@ -8,6 +8,7 @@
  *   ?offset=0     where the page starts (the last answer's next_offset)
  *   ?category=    image | document (absent: all)
  *   ?q=           a part of the file's name
+ *   ?owner=       mine (files the caller uploaded) | others (everyone else's)
  *
  * → { files: WorkspaceFile[], next_offset: number | null }
  *
@@ -28,7 +29,7 @@ export async function GET(request: NextRequest) {
   const parsed = parseFilesQuery(request.nextUrl.searchParams)
   if (!parsed.ok) return badRequest(parsed.error)
   try {
-    return NextResponse.json(await listWorkspaceFiles(auth.supabase, auth.workspaceId, parsed.query))
+    return NextResponse.json(await listWorkspaceFiles(auth.supabase, auth.workspaceId, parsed.query, auth.user.id))
   } catch (err) {
     return serverError(err instanceof Error ? err.message : 'Could not read the files')
   }

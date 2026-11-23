@@ -12,6 +12,10 @@
  * when they may read the row's table (data_table_visible_to, as the
  * restrictive attachments_row_select says), whoever uploaded it.
  *
+ * A Drive upload (migration 696: a file on no record) is its uploader's, and
+ * every non-guest member's while it is filed in a folder; no one's with no
+ * person (drive_upload_visible_to, restated by driveFence below).
+ *
  * FAILS CLOSED: a failed read, no person, or a capture that can't be read is
  * "not visible". With no person (an unattended run) only what every member
  * reads: a file on no capture, or on a workspace capture.
@@ -60,13 +64,52 @@ export async function filterVisibleAttachments<T extends AttachmentFenceRow>(
       console.warn('[attachments] capture fence read failed:', error.message)
     }
   }
-  const onRows = await rowFence(supabase, scope, rows)
+  const [onRows, driveHidden] = await Promise.all([rowFence(supabase, scope, rows), driveFence(supabase, scope, rows)])
   return rows.filter((r) => {
+    if (driveHidden.has(r.id)) return false
     const row = onRows.rowOf.get(r.id)
     if (row === HIDDEN) return false
     if (row && !onRows.visible.has(row)) return false
     return (userId && r.user_id === userId) || !r.note_id || readable.has(r.note_id)
   })
+}
+
+/**
+ * The ids among `rows` (those on no capture) that are Drive uploads the
+ * person may NOT read: drive_upload_visible_to (696), restated for a
+ * service-role client. A database before 696 has no Drive uploads (its
+ * missing column reads as none); any other failed read hides every file it
+ * was about.
+ */
+export async function driveFence(
+  supabase: SupabaseClient,
+  { workspaceId, userId }: { workspaceId: string; userId: string | null },
+  rows: readonly Pick<AttachmentFenceRow, 'id' | 'note_id'>[],
+): Promise<Set<string>> {
+  const ids = uniq(rows.filter((r) => !r.note_id).map((r) => r.id))
+  const hidden = new Set<string>()
+  if (!ids.length) return hidden
+  const { data, error } = await supabase.from('attachments').select('id, user_id, drive_upload').eq('workspace_id', workspaceId).in('id', ids)
+  if (error) {
+    if ((error as { code?: string }).code === '42703') return hidden
+    console.warn('[attachments] drive fence read failed:', error.message)
+    return new Set(ids)
+  }
+  const drive = ((data ?? []) as Array<{ id: string; user_id: string | null; drive_upload?: boolean | null }>).filter((r) => r.drive_upload === true)
+  if (!drive.length) return hidden
+  // No person: no Drive upload is anyone's on such a run.
+  if (!userId) return new Set(drive.map((r) => r.id))
+  const others = drive.filter((r) => r.user_id !== userId).map((r) => r.id)
+  if (!others.length) return hidden
+  const [{ data: filed, error: filedError }, { data: me, error: meError }] = await Promise.all([
+    supabase.from('drive_folder_item').select('item_id').eq('workspace_id', workspaceId).eq('item_type', 'attachment').in('item_id', others),
+    supabase.from('member').select('role').eq('workspace_id', workspaceId).eq('user_id', userId).maybeSingle(),
+  ])
+  const memberRole = (me as { role?: string | null } | null)?.role
+  const nonGuest = !meError && !!me && memberRole !== 'guest'
+  const filedIds = new Set(filedError ? [] : ((filed ?? []) as Array<{ item_id: string }>).map((r) => r.item_id))
+  for (const id of others) if (!nonGuest || !filedIds.has(id)) hidden.add(id)
+  return hidden
 }
 
 /** A file whose row could not be read: never shown. */
@@ -142,8 +185,9 @@ export async function visibleAttachmentIds(
 }
 
 /**
- * The row rule alone (see the header): the rows among `rows` that are on no
- * table row, or on a row of a table `userId` may read. For a reader that
+ * The row rule alone (see the header), and the Drive upload rule: the rows
+ * among `rows` that are on no table row, or on a row of a table `userId` may
+ * read, and are no Drive upload they may not read. For a reader that
  * fences captures its own way (the agent's attachment tools); `grants` false
  * on a guest's or a linked agent's turn (a table shared with the person is
  * not theirs). Fails closed.
@@ -154,8 +198,12 @@ export async function filterRowAttachments<T extends Pick<AttachmentFenceRow, 'i
   rows: readonly T[],
   opts: { grants?: boolean } = {},
 ): Promise<T[]> {
-  const fence = await rowFence(supabase, scope, rows.map((r) => ({ id: r.id, user_id: null, note_id: r.note_id, data_row_id: r.data_row_id })), opts.grants !== false)
+  const [fence, driveHidden] = await Promise.all([
+    rowFence(supabase, scope, rows.map((r) => ({ id: r.id, user_id: null, note_id: r.note_id, data_row_id: r.data_row_id })), opts.grants !== false),
+    driveFence(supabase, scope, rows),
+  ])
   return rows.filter((r) => {
+    if (driveHidden.has(r.id)) return false
     const row = fence.rowOf.get(r.id)
     return row !== HIDDEN && (!row || fence.visible.has(row))
   })
