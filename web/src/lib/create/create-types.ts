@@ -22,7 +22,7 @@
 
 export type CreateFormTypeId = 'action' | 'project' | 'initiative' | 'contact' | 'email' | 'event'
 export type CreateQuickTypeId = 'company' | 'document' | 'table' | 'spreadsheet' | 'canvas' | 'folder' | 'channel' | 'package' | 'studio_project'
-export type CreatePageTypeId = 'deal' | 'flow' | 'agent' | 'skill' | 'sequence' | 'prospect_list' | 'campaign' | 'booking_link' | 'studio_video'
+export type CreatePageTypeId = 'deal' | 'flow' | 'agent' | 'skill' | 'sequence' | 'prospect_list' | 'campaign' | 'booking_link' | 'studio_video' | 'snippet'
 export type CreateTypeId = CreateFormTypeId | CreateQuickTypeId | CreatePageTypeId
 
 export type CreateTypeGroupId = 'work' | 'customers' | 'outreach' | 'agents' | 'team'
@@ -45,6 +45,8 @@ export interface CreateTypeDef {
   page?: string
   /** True when picking it opens the feature's page (mode `page`). */
   opensPage?: boolean
+  /** Offered in every workspace, with no `/` page of its own (a snippet: Settings › Snippets). */
+  always?: boolean
   keywords?: string[]
 }
 
@@ -63,6 +65,8 @@ export const CREATE_TYPES: ReadonlyArray<CreateTypeDef> = [
   { id: 'booking_link', label: 'Booking link', group: 'work', mode: 'page', page: 'availability', opensPage: true, keywords: ['scheduling', 'availability', 'calendar'] },
   // A package lives on the Library (Liam, 11-21), where the new one opens.
   { id: 'package', label: 'Knowledge package', group: 'work', mode: 'quick', page: 'library', keywords: ['context', 'knowledge', 'library'] },
+  // Snippets (docs/plans/snippets.md): text typed in with `;`. No letter; made in Settings › Snippets.
+  { id: 'snippet', label: 'Snippet', group: 'work', mode: 'page', opensPage: true, always: true, keywords: ['template', 'canned', 'text', 'signature', 'shortcut'] },
   // Customers
   { id: 'contact', label: 'Contact', group: 'customers', mode: 'form', keywords: ['person', 'crm', 'lead'] },
   { id: 'company', label: 'Company', group: 'customers', mode: 'quick', page: 'companies', keywords: ['account', 'organization', 'crm'] },
@@ -92,8 +96,8 @@ export function createTypeDef(id: CreateTypeId): CreateTypeDef {
   return CREATE_TYPES.find((t) => t.id === id)!
 }
 
-/** The types this workspace can create: the six forms always, the rest while their page is on. */
+/** The types this workspace can create: the six forms and `always` types always, the rest while their page is on. */
 export function availableCreateTypes(pageSlugs: Iterable<string>): CreateTypeDef[] {
   const on = new Set(pageSlugs)
-  return CREATE_TYPES.filter((t) => t.mode === 'form' || (t.page != null && on.has(t.page)))
+  return CREATE_TYPES.filter((t) => t.mode === 'form' || t.always === true || (t.page != null && on.has(t.page)))
 }

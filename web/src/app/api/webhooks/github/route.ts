@@ -6,6 +6,8 @@ import { completeActionsForMergedPr } from '@/lib/actions/agent-finish'
 import { emitPrStatusChange } from '@/lib/flows/emit-pr-status-change'
 import { ciEventFrom, handleCiFailure } from '@/lib/coding/ci-fix'
 import { prChangeFromPullRequest, recordPrChange, recordPrCiFailure } from '@/lib/agent-events/pr-changed'
+import { onBranchCreated, onPullRequest, pullEventFrom } from '@/lib/github/pr-automation'
+import { onChecksFailed, onPrComment, onReviewRequested, recordPull } from '@/lib/github/pr-notices'
 
 /**
  * POST /api/webhooks/github — Handle GitHub webhook events.
@@ -33,6 +35,20 @@ import { prChangeFromPullRequest, recordPrChange, recordPrCiFailure } from '@/li
  * one templated `pr.changed` event per person (repo, number, state, action;
  * never the title or body) and, for an action-linked PR, a log line
  * (src/lib/agent-events/pr-changed.ts).
+ *
+ * Actions that move with their pull requests (docs/plans/github-reviews.md,
+ * phase 2; src/lib/github/pr-automation.ts): `create` (a branch naming an
+ * action → in progress) and every pull_request event (opened / ready → in
+ * review, merged → done, closed unmerged → back), only in workspaces that
+ * added the repo, for their own members' work, on teams with the switch on.
+ * A repository without this webhook, or one no workspace added, just gets
+ * no automation.
+ *
+ * GitHub's news in the person's notifications (phase 3,
+ * src/lib/github/pr-notices.ts): a review requested of them, a comment,
+ * review or mention on their pull request (issue_comment,
+ * pull_request_review, pull_request_review_comment), and failing checks on
+ * its head (check_suite), each to our people only, once per delivery.
  *
  * Requires GITHUB_WEBHOOK_SECRET env var for HMAC signature verification.
  */
@@ -63,17 +79,48 @@ export async function POST(request: Request) {
   // A failing check on one of our own branches (P10 F7). The signature is
   // already verified above, like every other event.
   if (event === 'check_suite' || event === 'check_run') {
-    const ci = ciEventFrom(event, payload)
-    if (!ci) return NextResponse.json({ ok: true, skipped: true })
     const service = createStatelessClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
       { auth: { persistSession: false, autoRefreshToken: false } },
     )
+    // A failing suite on a pull request's head: its author hears (phase 3; never throws).
+    if (event === 'check_suite') await onChecksFailed(service, payload, deliveryId)
+    const ci = ciEventFrom(event, payload)
+    if (!ci) return NextResponse.json({ ok: true, skipped: true })
     const outcome = await handleCiFailure(service, ci)
     // A failure the fix loop leaves alone reaches the agent instead (never throws).
     await recordPrCiFailure(service, ci, outcome)
     return NextResponse.json({ ok: true, ...outcome })
+  }
+
+  // A comment, a review or a review comment on a pull request (phase 3).
+  if (event === 'issue_comment' || event === 'pull_request_review' || event === 'pull_request_review_comment') {
+    const service = createStatelessClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { auth: { persistSession: false, autoRefreshToken: false } },
+    )
+    const told = await onPrComment(service, event, payload, deliveryId)
+    return NextResponse.json({ ok: true, told })
+  }
+
+  // A branch pushed (phase 2): one naming an action moves it to in progress.
+  if (event === 'create') {
+    if (payload.ref_type !== 'branch' || typeof payload.ref !== 'string' || typeof payload.repository?.full_name !== 'string') {
+      return NextResponse.json({ ok: true, skipped: true })
+    }
+    const service = createStatelessClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { auth: { persistSession: false, autoRefreshToken: false } },
+    )
+    const moved = await onBranchCreated(service, {
+      repoFullName: payload.repository.full_name,
+      branch: payload.ref,
+      senderId: typeof payload.sender?.id === 'number' ? payload.sender.id : null,
+    })
+    return NextResponse.json({ ok: true, moved })
   }
 
   if (event !== 'pull_request') {
@@ -101,13 +148,24 @@ export async function POST(request: Request) {
   // automations. Linking and state sync are unchanged.
   const firesLoops = LOOP_FIRING_AUTHORS.has(String(pr.author_association ?? ''))
 
+  // The automation first (fenced, idempotent, never throws): links its
+  // branch names and moves actions in the workspaces that added the repo.
+  const pullEvent = pullEventFrom(payload)
+  const automation = pullEvent ? await onPullRequest(supabase, pullEvent) : { linked: 0, moved: 0 }
+  // Phase 3: its author and head kept (for failing checks later), and a review request told.
+  await recordPull(supabase, payload)
+  if (action === 'review_requested') {
+    const told = await onReviewRequested(supabase, payload, deliveryId)
+    return NextResponse.json({ ok: true, told, automation })
+  }
+
   if (action === 'opened' || action === 'edited') {
     // Scan title and body for action identifiers like ENG-42, PROJ-123
     const text = `${prTitle} ${pr.body || ''}`
     const identifiers = extractActionIdentifiers(text)
 
     if (identifiers.length === 0) {
-      return NextResponse.json({ ok: true, linked: 0 })
+      return NextResponse.json({ ok: true, linked: 0, automation })
     }
 
     // Find which workspaces have GitHub connected and access to this repo
@@ -119,7 +177,7 @@ export async function POST(request: Request) {
       .eq('capability', 'github')
 
     if (!githubAccounts || githubAccounts.length === 0) {
-      return NextResponse.json({ ok: true, linked: 0, reason: 'no_github_accounts' })
+      return NextResponse.json({ ok: true, linked: 0, reason: 'no_github_accounts', automation })
     }
 
     let totalLinked = 0
@@ -172,7 +230,7 @@ export async function POST(request: Request) {
       await emitPrStatusChange({ links: linked, repoFullName, prNumber, prState: 'open', deliveryId })
     }
 
-    return NextResponse.json({ ok: true, linked: totalLinked })
+    return NextResponse.json({ ok: true, linked: totalLinked, automation })
   }
 
   if (action === 'closed' || action === 'reopened' || action === 'synchronize') {
@@ -217,7 +275,7 @@ export async function POST(request: Request) {
       await completeActionsForMergedPr(supabase, prUrl)
     }
 
-    return NextResponse.json({ ok: true, updated: updated?.length || 0 })
+    return NextResponse.json({ ok: true, updated: updated?.length || 0, automation })
   }
 
   if (action === 'ready_for_review') {
@@ -241,7 +299,7 @@ export async function POST(request: Request) {
         .select('id')
       confirmed += rows?.length ?? 0
     }
-    return NextResponse.json({ ok: true, confirmed })
+    return NextResponse.json({ ok: true, confirmed, automation })
   }
 
   return NextResponse.json({ ok: true, skipped: true })

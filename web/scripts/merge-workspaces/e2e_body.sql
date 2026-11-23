@@ -283,11 +283,54 @@ BEGIN
   INSERT INTO pg_temp.e2e VALUES ('doc_grant', doc);
 END $$;
 
+-- ---------- 707: the batch merged after 705 ----------
+-- Snippets (699): a shared shortcut with the same text in both (folds), one
+-- with other text (takes -2), a personal shortcut of a person in both (takes
+-- -2), one only in the source (moves, maker re-pointed). A closed poll (703)
+-- a folded member made and voted in, an import (704) by that member, the same
+-- hold (702) in both, the same outside CRM record (462) in both, the same
+-- GitHub repository (694) in both, a booking link with a form (705).
+DO $$
+DECLARE
+  s uuid := (SELECT v FROM pg_temp.e2e WHERE k = 's'); d uuid := (SELECT v FROM pg_temp.e2e WHERE k = 'd');
+  u1 uuid := (SELECT v FROM pg_temp.e2e WHERE k = 'u1'); u2 uuid := (SELECT v FROM pg_temp.e2e WHERE k = 'u2');
+  m2s uuid := (SELECT v FROM pg_temp.e2e WHERE k = 'm2s'); m2d uuid := (SELECT v FROM pg_temp.e2e WHERE k = 'm2d');
+  ch_s uuid := (SELECT v FROM pg_temp.e2e WHERE k = 'ch_s');
+  c2s uuid := (SELECT v FROM pg_temp.e2e WHERE k = 'c2s'); c1d uuid := (SELECT v FROM pg_temp.e2e WHERE k = 'c1d');
+  sn_same uuid; sn_other uuid; sn_mine uuid; sn_only uuid; msg uuid; poll uuid; opt uuid; imp uuid; tbl uuid; frm uuid; bl uuid;
+BEGIN
+  INSERT INTO public.snippet (workspace_id, created_by, name, shortcut, body, visibility) VALUES (s, m2s, 'Thanks', 'thanks', 'Thank you!', 'workspace') RETURNING id INTO sn_same;
+  INSERT INTO public.snippet (workspace_id, created_by, name, shortcut, body, visibility) VALUES (d, m2d, 'Thanks', 'thanks', 'Thank you!', 'workspace');
+  INSERT INTO public.snippet (workspace_id, created_by, name, shortcut, body, visibility) VALUES (s, m2s, 'Hours', 'hours', 'We open at 9.', 'workspace') RETURNING id INTO sn_other;
+  INSERT INTO public.snippet (workspace_id, created_by, name, shortcut, body, visibility) VALUES (d, m2d, 'Hours', 'hours', 'We open at 8.', 'workspace');
+  INSERT INTO public.snippet (workspace_id, created_by, name, shortcut, body, visibility) VALUES (s, m2s, 'Sign-off', 'sig', 'U2 (s)', 'personal') RETURNING id INTO sn_mine;
+  INSERT INTO public.snippet (workspace_id, created_by, name, shortcut, body, visibility) VALUES (d, m2d, 'Sign-off', 'sig', 'U2 (d)', 'personal');
+  INSERT INTO public.snippet (workspace_id, created_by, name, shortcut, body, visibility) VALUES (s, m2s, 'Only here', 'only', 'Only in s', 'personal') RETURNING id INTO sn_only;
+
+  INSERT INTO public.team_chat_message (channel_id, workspace_id, author_kind, author_member_id, body) VALUES (ch_s, s, 'member', m2s, 'Lunch?') RETURNING id INTO msg;
+  INSERT INTO public.team_chat_poll (workspace_id, channel_id, message_id, question, created_by) VALUES (s, ch_s, msg, 'Lunch?', m2s) RETURNING id INTO poll;
+  INSERT INTO public.team_chat_poll_option (poll_id, position, label) VALUES (poll, 0, 'Yes') RETURNING id INTO opt;
+  INSERT INTO public.team_chat_poll_vote (poll_id, option_id, member_id, workspace_id) VALUES (poll, opt, m2s, s);
+  UPDATE public.team_chat_poll SET closed_at = now(), closed_by = m2s WHERE id = poll;
+
+  INSERT INTO public.work_import (workspace_id, user_id, member_id, source) VALUES (s, u2, m2s, 'task_csv') RETURNING id INTO imp;
+  INSERT INTO public.inbox_hold (user_id, workspace_id, item_key, held_until) VALUES (u1, s, 'mail:T1-e2e', now() + interval '3 days'), (u1, d, 'mail:T1-e2e', now() + interval '1 day');
+  INSERT INTO public.crm_source_link (workspace_id, source, kind, external_id, entity_id) VALUES (s, 'hubspot', 'contact', 'hs-e2e-1', c2s), (d, 'hubspot', 'contact', 'hs-e2e-1', c1d);
+  INSERT INTO public.workspace_github_repo (workspace_id, repo_full_name, added_by) VALUES (s, 'example/e2e-repo', u1), (d, 'example/e2e-repo', u1);
+
+  INSERT INTO public.data_table (workspace_id, name) VALUES (s, 'Intake e2e') RETURNING id INTO tbl;
+  INSERT INTO public.data_form (workspace_id, table_id, name, key_hash, key_prefix) VALUES (s, tbl, 'Intake', 'e2e-hash-' || s::text, 'e2e') RETURNING id INTO frm;
+  INSERT INTO public.booking_link (workspace_id, owner_user_id, slug, title, form_id) VALUES (s, u1, 'intake-e2e', 'Intake', frm) RETURNING id INTO bl;
+
+  INSERT INTO pg_temp.e2e VALUES ('sn_same', sn_same), ('sn_other', sn_other), ('sn_mine', sn_mine), ('sn_only', sn_only), ('poll', poll),
+    ('imp', imp), ('frm', frm), ('bl_form', bl);
+END $$;
+
 -- ---------- refusals ----------
 DO $$
 DECLARE s uuid := (SELECT v FROM pg_temp.e2e WHERE k = 's'); d uuid := (SELECT v FROM pg_temp.e2e WHERE k = 'd');
         u1 uuid := (SELECT v FROM pg_temp.e2e WHERE k = 'u1'); u2 uuid := (SELECT v FROM pg_temp.e2e WHERE k = 'u2');
-        out jsonb := '{}'::jsonb; cap uuid; run uuid; d_a uuid := (SELECT v FROM pg_temp.e2e WHERE k = 'd_a_mkt1'); s_gen uuid := (SELECT v FROM pg_temp.e2e WHERE k = 's_gen');
+        out jsonb := '{}'::jsonb; cap uuid; run uuid; z uuid; d_a uuid := (SELECT v FROM pg_temp.e2e WHERE k = 'd_a_mkt1'); s_gen uuid := (SELECT v FROM pg_temp.e2e WHERE k = 's_gen');
 BEGIN
   BEGIN PERFORM public.merge_workspace(s, d, u2); out := out || '{"not_owner":"NO ERROR"}';
   EXCEPTION WHEN OTHERS THEN out := out || jsonb_build_object('not_owner', SQLSTATE); END;
@@ -323,6 +366,18 @@ BEGIN
   BEGIN PERFORM public.merge_workspace(s, d, u1); out := out || '{"front_door":"NO ERROR"}';
   EXCEPTION WHEN OTHERS THEN out := out || jsonb_build_object('front_door', SQLSTATE || ' ' || SQLERRM); END;
   DELETE FROM public.business_phone_number WHERE workspace_id IN (s, d);
+  -- 707: a business profile on both sides, and a demo workspace, refuse too
+  INSERT INTO public.business_profile (workspace_id, owner_user_id, business_name) VALUES (s, u1, 'Source Co'), (d, u1, 'Dest Co');
+  BEGIN PERFORM public.merge_workspace(s, d, u1); out := out || '{"business_profile":"NO ERROR"}';
+  EXCEPTION WHEN OTHERS THEN out := out || jsonb_build_object('business_profile', SQLSTATE || ' ' || SQLERRM); END;
+  DELETE FROM public.business_profile WHERE workspace_id IN (s, d);
+  -- (a clean third workspace: a demo flag refuses one with anything real connected, as both fixtures have)
+  INSERT INTO public.workspace (name, slug) VALUES ('Demo E2E', 'demo-e2e-' || left(gen_random_uuid()::text, 8)) RETURNING id INTO z;
+  INSERT INTO public.member (user_id, workspace_id, role, display_name) VALUES (u1, z, 'owner', 'U1');
+  INSERT INTO public.demo_workspace (workspace_id) VALUES (z);
+  BEGIN PERFORM public.merge_workspace(z, d, u1); out := out || '{"demo":"NO ERROR"}';
+  EXCEPTION WHEN OTHERS THEN out := out || jsonb_build_object('demo', SQLSTATE || ' ' || SQLERRM); END;
+  DELETE FROM public.workspace WHERE id = z;
   INSERT INTO pg_temp.e2e_out VALUES ('refusals', out);
 END $$;
 
@@ -593,6 +648,35 @@ BEGIN
   SELECT grantee_team_id INTO id1 FROM public.entity_access WHERE entity_type = 'document' AND entity_id = (SELECT v FROM pg_temp.e2e WHERE k = 'doc_grant') AND grantee_kind = 'team';
   IF id1 IS DISTINCT FROM (SELECT v FROM pg_temp.e2e WHERE k = 'd_mkt') THEN fails := fails || ' team_grant'; END IF;
   IF refusals->>'front_door' NOT LIKE 'P0008%business phone%' THEN fails := fails || ' front_door=' || COALESCE(refusals->>'front_door', 'missing'); END IF;
+
+  -- 707: the batch merged after 705
+  SELECT count(*) INTO n FROM public.snippet WHERE id = (SELECT v FROM pg_temp.e2e WHERE k = 'sn_same');
+  IF n <> 0 THEN fails := fails || ' snippet_same_not_folded'; END IF;
+  SELECT count(*) INTO n FROM public.snippet WHERE workspace_id = d AND visibility = 'workspace' AND shortcut = 'thanks';
+  IF n <> 1 THEN fails := fails || ' snippet_thanks=' || n; END IF;
+  SELECT shortcut INTO txt FROM public.snippet WHERE id = (SELECT v FROM pg_temp.e2e WHERE k = 'sn_other');
+  IF txt IS DISTINCT FROM 'hours-2' THEN fails := fails || ' snippet_other=' || COALESCE(txt, 'missing'); END IF;
+  SELECT shortcut, created_by INTO txt, id1 FROM public.snippet WHERE id = (SELECT v FROM pg_temp.e2e WHERE k = 'sn_mine');
+  IF txt IS DISTINCT FROM 'sig-2' OR id1 IS DISTINCT FROM (SELECT v FROM pg_temp.e2e WHERE k = 'm2d') THEN fails := fails || ' snippet_personal=' || COALESCE(txt, 'missing'); END IF;
+  SELECT workspace_id, created_by INTO id1, id2 FROM public.snippet WHERE id = (SELECT v FROM pg_temp.e2e WHERE k = 'sn_only');
+  IF id1 IS DISTINCT FROM d OR id2 IS DISTINCT FROM (SELECT v FROM pg_temp.e2e WHERE k = 'm2d') THEN fails := fails || ' snippet_only'; END IF;
+  SELECT created_by, closed_by INTO id1, id2 FROM public.team_chat_poll WHERE id = (SELECT v FROM pg_temp.e2e WHERE k = 'poll') AND workspace_id = d;
+  IF id1 IS DISTINCT FROM (SELECT v FROM pg_temp.e2e WHERE k = 'm2d') OR id2 IS DISTINCT FROM id1 THEN fails := fails || ' poll_members'; END IF;
+  SELECT count(*) INTO n FROM public.team_chat_poll_vote WHERE poll_id = (SELECT v FROM pg_temp.e2e WHERE k = 'poll') AND member_id = (SELECT v FROM pg_temp.e2e WHERE k = 'm2d') AND workspace_id = d;
+  IF n <> 1 THEN fails := fails || ' poll_vote=' || n; END IF;
+  SELECT member_id INTO id1 FROM public.work_import WHERE id = (SELECT v FROM pg_temp.e2e WHERE k = 'imp') AND workspace_id = d;
+  IF id1 IS DISTINCT FROM (SELECT v FROM pg_temp.e2e WHERE k = 'm2d') THEN fails := fails || ' work_import'; END IF;
+  SELECT count(*), max(held_until) > now() + interval '2 days' INTO n, ok FROM public.inbox_hold WHERE workspace_id = d AND user_id = u1 AND item_key = 'mail:T1-e2e';
+  IF n <> 1 OR NOT COALESCE(ok, false) THEN fails := fails || ' inbox_hold=' || n; END IF;
+  SELECT count(*) INTO n FROM public.crm_source_link WHERE workspace_id = d AND source = 'hubspot' AND external_id = 'hs-e2e-1';
+  IF n <> 1 THEN fails := fails || ' crm_source_link=' || n; END IF;
+  SELECT count(*) INTO n FROM public.workspace_github_repo WHERE workspace_id = d AND repo_full_name = 'example/e2e-repo';
+  IF n <> 1 THEN fails := fails || ' github_repo=' || n; END IF;
+  SELECT form_id, workspace_id INTO id1, id2 FROM public.booking_link WHERE id = (SELECT v FROM pg_temp.e2e WHERE k = 'bl_form');
+  IF id1 IS DISTINCT FROM (SELECT v FROM pg_temp.e2e WHERE k = 'frm') OR id2 IS DISTINCT FROM d
+     OR (SELECT workspace_id FROM public.data_form WHERE id = id1) IS DISTINCT FROM d THEN fails := fails || ' booking_link_form'; END IF;
+  IF refusals->>'business_profile' NOT LIKE 'P0008%business profile%' THEN fails := fails || ' business_profile_refusal=' || COALESCE(refusals->>'business_profile', 'missing'); END IF;
+  IF refusals->>'demo' NOT LIKE 'P0008%demo workspace%' THEN fails := fails || ' demo_refusal=' || COALESCE(refusals->>'demo', 'missing'); END IF;
 
   -- nothing left, destination clean
   SELECT count(*) INTO n FROM public.workspace_integrity_sweep(d); IF n <> 0 THEN fails := fails || ' sweep_violations=' || n; END IF;

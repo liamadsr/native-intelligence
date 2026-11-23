@@ -177,3 +177,11 @@ describe('resolveNotificationDetailPanel — the work ledger (migration 273 targ
     expect(await resolveNotificationDetailPanel({ type: 'comment_reply', title: 't', body: 'b', target_type: 'spreadsheet', target_id: 'ss-1', context_type: null, context_id: null } as Parameters<typeof resolveNotificationDetailPanel>[0])).toEqual({ type: 'spreadsheet', id: 'ss-1', title: '' })
   })
 })
+
+describe('a GitHub notice (migration 695)', () => {
+  it('opens its pull request from metadata; nothing without one', async () => {
+    const n = { type: 'github_pr_comment', target_type: 'github_pr', target_id: null, context_type: null, context_id: null, title: 'lee commented on acme/app#7', body: 'nice', workspace_id: 'ws-1' }
+    expect(await resolveNotificationDetailPanel({ ...n, metadata: { repo: 'acme/app', number: 7, pr_title: 'Fix the login' } })).toEqual({ type: 'github_pr', id: 'acme/app#7', title: 'Fix the login' })
+    expect(await resolveNotificationDetailPanel({ ...n, metadata: {} })).toBeNull()
+  })
+})

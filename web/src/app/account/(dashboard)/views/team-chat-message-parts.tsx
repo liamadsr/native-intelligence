@@ -16,6 +16,10 @@ import { ReactionPickerPopover } from '@/app/account/(dashboard)/chat/reaction-p
 import { formatFileSize, isInlineImage } from '@/lib/team-chat/files'
 import { cachedTeamChatFileUrl, teamChatFileUrl } from '@/lib/team-chat/upload-client'
 import { lastReplyLabel, replyCountLabel, type ReactionGroup } from '@/lib/team-chat/compose'
+import { useFileViewer } from '@/components/files/file-viewer'
+import { downloadFile } from '@/lib/download'
+import { isFigmaUrl } from '@/lib/files/viewer-kind'
+import type { ViewerFile } from '@/lib/files/viewer-file'
 import type { TeamChatAttachment, TeamChatLinkPreview, TeamChatThreadSummary } from '@/lib/team-chat/types'
 
 export interface Member {
@@ -95,7 +99,34 @@ function useFileUrl(path: string): string | null {
 /** The tallest and widest an inline image is drawn, px. */
 const IMAGE_MAX = { width: 320, height: 240 }
 
-function InlineImage({ attachment }: { attachment: TeamChatAttachment }) {
+/**
+ * A message's file as the in-app viewer takes it: a short signed URL the
+ * bucket's read policy (team_chat_can_read, 558) signs only for the channel's
+ * readers, signed again for the download if it has run out.
+ */
+export function teamChatViewerFile(attachment: TeamChatAttachment, url: string): ViewerFile {
+  return {
+    key: `team-chat:${attachment.path}`,
+    name: attachment.name,
+    mimeType: attachment.type,
+    size: attachment.size,
+    url,
+    sourceLabel: 'Team chat',
+    download: async () => {
+      const fresh = cachedTeamChatFileUrl(attachment.path) ?? (await teamChatFileUrl(attachment.path))
+      if (!fresh) throw new Error('Could not download the file')
+      await downloadFile(fresh, attachment.name)
+    },
+  }
+}
+
+/** Open a message's file in the viewer, signing its link again when the cached one has run out. */
+async function openInViewer(attachment: TeamChatAttachment, open: (file: ViewerFile) => void) {
+  const url = cachedTeamChatFileUrl(attachment.path) ?? (await teamChatFileUrl(attachment.path))
+  if (url) open(teamChatViewerFile(attachment, url))
+}
+
+function InlineImage({ attachment, onOpen }: { attachment: TeamChatAttachment; onOpen: (file: ViewerFile) => void }) {
   const url = useFileUrl(attachment.path)
   const { width = 4, height = 3 } = attachment
   // Its own shape, within the box, so it takes its room before it loads.
@@ -108,6 +139,11 @@ function InlineImage({ attachment }: { attachment: TeamChatAttachment }) {
       target="_blank"
       rel="noopener noreferrer"
       data-team-chat-image=""
+      onClick={(e) => {
+        if (e.metaKey || e.ctrlKey || e.shiftKey) return // a new tab, as asked
+        e.preventDefault()
+        void openInViewer(attachment, onOpen)
+      }}
       className="block max-w-full overflow-hidden rounded-xl bg-muted"
       style={{ width: shown.width, aspectRatio: `${shown.width} / ${shown.height}` }}
       title={attachment.name}
@@ -117,7 +153,7 @@ function InlineImage({ attachment }: { attachment: TeamChatAttachment }) {
   )
 }
 
-function FileChip({ attachment }: { attachment: TeamChatAttachment }) {
+function FileChip({ attachment, onOpen }: { attachment: TeamChatAttachment; onOpen: (file: ViewerFile) => void }) {
   const url = useFileUrl(attachment.path)
   return (
     <a
@@ -126,12 +162,10 @@ function FileChip({ attachment }: { attachment: TeamChatAttachment }) {
       rel="noopener noreferrer"
       download={attachment.name}
       data-team-chat-file=""
-      onClick={async (e) => {
-        // A link signed over an hour ago has run out: sign it again first.
-        if (cachedTeamChatFileUrl(attachment.path)) return
+      onClick={(e) => {
+        // Opened in the app's viewer; a link signed over an hour ago is signed again first.
         e.preventDefault()
-        const fresh = await teamChatFileUrl(attachment.path)
-        if (fresh) window.open(fresh, '_blank', 'noopener')
+        void openInViewer(attachment, onOpen)
       }}
       className="flex max-w-xs items-center gap-2.5 rounded-xl bg-muted/60 px-3 py-2 text-left hover:bg-muted"
     >
@@ -148,20 +182,22 @@ function FileChip({ attachment }: { attachment: TeamChatAttachment }) {
 
 /** A message's files: images drawn inline, the rest as chips with their name and size. Nothing without any. */
 export function MessageAttachments({ attachments }: { attachments: readonly TeamChatAttachment[] | undefined }) {
+  const viewer = useFileViewer()
   if (!attachments?.length) return null
   const images = attachments.filter(isInlineImage)
   const files = attachments.filter((a) => !isInlineImage(a))
   return (
     <div className="mt-1.5 flex flex-col gap-1.5" data-team-chat-attachments="">
+      {viewer.viewer}
       {images.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {images.map((a) => (
-            <InlineImage key={a.path} attachment={a} />
+            <InlineImage key={a.path} attachment={a} onOpen={viewer.open} />
           ))}
         </div>
       )}
       {files.map((a) => (
-        <FileChip key={a.path} attachment={a} />
+        <FileChip key={a.path} attachment={a} onOpen={viewer.open} />
       ))}
     </div>
   )
@@ -172,12 +208,22 @@ export function MessageAttachments({ attachments }: { attachments: readonly Team
 /** A message's first link, as the server read it: its site, title, description and image. Nothing without one. */
 export function LinkPreviewCard({ preview }: { preview: TeamChatLinkPreview | null | undefined }) {
   const [imageFailed, setImageFailed] = useState(false)
+  const viewer = useFileViewer()
   if (!preview || !/^https?:\/\//i.test(preview.url) || (!preview.title && !preview.description)) return null
+  // A Figma link opens in Figma's own embed, in the app (⌘-click: Figma, in a new tab).
+  const figma = isFigmaUrl(preview.url)
   return (
+    <>
+    {figma && viewer.viewer}
     <a
       href={preview.url}
       target="_blank"
       rel="noopener noreferrer"
+      onClick={(e) => {
+        if (!figma || e.metaKey || e.ctrlKey || e.shiftKey) return
+        e.preventDefault()
+        viewer.open({ key: `figma:${preview.url}`, name: preview.title || 'Figma', url: preview.url, sourceLabel: 'Figma' })
+      }}
       data-team-chat-link-preview=""
       className="mt-1.5 flex max-w-md gap-3 rounded-xl bg-muted/50 p-3 hover:bg-muted/70"
     >
@@ -198,6 +244,7 @@ export function LinkPreviewCard({ preview }: { preview: TeamChatLinkPreview | nu
         />
       )}
     </a>
+    </>
   )
 }
 

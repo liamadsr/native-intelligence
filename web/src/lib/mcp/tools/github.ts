@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { z } from 'zod'
 import { withActiveWorkspace } from './envelope'
 import { fetchPrMetadata } from '@/lib/github/pr-metadata'
+import { wrapUntrusted } from '@/lib/email/untrusted'
 
 /**
  * GitHub-specific MCP tools for PR linking and status checks.
@@ -100,7 +101,8 @@ export function registerGitHubTools(
         }
       }
 
-      return ok({ success: true, pr })
+      // The title is GitHub's text, by whoever opened the PR: fenced like the reads below.
+      return ok({ success: true, pr: pr ? { ...pr, pr_title: wrapUntrusted(pr.pr_title, 'WEB') } : pr })
     },
   )
 
@@ -132,7 +134,8 @@ export function registerGitHubTools(
           pr_url: pr.pr_url,
           repo_full_name: pr.repo_full_name,
           pr_number: pr.pr_number,
-          pr_title: pr.pr_title,
+          // GitHub's text, by whoever opened the PR (an outside repo's PR links by naming an identifier): fenced.
+          pr_title: wrapUntrusted(pr.pr_title, 'WEB'),
           pr_state: pr.pr_state,
           pr_draft: pr.pr_draft,
           head_branch: pr.head_branch,
@@ -179,7 +182,8 @@ export function registerGitHubTools(
             pr_url: pr.pr_url,
             repo_full_name: pr.repo_full_name,
             pr_number: pr.pr_number,
-            pr_title: pr.pr_title,
+            // GitHub's text, by whoever opened the PR (an outside repo's PR links by naming an identifier): fenced.
+            pr_title: wrapUntrusted(pr.pr_title, 'WEB'),
             pr_state: pr.pr_state,
             pr_draft: pr.pr_draft,
             head_branch: pr.head_branch,

@@ -1,14 +1,16 @@
 /** Shared label types and utilities */
 
-export type LabelScope = 'action' | 'email_thread' | 'project' | 'initiative' | 'capture'
+import { TAGGABLE, TAG_KINDS, type TagKind } from '@/lib/tags/kinds'
 
-export const ALL_LABEL_SCOPES: { value: LabelScope; label: string; short: string }[] = [
-  { value: 'action', label: 'Actions', short: 'A' },
-  { value: 'email_thread', label: 'Email', short: 'E' },
-  { value: 'project', label: 'Projects', short: 'P' },
-  { value: 'initiative', label: 'Initiatives', short: 'I' },
-  { value: 'capture', label: 'Captures', short: 'C' },
-]
+/** A kind of record a label (tag) is offered on: every kind that takes tags (lib/tags/kinds.ts). */
+export type LabelScope = TagKind
+
+/** Every kind a tag can be scoped to, in the order the settings list them. */
+export const ALL_LABEL_SCOPES: { value: LabelScope; label: string; short: string }[] = TAG_KINDS.map((k) => ({
+  value: k,
+  label: TAGGABLE[k].noun[1],
+  short: TAGGABLE[k].noun[0].slice(0, 2),
+}))
 
 export interface LabelWithScope {
   id: string
@@ -17,6 +19,8 @@ export interface LabelWithScope {
   group_name: string | null
   scopes: LabelScope[] | null
   created_at: string
+  /** A personal tag: only its owner sees it (label.owner_user_id, migration 700). Absent on older responses. */
+  personal?: boolean
 }
 
 export interface LabelGroup {

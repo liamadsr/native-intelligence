@@ -586,6 +586,8 @@ export interface NewMeetingBooking {
   manage_token_hash: string
   other_host_ids?: string[]
   host_time_zone?: string | null
+  /** The form row a booking link's pass vouched for (migration 705): unique where set, so a pass books once. */
+  form_row_id?: string | null
 }
 
 /**

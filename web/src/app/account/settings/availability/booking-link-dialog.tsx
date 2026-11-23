@@ -21,11 +21,15 @@ import { LINK_DESCRIPTION_MAX, LINK_HOSTS_MAX, LINK_LOCATION_MAX, LINK_QUESTIONS
 import { lengthLabel } from '@/lib/time-offers/display'
 import { cn } from '@/lib/utils'
 import { useTeamCalls } from '@/components/team-calls/team-calls-provider'
+import { LinkFormGateEditor } from './link-form-gate-editor'
+import { LinkHoursEditor } from './link-hours-editor'
 import {
   BUFFER_OPTIONS,
+  DAILY_CAP_OPTIONS,
   LENGTH_OPTIONS,
   NOTICE_OPTIONS,
   WINDOW_OPTIONS,
+  dailyCapLabel,
   draftProblem,
   noticeLabel,
   typedSlug,
@@ -191,6 +195,9 @@ export function BookingLinkDialog({
                 <Row label="How far ahead" htmlFor="link-window">
                   <NumberSelect id="link-window" value={draft.windowDays} options={withValue(WINDOW_OPTIONS, draft.windowDays)} label={windowLabel} onChange={(n) => set({ windowDays: n })} />
                 </Row>
+                <Row label="Daily limit" htmlFor="link-daily-cap" hint="At most this many of its bookings in a day.">
+                  <NumberSelect id="link-daily-cap" value={draft.dailyCap} options={withValue(DAILY_CAP_OPTIONS, draft.dailyCap)} label={dailyCapLabel} onChange={(n) => set({ dailyCap: n })} />
+                </Row>
                 <Row label="Buffer before" htmlFor="link-before">
                   <NumberSelect id="link-before" value={draft.bufferBeforeMinutes} options={withValue(BUFFER_OPTIONS, draft.bufferBeforeMinutes)} label={bufferLabel} onChange={(n) => set({ bufferBeforeMinutes: n })} />
                 </Row>
@@ -201,6 +208,23 @@ export function BookingLinkDialog({
                   <Switch id="link-ask-first" checked={draft.askFirst} onCheckedChange={(askFirst) => set({ askFirst })} />
                 </Row>
               </div>
+            </Section>
+
+            <Section title="Hours" data-link-hours="">
+              <div className={CARD}>
+                <Row label="Its own hours" htmlFor="link-own-hours" hint={draft.ownHours ? 'Only these hours, around everything busy.' : 'Off: each host’s working hours.'}>
+                  <Switch id="link-own-hours" checked={draft.ownHours} onCheckedChange={(ownHours) => set({ ownHours })} />
+                </Row>
+              </div>
+              {draft.ownHours && (
+                <div className="mt-3">
+                  <LinkHoursEditor weekly={draft.weekly} timeZone={draft.timeZone} dateOverrides={draft.dateOverrides} onChange={(patch) => set(patch)} />
+                </div>
+              )}
+            </Section>
+
+            <Section title="Before they book" hint="A form they answer first: only those who qualify see your times." data-link-form-section="">
+              <LinkFormGateEditor formId={draft.formId} conditions={draft.formConditions} refusal={draft.formRefusal} onChange={(patch) => set(patch)} />
             </Section>
 
             <Section title="Questions" hint="Their name and how to reach them are always asked." data-link-questions="">

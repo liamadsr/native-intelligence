@@ -57,6 +57,7 @@ export const NON_AGENT_JOB_KINDS: ReadonlySet<string> = new Set([
   'crm_enrichment',
   'crm_import',
   'email_import',
+  'work_import',
   'triage_reconcile',
   'proposal_age_out',
 ])

@@ -70,6 +70,11 @@ export async function saveTextFile(fileName: string, text: string, type = 'text/
   return saveBytes(fileName, new TextEncoder().encode(text).buffer as ArrayBuffer, type)
 }
 
+/** Save bytes already read in the page (the file viewer's) as a file. Returns where it went, or null if cancelled. */
+export async function saveBlobFile(fileName: string, blob: Blob): Promise<string | null> {
+  return saveBytes(fileName, await blob.arrayBuffer(), blob.type || undefined)
+}
+
 async function saveBytes(fileName: string, buffer: ArrayBuffer, type?: string): Promise<string | null> {
   if (isDesktopApp()) {
     try {

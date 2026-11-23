@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Bug, CreditCard, Mic, Link2, Building2, User, UserCircle, Tag, Mail, Terminal, Cpu, MessageSquare, MessageSquareText, Server, AudioWaveform, Sparkles, Lightbulb, SpellCheck, Keyboard, SlidersHorizontal } from 'lucide-react'
+import { ArrowLeft, Bug, CreditCard, Mic, Link2, Building2, User, UserCircle, Tag, Mail, Terminal, Cpu, MessageSquare, MessageSquareText, Server, AudioWaveform, Sparkles, Lightbulb, SpellCheck, Keyboard, SlidersHorizontal, TextQuote, Upload } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { navRowClass, navSectionLabelClass } from '@/lib/nav-styles'
 import { useIsDesktop } from '@/components/desktop-titlebar'
@@ -61,12 +61,15 @@ const navSections: NavSection[] = [
     items: [
       // Integrations and outbound MCP servers, one list (Claude's Connectors).
       { href: '/account/settings/connectors', label: 'Connectors', icon: Link2 },
+      // Tasks from a CSV, Linear issues, a Notion export (docs/plans/imports.md).
+      { href: '/account/settings/import', label: 'Import', icon: Upload },
       // Native Intelligence as an MCP server, for Claude Code / Cursor.
       { href: '/account/settings/mcp', label: 'NI MCP', icon: Terminal },
       { href: '/account/settings/environments', label: 'Environments', icon: Server },
       { href: '/account/settings/autonomy', label: 'Autonomy', icon: Sparkles },
       { href: '/account/settings/memory', label: 'Memory', icon: Lightbulb },
       { href: '/account/settings/vocabulary', label: 'Vocabulary', icon: SpellCheck },
+      { href: '/account/settings/snippets', label: 'Snippets', icon: TextQuote },
       { href: '/account/settings/labels', label: 'Labels', icon: Tag },
       { href: '/account/settings/custom-fields', label: 'Custom fields', icon: SlidersHorizontal },
       { href: '/account/settings/email-crm', label: 'Email & CRM', icon: Mail },

@@ -95,6 +95,9 @@ export const GUEST_NEVER_TOOLS: ReadonlySet<string> = new Set([
   'create_booking_link',
   'update_booking_link',
   'delete_booking_link',
+  'list_link_bookings',
+  'get_booking_insights',
+  'mark_booking_attendance',
   // Forms: the owner's public links onto their tables, never a guest's.
   'list_forms',
 ])

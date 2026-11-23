@@ -118,6 +118,8 @@ const TOOL_LABELS: Record<string, string> = {
   create_form: 'Make form',
   update_form: 'Change form',
   create_form_invites: 'Make invite links',
+  read_team_chat_poll: 'Read a poll',
+  post_team_chat_poll: 'Post a poll',
   archive_rows: 'Archive rows',
   undo_table_change: 'Undo the table change',
   // The agent's checklist for a long job (agents' native update_plan; the chat
@@ -227,6 +229,9 @@ const TOOL_LABELS: Record<string, string> = {
   list_booking_links: 'List booking links',
   create_booking_link: 'Create booking link',
   update_booking_link: 'Update booking link',
+  list_link_bookings: 'List bookings',
+  get_booking_insights: 'Booking insights',
+  mark_booking_attendance: 'Mark attendance',
   delete_booking_link: 'Turn off booking link',
   // Studio (src/lib/ai/tools/studio.ts)
   list_studio_projects: 'List Studio projects',

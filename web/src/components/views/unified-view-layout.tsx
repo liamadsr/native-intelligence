@@ -1,5 +1,6 @@
 'use client'
 
+import { copyBranchName } from '@/lib/github/copy-branch-name'
 import * as React from 'react'
 import { useIsWindowFocused } from './tab-active'
 import { toast } from 'sonner'
@@ -62,6 +63,7 @@ import type { WorkflowStateOption } from '@/components/views/properties/types'
 import { useCanOpenCards } from '@/app/account/(dashboard)/main-chat/main-chat-context'
 import { openTarget } from '@/lib/chat-cards/open-card'
 import { useHotkeys, type HotkeyDefinition } from '@/lib/hotkeys'
+import { isTagKind } from '@/lib/tags/kinds'
 import { LIST_ROW_ATTR, ListFocusProvider, TASK_PROPERTY_LABELS, listOwnsKeys, openPropertyPicker, scrollListRowIntoView, stepListFocus, type TaskPropertyField } from './list-keyboard'
 import {
   isCrossWorkspaceEditable, isForeignWorkspace, rowWorkspace, rowWorkspaceHeaders,
@@ -1798,6 +1800,32 @@ export function UnifiedViewLayout({
       for (const key of Object.keys(fields)) snapshot[key] = prior[key] ?? null
     }
 
+    // A row's tags: one route for every kind (api/account/tags/on/[kind]/[id]),
+    // since the record routes differ in whether they take label_ids (mail has
+    // no PATCH at all). The cell sends the next label ids and the next labels
+    // to draw; only the labels are shown, the ids go to the server.
+    if ('label_ids' in fields && isTagKind(entityTypeRef.current)) {
+      const kind = entityTypeRef.current
+      const labelSnapshot = { labels: prior?.labels ?? [] }
+      if ('labels' in fields) updateItem(id, { labels: fields.labels })
+      try {
+        const res = await fetch(`/api/account/tags/on/${kind}/${encodeURIComponent(id)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', ...rowWorkspaceHeaders(prior, workspaceIdRef.current ?? null) },
+          body: JSON.stringify({ label_ids: fields.label_ids }),
+        })
+        if (!res.ok) {
+          const body = (await res.json().catch(() => null)) as { error?: string } | null
+          throw new Error(body?.error ?? `HTTP ${res.status}`)
+        }
+        emitEntityUpdated({ entityType: kind, id, fields: { labels: fields.labels } })
+      } catch (err) {
+        if (prior) updateItem(id, labelSnapshot)
+        toast.error(err instanceof Error ? err.message : 'Failed to update tags')
+      }
+      return
+    }
+
     // Optimistic update
     updateItem(id, fields)
 
@@ -1886,6 +1914,17 @@ export function UnifiedViewLayout({
       { ...base, key: 'a', handler: () => openRowProperty('assignee') },
       { ...base, key: 'l', handler: () => openRowProperty('labels') },
       { ...base, key: 'd', shift: true, handler: () => openRowProperty('due_at') },
+      // ⇧⌘B: the row's branch name, for GitHub (docs/plans/github-reviews.md).
+      {
+        ...base,
+        key: 'b',
+        mod: true,
+        shift: true,
+        handler: () => {
+          const row = (data as Array<{ id?: unknown; identifier?: unknown; title?: unknown }> | null | undefined)?.find((r) => r?.id === liveFocusedId)
+          if (row && typeof row.identifier === 'string') void copyBranchName(row.identifier, typeof row.title === 'string' ? row.title : null)
+        },
+      },
       {
         ...base,
         key: 'i',
@@ -1895,7 +1934,7 @@ export function UnifiedViewLayout({
         },
       },
     ]
-  }, [ownsKeys, taskKeysOn, openRowProperty, currentMemberId, liveFocusedId, patchItem])
+  }, [ownsKeys, taskKeysOn, openRowProperty, currentMemberId, liveFocusedId, patchItem, data])
   useHotkeys(taskKeys)
 
   // ── Flow status indicators ───────────────────────────────

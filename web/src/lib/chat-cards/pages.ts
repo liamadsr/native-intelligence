@@ -44,8 +44,10 @@ export const PAGE_KIND_NAMES = [
   'library',
   'teams',
   'team_chat',
+  'inbox',
   'availability',
   'files',
+  'reviews',
   'studio',
   'seo_audit',
   'seo_keywords',
@@ -92,6 +94,8 @@ export const PAGE_PLACE_TYPES = [
   'seo_rank_tracker',
   'seo_ai_tracker',
   'seo_local_business',
+  // One pull request on the Reviews page (`owner/name#12`): a GitHub notice opens it there.
+  'github_pr',
 ] as const
 export type PagePlaceType = (typeof PAGE_PLACE_TYPES)[number]
 
@@ -289,6 +293,18 @@ export const PAGE_KINDS: Record<PageKind, PageKindDef> = {
     view: 'teams',
     personOnly: true,
   },
+  // One inbox (docs/plans/channels-inbox.md, phase 2): the person's own
+  // notifications (Signal channels, DMs, mentions, assignments, …) by
+  // conversation, and their mail that needs them, marked done or held there.
+  // Gated with Teams (always allowed). The person opens it (the rail, `/`);
+  // `show` doesn't offer it, so the agent's tools don't change
+  // (get_notifications already reads what happened for them).
+  inbox: {
+    label: 'Inbox',
+    rows: 'items',
+    view: 'teams',
+    personOnly: true,
+  },
   // Availability (Liam, 11-11: "Availability (Right now it's in the settings
   // but it needs to be it's own page under Calendar)"): the person's working
   // hours, the calendars that make them busy, sharing busy times with
@@ -313,6 +329,19 @@ export const PAGE_KINDS: Record<PageKind, PageKindDef> = {
     label: 'Files',
     rows: 'files',
     view: 'docs',
+    personOnly: true,
+  },
+  // Reviews (docs/plans/github-reviews.md): the person's GitHub pull requests,
+  // read live with their own token (review requests, authored, assigned,
+  // involving them), as a list or a board, with a pull request's panel and a
+  // merge that confirms first. Gated with My Actions. The person's own GitHub
+  // data: `show` doesn't offer it, and it has no rows for the agent's note.
+  reviews: {
+    label: 'Reviews',
+    rows: 'pull requests',
+    view: 'todo',
+    // A GitHub notice (migration 695) opens one pull request's panel: `owner/name#12`.
+    target: { types: ['github_pr'] },
     personOnly: true,
   },
   // Studio (migration 620): making videos and ads. A Studio project groups
@@ -391,7 +420,7 @@ export const PAGE_KINDS: Record<PageKind, PageKindDef> = {
 }
 
 /** The page kinds `show` offers: every one the person alone doesn't open. */
-export const SHOW_PAGE_KIND_NAMES = PAGE_KIND_NAMES.filter((k) => !PAGE_KINDS[k].personOnly) as Exclude<PageKind, 'bot' | 'work_item' | 'guest' | 'agent_link' | 'team_chat' | 'availability' | 'files' | 'seo_audit' | 'seo_keywords' | 'seo_rankings' | 'seo_search' | 'seo_competitors' | 'seo_backlinks' | 'seo_ai_visibility' | 'seo_local'>[]
+export const SHOW_PAGE_KIND_NAMES = PAGE_KIND_NAMES.filter((k) => !PAGE_KINDS[k].personOnly) as Exclude<PageKind, 'bot' | 'work_item' | 'guest' | 'agent_link' | 'team_chat' | 'inbox' | 'availability' | 'files' | 'reviews' | 'seo_audit' | 'seo_keywords' | 'seo_rankings' | 'seo_search' | 'seo_competitors' | 'seo_backlinks' | 'seo_ai_visibility' | 'seo_local'>[]
 
 /** What each place is called, in the note and in refusals. */
 export const PLACE_NOUN: Record<PagePlaceType, string> = {
@@ -423,6 +452,7 @@ export const PLACE_NOUN: Record<PagePlaceType, string> = {
   seo_rank_tracker: 'rank tracker',
   seo_ai_tracker: 'AI visibility tracker',
   seo_local_business: 'business',
+  github_pr: 'pull request',
 }
 
 export function isPageKind(value: unknown): value is PageKind {

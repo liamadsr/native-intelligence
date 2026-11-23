@@ -12,7 +12,8 @@
  *      listed in MEMBER_REFS_ELSEWHERE with where it is handled. Without it
  *      the merge refuses (_wsmerge_assert_no_refs, P0008) on any workspace
  *      where a folded person has such a row.
- *   2. Every unique index or constraint that includes workspace_id. The
+ *   2. Every unique index or constraint, and every primary key, that
+ *      includes workspace_id. The
  *      generic re-stamp moves every source row to the destination, so each
  *      one is either settled before it (folded, renamed, dropped: listed in
  *      UNIQUE_SETTLED with the step) or shown not to collide (UNIQUE_SAFE,
@@ -107,6 +108,11 @@ function readSchema(): Schema {
       if ((m = st.match(new RegExp(`^create table (?:if not exists )?${TABLE} ?\\(`)))) {
         const table = m[1]
         for (const part of topLevel(balanced(st, st.indexOf('(')))) {
+          const pk = part.match(/^(?:constraint ([a-z0-9_]+) )?primary key \(([^)]*)\)/)
+          if (pk) {
+            if (/\bworkspace_id\b/.test(pk[2])) uniques.set(pk[1] ?? `${table}_pkey`, { table, def: pk[2] })
+            continue
+          }
           const u = part.match(/^(?:constraint ([a-z0-9_]+) )?unique (?:nulls not distinct )?\(([^)]*)\)/)
           if (u) {
             if (/\bworkspace_id\b/.test(u[2])) uniques.set(u[1] ?? `${table}(${u[2]})`, { table, def: u[2] })
@@ -117,12 +123,13 @@ function readSchema(): Schema {
             memberRefs.add(`${table}.${fk[1]}`)
             continue
           }
-          if (/^(constraint|primary key|check|exclude)\b/.test(part)) continue
+          if (/^(constraint|check|exclude)\b/.test(part)) continue
           const c = part.match(/^([a-z_][a-z0-9_]*) /)
           if (!c) continue
           col(table).add(c[1])
           if (refsMember(part)) memberRefs.add(`${table}.${c[1]}`)
           if (/\bunique\b/.test(part) && c[1] === 'workspace_id') uniques.set(`${table}(workspace_id)`, { table, def: 'workspace_id' })
+          if (/\bprimary key\b/.test(part) && c[1] === 'workspace_id') uniques.set(`${table}_pkey`, { table, def: 'workspace_id' })
         }
         continue
       }
@@ -140,7 +147,7 @@ function readSchema(): Schema {
         for (const a of rest.matchAll(/add constraint ([a-z0-9_]+) foreign key \(([a-z0-9_]+)\) references (?:public\.)?member ?\( ?id ?\)/g)) {
           memberRefs.add(`${table}.${a[2]}`)
         }
-        for (const a of rest.matchAll(/add constraint ([a-z0-9_]+) unique (?:nulls not distinct )?\(([^)]*)\)/g)) {
+        for (const a of rest.matchAll(/add constraint ([a-z0-9_]+) (?:unique (?:nulls not distinct )?|primary key )\(([^)]*)\)/g)) {
           if (/\bworkspace_id\b/.test(a[2])) uniques.set(a[1], { table, def: a[2] })
         }
         for (const a of rest.matchAll(/drop constraint (?:if exists )?([a-z0-9_]+)/g)) uniques.delete(a[1])
@@ -174,10 +181,18 @@ const SCHEMA = readSchema()
  * CREATE (src/test/migration-sql.ts's latestDefinition matches upper case
  * only, and a lower-case restatement must not hide from this test).
  */
+const NORMALISED = SOURCES.map((s) => norm(s.sql))
+const BODIES = new Map<string, string>()
+
 function newestBody(name: string): string {
+  if (!BODIES.has(name)) BODIES.set(name, findNewestBody(name))
+  return BODIES.get(name)!
+}
+
+function findNewestBody(name: string): string {
   const head = `create or replace function public.${name}(`
-  for (let i = SOURCES.length - 1; i >= 0; i--) {
-    const s = norm(SOURCES[i].sql)
+  for (let i = NORMALISED.length - 1; i >= 0; i--) {
+    const s = NORMALISED[i]
     const start = s.lastIndexOf(head)
     if (start === -1) continue
     const tag = s.slice(start).match(/ as (\$[a-z_]*\$)/)
@@ -191,7 +206,7 @@ function newestBody(name: string): string {
 
 /** Every merge step's newest definition, one statement per entry. */
 const MERGE_STATEMENTS: string[] = (() => {
-  const all = SOURCES.map((s) => norm(s.sql)).join(';')
+  const all = NORMALISED.join(';')
   const names = new Set([...all.matchAll(/create or replace function public\.(_wsmerge_[a-z0-9_]+|merge_workspace)\(/g)].map((m) => m[1]))
   return [...names].flatMap((n) => newestBody(n).split(';'))
 })()
@@ -242,7 +257,25 @@ const UNIQUE_SETTLED: Record<string, string> = {
   idx_flow_workspace_seed_key: '_wsmerge_agents_flows folds seeded flows',
   knowledge_brief_workspace_id_scope_type_scope_id_key: '_wsmerge_knowledge drops the source brief',
   knowledge_package_workspace_id_slug_key: '_wsmerge_knowledge re-slugs',
-  label_workspace_id_name_key: '_wsmerge_labels folds by name',
+  label_workspace_name_shared: '_wsmerge_labels folds shared labels by name (700)',
+  label_workspace_owner_name: '_wsmerge_labels folds personal labels by owner and name (700)',
+  snippet_shared_shortcut_key: '_wsmerge_one_per_owner folds the same text, else suffixes the shortcut (707)',
+  snippet_personal_shortcut_key: '_wsmerge_one_per_owner folds the same text, else suffixes the shortcut (707)',
+  workspace_github_repo_unique: 'workspace_github_repo_merge_fold (694): during a merge the destination duplicate gives way',
+  inbox_hold_pkey: '_wsmerge_one_per_owner joins the hold, the later end (707)',
+  crm_source_link_pkey: '_wsmerge_one_per_owner keeps the destination link (707)',
+  business_profile_pkey: '_wsmerge_front_door_check refuses two (707)',
+  stripe_connect_account_pkey: '_wsmerge_front_door_check refuses two live; _wsmerge_one_per_owner drops a turned-off source one (707)',
+  studio_blob_pkey: '_wsmerge_front_door_check refuses any source Studio media (707)',
+  studio_asset_pkey: '_wsmerge_front_door_check refuses any source Studio media (707)',
+  studio_record_pkey: '_wsmerge_front_door_check refuses the same record in both (707)',
+  workspace_join_settings_pkey: '_wsmerge_generic_restamp deletes the source rows first (645)',
+  workspace_join_domain_pkey: '_wsmerge_generic_restamp deletes the source rows first (645)',
+  workspace_join_link_pkey: '_wsmerge_generic_restamp deletes the source rows first (645)',
+  mail_review_activity_pkey: '_wsmerge_mail drops the source duplicate',
+  area_memory_learning_run_pkey: '_wsmerge_singletons drops the source runs',
+  anchor_embedding_pkey: '_wsmerge_knowledge dedupes anchor embeddings',
+  demo_workspace_pkey: '_wsmerge_front_door_check refuses a demo workspace on either side (707)',
   meeting_goal_meeting_key: '_wsmerge_singletons drops the source duplicate',
   member_user_id_workspace_id_key: '_wsmerge_members folds a person in both',
   outreach_suppression_workspace_email_idx: '_wsmerge_singletons dedupes suppressions',
@@ -278,6 +311,7 @@ const UNIQUE_SAFE: Record<string, string> = {
   entity_access_unique: 'a grant names a record of its own workspace, and the grantee ids are re-pointed with dedupe',
   customer_reminder_subject_key: 'its subject is a record of the source, an id the destination cannot hold',
   review_request_workspace_id_contact_id_job_type_job_id_key: 'its job is a record of the source, an id the destination cannot hold',
+  cloud_browser_pkey: 'never re-stamped (421): the generic re-stamp skips cloud_browser',
 }
 
 describe('the workspace merge knows every table it moves', () => {
@@ -286,7 +320,8 @@ describe('the workspace merge knows every table it moves', () => {
     expect(SCHEMA.memberRefs.has('actions.assignee_id')).toBe(true)
     expect(SCHEMA.memberRefs.has('team_chat_message.author_member_id')).toBe(true)
     expect(SCHEMA.uniques.has('company_stage_name_key')).toBe(true)
-    expect(SCHEMA.uniques.has('label_workspace_id_name_key')).toBe(true)
+    expect(SCHEMA.uniques.has('label_workspace_name_shared')).toBe(true)
+    expect(SCHEMA.uniques.has('inbox_hold_pkey')).toBe(true)
   })
 
   it('re-points every column that references a member', () => {
@@ -313,11 +348,15 @@ describe('the workspace merge knows every table it moves', () => {
       .filter(([name]) => SCHEMA.uniques.has(name))
       .filter(([name, how]) => {
         const table = SCHEMA.uniques.get(name)!.table
-        const steps = [...how.matchAll(/_wsmerge_[a-z0-9_]+/g)].map((m) => m[0])
+        // the steps named: merge functions, or another function the reason names (a table's own merge trigger)
+        const steps = [...how.matchAll(/\b[a-z][a-z0-9]*_[a-z0-9_]+\b|\b_wsmerge_[a-z0-9_]+\b/g)].map((m) => m[0]).filter((s) => newestBody(s) !== '')
         return !steps.some((s) => new RegExp(`public\\.${table}\\b`).test(newestBody(s)))
       })
       .map(([name, how]) => `${name}: ${how}`)
     expect(wrong).toEqual([])
+    // and every entry names at least one function that exists
+    const unnamed = Object.entries(UNIQUE_SETTLED).filter(([, how]) => ![...how.matchAll(/\b[a-z_][a-z0-9_]*\b/g)].some((m) => m[0].includes('_') && newestBody(m[0]) !== ''))
+    expect(unnamed.map(([k]) => k)).toEqual([])
   })
 
   it('lists no key or column that no longer exists', () => {

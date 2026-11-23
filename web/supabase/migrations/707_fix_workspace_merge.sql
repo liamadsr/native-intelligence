@@ -44,9 +44,20 @@
 --      exemption (section 5).
 --   8. What the merge cannot settle itself is refused before anything moves
 --      (P0008), naming it: a business phone number, a connected website, a
---      live website form key or a live customer booking page on both sides,
---      the same customer texting both, a customer booking at the same time,
---      a quote with the same outside id.
+--      live website form key, a live customer booking page, a business
+--      profile or a live payments account on both sides, the same customer
+--      texting both, a customer booking at the same time, a quote with the
+--      same outside id, the same Studio records, a demo workspace on either
+--      side, and any Studio media in the
+--      merged-in workspace (its files sit in storage under the workspace's
+--      id, which a database merge cannot move).
+--   9. The batch merged after 705: a snippet's maker, its shared and
+--      personal shortcuts (the same text folds, other text takes a -2
+--      suffix), a poll's maker and voters, an import's member, a hold on the
+--      same item in both. Four of its guards refused a merge's move
+--      (section 6). The same outside CRM record imported into both keeps the
+--      destination's link. GitHub repositories (694) fold by their own
+--      trigger, and labels by 700's _wsmerge_labels: neither is restated.
 --
 -- Restates, each from its newest definition on main, with only the changes
 -- above:
@@ -59,6 +70,10 @@
 --   _wsmerge_generic_restamp   645_workspace_join.sql
 --   spreadsheet_before_write   675_spreadsheets.sql (section 5)
 --   drive_folder_before_write  690_drive_folders.sql (section 5)
+--   snippet_before_write       699_snippets.sql (section 6)
+--   inbox_hold_guard           702_channel_snooze_inbox_hold.sql (section 6)
+--   team_chat_poll_vote_guard  703_team_chat_polls.sql (section 6)
+--   booking_link_form_guard    705_booking_insights.sql (section 6)
 -- New: _wsmerge_front_door_check, _wsmerge_team_chat,
 -- _wsmerge_fold_chat_channel, _wsmerge_one_per_owner (internal: no grant to
 -- anon or authenticated, like every _wsmerge_ function). merge_workspace,
@@ -122,6 +137,33 @@ begin
                on d.workspace_id = p_dest and d.external_id = s.external_id
              where s.workspace_id = p_source and s.external_id is not null) then
     v_hits := concat_ws('; ', v_hits, 'both have a quote with the same outside id');
+  end if;
+  -- one business profile (458) and one payments account (459) per workspace:
+  -- the source's turned-off payments account simply goes (_wsmerge_one_per_owner)
+  if exists (select 1 from public.business_profile s where s.workspace_id = p_source)
+     and exists (select 1 from public.business_profile d where d.workspace_id = p_dest) then
+    v_hits := concat_ws('; ', v_hits, 'both have a business profile (clear one)');
+  end if;
+  if exists (select 1 from public.stripe_connect_account s where s.workspace_id = p_source and s.disconnected_at is null)
+     and exists (select 1 from public.stripe_connect_account d where d.workspace_id = p_dest) then
+    v_hits := concat_ws('; ', v_hits, 'both have a payments account (disconnect the merged-in workspace''s)');
+  end if;
+  -- Studio (620) keeps its files in storage under the workspace's id
+  -- (src/lib/studio/server/blobs.ts): rows can move, the files cannot, so a
+  -- merge would leave the source's media unreadable
+  if exists (select 1 from public.studio_blob s where s.workspace_id = p_source)
+     or exists (select 1 from public.studio_asset s where s.workspace_id = p_source) then
+    v_hits := concat_ws('; ', v_hits, 'the merged-in workspace has Studio media, which a merge cannot move yet');
+  end if;
+  if exists (select 1 from public.studio_record s join public.studio_record d
+               on d.workspace_id = p_dest and d.collection = s.collection and d.key = s.key
+             where s.workspace_id = p_source) then
+    v_hits := concat_ws('; ', v_hits, 'both have the same Studio records (presets, settings or ledgers)');
+  end if;
+  -- a demo workspace (669) is made-up data: its flag would come along, or
+  -- its guards refuse what the merge writes
+  if exists (select 1 from public.demo_workspace w where w.workspace_id in (p_source, p_dest)) then
+    v_hits := concat_ws('; ', v_hits, 'one of them is a demo workspace');
   end if;
   if v_hits is not null then
     raise exception 'the merge cannot combine these: %', v_hits using errcode = 'P0008';
@@ -268,6 +310,7 @@ as $$
 declare
   r record; v_dst uuid; v_slug text; n int;
   v_terms int := 0; v_archives int := 0; v_private int := 0; v_profiles int := 0; v_links_reslugged int := 0; v_job int := 0;
+  v_snippets_folded int := 0; v_snippets_renamed int := 0; v_holds int := 0; v_crm_links int := 0;
 begin
   -- a person's word in both vocabularies (430): the destination's stands
   delete from public.vocabulary_term s
@@ -337,7 +380,60 @@ begin
      and exists (select 1 from public.booking_link d where d.workspace_id = p_dest and d.purpose = 'job');
   get diagnostics v_job = row_count;
 
-  return jsonb_build_object('vocabulary_dropped', v_terms, 'auto_archive_days_joined', v_archives,
+  -- snippets (699): a shortcut is the workspace's (shared) or the maker's
+  -- (personal). The same shortcut with the same text folds (the source's
+  -- goes); with other text the source's takes the shortcut with -2, -3, ...
+  for r in
+    select s.id, s.shortcut, s.body, s.visibility, s.created_by from public.snippet s
+     where s.workspace_id = p_source
+       and exists (select 1 from public.snippet d
+                    where d.workspace_id = p_dest and d.shortcut = s.shortcut and d.visibility = s.visibility
+                      and (s.visibility = 'workspace' or d.created_by is not distinct from s.created_by))
+  loop
+    if exists (select 1 from public.snippet d
+                where d.workspace_id = p_dest and d.shortcut = r.shortcut and d.visibility = r.visibility
+                  and (r.visibility = 'workspace' or d.created_by is not distinct from r.created_by)
+                  and d.body = r.body) then
+      delete from public.snippet where id = r.id;
+      v_snippets_folded := v_snippets_folded + 1;
+    else
+      n := 2;
+      while exists (select 1 from public.snippet x
+                     where x.workspace_id in (p_source, p_dest) and x.visibility = r.visibility
+                       and (r.visibility = 'workspace' or x.created_by is not distinct from r.created_by)
+                       and x.shortcut = left(r.shortcut, 29) || '-' || n) loop
+        n := n + 1;
+      end loop;
+      update public.snippet set shortcut = left(r.shortcut, 29) || '-' || n where id = r.id;
+      v_snippets_renamed := v_snippets_renamed + 1;
+    end if;
+  end loop;
+
+  -- a person's hold on the same item in both (702): one hold, the later end
+  update public.inbox_hold d set held_until = greatest(d.held_until, s.held_until)
+    from public.inbox_hold s
+   where s.workspace_id = p_source and d.workspace_id = p_dest and d.user_id = s.user_id and d.item_key = s.item_key;
+  delete from public.inbox_hold s
+   where s.workspace_id = p_source
+     and exists (select 1 from public.inbox_hold d where d.workspace_id = p_dest and d.user_id = s.user_id and d.item_key = s.item_key);
+  get diagnostics v_holds = row_count;
+
+  -- the same outside record imported into both (462): the destination's link stands
+  delete from public.crm_source_link s
+   where s.workspace_id = p_source
+     and exists (select 1 from public.crm_source_link d
+                  where d.workspace_id = p_dest and d.source = s.source and d.kind = s.kind and d.external_id = s.external_id);
+  get diagnostics v_crm_links = row_count;
+
+  -- the source's turned-off payments account (a live one on both sides is
+  -- refused by _wsmerge_front_door_check)
+  delete from public.stripe_connect_account s
+   where s.workspace_id = p_source and s.disconnected_at is not null
+     and exists (select 1 from public.stripe_connect_account d where d.workspace_id = p_dest);
+
+  return jsonb_build_object('snippets_folded', v_snippets_folded, 'snippets_renamed', v_snippets_renamed,
+                            'inbox_holds_joined', v_holds, 'crm_source_links_dropped', v_crm_links,
+                            'vocabulary_dropped', v_terms, 'auto_archive_days_joined', v_archives,
                             'private_threads_dropped', v_private, 'booking_profiles_folded', v_profiles,
                             'booking_links_reslugged', v_links_reslugged, 'job_booking_pages_dropped', v_job);
 end;
@@ -447,6 +543,12 @@ BEGIN
   UPDATE public.drive_folder t SET created_by = x.dst FROM pg_temp._wsmerge_members x WHERE t.created_by = x.src;
   UPDATE public.drive_folder_item t SET added_by = x.dst FROM pg_temp._wsmerge_members x WHERE t.added_by = x.src;
   UPDATE public.company t SET share_email_changed_by_member_id = x.dst FROM pg_temp._wsmerge_members x WHERE t.share_email_changed_by_member_id = x.src;
+  -- the batch after 705: snippets (699; a personal one whose maker went
+  -- would be deleted by snippet_drop_orphan), polls (703), imports (704)
+  UPDATE public.snippet t SET created_by = x.dst FROM pg_temp._wsmerge_members x WHERE t.created_by = x.src;
+  UPDATE public.team_chat_poll t SET created_by = x.dst FROM pg_temp._wsmerge_members x WHERE t.created_by = x.src;
+  UPDATE public.team_chat_poll t SET closed_by = x.dst FROM pg_temp._wsmerge_members x WHERE t.closed_by = x.src;
+  UPDATE public.work_import t SET member_id = x.dst FROM pg_temp._wsmerge_members x WHERE t.member_id = x.src;
   -- A company's owner (679) must be a member of the company's own workspace
   -- (company_crm_fields_guard): the source's companies are still in the
   -- source here, so the owner is set aside and given back by
@@ -498,6 +600,10 @@ BEGIN
   UPDATE public.team_chat_reaction t SET member_id = x.dst FROM pg_temp._wsmerge_members x
   WHERE t.member_id = x.src AND NOT EXISTS (SELECT 1 FROM public.team_chat_reaction y WHERE y.message_id = t.message_id AND y.member_id = x.dst AND y.emoji = t.emoji);
   DELETE FROM public.team_chat_reaction t USING pg_temp._wsmerge_members x WHERE t.member_id = x.src;
+
+  UPDATE public.team_chat_poll_vote t SET member_id = x.dst FROM pg_temp._wsmerge_members x
+  WHERE t.member_id = x.src AND NOT EXISTS (SELECT 1 FROM public.team_chat_poll_vote y WHERE y.poll_id = t.poll_id AND y.option_id = t.option_id AND y.member_id = x.dst);
+  DELETE FROM public.team_chat_poll_vote t USING pg_temp._wsmerge_members x WHERE t.member_id = x.src;
 
   UPDATE public.team_call_participant t SET member_id = x.dst FROM pg_temp._wsmerge_members x
   WHERE t.member_id = x.src AND NOT EXISTS (SELECT 1 FROM public.team_call_participant y WHERE y.call_id = t.call_id AND y.member_id = x.dst);
@@ -1134,6 +1240,126 @@ begin
   end if;
 
   new.updated_at := now();
+  return new;
+end;
+$function$;
+
+-- ── 6. The batch's guards (699, 702, 703, 705), also during a merge ─────────
+-- snippet_before_write (699_snippets.sql) put workspace_id back like 675's;
+-- team_chat_poll_vote_guard (703_team_chat_polls.sql) refused any update to
+-- a vote on a closed poll, the re-stamp included; inbox_hold_guard
+-- (702_channel_snooze_inbox_hold.sql) refused a hold's workspace changing;
+-- booking_link_form_guard (705_booking_insights.sql) refused a link whose
+-- form is still in the source, which the re-stamp's table order makes every
+-- link with a form. Each is restated with one change: during a merge
+-- (_wsmerge_active) the move is let through.
+
+CREATE OR REPLACE FUNCTION public.snippet_before_write()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+begin
+  if tg_op = 'UPDATE' then
+    -- a workspace merge (402) moves it with everything else (707)
+    if not public._wsmerge_active() then
+      new.workspace_id := old.workspace_id;
+    end if;
+    new.created_at := old.created_at;
+    if current_user in ('authenticated', 'anon') then
+      if new.created_by is distinct from old.created_by then
+        raise exception 'Who made a snippet cannot be changed.' using errcode = '42501';
+      end if;
+      if new.visibility is distinct from old.visibility
+         and (old.created_by is null or old.created_by is distinct from public.current_member_id(old.workspace_id)) then
+        raise exception 'Only the person who made a snippet changes who sees it.' using errcode = '42501';
+      end if;
+    end if;
+  end if;
+  new.updated_at := now();
+  return new;
+end;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.team_chat_poll_vote_guard()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+declare
+  p public.team_chat_poll;
+begin
+  -- a workspace merge (402) moves votes, and re-points a folded member's,
+  -- closed polls included (707)
+  if public._wsmerge_active() then
+    return new;
+  end if;
+  select * into p from public.team_chat_poll where id = new.poll_id;
+  if not found then
+    raise exception 'team chat: no such poll' using errcode = '23503';
+  end if;
+  if p.closed_at is not null or (p.closes_at is not null and p.closes_at <= now()) then
+    raise exception 'team chat: this poll is closed' using errcode = '22023';
+  end if;
+  if new.workspace_id is distinct from p.workspace_id then
+    raise exception 'team chat: a vote is in its poll''s workspace' using errcode = '23514';
+  end if;
+  if not p.multiple and exists (
+    select 1 from public.team_chat_poll_vote v
+     where v.poll_id = new.poll_id and v.member_id = new.member_id and v.option_id <> new.option_id
+  ) then
+    raise exception 'team chat: this poll takes one choice' using errcode = '22023';
+  end if;
+  return new;
+end;
+$function$;
+
+revoke all on function public.team_chat_poll_vote_guard() from public, anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.inbox_hold_guard()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+begin
+  if tg_op = 'UPDATE' and (
+    new.user_id is distinct from old.user_id
+    or (new.workspace_id is distinct from old.workspace_id and not public._wsmerge_active())
+    or new.item_key is distinct from old.item_key
+  ) then
+    raise exception 'inbox: a hold''s item never changes' using errcode = '42501';
+  end if;
+  new.held_at := now();
+  -- The person's holds that ended a month ago are only clutter.
+  delete from public.inbox_hold h
+   where h.user_id = new.user_id
+     and h.held_until < now() - interval '30 days'
+     and h.item_key is distinct from new.item_key;
+  return new;
+end;
+$function$;
+
+revoke all on function public.inbox_hold_guard() from public, anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.booking_link_form_guard()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO ''
+AS $function$
+begin
+  -- a workspace merge (402) moves the link and its form, in table order (707)
+  if public._wsmerge_active() then
+    return new;
+  end if;
+  if new.form_id is null then
+    new.form_rule := null;
+    return new;
+  end if;
+  if not exists (select 1 from public.data_form f where f.id = new.form_id and f.workspace_id = new.workspace_id) then
+    raise exception 'a booking link''s form is one of its own workspace''s' using errcode = '23514';
+  end if;
   return new;
 end;
 $function$;
