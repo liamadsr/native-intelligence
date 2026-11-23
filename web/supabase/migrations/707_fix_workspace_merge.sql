@@ -83,7 +83,7 @@ SET LOCAL lock_timeout = '5s';
 -- site's form, a customer's booking page). The owner turns one side off
 -- first. Raised from _wsmerge_members, the first step that moves rows; the
 -- merge is one transaction, so nothing has changed when it refuses.
-create or replace function public._wsmerge_front_door_check(p_source uuid, p_dest uuid)
+CREATE OR REPLACE FUNCTION public._wsmerge_front_door_check(p_source uuid, p_dest uuid)
 returns void
 language plpgsql
 security definer
@@ -141,7 +141,7 @@ revoke execute on function public._wsmerge_front_door_check(uuid, uuid) from pub
 --     it keeps the later read mark), so the pair keeps one conversation.
 --   * A channel named like a live destination channel keeps its own,
 --     suffixed with the source workspace's name.
-create or replace function public._wsmerge_fold_chat_channel(p_src uuid, p_dst uuid)
+CREATE OR REPLACE FUNCTION public._wsmerge_fold_chat_channel(p_src uuid, p_dst uuid)
 returns void
 language plpgsql
 security definer
@@ -192,7 +192,7 @@ $$;
 
 revoke execute on function public._wsmerge_fold_chat_channel(uuid, uuid) from public, anon, authenticated;
 
-create or replace function public._wsmerge_team_chat(p_source uuid, p_dest uuid)
+CREATE OR REPLACE FUNCTION public._wsmerge_team_chat(p_source uuid, p_dest uuid)
 returns jsonb
 language plpgsql
 security definer
@@ -259,7 +259,7 @@ revoke execute on function public._wsmerge_team_chat(uuid, uuid) from public, an
 -- ── 3. One-per-person and one-per-workspace rows since 417 ─────────────────
 -- Called by _wsmerge_generic_restamp just before its loop, which would stop
 -- on each of these.
-create or replace function public._wsmerge_one_per_owner(p_source uuid, p_dest uuid)
+CREATE OR REPLACE FUNCTION public._wsmerge_one_per_owner(p_source uuid, p_dest uuid)
 returns jsonb
 language plpgsql
 security definer
