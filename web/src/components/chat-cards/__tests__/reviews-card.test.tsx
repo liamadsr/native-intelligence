@@ -134,7 +134,7 @@ const click = async (sel: string) => {
   await settle()
 }
 
-async function render(lists?: Record<string, unknown>) {
+async function render(lists?: Record<string, Record<string, unknown>>) {
   const store = makeStore('rev-1', spec)
   if (lists) store.update('rev-1', { lists })
   await mount.render(React.createElement(ReviewsCard, { toolCallId: 'rev-1', spec, store, fullScreen: true }))

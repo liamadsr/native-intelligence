@@ -53,7 +53,7 @@ describe('filterRows', () => {
     expect(filterRows(ROWS, [f('checks', 'is', ['failing'])]).map((r) => r.number)).toEqual([3])
     expect(filterRows(ROWS, [f('labels', 'includes', ['bug'])]).map((r) => r.number)).toEqual([1])
     expect(filterRows(ROWS, [f('linked', 'is', ['linked'])]).map((r) => r.number)).toEqual([1])
-    expect(filterRows(ROWS, [f('assignees', 'is_empty', null)]).map((r) => r.number)).toEqual([1, 2, 4, 5])
+    expect(filterRows(ROWS, [f('assignees', 'is_empty', [])]).map((r) => r.number)).toEqual([1, 2, 4, 5])
     expect(filterRows(ROWS, [f('state', 'is', ['merged']), f('board_column', 'is', ['draft'], 'or')]).map((r) => r.number)).toEqual([2, 5])
     expect(filterRows(ROWS, [f('created_at', 'gte', '2026-11-14T00:00:00Z')]).map((r) => r.number)).toEqual([4, 5])
   })
