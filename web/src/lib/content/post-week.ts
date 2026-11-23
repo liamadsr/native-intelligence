@@ -39,6 +39,7 @@
  * out of every draft, and a draft that names one is
  * refused, never carded.
  */
+import { wrapUntrusted } from '@/lib/email/untrusted'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { resolveCanonDocument } from '@/lib/documents/canon-doc'
 import { findSection, parseOutline, splitLines } from '@/lib/documents/markdown-structure'
@@ -168,9 +169,18 @@ export function renderPostWeekBlock(m: PostWeekMaterial): string {
     lines.push('', 'Moments from their own calls (their words; keep them as themes, never a name, a company or a number from the call):')
     for (const x of m.moments) lines.push(`- [${x.key}] ${oneLine(x.text, 280)}${x.theme ? ` (theme: ${oneLine(x.theme, 60)})` : ''}`)
   }
-  if (m.shipped.length) {
+  const actionsShipped = m.shipped.filter((s) => s.kind !== 'pr')
+  const prsShipped = m.shipped.filter((s) => s.kind === 'pr')
+  if (actionsShipped.length) {
     lines.push('', 'Shipped:')
-    for (const s of m.shipped) lines.push(`- ${s.identifier ? `${s.identifier} ` : ''}${oneLine(s.title, 160)}${s.kind === 'pr' ? ' (pull request merged)' : ''}`)
+    for (const s of actionsShipped) lines.push(`- ${s.identifier ? `${s.identifier} ` : ''}${oneLine(s.title, 160)}`)
+  }
+  // A merged pull request's title was written on GitHub, by whoever opened it
+  // (a PR from any repository that names an action's identifier links to it:
+  // docs/plans/github-reviews.md, Decisions), so it is fenced as outside text.
+  if (prsShipped.length) {
+    lines.push('', 'Pull requests merged (their titles as written on GitHub):')
+    lines.push(wrapUntrusted(prsShipped.map((s) => `- ${s.identifier ? `${s.identifier} ` : ''}${oneLine(s.title, 160)}`).join('\n'), 'WEB') ?? '')
   }
   if (m.docs.length) {
     lines.push('', 'Published documents (read one with get_document before you quote it):')

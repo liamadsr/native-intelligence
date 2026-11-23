@@ -3,6 +3,7 @@
  * panel): the issue, its project repo, parent and sub-issues, PRs, recent
  * comments and links, in an XML-like shape any coding tool can take.
  */
+import { wrapUntrusted } from '@/lib/email/untrusted'
 
 export async function buildActionContext(actionId: string): Promise<{ prompt: string }> {
   const [actionRes, prsRes, commentsRes, subActionsRes] = await Promise.all([
@@ -84,7 +85,8 @@ export async function buildActionContext(actionId: string): Promise<{ prompt: st
     lines.push(`<pull-requests>`)
     for (const pr of prs) {
       const status = pr.pr_draft ? 'draft' : pr.pr_state
-      lines.push(`<pr repo="${pr.repo_full_name}" number="${pr.pr_number}" state="${status}">${pr.pr_title || 'Untitled'}</pr>`)
+      // A PR's title is whoever opened it on GitHub (any repo's PR naming the identifier links): outside text, fenced.
+      lines.push(`<pr repo="${pr.repo_full_name}" number="${pr.pr_number}" state="${status}">${pr.pr_title ? wrapUntrusted(pr.pr_title, 'WEB') : 'Untitled'}</pr>`)
     }
     lines.push(`</pull-requests>`)
   }

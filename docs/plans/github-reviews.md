@@ -269,7 +269,16 @@ None planned (GraphQL through `fetch`; the diff renderer is our own).
    branch-name links only inside the fence; the older title/body links (any workspace
    with a GitHub connection) are kept as they were, so nothing that links today stops.
    Fencing those too is a one-line change if the owner wants it (they then form only in
-   workspaces that added the repo).
+   workspaces that added the repo). **The owner's call.** Fencing now would stop links
+   forming in every workspace that hasn't picked its repositories yet, a regression
+   until it does. The cost of leaving it: a pull request in any repository (a stranger's,
+   on a public repo) whose title names ENG-42 links to ENG-42, so its title shows on the
+   action. That title is outside text. Every place an agent reads it now fences it as
+   untrusted (`wrapUntrusted`, kind WEB): the MCP tools `ni_link_pr`, `ni_get_pr_status`
+   and `ni_list_linked_prs`, the action's "Copy as prompt" context
+   (`build-action-context.ts`), and the weekly post's "pull requests merged" block
+   (`content/post-week.ts`). Before this, all four passed it raw. The agent events
+   (`pr.changed`) never carried the title.
 11. **Repositories are the workspace's**, chosen by owners and admins, managed from any
     team's settings. Nothing moves until one is added.
 6. **Board column for closed, unmerged PRs**: none (counted under the board, listed in List).
