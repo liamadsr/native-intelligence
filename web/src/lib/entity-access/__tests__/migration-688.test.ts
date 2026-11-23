@@ -205,24 +205,23 @@ describe('migration 688: the file', () => {
   })
 })
 
-describe('the app holds new spreadsheet and canvas grants until Phase 3', () => {
-  it('holds exactly the two kinds 688 adds', () => {
-    expect([...GRANTING_HELD_TYPES].sort()).toEqual(['canvas', 'spreadsheet'])
+describe('the app makes spreadsheet and canvas grants (un-held after decision 12)', () => {
+  it('holds no kind', () => {
+    expect([...GRANTING_HELD_TYPES]).toEqual([])
   })
 
   for (const type of ['spreadsheet', 'canvas'] as const) {
-    it(`addEntityGrant refuses a ${type} without writing, by hand or by an @-mention`, async () => {
-      for (const source of ['manual', 'mention'] as const) {
-        const from = vi.fn()
-        const supabase = { from } as unknown as SupabaseClient
-        const result = await addEntityGrant(supabase, { workspaceId: 'w', memberId: 'm' }, type, 'r', { kind: 'member', id: 'b' }, 'view', source)
-        expect(result).toEqual({ error: 'forbidden', message: "This can't be shared yet" })
-        expect(from).not.toHaveBeenCalled()
-      }
+    it(`addEntityGrant writes a ${type}'s grant (the database decides who may)`, async () => {
+      const single = vi.fn().mockResolvedValue({ data: { id: 'g1' }, error: null })
+      const insert = vi.fn(() => ({ select: () => ({ single }) }))
+      const supabase = { from: vi.fn(() => ({ insert })) } as unknown as SupabaseClient
+      const result = await addEntityGrant(supabase, { workspaceId: 'w', memberId: 'm' }, type, 'r', { kind: 'member', id: 'b' }, 'edit')
+      expect(result).toEqual({ id: 'g1' })
+      expect(insert).toHaveBeenCalledWith(expect.objectContaining({ entity_type: type, grantee_member_id: 'b', level: 'edit', granted_by: 'm', source: 'manual' }))
     })
   }
 
-  it('a kind that is not held still writes its grant', async () => {
+  it('a kind that was never held writes its grant', async () => {
     const single = vi.fn().mockResolvedValue({ data: { id: 'g1' }, error: null })
     const insert = vi.fn(() => ({ select: () => ({ single }) }))
     const supabase = { from: vi.fn(() => ({ insert })) } as unknown as SupabaseClient
