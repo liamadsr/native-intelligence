@@ -728,12 +728,16 @@ export function ShowToolCard({
   const headerIsland = shownFullScreen && besideRail
 
   // A card that goes full screen takes the keyboard: its frame gets the
-  // focus (unless something inside it already has it). Keys belong to where
+  // focus (unless something inside it already has it, or a hub's list does). Keys belong to where
   // the focus is, so the page beside it keeps its own once clicked.
   const fullScreenRef = React.useRef<HTMLDivElement>(null)
   React.useEffect(() => {
     const frame = fullScreenRef.current
     if (!shownFullScreen || !frame || frame.contains(document.activeElement)) return
+    // Opened from a hub's list (home's Recent, Inbox's: rail/selected-place.ts
+    // HUB_PLACE_ATTR) with the focus still there: the keys stay with the list,
+    // so J / K flip on to the next item (Liam, 11-23).
+    if (document.activeElement?.closest('[data-hub-place]')) return
     frame.focus({ preventScroll: true })
   }, [shownFullScreen])
 

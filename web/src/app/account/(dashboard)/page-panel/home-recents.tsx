@@ -107,7 +107,7 @@ import {
 } from './recents-model'
 import { useRecents } from './use-recents'
 import { useRecentsFilter } from './use-recents-filter'
-import { useOpenedRow } from './hub-open'
+import { keepFocusAfterFlip, useOpenedRow } from './hub-open'
 import type { PagePanelProps } from './page-panel-types'
 
 /**
@@ -209,6 +209,9 @@ function RecentsPanel({ active, mode, front, onContent, shown }: PagePanelProps 
       markOpened(item)
       return
     }
+    // The focus stays on the row (a card's editor would take it as it mounts), so J / K go on flipping.
+    const row = typeof document !== 'undefined' ? document.activeElement : null
+    if (flips(item) && row instanceof HTMLElement && row.dataset.recentItem === item.key) keepFocusAfterFlip(row)
     if (openRecent(item)) {
       markOpened(item)
       noteOpened(item.key)

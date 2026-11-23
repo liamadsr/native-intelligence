@@ -31,3 +31,4 @@ describe('the opened row', () => {
     expect(openedRowLit(opened('tc'), null)).toBeNull()
   })
 })
+

@@ -90,6 +90,12 @@ open it** there. A file or an agent chat (they open a viewer over the page) is o
 Enter opens it. The lit row follows the card in front; for a team chat card, which names no
 record, the panel remembers the row it opened (`page-panel/hub-open.ts`).
 
+A card that comes in front leaves the focus where it is while it is in a hub's list
+(`show-tool-card.tsx`), and a hub's open holds the focus on its row for a few seconds
+(`hub-open.ts` `keepFocusAfterFlip`): in the browser, a document's editor took the focus as it
+opened, and the next J was typed into the document instead of flipping. To type in the item,
+click into it.
+
 ### Inbox's panel
 
 `PAGE_PANELS.inbox` (`page-panel/inbox-panel.tsx`) holds the filter (small pills, with counts) and
@@ -125,6 +131,17 @@ copy of the list.
 5. A card in front that came from Home's chat (a chip, the agent's mail card on a thread) also
    shows as its one item while Home is selected, since Home is the hub. A mail card on a folder,
    or Team chat's own page card, is the full page.
+
+## Checked in the browser (local dev server, 2026-11-23)
+
+From `md` up, at 1440 and 1100 wide, light and dark, on the test account, with made-up mail and
+inbox rows: a channel from Recent keeps Home lit with Recent beside it and the conversation
+alone; J/K flip from it through the documents, the row lit and the focus kept, one card left
+after five opens; a mail thread opened from Home is that thread alone; Inbox from the rail
+shows its panel and the note; a mail from the panel opens alone beside it, J flips to the next;
+the rail's Team chat button still opens the page with its sub-nav. At 800 wide, Home's Recent
+has no room beside the chat and isn't shown (as before this change); Inbox's panel shows, as
+every page's sub-nav does.
 
 ## Tests
 

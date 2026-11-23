@@ -49,3 +49,32 @@ export function useOpenedRow(frontId: string | null): [string | null, (key: stri
   const note = useCallback((key: string) => setEntry({ key, frontId, at: clock(), settled: false }), [frontId])
   return [openedRowLit(next, frontId), note]
 }
+
+/** How long a flip from the keys holds the focus in the list (the card it opens may take it as it mounts). */
+export const KEEP_FOCUS_MS = 4000
+
+/**
+ * After a flip from the keys (J / K in a hub's list), keep the focus on `el`
+ * a moment: the card it opened takes the focus as it mounts (a document's
+ * editor, a conversation's composer), and the next J would then be typed
+ * into it instead of flipping again (seen in the browser, 11-23). Any press
+ * of the person's own (a pointer down) ends it at once.
+ */
+export function keepFocusAfterFlip(el: HTMLElement, ms: number = KEEP_FOCUS_MS): () => void {
+  if (typeof document === 'undefined') return () => {}
+  const home = el.closest('[data-page-panel]') ?? el
+  const onFocusIn = (e: FocusEvent) => {
+    if (!el.isConnected) return stop()
+    if (e.target instanceof Node && home.contains(e.target)) return
+    el.focus({ preventScroll: true })
+  }
+  const timer = setTimeout(() => stop(), ms)
+  function stop() {
+    clearTimeout(timer)
+    document.removeEventListener('focusin', onFocusIn, true)
+    window.removeEventListener('pointerdown', stop, true)
+  }
+  document.addEventListener('focusin', onFocusIn, true)
+  window.addEventListener('pointerdown', stop, true)
+  return stop
+}

@@ -30,7 +30,7 @@ import { openTarget } from '@/lib/chat-cards/open-card'
 import { pageOfCard } from '../rail/rail-pages'
 import { useForYouEntries } from '../chat/for-you-column'
 import { InboxFilters, InboxList, INBOX_KEYS_HINT, inboxKeyDown } from '@/components/inbox/inbox-view'
-import { useInbox } from '@/components/inbox/inbox-store'
+import { inboxRows, useInbox } from '@/components/inbox/inbox-store'
 import { PagePanelFrame } from './page-panel-frame'
 import { PAGE_PANEL_LABELS, type PagePanelProps } from './page-panel-types'
 
@@ -69,7 +69,8 @@ export function InboxPanel({ active, mode, front, onContent }: PagePanelProps) {
         >
           <InboxList s={s} forYouCount={forYou.length} opts={opts} dense />
         </div>
-        <p className="shrink-0 px-3.5 pb-2.5 pt-1 text-[10.5px] leading-snug text-muted-foreground">{INBOX_KEYS_HINT}</p>
+        {/* The keys, while there is something for them. */}
+        {inboxRows(s).length > 0 && <p className="shrink-0 px-3.5 pb-2.5 pt-1 text-[10.5px] leading-snug text-muted-foreground">{INBOX_KEYS_HINT}</p>}
       </div>
     </PagePanelFrame>
   )

@@ -41,6 +41,7 @@ import { setRightPanelOpen, setSidePanelView } from '@/app/account/(dashboard)/s
 import { HOLD_CHOICES, INBOX_FILTERS, holdChoiceLabel, holdUntil, type HoldChoice, type InboxFilter, type InboxItem } from '@/lib/inbox/items'
 import type { CardRecordType } from '@/lib/chat-cards/kinds'
 import { CardHeaderSlot, useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
+import { keepFocusAfterFlip } from '@/app/account/(dashboard)/page-panel/hub-open'
 import {
   closeInboxItem,
   inboxCounts,
@@ -108,8 +109,12 @@ export function inboxKeyDown(e: KeyboardEvent<HTMLElement>, s: InboxState, opts:
     e.preventDefault()
     const next = Math.max(0, Math.min(rows.length - 1, cursor + (key === 'j' || e.key === 'ArrowDown' ? 1 : -1)))
     setInboxCursor(next)
-    // An item open: the next one opens in its place (flipping, Liam, 11-23).
-    if (s.openKey && next !== cursor && rows[next]) void inboxOpen(rows[next], opts)
+    // An item open: the next one opens in its place (flipping, Liam, 11-23),
+    // the focus kept in the list (the conversation's composer would take it).
+    if (s.openKey && next !== cursor && rows[next]) {
+      if (e.target instanceof HTMLElement) keepFocusAfterFlip(e.target)
+      void inboxOpen(rows[next], opts)
+    }
   } else if ((e.key === 'Enter' || key === 'o') && current) {
     e.preventDefault()
     void inboxOpen(current, opts)
@@ -261,8 +266,14 @@ export function InboxList({ s, forYouCount = 0, opts = {}, dense = false }: { s:
                   data-inbox-row={item.key}
                   data-inbox-row-index={i}
                   data-unread={item.unread ? '' : undefined}
-                  onClick={() => {
+                  onClick={(e) => {
                     setInboxCursor(i)
+                    // The keys stay with the list (the conversation's composer would take them), so J / K flip on.
+                    const list = e.currentTarget.closest<HTMLElement>('[data-inbox-list]')
+                    if (list) {
+                      list.focus({ preventScroll: true })
+                      keepFocusAfterFlip(list)
+                    }
                     void inboxOpen(item, opts)
                   }}
                   className={cn(
