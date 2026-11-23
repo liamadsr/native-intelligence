@@ -15,19 +15,24 @@ interface UploadAttachmentOptions {
   noteId?: string
   actionId?: string
   projectId?: string
+  /**
+   * A Drive upload (migration 709): on no record, its uploader's until it is
+   * filed; `folderId` files it there at once (every non-guest member reads it then).
+   */
+  drive?: { folderId?: string | null }
 }
 
 export async function uploadAttachment(
   opts: UploadAttachmentOptions,
 ): Promise<{ attachment: Record<string, unknown> }> {
-  const { file, noteId, actionId, projectId } = opts
+  const { file, noteId, actionId, projectId, drive } = opts
 
   const check = isAllowedAttachmentFile(file)
   if (!check.ok) {
     throw new AttachmentUploadError(check.reason)
   }
 
-  const parentId = noteId || actionId || projectId
+  const parentId = drive ? 'drive' : noteId || actionId || projectId
   if (!parentId) {
     throw new AttachmentUploadError('An attachment must be attached to a note, action, or project.')
   }
@@ -63,9 +68,9 @@ export async function uploadAttachment(
         file_name: file.name,
         file_size_bytes: file.size,
         mime_type: file.type || 'application/octet-stream',
-        note_id: noteId || undefined,
-        action_id: actionId || undefined,
-        project_id: projectId || undefined,
+        ...(drive
+          ? { drive_upload: true, folder_id: drive.folderId || undefined }
+          : { note_id: noteId || undefined, action_id: actionId || undefined, project_id: projectId || undefined }),
       }),
     })
   } catch {

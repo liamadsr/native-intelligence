@@ -21,7 +21,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { CommentableType } from '@/lib/comments'
 import { addEntityGrant } from '@/lib/entity-access/store'
-import { isGrantableType } from '@/lib/entity-access/model'
+import { MENTION_SHARE_SKIP_TYPES, isGrantableType } from '@/lib/entity-access/model'
 import { shareConversationWithMembers } from '@/lib/chat/conversation-share'
 import { shareMentionedMail } from '@/lib/email-share/share-on-mention'
 import { MAX_MENTIONED_RECORDS, type LabeledMentionRef } from '@/lib/entity-links/mentionable'
@@ -97,7 +97,8 @@ export async function applyCommentMentions(
     const others = mentions.memberIds.filter((id) => id !== input.memberId)
     let made = 0
     for (const record of mentions.records) {
-      if (!isGrantableType(record.type)) continue
+      // A spreadsheet or a canvas is shared only from its Share button (decision 12).
+      if (!isGrantableType(record.type) || MENTION_SHARE_SKIP_TYPES.has(record.type)) continue
       for (const memberId of others) {
         if (made >= MAX_GRANTS) break
         made++

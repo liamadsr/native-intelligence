@@ -1,4 +1,5 @@
 import { tool } from 'ai'
+import { searchChatFileText, searchUploadText } from '@/lib/drive/file-search'
 import { STRANGER_CONTACT_NAME, isStrangerContactSource, strangerEmail, webText } from './web-derived'
 import { z } from 'zod'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -17,6 +18,7 @@ import { toIlikeSearchTerm } from '@/lib/crm/ilike-search-term'
 import { filterRetrievalPassages, type RetrievalPassage } from '@/lib/ai/decisions/retrieval-filter'
 import { wrapUntrusted, type UntrustedKind } from '@/lib/email/untrusted'
 import { dropNowDocuments } from '@/lib/now/now-file'
+import { visibleAttachmentIds } from '@/lib/attachments/visibility'
 
 /** deep_search passages as a model reads them: each `chunk_text` inside the untrusted marker (A5). */
 export function fenceChunks<T>(rows: T[], kind: UntrustedKind): T[] {
@@ -39,11 +41,11 @@ function sanitizeProviderError(err: unknown, fallback: string): string {
 /**
  * Which of `captureIds` are `visibility = 'workspace'` in this workspace.
  *
- * rag_search / attachment_rag_search are keyed on the CHUNK's user_id — the
- * capture's OWNER at index time — so an unattended run "as" the creator still
- * gets that creator's own private chunks back. Post-filter on the parent capture
- * so the omit-private contract holds. Batched; fails closed (a capture that
- * doesn't come back is treated as hidden).
+ * rag_search is keyed on the CHUNK's user_id — the capture's OWNER at index
+ * time — so an unattended run "as" the creator still gets that creator's own
+ * private chunks back. Post-filter on the parent capture so the omit-private
+ * contract holds. (attachment_rag_search's hits go through keptAttachmentIds.)
+ * Batched; fails closed (a capture that doesn't come back is treated as hidden).
  */
 async function workspaceVisibleCaptureIds(
   supabase: SupabaseClient,
@@ -58,6 +60,30 @@ async function workspaceVisibleCaptureIds(
     .eq('visibility', 'workspace')
     .in('id', captureIds)
   return new Set(((data ?? []) as Array<{ id: string }>).map((r) => r.id))
+}
+
+/**
+ * Which attachment hits a toolset keeps, on top of the RPC's own fence (708:
+ * hybrid_search_attachments and attachment_rag_search ask
+ * attachment_readable_by, the attachments table's read rule for the
+ * requester, every parent kind):
+ *   - an unattended run (`omitPrivateCaptures`): only what every member reads,
+ *     so no private capture's file and no table row's file at all.
+ *     attachment_rag_search is keyed to the run's CREATOR, so its fence
+ *     answers for them and their private files would come back.
+ *   - a guest's or a linked agent's turn (`omitGrants`): the person's own rule
+ *     with no grant (a capture or table shared with the person is not theirs).
+ * null = keep every hit. Otherwise the ids to keep; fails closed.
+ */
+export async function keptAttachmentIds(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  ids: readonly string[],
+  run: { userId: string; omitPrivateCaptures: boolean; omitGrants: boolean },
+): Promise<Set<string> | null> {
+  if (run.omitPrivateCaptures) return visibleAttachmentIds(supabase, { workspaceId, userId: null }, ids)
+  if (run.omitGrants) return visibleAttachmentIds(supabase, { workspaceId, userId: run.userId }, ids, { grants: false })
+  return null
 }
 
 interface UnifiedResultRow {
@@ -561,7 +587,7 @@ export function createSearchTools(
           .array(z.enum(FIND_TYPES))
           .optional()
           .describe(
-            'Defaults to claim + capture + document. attachment / contact / email are opt-in (they route through separate indexes): add attachment when the question is about what a file or image contains.',
+            'Defaults to claim + capture + document. attachment / contact / email are opt-in (they route through separate indexes): add attachment when the question is about what a file or image contains. attachment also finds uploaded files and files sent in team chat by the words inside them (never mail attachments, whose text is not kept).',
           ),
         since: z
           .string()
@@ -726,7 +752,10 @@ export function createSearchTools(
               p_requesting_user_id: requestingUserId,
             })
             if (error) return { results: [] as HybridRow[], error: error.message }
-            const rows = ((data as HybridRow[]) || []).map((r) => ({
+            let hits = (data as HybridRow[]) || []
+            const kept = await keptAttachmentIds(supabase, workspaceId, hits.map((r) => r.result_id), { userId, omitPrivateCaptures, omitGrants })
+            if (kept) hits = hits.filter((r) => kept.has(r.result_id))
+            const rows = hits.map((r) => ({
               ...r,
               // A file's text is whoever wrote the file's (A5): marked as data.
               excerpt: wrapUntrusted(r.excerpt, 'FILE'),
@@ -822,11 +851,61 @@ export function createSearchTools(
           }
         })()
 
-        const [hybridResult, attachmentResult, contactResult, emailResult] = await Promise.all([
+        // ── Files by the words inside them (docs/plans/drive-files.md, phase 3):
+        //    uploads (their extracted text, fenced by the attachments' own rule)
+        //    and team chat files (710: the channels the person may read). Keyword
+        //    rows, appended as supplementary hits. A guest's or linked agent's
+        //    turn reads no upload text (the fence would count the person's grants). ──
+        const fileTextRunner = (async () => {
+          if (!wantsAttachments || !query.trim()) return { results: [] as HybridRow[], error: undefined as string | undefined }
+          const [uploads, chats] = await Promise.all([
+            omitGrants ? Promise.resolve({ hits: [] as Awaited<ReturnType<typeof searchUploadText>>['hits'], error: undefined }) : searchUploadText(supabase, { workspaceId, userId: requestingUserId }, query, cap),
+            searchChatFileText(supabase, { workspaceId, requestingUserId }, query, cap),
+          ])
+          const rows: HybridRow[] = [
+            ...uploads.hits.map((h) => ({
+              result_type: 'attachment',
+              result_id: h.attachmentId,
+              title: h.fileName,
+              score: null,
+              event_at: h.createdAt,
+              fts_rank: null,
+              vec_rank: null,
+              recency_rank: null,
+              // A file's text is whoever wrote the file's (A5): marked as data.
+              excerpt: wrapUntrusted(h.snippet, 'FILE'),
+              source_label: 'File',
+              source_type: 'attachment',
+              metadata: { matched: 'text', parent_capture_id: h.noteId, parent_action_id: h.actionId, project_id: h.projectId },
+              workspace_id: workspaceId,
+              workspace_name: activeWorkspaceName,
+            })),
+            ...chats.hits.map((h) => ({
+              result_type: 'team_chat_file',
+              result_id: h.messageId,
+              title: h.fileName,
+              score: null,
+              event_at: h.createdAt,
+              fts_rank: null,
+              vec_rank: null,
+              recency_rank: null,
+              excerpt: wrapUntrusted(h.snippet, 'FILE'),
+              source_label: h.channelKind === 'channel' ? `File in #${h.channelName ?? 'channel'}` : 'File in a direct message',
+              source_type: 'team_chat_file',
+              metadata: { channel_id: h.channelId, message_id: h.messageId, file_path: h.filePath },
+              workspace_id: workspaceId,
+              workspace_name: activeWorkspaceName,
+            })),
+          ]
+          return { results: rows, error: uploads.error ?? chats.error }
+        })()
+
+        const [hybridResult, attachmentResult, contactResult, emailResult, fileTextResult] = await Promise.all([
           hybridRunner,
           attachmentRunner,
           contactRunner,
           emailRunner,
+          fileTextRunner,
         ])
 
         // Fuse the hybrid stream (comparable scores) with the attachment stream
@@ -839,7 +918,9 @@ export function createSearchTools(
           results = hybridResult.results
         }
         // The person's Now file reaches only their own main chat (migration 440).
-        const all: HybridRow[] = [...results, ...contactResult.results, ...emailResult.results]
+        const seenFiles = new Set(results.filter((r) => r.result_type === 'attachment').map((r) => r.result_id))
+        const fileTextRows = fileTextResult.results.filter((r) => r.result_type !== 'attachment' || !seenFiles.has(r.result_id))
+        const all: HybridRow[] = [...results, ...fileTextRows, ...contactResult.results, ...emailResult.results]
         // Even there, only the person's OWN Now file: another member's never, shared or not.
         const withoutNow: HybridRow[] = await dropNowDocuments(supabase, all, nowReadable ? userId : null)
         const combined: HybridRow[] = omitGrants ? await dropGrantOnlyHits(supabase, withoutNow, userId) : withoutNow
@@ -882,6 +963,7 @@ export function createSearchTools(
           },
           ...(hybridResult.error ? { hybrid_error: hybridResult.error } : {}),
           ...(attachmentResult.error ? { attachments_error: attachmentResult.error } : {}),
+          ...(fileTextResult.error ? { file_text_error: fileTextResult.error } : {}),
           ...(contactResult.error ? { contacts_error: contactResult.error } : {}),
           ...(wantsContacts ? contactClampNote(cap) : {}),
           ...(emailResult.error ? { email_error: emailResult.error } : {}),
@@ -903,7 +985,7 @@ export function createSearchTools(
           .array(z.string())
           .optional()
           .describe(
-            'Entity types to search: action, capture, document, project, decision, claim, contact, email. Defaults to all except email.',
+            'Entity types to search: action, capture, document, project, decision, claim, contact, file, email. Defaults to all except email. file finds uploaded files and files sent in team chat by the words inside them (never mail attachments, whose text is not kept).',
           ),
         limit: z
           .number()
@@ -959,7 +1041,7 @@ export function createSearchTools(
         relationship_type,
       }) => {
         const cross_workspace = crossArg && !strictWorkspace
-        const requestedTypes = types || ['action', 'capture', 'document', 'project', 'decision', 'claim', 'contact']
+        const requestedTypes = types || ['action', 'capture', 'document', 'project', 'decision', 'claim', 'contact', 'file']
 
         const wantsEmail = requestedTypes.includes('email')
         const unifiedTypes = requestedTypes.filter((t) => t !== 'email' && t !== 'contact')
@@ -1065,10 +1147,45 @@ export function createSearchTools(
           }
         })()
 
-        const [unifiedResult, contactResult, emailResult] = await Promise.all([unifiedRunner, contactRunner, emailRunner])
+        // Files by the words inside them (docs/plans/drive-files.md, phase 3), in the active workspace.
+        const fileRunner = (async () => {
+          if (!requestedTypes.includes('file') || !query.trim()) return { results: [] as Array<UnifiedResultRow & { workspace_id: string; workspace_name: string }>, error: undefined as string | undefined }
+          const [uploads, chats] = await Promise.all([
+            omitGrants ? Promise.resolve({ hits: [] as Awaited<ReturnType<typeof searchUploadText>>['hits'], error: undefined }) : searchUploadText(supabase, { workspaceId, userId: requestingUserId }, query, limit ?? 20),
+            searchChatFileText(supabase, { workspaceId, requestingUserId }, query, limit ?? 20),
+          ])
+          const name = await resolveActiveWorkspaceName(supabase, workspaceId)
+          return {
+            results: [
+              ...uploads.hits.map((h) => ({
+                result_type: 'attachment',
+                result_id: h.attachmentId,
+                title: h.fileName,
+                subtitle: wrapUntrusted(h.snippet, 'FILE') ?? undefined,
+                rank: 0,
+                metadata: { matched: 'text', parent_capture_id: h.noteId, parent_action_id: h.actionId, project_id: h.projectId },
+                workspace_id: workspaceId,
+                workspace_name: name,
+              })),
+              ...chats.hits.map((h) => ({
+                result_type: 'team_chat_file',
+                result_id: h.messageId,
+                title: h.fileName,
+                subtitle: wrapUntrusted(h.snippet, 'FILE') ?? undefined,
+                rank: 0,
+                metadata: { channel_id: h.channelId, message_id: h.messageId, file_path: h.filePath, place: h.channelKind === 'channel' ? `#${h.channelName ?? 'channel'}` : 'a direct message' },
+                workspace_id: workspaceId,
+                workspace_name: name,
+              })),
+            ],
+            error: uploads.error ?? chats.error,
+          }
+        })()
+
+        const [unifiedResult, contactResult, emailResult, fileResult] = await Promise.all([unifiedRunner, contactRunner, emailRunner, fileRunner])
 
         // The person's Now file reaches only their own main chat (migration 440).
-        const found = [...unifiedResult.results, ...contactResult.results, ...emailResult.results]
+        const found = [...unifiedResult.results, ...contactResult.results, ...fileResult.results, ...emailResult.results]
         // Even there, only the person's OWN Now file: another member's never, shared or not.
         const withoutNow = await dropNowDocuments(supabase, found, nowReadable ? userId : null)
         const allResults = omitGrants ? await dropGrantOnlyHits(supabase, withoutNow, userId) : withoutNow
@@ -1087,8 +1204,10 @@ export function createSearchTools(
           sources: {
             unified: unifiedResult.results.length,
             contacts: contactResult.results.length,
+            files: fileResult.results.length,
             email: emailResult.results.length,
           },
+          ...(fileResult.error ? { file_error: fileResult.error } : {}),
           ...(unifiedResult.errors.length ? { unified_error: unifiedResult.errors[0] } : {}),
           ...(contactResult.errors.length ? { contacts_error: contactResult.errors[0] } : {}),
           ...(wantsContacts ? contactClampNote(limit ?? 20) : {}),
@@ -1279,23 +1398,14 @@ export function createSearchTools(
                 })
                 if (error) return { workspace: w, rows: [], error: error.message }
                 let rows = (data as Array<Record<string, unknown>>) || []
-                if (omitPrivateCaptures) {
-                  // Same caller-keyed gap as rag_search: an attachment inherits
-                  // its parent capture's visibility, so drop chunks whose parent
-                  // capture is private. Parentless attachments are unaffected.
-                  const parentIds = [
-                    ...new Set(
-                      rows
-                        .map((r) => r.parent_capture_id as string | null)
-                        .filter((id): id is string => Boolean(id)),
-                    ),
-                  ]
-                  const visible = await workspaceVisibleCaptureIds(supabase, w.id, parentIds)
-                  rows = rows.filter((r) => {
-                    const parent = r.parent_capture_id as string | null
-                    return !parent || visible.has(parent)
-                  })
-                }
+                // 708's fence answers for p_user_id; an unattended or guest turn keeps less (keptAttachmentIds).
+                const kept = await keptAttachmentIds(
+                  supabase,
+                  w.id,
+                  rows.map((r) => r.attachment_id as string),
+                  { userId, omitPrivateCaptures, omitGrants },
+                )
+                if (kept) rows = rows.filter((r) => kept.has(r.attachment_id as string))
                 return { workspace: w, rows, error: undefined as string | undefined }
               }),
             )

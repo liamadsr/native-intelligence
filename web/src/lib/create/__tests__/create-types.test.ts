@@ -4,10 +4,12 @@ import { CARD_PAGES, pagesFor } from '@/lib/chat-cards/page-menu'
 import { getEdition } from '@/lib/editions/manifest'
 
 describe('create types', () => {
-  it('keeps the dialog’s six forms, always offered', () => {
+  it('keeps the dialog’s six forms, always offered, and the types with no page of their own', () => {
     const forms = CREATE_TYPES.filter((t) => t.mode === 'form').map((t) => t.id)
     expect(forms.sort()).toEqual(['action', 'contact', 'email', 'event', 'initiative', 'project'])
-    expect(availableCreateTypes([]).map((t) => t.id).sort()).toEqual(forms)
+    const always = CREATE_TYPES.filter((t) => t.always).map((t) => t.id)
+    expect(always).toEqual(['snippet'])
+    expect(availableCreateTypes([]).map((t) => t.id).sort()).toEqual([...forms, ...always].sort())
   })
 
   it('names a real `/` page for every other type, and a group the picker draws', () => {
@@ -15,7 +17,8 @@ describe('create types', () => {
     const groups = new Set(CREATE_TYPE_GROUPS.map((g) => g.id))
     for (const t of CREATE_TYPES) {
       expect(groups.has(t.group), t.id).toBe(true)
-      if (t.mode !== 'form') expect(slugs.has(t.page!), `${t.id} → ${t.page}`).toBe(true)
+      if (t.mode !== 'form' && !t.always) expect(slugs.has(t.page!), `${t.id} → ${t.page}`).toBe(true)
+      if (t.always) expect(t.page, `${t.id} has no page`).toBeUndefined()
       expect(t.opensPage === true, t.id).toBe(t.mode === 'page')
     }
   })

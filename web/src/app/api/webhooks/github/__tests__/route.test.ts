@@ -21,6 +21,26 @@ vi.mock('@/lib/flows/emit-pr-status-change', () => ({
   },
 }))
 vi.mock('@/lib/work/resolve', () => ({ resolveWorkForDeliverable: async () => {} }))
+// The pull-request automation (docs/plans/github-reviews.md, phase 2) is its own module's tests (pr-automation.test.ts).
+const auto = vi.hoisted(() => ({ pulls: [] as Array<Record<string, unknown>>, branches: [] as Array<Record<string, unknown>> }))
+const notices = vi.hoisted(() => ({ calls: [] as Array<{ kind: string; event?: string; delivery: string | null }> }))
+vi.mock('@/lib/github/pr-notices', () => ({
+  recordPull: async () => {},
+  onReviewRequested: async (_db: unknown, _p: unknown, delivery: string | null) => (notices.calls.push({ kind: 'review', delivery }), 1),
+  onPrComment: async (_db: unknown, event: string, _p: unknown, delivery: string | null) => (notices.calls.push({ kind: 'comment', event, delivery }), 2),
+  onChecksFailed: async (_db: unknown, _p: unknown, delivery: string | null) => (notices.calls.push({ kind: 'checks', delivery }), 0),
+}))
+vi.mock('@/lib/github/pr-automation', async (importOriginal) => ({
+  pullEventFrom: (await importOriginal<typeof import('@/lib/github/pr-automation')>()).pullEventFrom,
+  onPullRequest: async (_db: unknown, ev: Record<string, unknown>) => {
+    auto.pulls.push(ev)
+    return { linked: 0, moved: 0 }
+  },
+  onBranchCreated: async (_db: unknown, ev: Record<string, unknown>) => {
+    auto.branches.push(ev)
+    return 1
+  },
+}))
 vi.mock('@/lib/actions/agent-finish', () => ({ completeActionsForMergedPr: async () => {} }))
 const ci = vi.hoisted(() => ({ handled: [] as Array<Record<string, unknown>> }))
 vi.mock('@/lib/coding/ci-fix', async (importOriginal) => ({
@@ -131,7 +151,7 @@ describe('pull_request events → pr_status_changed loops', () => {
 
   it('ready_for_review confirms the proactive run’s suggested action linked to the PR, and fires no loop (P10 F4)', async () => {
     const res = await POST(hook('ready_for_review', { draft: false }))
-    expect(await res.json()).toEqual({ ok: true, confirmed: 1 })
+    expect(await res.json()).toEqual({ ok: true, confirmed: 1, automation: { linked: 0, moved: 0 } })
     expect(h.emitted).toEqual([])
   })
 
@@ -207,5 +227,75 @@ describe('check events → the CI fix loop (P10 F7)', () => {
     const res = await POST(checkHook('check_suite', { check_suite: { id: 5, conclusion: 'failure', head_branch: 'dial8/x', head_sha: 's' } }, 'sha256=00'))
     expect(res.status).toBe(401)
     expect(ci.handled).toEqual([])
+  })
+})
+
+describe('the pull-request automation (docs/plans/github-reviews.md, phase 2)', () => {
+  function raw(event: string, payload: Record<string, unknown>, signed = true) {
+    const body = JSON.stringify(payload)
+    const sig = signed ? `sha256=${crypto.createHmac('sha256', SECRET).update(body).digest('hex')}` : 'sha256=bad'
+    return new Request('https://nativeintelligence.test/api/webhooks/github', {
+      method: 'POST',
+      headers: { 'x-hub-signature-256': sig, 'x-github-event': event, 'x-github-delivery': 'del-2' },
+      body,
+    })
+  }
+
+  beforeEach(() => {
+    auto.pulls.length = 0
+    auto.branches.length = 0
+  })
+
+  it('hands a branch pushed to the automation, with GitHub’s id of the pusher', async () => {
+    const res = await POST(raw('create', { ref_type: 'branch', ref: 'eng-42-fix', repository: { full_name: 'acme/web' }, sender: { id: 101 } }))
+    expect(await res.json()).toEqual({ ok: true, moved: 1 })
+    expect(auto.branches).toEqual([{ repoFullName: 'acme/web', branch: 'eng-42-fix', senderId: 101 }])
+  })
+
+  it('ignores a tag, and anything unsigned', async () => {
+    await POST(raw('create', { ref_type: 'tag', ref: 'v1', repository: { full_name: 'acme/web' }, sender: { id: 101 } }))
+    expect((await POST(raw('create', { ref_type: 'branch', ref: 'eng-42', repository: { full_name: 'acme/web' }, sender: { id: 101 } }, false))).status).toBe(401)
+    expect(auto.branches).toEqual([])
+  })
+
+  it('hands every pull request event to the automation', async () => {
+    await POST(hook('opened', {}))
+    await POST(hook('closed', { state: 'closed', merged: true }))
+    expect(auto.pulls.map((p) => p.action)).toEqual(['opened', 'closed'])
+    expect(auto.pulls[1]).toMatchObject({ repoFullName: 'acme/web', number: 7, merged: true, authorAssociation: 'MEMBER' })
+  })
+})
+
+describe('GitHub notices (docs/plans/github-reviews.md, phase 3)', () => {
+  function raw(event: string, payload: Record<string, unknown>) {
+    const body = JSON.stringify(payload)
+    const sig = `sha256=${crypto.createHmac('sha256', SECRET).update(body).digest('hex')}`
+    return new Request('https://nativeintelligence.test/api/webhooks/github', {
+      method: 'POST',
+      headers: { 'x-hub-signature-256': sig, 'x-github-event': event, 'x-github-delivery': 'del-3' },
+      body,
+    })
+  }
+  beforeEach(() => {
+    notices.calls.length = 0
+  })
+
+  it('tells a review request, with the delivery id', async () => {
+    const res = await POST(hook('review_requested', {}))
+    expect(await res.json()).toMatchObject({ ok: true, told: 1 })
+    expect(notices.calls).toEqual([{ kind: 'review', delivery: 'del-1' }])
+  })
+
+  it('hands comments, reviews and review comments to the notices', async () => {
+    for (const e of ['issue_comment', 'pull_request_review', 'pull_request_review_comment']) {
+      const res = await POST(raw(e, { action: 'created', repository: { full_name: 'acme/web' } }))
+      expect(await res.json()).toEqual({ ok: true, told: 2 })
+    }
+    expect(notices.calls.map((c) => c.event)).toEqual(['issue_comment', 'pull_request_review', 'pull_request_review_comment'])
+  })
+
+  it('hands a check suite to the checks notice too', async () => {
+    await POST(raw('check_suite', { action: 'completed', check_suite: { conclusion: 'success' }, repository: { full_name: 'acme/web' } }))
+    expect(notices.calls).toEqual([{ kind: 'checks', delivery: 'del-3' }])
   })
 })

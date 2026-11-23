@@ -23,24 +23,24 @@ function client(opts: { canShare?: boolean; onlyByGrant?: boolean; count?: numbe
 }
 
 describe('loadRecordSharing', () => {
-  it('for its owner: may share, and how many it is shared with (canvas held for now)', async () => {
+  it('for its owner: may share, and how many it is shared with', async () => {
     const { db, counted } = client({ canShare: true, count: 2 })
-    expect(await loadRecordSharing(db, 'ws', 'canvas', 'c')).toEqual({ can_share: true, held: true, grant_count: 2, shared_with_me: false })
+    expect(await loadRecordSharing(db, 'ws', 'canvas', 'c')).toEqual({ can_share: true, held: false, grant_count: 2, shared_with_me: false })
     expect(counted).toHaveBeenCalledWith({ count: 'exact', head: true })
   })
 
   it('for someone it was shared with: shared with them, and no count', async () => {
     const { db } = client({ canShare: false, onlyByGrant: true, count: 5 })
-    expect(await loadRecordSharing(db, 'ws', 'spreadsheet', 's')).toEqual({ can_share: false, held: true, grant_count: 0, shared_with_me: true })
+    expect(await loadRecordSharing(db, 'ws', 'spreadsheet', 's')).toEqual({ can_share: false, held: false, grant_count: 0, shared_with_me: true })
   })
 
-  it('a kind that is not held, for a member of a workspace record: nothing to say', async () => {
+  it('for a member of a workspace record: nothing to say', async () => {
     const { db } = client({})
     expect(await loadRecordSharing(db, 'ws', 'document', 'd')).toEqual({ can_share: false, held: false, grant_count: 0, shared_with_me: false })
   })
 
   it('never throws', async () => {
     const { db } = client({ fail: true })
-    expect(await loadRecordSharing(db, 'ws', 'canvas', 'c')).toEqual({ can_share: false, held: true, grant_count: 0, shared_with_me: false })
+    expect(await loadRecordSharing(db, 'ws', 'canvas', 'c')).toEqual({ can_share: false, held: false, grant_count: 0, shared_with_me: false })
   })
 })

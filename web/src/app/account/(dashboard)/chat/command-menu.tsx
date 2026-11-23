@@ -66,6 +66,7 @@ import {
   Users,
   Workflow,
   type LucideIcon,
+  GitPullRequest,
 } from 'lucide-react'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { LibraryItemIcon } from '@/components/library-item-icon'
@@ -169,6 +170,7 @@ const PAGE_ICONS: Record<string, LucideIcon> = {
   calendar: CalendarDays,
   availability: CalendarClock,
   actions: CircleCheck,
+  reviews: GitPullRequest,
   captures: AudioLines,
   docs: BookOpen,
   files: Paperclip,

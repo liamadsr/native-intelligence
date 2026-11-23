@@ -106,7 +106,7 @@ export const TOOL_GUIDES: Readonly<Record<string, string>> = {
 
   // ── Mail ───────────────────────────────────────────────────────────────────
   create_email_draft:
-    'A reply goes in its thread: pass `thread_id` and `in_reply_to` (the last message id, from `read_email`), with the thread\'s people (the sender to, the cc list cc); the subject gets its "Re:". A draft is never sent: the person sends it from their mail.',
+    'A reply goes in its thread: pass `thread_id` and `in_reply_to` (the last message id, from `read_email`), with the thread\'s people (the sender to, the cc list cc); the subject gets its "Re:". A draft is never sent: the person sends it from their mail. Where the person keeps a snippet that fits (a signature, a standard answer: `list_snippets`), use its words, its {{fill-ins}} filled.',
   discard_email_draft: [
     'Only drafts Native Intelligence wrote that the person doesn\'t want; never one they wrote, never a send. Pass ids (from `get_email_drafts` or the `draft:` items of `list_bot_work`) with the reason that fits, one call per reason: `no_reply_needed` (receipts, notices, marketing, calendar replies, test mail), `outdated`, `duplicate`, `bad_draft` (a reply is owed but the draft is wrong) or `other`. The reason teaches drafting what not to draft.',
     'More than five they didn\'t name one by one: it answers `CONFIRM_FIRST` with the list; show it, wait for their yes, then call again with `confirmed: true`. Say what was discarded and what it couldn\'t.',

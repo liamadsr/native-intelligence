@@ -170,8 +170,12 @@ describe('migration 688: notifications', () => {
     expect(checkList(sql, 'notification_target_type_check')).toEqual([...checkList(sourceOf('679_crm_companies.sql'), 'notification_target_type_check'), 'canvas', 'spreadsheet'])
     // 687 (comments on canvases and spreadsheets) wrote the same list first: 687 then 688 leaves it as it was.
     expect(checkList(sql, 'notification_target_type_check')).toEqual(checkList(sourceOf('687_notification_canvas_spreadsheet.sql'), 'notification_target_type_check'))
+    // 695 (GitHub notices) widens it next with 'github_pr'.
+    expect(checkList(sourceOf('695_github_notifications.sql'), 'notification_target_type_check')).toEqual([...checkList(sql, 'notification_target_type_check'), 'github_pr'])
+    // 711 (comments on a file) restates 695's list with 'attachment' after it, and is the newest word since
+    // (src/lib/drive/__tests__/migration-711.test.ts holds that it adds nothing else).
     const newest = [...all].reverse().find((m) => /add constraint notification_target_type_check/i.test(m.sql))!.file
-    expect(newest).toBe(FILE)
+    expect(newest).toBe('711_file_comments.sql')
   })
 
   it('each check is dropped, added not valid, then validated', () => {
@@ -205,24 +209,23 @@ describe('migration 688: the file', () => {
   })
 })
 
-describe('the app holds new spreadsheet and canvas grants until Phase 3', () => {
-  it('holds exactly the two kinds 688 adds', () => {
-    expect([...GRANTING_HELD_TYPES].sort()).toEqual(['canvas', 'spreadsheet'])
+describe('the app makes spreadsheet and canvas grants (un-held after decision 12)', () => {
+  it('holds no kind', () => {
+    expect([...GRANTING_HELD_TYPES]).toEqual([])
   })
 
   for (const type of ['spreadsheet', 'canvas'] as const) {
-    it(`addEntityGrant refuses a ${type} without writing, by hand or by an @-mention`, async () => {
-      for (const source of ['manual', 'mention'] as const) {
-        const from = vi.fn()
-        const supabase = { from } as unknown as SupabaseClient
-        const result = await addEntityGrant(supabase, { workspaceId: 'w', memberId: 'm' }, type, 'r', { kind: 'member', id: 'b' }, 'view', source)
-        expect(result).toEqual({ error: 'forbidden', message: "This can't be shared yet" })
-        expect(from).not.toHaveBeenCalled()
-      }
+    it(`addEntityGrant writes a ${type}'s grant (the database decides who may)`, async () => {
+      const single = vi.fn().mockResolvedValue({ data: { id: 'g1' }, error: null })
+      const insert = vi.fn(() => ({ select: () => ({ single }) }))
+      const supabase = { from: vi.fn(() => ({ insert })) } as unknown as SupabaseClient
+      const result = await addEntityGrant(supabase, { workspaceId: 'w', memberId: 'm' }, type, 'r', { kind: 'member', id: 'b' }, 'edit')
+      expect(result).toEqual({ id: 'g1' })
+      expect(insert).toHaveBeenCalledWith(expect.objectContaining({ entity_type: type, grantee_member_id: 'b', level: 'edit', granted_by: 'm', source: 'manual' }))
     })
   }
 
-  it('a kind that is not held still writes its grant', async () => {
+  it('a kind that was never held writes its grant', async () => {
     const single = vi.fn().mockResolvedValue({ data: { id: 'g1' }, error: null })
     const insert = vi.fn(() => ({ select: () => ({ single }) }))
     const supabase = { from: vi.fn(() => ({ insert })) } as unknown as SupabaseClient

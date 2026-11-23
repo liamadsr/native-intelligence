@@ -96,6 +96,23 @@ describe('applyCommentMentions', () => {
     expect(tables.entity_access[0]).toMatchObject({ entity_type: 'document', entity_id: DOC, grantee_kind: 'member', grantee_member_id: BEN, level: 'view', source: 'mention', granted_by: ANA })
   })
 
+  it('never shares a mentioned spreadsheet or canvas: only its Share button does (decision 12); the edge is still drawn', async () => {
+    const SHEET = 'f0000000-0000-4000-8000-000000000001'
+    const BOARD = 'f0000000-0000-4000-8000-000000000002'
+    await applyCommentMentions(memoryDb(tables), {
+      workspaceId: WS,
+      userId: ANA_USER,
+      memberId: ANA,
+      commentable: { type: 'action', id: TASK },
+      mentions: { memberIds: [BEN], records: [{ type: 'spreadsheet', id: SHEET, label: 'Q3 plan' }, { type: 'canvas', id: BOARD, label: 'Launch board' }] },
+    })
+    expect(tables.entity_access).toEqual([])
+    expect(tables.entity_link.map((e) => [e.target_type, e.target_id])).toEqual([
+      ['spreadsheet', SHEET],
+      ['canvas', BOARD],
+    ])
+  })
+
   it('does nothing for a comment that mentions no record', async () => {
     await applyCommentMentions(memoryDb(tables), { workspaceId: WS, userId: ANA_USER, memberId: ANA, commentable: { type: 'action', id: TASK }, mentions: { memberIds: [BEN], records: [] } })
     expect(tables.entity_link).toEqual([])
@@ -136,11 +153,11 @@ describe('migration 671', () => {
 
   it('adds `mentioned` to the app’s notification types; 688 widens the check next', () => {
     const types = [...(/notification_type_check check \(type = any \(array\[([^\]]*)\]\)\)/.exec(BODY)?.[1] ?? '').matchAll(/'([a-z_]+)'/g)].map((v) => v[1])
-    // 688 (record sharing) adds 'record_shared' after it, and is the newest word on the check since.
-    expect(types).toEqual(NOTIFICATION_TYPES.filter((t) => t !== 'record_shared'))
+    // 688 (record sharing) adds 'record_shared' after it, then 695 (GitHub notices) the GitHub types; 695 is the newest word since.
+    expect(types).toEqual(NOTIFICATION_TYPES.filter((t) => t !== 'record_shared' && t !== 'github_review_requested' && t !== 'github_pr_comment' && t !== 'github_checks_failed'))
     expect(types[types.length - 1]).toBe('mentioned')
     const newest = [...migrationsInOrder()].reverse().find((m) => /add constraint notification_type_check/i.test(m.sql))!.file
-    expect(newest).toBe('688_record_sharing.sql')
+    expect(newest).toBe('695_github_notifications.sql')
     expect(BODY.indexOf('drop constraint if exists notification_type_check')).toBeLessThan(BODY.indexOf('add constraint notification_type_check'))
   })
 

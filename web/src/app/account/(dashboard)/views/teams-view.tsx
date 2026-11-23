@@ -1,5 +1,6 @@
 'use client'
 
+import { GithubAutomationSection } from '@/components/github/github-automation-section'
 import { PageTitle } from '@/components/views/page-title'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
@@ -118,6 +119,8 @@ interface Team {
   issue_prefix: string
   issue_counter: number
   is_private: boolean
+  /** Move actions with their pull requests (migration 694). */
+  github_automation?: boolean
   timezone: string
   created_at: string
   updated_at: string
@@ -972,6 +975,15 @@ function TeamDetailPanel({
               <Switch checked={isPrivate} onCheckedChange={(c) => { setIsPrivate(c); scheduleAutoSave() }} />
             </div>
           </div>
+
+          <Separator />
+
+          {/* GitHub automation (docs/plans/github-reviews.md, phase 2) */}
+          <GithubAutomationSection
+            teamId={teamId}
+            enabled={team.github_automation !== false}
+            onChanged={(on) => setTeam((t) => (t ? { ...t, github_automation: on } : t))}
+          />
 
           <Separator />
 

@@ -12,6 +12,9 @@ import { EditorContent, useEditor, type Editor } from '@tiptap/react'
 import { StarterKit, TiptapLink } from 'novel'
 import { cn } from '@/lib/utils'
 import { editorIsEmpty } from '@/lib/email/compose'
+import { SnippetSuggestion, createSnippetSuggestionStore } from '@/components/editor/snippet-suggestion'
+import { SnippetSuggestionMenu } from '@/components/editor/snippet-suggestion-menu'
+import type { FillInContext } from '@/lib/snippets/fill-ins'
 
 export interface ComposeEditorHandle {
   getHTML: () => string
@@ -33,6 +36,8 @@ interface ComposeEditorProps {
   autoFocus?: boolean
   onChange?: (html: string) => void
   className?: string
+  /** `;` snippets' fill-ins this message knows (its first recipient), read at the pick. */
+  snippetFillIns?: () => Partial<FillInContext>
 }
 
 /** Only web and mail links: a link is written into mail others open. */
@@ -67,9 +72,11 @@ export function sanitizeComposeHtml(html: string): string {
 }
 
 export const ComposeEditor = forwardRef<ComposeEditorHandle, ComposeEditorProps>(function ComposeEditor(
-  { initialHtml, placeholder = 'Write your message…', autoFocus = false, onChange, className },
+  { initialHtml, placeholder = 'Write your message…', autoFocus = false, onChange, className, snippetFillIns },
   ref,
 ) {
+  // `;` in the message: the person's snippets (docs/plans/snippets.md).
+  const [snippetStore] = useState(createSnippetSuggestionStore)
   const [empty, setEmpty] = useState(() => editorIsEmpty(initialHtml))
   // Re-render the toolbar's active states as the selection moves.
   const [, setTick] = useState(0)
@@ -87,6 +94,7 @@ export const ComposeEditor = forwardRef<ComposeEditorHandle, ComposeEditorProps>
         isAllowedUri: (url: string) => safeLinkHref(url) !== null,
         HTMLAttributes: { rel: 'noopener noreferrer', target: '_blank' },
       }),
+      SnippetSuggestion.configure({ store: snippetStore }),
     ],
     content: initialHtml || '',
     autofocus: autoFocus ? 'end' : false,
@@ -136,6 +144,7 @@ export const ComposeEditor = forwardRef<ComposeEditorHandle, ComposeEditorProps>
         </p>
       )}
       <EditorContent editor={editor} />
+      <SnippetSuggestionMenu store={snippetStore} fillIns={snippetFillIns} />
     </div>
   )
 })

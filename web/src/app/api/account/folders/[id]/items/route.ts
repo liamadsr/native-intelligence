@@ -23,7 +23,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   const auth = await requireFolderMember()
   if (auth instanceof Response) return auth
   const item = await readItem(request)
-  if (!item) return badRequest('Send { type, id }: a doc, table, spreadsheet or canvas.')
+  if (!item) return badRequest('Send { type, id }: a doc, table, spreadsheet, canvas or file.')
   const { error } = await auth.supabase
     .from('drive_folder_item')
     .upsert(
@@ -44,7 +44,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
   const auth = await requireFolderMember()
   if (auth instanceof Response) return auth
   const item = await readItem(request)
-  if (!item) return badRequest('Send { type, id }: a doc, table, spreadsheet or canvas.')
+  if (!item) return badRequest('Send { type, id }: a doc, table, spreadsheet, canvas or file.')
   const { error } = await auth.supabase
     .from('drive_folder_item')
     .delete()

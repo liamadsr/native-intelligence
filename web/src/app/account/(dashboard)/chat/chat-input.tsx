@@ -2,7 +2,7 @@
 
 import { createContext, memo, useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { flushSync } from 'react-dom'
-import { AlertCircle, ArrowUp, AudioLines, FileText, FolderOpen, ImageIcon, Lock, MousePointerClick, Paperclip, Plus, X } from 'lucide-react'
+import { AlertCircle, ArrowUp, AudioLines, FileText, FolderOpen, ImageIcon, Lock, MousePointerClick, Paperclip, Plus, X, type LucideIcon } from 'lucide-react'
 import { EntityIcon } from '@/components/entities/entity-icon'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -17,6 +17,8 @@ import {
 import type { MentionCompany, MentionContact } from './mention-picker'
 import { diffMentionRemovals, mentionLabel, removeMentionOccurrence } from './mention-text'
 import { SlashCommandPicker } from './slash-command-picker'
+import { SnippetMenu } from '@/components/snippets/snippet-menu'
+import { useTextareaSnippets } from '@/components/snippets/use-textarea-snippets'
 import type { CommandMenuHandle } from './command-menu'
 import {
   appendMention,
@@ -84,6 +86,15 @@ export interface ChatInputVoice {
 
 /** The composer's arrangement (ChatInput's `layout`). */
 export type ChatInputLayout = 'stacked' | 'inline'
+
+/** One item of the + menu's Create group (a host's own: `createItems`). */
+export interface ComposerCreateItem {
+  id: string
+  label: string
+  icon: LucideIcon
+  onSelect: () => void
+  disabled?: boolean
+}
 
 /** A control a host can't honour in its conversation. */
 export type ChatInputUnavailableControl = 'agent' | 'photos' | 'files'
@@ -205,6 +216,7 @@ export const ChatInput = memo(function ChatInput({
   mentionList,
   layout = 'stacked',
   fileAccept,
+  createItems,
 }: {
   value: string
   onChange: (value: string) => void
@@ -325,6 +337,13 @@ export const ChatInput = memo(function ChatInput({
    * chat's (upload-allowlist.ts).
    */
   fileAccept?: string
+  /**
+   * The + menu's Create group, for a host that makes things from the
+   * conversation (team chat: a poll, a task, a doc, a form, a call;
+   * docs/plans/channels-inbox.md, phase 4), under Add files. Absent or
+   * empty: no group, the menu as it always was.
+   */
+  createItems?: ReadonlyArray<ComposerCreateItem>
 }) {
   const inline = layout === 'inline'
   // The Code tab only starts jobs (each runs in its own view, with its own
@@ -638,9 +657,16 @@ export const ChatInput = memo(function ChatInput({
     [doneTriggers],
   )
   const menuToken = useMemo(() => boxTrigger(value, caret), [boxTrigger, value, caret])
+  // `;` in the box: the person's snippets (docs/plans/snippets.md). Its words go
+  // in where `;query` was, as a pick's do (commitPick, below).
+  const snippetsBox = useTextareaSnippets({
+    value,
+    enabled: !codeActive && isActive && !fieldBlurred && !voiceModeOn && !paletteOpen,
+    onCommit: (next) => commitPick(next),
+  })
   // Not in Code: the coding agent gets the words only, so no `/` skill or `@` record is offered there.
   const menuOpen =
-    !codeActive && !!menuToken && isActive && !fieldBlurred && !voiceModeOn && !paletteOpen && menuDismissedAt !== menuToken.start
+    !codeActive && !!menuToken && isActive && !fieldBlurred && !voiceModeOn && !paletteOpen && menuDismissedAt !== menuToken.start && !snippetsBox.open
   const readMenuAt = (next: { value: string; caret: number }) => {
     menuAtRef.current = next
     setMenuAt(next)
@@ -655,6 +681,7 @@ export const ChatInput = memo(function ChatInput({
     const at = menuAtRef.current
     const current = at.value === nextValue ? boxTrigger(nextValue, at.caret) : null
     if (!sameTriggerToken(next, current)) readMenuAt({ value: nextValue, caret: nextCaret })
+    snippetsBox.noteCaret(nextValue, nextCaret)
     // An Esc lasts while its trigger is typed on; leave it and it's forgotten.
     if (menuDismissedAt !== null && next?.start !== menuDismissedAt) {
       setMenuDismissedAt(null)
@@ -670,6 +697,11 @@ export const ChatInput = memo(function ChatInput({
     // While the menu shows, its keys are its own (↑ ↓ Enter Tab Esc): the
     // field neither sends nor moves for them.
     if (menuOpen && menuRef.current?.handleKey(e)) {
+      e.preventDefault()
+      e.stopPropagation()
+      return
+    }
+    if (snippetsBox.handleKey(e)) {
       e.preventDefault()
       e.stopPropagation()
       return
@@ -1513,6 +1545,31 @@ export const ChatInput = memo(function ChatInput({
                   <span>Select folder…</span>
                 </button>
               )}
+              {/* The host's Create group (team chat): each item closes the menu and runs. */}
+              {createItems && createItems.length > 0 && (
+                <div data-composer-create-group="" className="mt-1 border-t border-foreground/[0.06] pt-1">
+                  <p className="px-2 pb-0.5 pt-1 text-[11px] font-medium text-muted-foreground">Create</p>
+                  {createItems.map((item) => {
+                    const Icon = item.icon
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        data-composer-create={item.id}
+                        disabled={item.disabled}
+                        className="flex w-full items-center text-left gap-2.5 rounded-2xl px-2 py-2 text-sm hover:bg-muted/50 disabled:opacity-50"
+                        onClick={() => {
+                          setPlusMenuOpen(false)
+                          item.onSelect()
+                        }}
+                      >
+                        <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span>{item.label}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
               {/* This chat can't take photos yet: it says so, in the menu
                   that would otherwise offer them. */}
               {unavailable?.photos && (
@@ -1697,6 +1754,13 @@ export const ChatInput = memo(function ChatInput({
         onUnclaimedEnter={onSubmit}
         anchorRef={anchorRef}
         menuRef={menuRef}
+      />
+      {/* The `;` snippet menu above the box (the `@` menu's place and look). */}
+      <SnippetMenu
+        {...snippetsBox.menuProps}
+        anchorRef={anchorRef}
+        side="top"
+        fitAnchor
       />
       {/* The same menu, centred: `/` pressed outside any text field. */}
       {paletteOpen && (

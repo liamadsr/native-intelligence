@@ -22,13 +22,18 @@ interface LabelCellTriggerProps {
   attached: AttachedLabel[]
   /** The label scope used to fetch selectable labels */
   scope: LabelScope
-  onToggle: (labelId: string, isAttached: boolean) => void
+  /** The picked label rides along, so a row can draw a tag it did not have. */
+  onToggle: (labelId: string, isAttached: boolean, label?: AttachedLabel) => void
 }
 
-export function LabelCellTrigger({ attached, scope, onToggle }: LabelCellTriggerProps) {
+export function LabelCellTrigger({ attached, scope, onToggle: onToggleId }: LabelCellTriggerProps) {
   const [open, setOpen] = React.useState(false)
-  const { grouped } = useScopedLabels(scope)
+  const { grouped, labels } = useScopedLabels(scope)
   const selectedIds = attached.map(l => l.id)
+  const onToggle = (labelId: string, isAttached: boolean) => {
+    const l = labels.find(x => x.id === labelId)
+    onToggleId(labelId, isAttached, l ? { id: l.id, name: l.name, color: l.color } : undefined)
+  }
 
   if (!attached.length) {
     return (

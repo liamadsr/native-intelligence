@@ -593,3 +593,27 @@ whose `can_edit` is false.
   `lib/spreadsheets/presence-topic.ts`). The editor asks its GET again, and
   opens afresh only when its own answer changed (404, or a new `can_edit`), so
   another person's grant never costs anyone unsaved typing.
+
+## Follow-ups
+
+- **A read-only "Shared with…" list for people who may not share** (a
+  grantee, or a workspace member who isn't the owner). Today
+  `EntityAccessSection` shows nothing to them, and the header chip says only
+  "Shared with you". It would list the people, teams and channels it is
+  shared with, each at its level, without the picker or Remove. That needs a
+  read rule for grant rows that is wider than 492's, which shows a grant to
+  whoever may share the record and to its grantee only. Not scheduled.
+- **Team-chat @-mentions and Share to a channel** (`shareRecordsWithChannel`)
+  don't share spreadsheets or canvases under either answer to decision 12.
+  They only ever read documents, captures, contacts and companies. Adding the
+  two kinds is its own change.
+
+## Un-held (decision 12)
+
+`GRANTING_HELD_TYPES` is empty: the Share button and menu item, the chips,
+`shared_with` and new grants by hand all work for both kinds.
+
+**Outcome B (no):** an @-mention of a spreadsheet or canvas in a comment
+links it and notifies the teammate, but never shares it. Only its Share
+button does (`MENTION_SHARE_SKIP_TYPES`, `comment-mentions.ts`). Documents
+and tables keep sharing by mention.

@@ -32,6 +32,46 @@ beforeEach(() => {
   vi.spyOn(console, 'warn').mockImplementation(() => {})
 })
 
+describe('a pass books once (migration 705)', () => {
+  const ROW = '12345678-1234-4234-8234-123456789012'
+
+  it('the form row goes in the booking’s own insert; a second booking on it is refused', async () => {
+    const { db, tables } = studioDb()
+    const s = seams({ readTimes: openAt([T1, T2]) })
+    const first = await bookFromLink(db, { link: linkOf(), input: { start: T1, ...DANA, formRowId: ROW } }, s.deps)
+    expect(first.ok).toBe(true)
+    expect(tables.meeting_booking[0].form_row_id).toBe(ROW)
+    const second = await bookFromLink(db, { link: linkOf(), input: { start: T2, name: 'Eli Park', email: 'eli@initech.example', answers: { company: 'Initech' }, formRowId: ROW } }, s.deps)
+    expect(second).toMatchObject({ ok: false, code: 'PASS_USED', message: 'This pass has already been used; answer the form again.' })
+    expect(tables.meeting_booking).toHaveLength(1)
+  })
+
+  it('two bookings on one pass side by side: the unique index refuses the second whole', async () => {
+    const { db, tables } = studioDb()
+    // The other booking lands between this one's check and its write (while the calendar is read).
+    const racing = openAt([T2])
+    const readTimes = async (...args: Parameters<typeof racing>) => {
+      tables.meeting_booking.push({ id: 'b-other', workspace_id: WS, host_user_id: AVA, source: 'link', state: 'booking', form_row_id: ROW, manage_token_hash: 'h-other', starts_at: T1, ends_at: T1 })
+      return racing(...args)
+    }
+    const s = seams({ readTimes })
+    const result = await bookFromLink(db, { link: linkOf(), input: { start: T2, ...DANA, formRowId: ROW } }, s.deps)
+    expect(result).toMatchObject({ ok: false, code: 'PASS_USED' })
+    expect(tables.meeting_booking.map((b) => b.id)).toEqual(['b-other'])
+    expect(tables.host_time_claim).toEqual([])
+    expect(s.createEvent).not.toHaveBeenCalled()
+  })
+
+  it('a double click on the same pass is the booking it made, not a refusal', async () => {
+    const { db } = studioDb()
+    const s = seams({ readTimes: openAt([T1]) })
+    const first = await bookFromLink(db, { link: linkOf(), input: { start: T1, ...DANA, formRowId: ROW } }, s.deps)
+    const again = await bookFromLink(db, { link: linkOf(), input: { start: T1, ...DANA, formRowId: ROW } }, s.deps)
+    expect(again).toMatchObject({ ok: true, already: true })
+    expect(first.ok && again.ok && again.booking.id).toBe(first.ok && first.booking.id)
+  })
+})
+
 describe('a guest books straight on', () => {
   it('the time is held for the host and booked: the provider event with the guest invited, the answers kept, the manage link, the host told', async () => {
     const { db, tables } = studioDb()

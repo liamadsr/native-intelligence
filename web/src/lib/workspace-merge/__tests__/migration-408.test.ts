@@ -61,10 +61,17 @@ describe('migration 408: the engine review’s fixes', () => {
     for (const fn of ['_wsmerge_assert_no_refs', ...REPLACED]) {
       // 473 (deals) redefines _wsmerge_teams_finish, unchanged but for the legacy deal guard;
       // 520 (tables) redefines _wsmerge_members, unchanged but for three more pointers, and 528
-      // (field types) restates 520's with one call before anything moves.
+      // (field types) restates 520's with one call before anything moves. 700 (tags) restates
+      // _wsmerge_labels, unchanged but for its nine new join tables in the list. 707 (the merge on
+      // today's schema) restates five of them with the tables added since, each keeping its guard.
+      const M707 = '707_fix_workspace_merge.sql'
       const later: Record<string, string[]> = {
-        _wsmerge_teams_finish: ['473_deals_pipelines_custom_fields.sql'],
-        _wsmerge_members: ['520_data_tables.sql', '528_field_merge.sql'],
+        _wsmerge_teams_finish: ['473_deals_pipelines_custom_fields.sql', M707],
+        _wsmerge_members: ['520_data_tables.sql', '528_field_merge.sql', M707],
+        _wsmerge_labels: ['700_tags.sql'],
+        _wsmerge_companies: [M707],
+        _wsmerge_mail: [M707],
+        _wsmerge_default_projects: [M707],
       }
       const allowed = ['408_merge_workspaces_review_fixes.sql', ...(later[fn] ?? [])]
       expect(allowed, fn).toContain(newest(fn).file)

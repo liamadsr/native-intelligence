@@ -109,15 +109,24 @@ const BUSINESS_SETUP = ['update_business_profile', 'create_quote_form_link']
 const WORKING_HOURS = ['set_working_hours']
 /** Availability phase 4a: a booking link opens the person's calendar to anyone, so it is made and changed only at their word. */
 const BOOKING_LINKS = ['create_booking_link', 'update_booking_link', 'delete_booking_link']
+/** Booking insights: whether a guest came is the person's own word. */
+const BOOKING_ATTENDANCE = ['mark_booking_attendance']
 /** Forms phases 1 and 3: a form's link, or a personal link to it, lets its holder add rows to a table, so each is made and changed only at their word. */
 const FORMS = ['create_form', 'update_form', 'create_form_invites']
+/** Channel polls (docs/plans/channels-inbox.md): a poll reaches teammates, so it is posted only from the person's card. */
+const POLLS = ['post_team_chat_poll']
 const root = join(__dirname, '..', '..', '..', '..')
 
 describe('the attended-only set', () => {
   it('is exactly the three Phase 5 writes, the two A1 reads, the two A2 writes, remember, update_now, the card reader, the loop builders, the skill writers and the document restore, each a registry tool in an EXISTING category (no persona-grant migration)', () => {
     expect([...ATTENDED].sort()).toEqual(
-      [...WRITES, ...BOT_WORK_READS, ...BOT_WORK_WRITES, ...BOT_MANAGERS, ...MEMORY, ...NOW, ...GETTING_STARTED, ...CARD_READS, ...LOOP_BUILDERS, ...SKILL_WRITERS, ...DOCUMENT_RESTORE, ...DOCUMENT_DELETE, ...CONNECTIONS, ...POST_REVIEW, ...POST_SEND, ...MAIL_TRIAGE, ...DRAFT_DISCARD, ...BUSINESS_SETUP, ...WORKING_HOURS, ...BOOKING_LINKS, ...FORMS].sort(),
+      [...WRITES, ...BOT_WORK_READS, ...BOT_WORK_WRITES, ...BOT_MANAGERS, ...MEMORY, ...NOW, ...GETTING_STARTED, ...CARD_READS, ...LOOP_BUILDERS, ...SKILL_WRITERS, ...DOCUMENT_RESTORE, ...DOCUMENT_DELETE, ...CONNECTIONS, ...POST_REVIEW, ...POST_SEND, ...MAIL_TRIAGE, ...DRAFT_DISCARD, ...BUSINESS_SETUP, ...WORKING_HOURS, ...BOOKING_LINKS, ...BOOKING_ATTENDANCE, ...FORMS, ...POLLS].sort(),
     )
+    for (const name of POLLS) {
+      expect(TOOL_REGISTRY_MAP.get(name)?.category.id, name).toBe('notifications')
+      expect(getToolSideEffect(name), name).toBe('external-write')
+      expect(getMutatingToolNames().has(name), name).toBe(true)
+    }
     for (const name of BOOKING_LINKS) {
       expect(TOOL_REGISTRY_MAP.get(name)?.category.id, name).toBe('calendar')
       expect(getMutatingToolNames().has(name), name).toBe(true)
@@ -133,6 +142,14 @@ describe('the attended-only set', () => {
     // Their read stays a read, unattended-reachable.
     expect(getToolSideEffect('list_booking_links')).toBe('read')
     expect(ATTENDED_ONLY_TOOL_NAMES.has('list_booking_links')).toBe(false)
+    // Booking insights: the reads stay reads anyone's run may make; marking attendance is internal and attended only.
+    for (const name of ['list_link_bookings', 'get_booking_insights']) {
+      expect(getToolSideEffect(name), name).toBe('read')
+      expect(ATTENDED_ONLY_TOOL_NAMES.has(name), name).toBe(false)
+    }
+    expect(getToolSideEffect('mark_booking_attendance')).toBe('internal-write')
+    expect(TOOL_REGISTRY_MAP.get('mark_booking_attendance')?.category.id).toBe('calendar')
+    expect(getMutatingToolNames().has('mark_booking_attendance')).toBe(true)
     for (const name of WORKING_HOURS) {
       expect(TOOL_REGISTRY_MAP.get(name)?.category.id, name).toBe('calendar')
       expect(getToolSideEffect(name), name).toBe('internal-write')
@@ -387,7 +404,7 @@ describe('never in an unattended run', () => {
     // finish_getting_started (docs/plans/getting-started-skill.md): getting started is the app's chat's.
     // unsubscribe_thread (GEN-1166): likewise only on their card; update_email_thread is theirs to call.
     // set_working_hours (availability): for now the person sets their hours in the app's chat.
-    expect(mcpWithheldAttendedTools()).toEqual(['undo_extraction_pass', 'update_now', 'finish_getting_started', 'read_card', 'connect', 'disconnect', 'set_tool_access', 'review_post', 'publish_post', 'schedule_post', 'unsubscribe_thread', 'set_working_hours'])
+    expect(mcpWithheldAttendedTools()).toEqual(['undo_extraction_pass', 'update_now', 'finish_getting_started', 'read_card', 'connect', 'disconnect', 'set_tool_access', 'review_post', 'publish_post', 'schedule_post', 'unsubscribe_thread', 'set_working_hours', 'post_team_chat_poll'])
   })
 })
 

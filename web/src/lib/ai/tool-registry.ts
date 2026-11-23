@@ -131,6 +131,11 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       { name: 'add_vocabulary_word', sideEffect: 'internal-write', writeTarget: 'board', label: 'Add Vocabulary Word', description: 'Add a word to the custom vocabulary (a product, person or acronym transcription gets wrong), with how it is misheard' },
       { name: 'update_vocabulary_word', sideEffect: 'internal-write', writeTarget: 'board', label: 'Update Vocabulary Word', description: 'Fix a vocabulary word, turn it off or on, or move it between workspace and personal' },
       { name: 'delete_vocabulary_word', sideEffect: 'delete', label: 'Delete Vocabulary Word', description: 'Remove a word from the custom vocabulary' },
+      // Snippets (migration 699): saved text typed in with `;`. A shared one's save, and any delete, raise the person's card first.
+      { name: 'list_snippets', sideEffect: 'read', label: 'List Snippets', description: "List the person's snippets (saved text typed in with ;), their own and the shared ones, to use their words when drafting" },
+      { name: 'get_snippet', sideEffect: 'read', label: 'Read Snippet', description: "Read one snippet's whole text by id or shortcut, with its fill-ins" },
+      { name: 'save_snippet', sideEffect: 'internal-write', writeTarget: 'board', label: 'Save Snippet', description: 'Create or change a snippet; a shared one asks the person first' },
+      { name: 'delete_snippet', sideEffect: 'delete', label: 'Delete Snippet', description: 'Delete a snippet, after the person accepts its card' },
     ],
   },
   {
@@ -393,6 +398,11 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       { name: 'import_stripe_customers', sideEffect: 'internal-write', writeTarget: 'crm', label: 'Import Stripe Customers', description: 'Import the customers of their connected Stripe account, with their payments: deduped, undoable as a whole; nothing goes out, nothing in Stripe changes' },
       { name: 'list_contact_imports', sideEffect: 'read', label: 'List Contact Imports', description: 'Their recent imports of existing customers (files and app exports, Google Contacts, HubSpot, Brevo, Stripe) with counts and the contacts to check' },
       { name: 'undo_contact_import', sideEffect: 'delete', label: 'Undo Contact Import', description: 'Take one import back as a whole: the contacts it added are removed, what it changed goes back; edits since stay' },
+      // Work from other tools (docs/plans/imports.md, src/lib/ai/tools/imports.ts). Staging writes only the
+      // import's own journal (a preview); the person runs and undoes it on the preview page, never the agent.
+      { name: 'stage_import_from_file', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Prepare Import', description: 'Read a task CSV or a Notion export the person gave you and prepare an import: a preview they run from the Import page; nothing is made' },
+      { name: 'stage_linear_import', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Prepare Linear Import', description: 'Prepare an import of issues from the connected Linear: a preview they run from the Import page; nothing is made' },
+      { name: 'list_imports', sideEffect: 'read', label: 'List Imports', description: 'Their recent imports of tasks, Linear issues and Notion pages, with status, summary and the page to open each' },
       { name: 'update_contact', sideEffect: 'internal-write', writeTarget: 'crm', label: 'Update Contact', description: 'Edit contact details' },
       { name: 'update_crm_contact', sideEffect: 'internal-write', writeTarget: 'crm', label: 'Update CRM', description: 'Update CRM relationship fields' },
       // internal-write: one paid web search (counted as a read, like web research) whose
@@ -477,6 +487,12 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       { name: 'list_booking_links', sideEffect: 'read', label: 'List Booking Links', description: "The workspace's booking links, each with its address to share" },
       { name: 'create_booking_link', sideEffect: 'internal-write', writeTarget: 'board', label: 'Create Booking Link', description: 'Make a standing page anyone can book time with the person (or their team) from' },
       { name: 'update_booking_link', sideEffect: 'internal-write', writeTarget: 'board', label: 'Update Booking Link', description: 'Change a booking link, or turn it off or on' },
+      // Booking insights (src/lib/booking-links/bookings.ts): the bookings the person hosts, never a teammate's alone.
+      // Guests' answers are fenced (outside-text-tools.ts).
+      { name: 'list_link_bookings', sideEffect: 'read', label: 'List Link Bookings', description: "The bookings the person's booking links made: upcoming, past (with attendance) or cancelled" },
+      { name: 'get_booking_insights', sideEffect: 'read', label: 'Booking Insights', description: "Bookings, meeting hours, no-shows and top links over a range, for the person's booking links" },
+      // internal-write: a mark on the person's own booking, cleared as easily; it tells nobody. Attended only.
+      { name: 'mark_booking_attendance', sideEffect: 'internal-write', writeTarget: 'board', label: 'Mark Attendance', description: 'Mark a past booking-link meeting attended or a no-show' },
       // delete (every delete_ tool is): its page stops taking bookings; the row stays, and update_booking_link turns it back on.
       { name: 'delete_booking_link', sideEffect: 'delete', label: 'Turn Off Booking Link', description: 'Turn a booking link off: its page stops taking bookings' },
       // external-write: provider write: the provider emails every attendee
@@ -495,6 +511,8 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
     tools: [
       { name: 'list_attachments', sideEffect: 'read', label: 'List Attachments', description: "List file attachments on a capture, an action, a project or a table's row" },
       { name: 'get_attachment_content', sideEffect: 'read', label: 'Get Content', description: 'Get file content or download URL' },
+      // Comments on a file (migration 711): a thread on a place on a PDF's page, the whole file, or a reply, for the person.
+      { name: 'comment_on_file', sideEffect: 'internal-write', writeTarget: 'board', label: 'Comment on File', description: "Write a comment on an uploaded file or a team chat file for the person (a thread on a place on a PDF's page or the whole file, or a reply), marked as written by their assistant; can @-mention teammates" },
       { name: 'read_chat_file', sideEffect: 'read', label: 'Read Chat File', description: 'Read a file the user just uploaded in chat, or look at a photo they uploaded, by storage_path, without attaching it' },
       { name: 'attach_chat_file', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Attach File', description: 'Attach a chat-uploaded file to an action or capture' },
     ],
@@ -575,6 +593,11 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       // One team chat message, its thread so far and its channel's name, read as the caller (their channels only;
       // never on a guest's or a linked agent's turn). The read a chat_message loop's step makes.
       { name: 'read_team_chat_message', sideEffect: 'read', label: 'Read a Team Chat Message', description: "Read one team chat message by id (a chat loop's {{trigger.chat_message_id}}): who wrote it, its words, the thread so far and the channel's name; only in channels the person can read" },
+      // Channel polls (docs/plans/channels-inbox.md, migration 703): read as the caller, their channels only; an anonymous poll names nobody.
+      { name: 'read_team_chat_poll', sideEffect: 'read', label: 'Read a Team Chat Poll', description: "Read one team chat poll's question, options and vote counts, whether it is open, and who chose what unless it is anonymous; only in channels the person can read" },
+      // external-write: it posts to teammates, so the outward gate holds every call for the person's card (outward-gate.ts);
+      // attended only (ATTENDED_ONLY_TOOL_NAMES), never on a guest's or linked agent's turn.
+      { name: 'post_team_chat_poll', sideEffect: 'external-write', label: 'Post a Team Chat Poll', description: "Post a poll (a question and 2 to 10 options) in a team chat channel as the person's agent, only once they accept its card" },
     ],
   },
   {
@@ -1321,11 +1344,15 @@ export const ATTENDED_ONLY_TOOL_NAMES: ReadonlySet<string> = new Set([
   'create_booking_link',
   'update_booking_link',
   'delete_booking_link',
+  // Booking insights: whether a guest came is the person's own word, never a run's guess.
+  'mark_booking_attendance',
   // Forms phase 1: a form's link lets anyone add rows to a table, so it is made and changed only at the person's word.
   'create_form',
   'update_form',
   // Forms phase 3: each personal link lets its holder add a row, so they are made only at the person's word.
   'create_form_invites',
+  // Channel polls (docs/plans/channels-inbox.md): a poll reaches teammates, so it is posted only from the person's card.
+  'post_team_chat_poll',
 ])
 
 /** True for a tool only an attended chat may hold (ATTENDED_ONLY_TOOL_NAMES). */
@@ -1484,10 +1511,14 @@ export const REPORT_MODE_WRITE_ALLOWLIST = ['create_document', 'add_comment', 's
  * `push_action_to_*` tool belongs here by construction.
  */
 const NON_PREFIX_MUTATING_TOOLS: string[] = [
+  // Channel polls (docs/plans/channels-inbox.md): posts a poll into a team chat channel. `post_` is no write verb here.
+  'post_team_chat_poll',
   // Deals (roadmap #8): moving a deal's stage and adding a workspace custom
   // field both write. (create_/update_/undo_/set_ deal tools match the prefix.)
   'move_deal',
   'define_custom_field',
+  // Snippets (699): creates or changes one. `save_` is no write verb.
+  'save_snippet',
   // Tables (phase 5): adds and changes a table's rows. `write_` is no write verb.
   // (create_table, update_table_columns, archive_rows and undo_table_change match.)
   'write_rows',
@@ -1565,6 +1596,10 @@ const NON_PREFIX_MUTATING_TOOLS: string[] = [
   // Imports a contact file into the CRM (roadmap track G), or a connected Stripe's customers (#10). `import_` is not a write verb.
   'import_contact_file',
   'import_stripe_customers',
+  // Prepares (stages) an import of tasks, Linear issues or a Notion export: its journal only, a preview
+  // the person runs from the Import page (docs/plans/imports.md). `stage_` is not a write verb.
+  'stage_import_from_file',
+  'stage_linear_import',
   // A business's website (roadmap track E): connect_website saves the site and its project; the
   // other two open a pull request on its repo. None of `connect_`, `wire_`, `change_` is a write verb.
   'connect_website',
@@ -1585,6 +1620,8 @@ const NON_PREFIX_MUTATING_TOOLS: string[] = [
   'record_time_offer_answer',
   'book_poll_time',
   'nudge_time_offer',
+  // Booking insights: a host's mark on a past booking (attended or a no-show). `mark_` is not a write verb.
+  'mark_booking_attendance',
   // Studio (migration 620): a script written, a copy or a platform's version of a video made, frames
   // rendered and an export queued (the Studio worker's jobs). None of `write_`, `duplicate_`, `make_`,
   // `render_`, `export_` is a write verb. (edit_studio_video and archive_studio_video match the prefix.)
@@ -1608,6 +1645,8 @@ const NON_PREFIX_MUTATING_TOOLS: string[] = [
   'resolve_canvas_comment',
   'comment_on_spreadsheet',
   'resolve_spreadsheet_comment',
+  // Comments the assistant writes on a file for the person (711). `comment_` is not a write verb.
+  'comment_on_file',
   // Studio's reference blueprint: a video's storyboard laid out in a reference's rhythm. `storyboard_` is not a write verb.
   'storyboard_from_studio_blueprint',
   // Studio code scenes: a scene's source compiled and kept (files and a record). `write_` is not a write verb.

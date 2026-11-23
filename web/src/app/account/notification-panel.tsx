@@ -101,6 +101,15 @@ export async function resolveNotificationDetailPanel(
     }
   }
 
+  // GitHub's news (695): the pull request is in metadata, opened on the Reviews page.
+  if (targetType === 'github_pr') {
+    const repo = typeof notification.metadata?.repo === 'string' ? notification.metadata.repo : null
+    const number = typeof notification.metadata?.number === 'number' ? notification.metadata.number : null
+    if (!repo || !number) return null
+    const prTitle = typeof notification.metadata?.pr_title === 'string' ? notification.metadata.pr_title : ''
+    return { type: 'github_pr', id: `${repo}#${number}`, title: prTitle || notification.title || title }
+  }
+
   // A scheduled email that wasn't sent (642): Mail's Scheduled folder, where its reason shows.
   if (notification.type === 'email_send_failed') return { type: 'mail', id: 'scheduled', title: notification.title || title }
 
@@ -158,6 +167,9 @@ export async function resolveNotificationDetailPanel(
       return { type: 'canvas', id: targetId, title: '' }
     case 'spreadsheet':
       return { type: 'spreadsheet', id: targetId, title: '' }
+    // A comment on an uploaded file (711): the file, in the viewer.
+    case 'attachment':
+      return { type: 'attachment', id: targetId, title: '' }
     // A sprint that started: its team's board (the team rides in the row's
     // metadata; an older row without it opens nothing particular).
     case 'cycle': {

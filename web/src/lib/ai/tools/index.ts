@@ -7,6 +7,7 @@ import { createCaptureTools } from './captures'
 import { createNoteTakerTools } from './note-taker'
 import { createMeetingGoalTools } from './meeting-goal'
 import { createVocabularyTools } from './vocabulary'
+import { createSnippetTools } from './snippets'
 import { createDocumentTools } from './documents'
 import { createCanonTools, type CanonToolContext } from './canon'
 import { createContentTools } from './content'
@@ -38,12 +39,14 @@ import { createDashboardTools } from './dashboard'
 import { createSearchTools } from './search'
 import { createNotificationTools } from './notifications'
 import { createTeamChatTools } from './team-chat'
+import { createTeamChatPollTools } from './team-chat-polls'
 import { createBrowserTools } from './browser'
 import { createCalendarCaptureTools } from './calendar-capture'
 import { createCrmTools } from './crm'
 import { createEnrichContactTools } from './enrich-contact'
 import { createEmailManagementTools } from './email-management'
 import { createAttachmentTools } from './attachments'
+import { createFileCommentTools } from './file-comments'
 import { createFlowTools } from './flows'
 import { createPageWatchTools } from './page-watch'
 import { createConnectionTools } from './connections'
@@ -90,6 +93,7 @@ import { createSeoRankTools } from './seo-rank'
 import { createSeoKeywordTools } from './seo-keywords'
 import { createSeoGoogleTools } from './seo-google'
 import { createContactImportTools } from './contact-import'
+import { createImportTools } from './imports'
 import { createShowTools, type PersonalCardKind } from './show'
 import type { CardContextEntry } from '@/lib/chat-cards/context'
 import type { SearchDefaultWindow } from './search-scope'
@@ -530,11 +534,21 @@ export function createTools(
     ...createNotificationTools(userId, supabase, workspaceId),
     // One team chat message and its thread, read as the caller (none on a guest's or a linked agent's turn).
     ...createTeamChatTools(userId, supabase, workspaceId, { strictWorkspace: strict, omitGrants }),
+    // Channel polls (docs/plans/channels-inbox.md): read, and post only as the replay of the person's card.
+    ...createTeamChatPollTools(userId, supabase, workspaceId, { strictWorkspace: strict, omitGrants, unattended: options?.unattended === true, approvedCall: options?.approvedCall }),
     ...createBrowserTools(userId, supabase, workspaceId, options?.browserAttribution, options?.browserSourceRequest, options?.approvedCall),
     ...createCalendarCaptureTools(userId, supabase, workspaceId, accessToken, omitPrivate, omitGrants),
     // The person's goal for one of their meetings (the prep card's composer writes the same store).
     ...createMeetingGoalTools(userId, supabase, workspaceId, options?.unattended ?? false),
     ...createVocabularyTools(userId, supabase, workspaceId, { omitPrivate, unattended: options?.unattended ?? false }),
+    // Snippets (migration 699): text typed in with `;`. Shared writes and deletes raise the person's card.
+    ...createSnippetTools(userId, supabase, workspaceId, {
+      omitPrivate,
+      unattended: options?.unattended ?? false,
+      conversationId: options?.suggestionContext?.origin === 'chat' ? (options.suggestionContext.conversationId ?? null) : null,
+      approvedCall: options?.approvedCall,
+      approvalContext: options?.approvalContext,
+    }),
     ...createCrmTools(userId, supabase, workspaceId, omitPrivate, strict, editGrants, omitGrants),
     // enrich_contact: one paid web search for one contact, only on the person's
     // yes (confirmed_with_user), the same run as the contact page's Enrich
@@ -545,6 +559,8 @@ export function createTools(
     ...createReviewTools(userId, supabase, workspaceId, strict, { unattended: options?.unattended === true, omitGrants }),
     ...createEmailManagementTools(userId, supabase, workspaceId, accessToken),
     ...createAttachmentTools(userId, supabase, workspaceId, strict, omitPrivate, omitGrants, options?.signedUrlTtlSeconds),
+    // Comments on a file for the person (711): an upload's or a chat file's own read rule asked first.
+    ...createFileCommentTools(userId, supabase, workspaceId, omitGrants),
     // The browser zone: a schedule loop with no timezone takes the person's.
     // The chat's conversation counts the flow cards it raises (approval caps);
     // a replayed approval runs the stored change (F1, ../flows/flow-approvals.ts).
@@ -672,6 +688,9 @@ export function createTools(
     // Bringing existing customers in (roadmap track G, docs/plans/customer-import.md): read_contact_file,
     // import_contact_file, import_stripe_customers, list_contact_imports, undo_contact_import. Each write refuses an unattended turn.
     ...createContactImportTools(userId, supabase, workspaceId, { unattended: options?.unattended === true }),
+    // Work from other tools (docs/plans/imports.md): stage_import_from_file, stage_linear_import, list_imports.
+    // They only stage: the person presses Import (and Undo) on the preview page. Staging refuses an unattended turn.
+    ...createImportTools(userId, supabase, workspaceId, { unattended: options?.unattended === true }),
     // Pages in the chat: show puts a filtered page or a record in the chat;
     // read_card reads what a card shows the person now. See ./show.ts.
     ...createShowTools(userId, supabase, workspaceId, options?.cards, options?.personalCardKinds, options?.timeZone, omitGrants),

@@ -17,6 +17,7 @@ import { formatE164ForDisplay, isCompleteNanp, isImpossibleNanp, nanpE164 } from
 import { clockLabel, dayLabel, whenLabel, zoneShort, type PageLoad } from '@/lib/time-offers/display'
 import { EMAIL_MAX, RECIPIENT_NAME_MAX } from '@/lib/time-offers/types'
 import { cn } from '@/lib/utils'
+import { OpenForm } from '@/app/f/[key]/form-view'
 
 /** One strip's times: being read, read, or not readable just now. */
 type StripTimes = { kind: 'loading' } | { kind: 'ready'; byDay: Record<string, TimedSlot[]> } | { kind: 'unavailable' } | { kind: 'error' }
@@ -91,6 +92,12 @@ export function LinkView({ profile, slug, load }: { profile: string; slug: strin
   const [taken, setTaken] = useState(false)
   const [closed, setClosed] = useState<'missing' | 'closed' | null>(null)
   const [done, setDone] = useState<PublicLinkBooked | null>(null)
+  // A link with a form in front (booking insights phase 4): its pass once the answers qualify, or the line saying they don't.
+  const [pass, setPass] = useState<string | null>(null)
+  const [refusal, setRefusal] = useState<string | null>(null)
+  const [passNote, setPassNote] = useState<string | null>(null)
+  // A closed form never gets a pass: its page reads nothing either.
+  const gated = !!link?.form && !pass
 
   const windowDays = link?.window_days ?? 30
   const days = useMemo(() => stripDays(today, page, windowDays), [today, page, windowDays])
@@ -100,7 +107,8 @@ export function LinkView({ profile, slug, load }: { profile: string; slug: strin
 
   // One read per strip (and zone), when it is first shown or asked for again; nothing polls.
   useEffect(() => {
-    if (!link) return
+    // No calendar is read for a guest who hasn't answered the form yet.
+    if (!link || gated) return
     if (cache[cacheKey] && reload === 0) return
     const controller = new AbortController()
     // A tick later: the guest's zone settles right after hydration, and only that strip is read.
@@ -124,7 +132,7 @@ export function LinkView({ profile, slug, load }: { profile: string; slug: strin
     }
     // `cache` is read, not followed: a strip is read once, or again on `reload`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [link, cacheKey, reload, first, zone, profile, slug])
+  }, [link, gated, cacheKey, reload, first, zone, profile, slug])
 
   if (closed === 'missing' || (!link && load.kind === 'missing')) {
     return (
@@ -145,6 +153,44 @@ export function LinkView({ profile, slug, load }: { profile: string; slug: strin
       <Final title="This page isn't available right now" data-link-state="error">
         Try again in a minute.
       </Final>
+    )
+  }
+  if (link.form?.state === 'closed') {
+    return (
+      <Final title="This booking page isn't taking bookings" data-link-state="form-closed">
+        It isn&apos;t taking bookings right now. Reach out to the person who sent it to find a time.
+      </Final>
+    )
+  }
+  if (refusal) {
+    return (
+      <Final title={link.title} data-link-state="not-qualified">
+        <span className="whitespace-pre-line">{refusal}</span>
+      </Final>
+    )
+  }
+  if (link.form?.state === 'open' && !pass) {
+    const base = `/api/public/booking-links/${encodeURIComponent(profile)}/${encodeURIComponent(slug)}/qualify`
+    return (
+      <SchedulingShell>
+        <CardHeader data-link-state="form">
+          <p className="text-sm font-medium text-muted-foreground">{hostsLine(link.host_names, link.host_mode)}</p>
+          <CardTitle className="text-2xl">{link.title}</CardTitle>
+          <CardDescription>A few questions first, then pick a time.</CardDescription>
+          {passNote && <SchedulingNotice data-link-pass-note="">{passNote}</SchedulingNotice>}
+        </CardHeader>
+        <OpenForm
+          link=""
+          invite={null}
+          shape={link.form.shape}
+          endpoint={base}
+          framed={false}
+          onSent={(data) => {
+            if (data.qualified === true && typeof data.pass === 'string') setPass(data.pass)
+            else setRefusal(typeof data.message === 'string' ? data.message : "This page can't take a booking for this request.")
+          }}
+        />
+      </SchedulingShell>
     )
   }
 
@@ -255,11 +301,16 @@ export function LinkView({ profile, slug, load }: { profile: string; slug: strin
           note,
           time_zone: zone,
           website,
+          ...(pass ? { pass } : {}),
         }),
       })
       const data = (await res.json().catch(() => null)) as (PublicLinkBooked & { error?: string; code?: string; details?: unknown }) | null
       if (res.ok && data?.ok && data.booking) {
         setDone(data)
+      } else if ((res.status === 403 && data?.code === 'FORM_NEEDED') || (res.status === 409 && data?.code === 'PASS_USED')) {
+        // The pass lapsed (it is good for two hours) or already booked: the questions again, saying why.
+        setPass(null)
+        setPassNote(data?.code === 'PASS_USED' ? (data.error ?? 'This pass has already been used; answer the form again.') : 'Your answers have expired. Answer the questions again to pick a time.')
       } else {
         const failure = linkBookFailure(res.status, data, host)
         if (failure.kind === 'slot_taken') {

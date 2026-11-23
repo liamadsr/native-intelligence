@@ -7,6 +7,7 @@
  * Pure and client-safe.
  */
 import type { DayRange } from '@/lib/availability/engine'
+import type { PublicFormShape } from '@/lib/forms/public'
 
 /** one: a single host. all: every host must be free, and all attend. any: any one host (the least booked, ties by order). */
 export const HOST_MODES = ['one', 'all', 'any'] as const
@@ -25,6 +26,25 @@ export interface LinkQuestion {
   label: string
   required: boolean
   kind: QuestionKind
+}
+
+/** How a form in front of a link is checked (migration 705; ./form-gate.ts). */
+export const FORM_RULE_OPS = ['equals', 'not_equals', 'contains', 'in', 'gte', 'lte', 'is_true', 'is_false'] as const
+export type FormRuleOp = (typeof FORM_RULE_OPS)[number]
+export const FORM_RULE_CONDITIONS_MAX = 5
+export const FORM_REFUSAL_MAX = 500
+
+export interface FormCondition {
+  /** A form field's key: a column's key, or the row's name ($title). */
+  field: string
+  op: FormRuleOp
+  /** What it is compared with; a list for `in`; none for is_true and is_false. */
+  value?: string | number | string[]
+}
+
+/** Every condition must hold; none: everyone who sends the form qualifies. */
+export interface FormRule {
+  all: FormCondition[]
 }
 
 export interface LinkHost {
@@ -69,9 +89,16 @@ export interface BookingLink {
   hostMode: HostMode
   /** The link's own hours (seven days, Sunday first) in timeZone; null: each host's working hours. */
   weeklyHours: DayRange[][] | null
+  /** Dated changes to the link's own week (migration 705): a date's own hours, an empty list a day off. Only read with weeklyHours. */
+  dateOverrides: Record<string, DayRange[]> | null
   timeZone: string | null
   /** A job link's word for the job ("pickup"). */
   jobKind: string | null
+  /** A form the guest answers first (migration 705): only those whose answers meet formRule go on to book. */
+  formId: string | null
+  formRule: FormRule | null
+  /** What a guest who doesn't qualify reads; null: our own polite line. */
+  formRefusal: string | null
   active: boolean
   /** In their stable order. */
   hosts: LinkHost[]
@@ -90,6 +117,8 @@ export const LINK_LOCATION_MAX = 200
 export const QUESTION_LABEL_MAX = 120
 export const ANSWER_MAX = 500
 export const LINK_NOTE_MAX = 500
+/** The most dated changes a link's own week keeps (migration 705). */
+export const LINK_DATE_OVERRIDES_MAX = 60
 
 /** 1 to 48 lower-case letters, digits or dashes, not starting or ending with a dash. */
 export const LINK_SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,46}[a-z0-9])?$/
@@ -168,6 +197,8 @@ export interface PublicLinkData {
   /** Each booking waits for the host's yes. A mobile-only guest always does (they are texted only after it). */
   ask_first: boolean
   contact: GuestContact
+  /** A form the guest answers first (migration 705): its fields, or closed when it can't be answered now. Absent: none. */
+  form?: { state: 'open'; shape: PublicFormShape } | { state: 'closed' }
 }
 
 /** GET …/times. */

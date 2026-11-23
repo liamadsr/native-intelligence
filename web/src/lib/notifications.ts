@@ -10,7 +10,7 @@ import { noticeEventKind } from '@/lib/agent-events/types'
 /**
  * Runtime list backing the NotificationType union — single source of truth
  * for code that needs the types at runtime. Must stay in sync with the DB
- * CHECK constraint (migration 688 is the latest DROP+ADD; 401 dropped the
+ * CHECK constraint (migration 695 is the latest DROP+ADD; 401 dropped the
  * types nothing writes any more, with their rows, when the notifications page
  * went: docs/plans/retire-notifications-page.md). Which of these reach the
  * agent, and as what: agent-events/types.ts NOTICE_EVENT_KIND.
@@ -93,6 +93,14 @@ export const NOTIFICATION_TYPES = [
   // docs/plans/record-sharing.md): targets the record (a spreadsheet or a
   // canvas). Nothing writes it until the plan's Phase 2.
   'record_shared',
+  // GitHub's news on the person's pull requests (migration 695,
+  // docs/plans/github-reviews.md phase 3; src/lib/github/pr-notices.ts): a
+  // review asked of them, a comment / review / mention, failing checks.
+  // Target `github_pr` (no id: the pull request is in metadata); a click
+  // opens it on the Reviews page.
+  'github_review_requested',
+  'github_pr_comment',
+  'github_checks_failed',
 ] as const
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number]
@@ -122,6 +130,10 @@ export interface CreateNotificationParams {
     // A comment on a canvas or a spreadsheet opens that record (migration 687), as
     // does a record shared with the person (record_shared, migration 688).
     | 'canvas' | 'spreadsheet'
+    // A GitHub pull request (migration 695).
+    | 'github_pr'
+    // A comment on an uploaded file opens the file (migration 711).
+    | 'attachment'
   targetId?: string
   contextType?: string
   contextId?: string
