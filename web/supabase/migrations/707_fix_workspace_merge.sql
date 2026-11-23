@@ -51,12 +51,14 @@
 --      side, and any Studio media in the
 --      merged-in workspace (its files sit in storage under the workspace's
 --      id, which a database merge cannot move).
---   9. The batch merged after 705: a snippet's maker, its shared and
+--   9. The batches merged after 705: a snippet's maker, its shared and
 --      personal shortcuts (the same text folds, other text takes a -2
 --      suffix), a poll's maker and voters, an import's member, a hold on the
 --      same item in both. Four of its guards refused a merge's move
 --      (section 6). The same outside CRM record imported into both keeps the
---      destination's link. GitHub repositories (694) fold by their own
+--      destination's link. From 709 to 711: a file comment's author and
+--      resolver, a person's open of the same file in both (one, the later).
+--      GitHub repositories (694) fold by their own
 --      trigger, and labels by 700's _wsmerge_labels: neither is restated.
 --
 -- Restates, each from its newest definition on main, with only the changes
@@ -310,7 +312,7 @@ as $$
 declare
   r record; v_dst uuid; v_slug text; n int;
   v_terms int := 0; v_archives int := 0; v_private int := 0; v_profiles int := 0; v_links_reslugged int := 0; v_job int := 0;
-  v_snippets_folded int := 0; v_snippets_renamed int := 0; v_holds int := 0; v_crm_links int := 0;
+  v_snippets_folded int := 0; v_snippets_renamed int := 0; v_holds int := 0; v_crm_links int := 0; v_opens int := 0;
 begin
   -- a person's word in both vocabularies (430): the destination's stands
   delete from public.vocabulary_term s
@@ -418,6 +420,15 @@ begin
      and exists (select 1 from public.inbox_hold d where d.workspace_id = p_dest and d.user_id = s.user_id and d.item_key = s.item_key);
   get diagnostics v_holds = row_count;
 
+  -- a person's open of the same file in both (709): one, the later open
+  update public.drive_file_open d set opened_at = greatest(d.opened_at, s.opened_at)
+    from public.drive_file_open s
+   where s.workspace_id = p_source and d.workspace_id = p_dest and d.user_id = s.user_id and d.file_key = s.file_key;
+  delete from public.drive_file_open s
+   where s.workspace_id = p_source
+     and exists (select 1 from public.drive_file_open d where d.workspace_id = p_dest and d.user_id = s.user_id and d.file_key = s.file_key);
+  get diagnostics v_opens = row_count;
+
   -- the same outside record imported into both (462): the destination's link stands
   delete from public.crm_source_link s
    where s.workspace_id = p_source
@@ -432,7 +443,7 @@ begin
      and exists (select 1 from public.stripe_connect_account d where d.workspace_id = p_dest);
 
   return jsonb_build_object('snippets_folded', v_snippets_folded, 'snippets_renamed', v_snippets_renamed,
-                            'inbox_holds_joined', v_holds, 'crm_source_links_dropped', v_crm_links,
+                            'inbox_holds_joined', v_holds, 'crm_source_links_dropped', v_crm_links, 'file_opens_joined', v_opens,
                             'vocabulary_dropped', v_terms, 'auto_archive_days_joined', v_archives,
                             'private_threads_dropped', v_private, 'booking_profiles_folded', v_profiles,
                             'booking_links_reslugged', v_links_reslugged, 'job_booking_pages_dropped', v_job);
@@ -549,6 +560,9 @@ BEGIN
   UPDATE public.team_chat_poll t SET created_by = x.dst FROM pg_temp._wsmerge_members x WHERE t.created_by = x.src;
   UPDATE public.team_chat_poll t SET closed_by = x.dst FROM pg_temp._wsmerge_members x WHERE t.closed_by = x.src;
   UPDATE public.work_import t SET member_id = x.dst FROM pg_temp._wsmerge_members x WHERE t.member_id = x.src;
+  -- and file comments (711)
+  UPDATE public.file_comment t SET author_id = x.dst FROM pg_temp._wsmerge_members x WHERE t.author_id = x.src;
+  UPDATE public.file_comment t SET resolved_by = x.dst FROM pg_temp._wsmerge_members x WHERE t.resolved_by = x.src;
   -- A company's owner (679) must be a member of the company's own workspace
   -- (company_crm_fields_guard): the source's companies are still in the
   -- source here, so the owner is set aside and given back by

@@ -297,7 +297,7 @@ DECLARE
   m2s uuid := (SELECT v FROM pg_temp.e2e WHERE k = 'm2s'); m2d uuid := (SELECT v FROM pg_temp.e2e WHERE k = 'm2d');
   ch_s uuid := (SELECT v FROM pg_temp.e2e WHERE k = 'ch_s');
   c2s uuid := (SELECT v FROM pg_temp.e2e WHERE k = 'c2s'); c1d uuid := (SELECT v FROM pg_temp.e2e WHERE k = 'c1d');
-  sn_same uuid; sn_other uuid; sn_mine uuid; sn_only uuid; msg uuid; poll uuid; opt uuid; imp uuid; tbl uuid; frm uuid; bl uuid;
+  sn_same uuid; sn_other uuid; sn_mine uuid; sn_only uuid; fc uuid; chunk uuid; msg uuid; poll uuid; opt uuid; imp uuid; tbl uuid; frm uuid; bl uuid;
 BEGIN
   INSERT INTO public.snippet (workspace_id, created_by, name, shortcut, body, visibility) VALUES (s, m2s, 'Thanks', 'thanks', 'Thank you!', 'workspace') RETURNING id INTO sn_same;
   INSERT INTO public.snippet (workspace_id, created_by, name, shortcut, body, visibility) VALUES (d, m2d, 'Thanks', 'thanks', 'Thank you!', 'workspace');
@@ -321,6 +321,15 @@ BEGIN
   INSERT INTO public.data_table (workspace_id, name) VALUES (s, 'Intake e2e') RETURNING id INTO tbl;
   INSERT INTO public.data_form (workspace_id, table_id, name, key_hash, key_prefix) VALUES (s, tbl, 'Intake', 'e2e-hash-' || s::text, 'e2e') RETURNING id INTO frm;
   INSERT INTO public.booking_link (workspace_id, owner_user_id, slug, title, form_id) VALUES (s, u1, 'intake-e2e', 'Intake', frm) RETURNING id INTO bl;
+
+  -- 709 to 711: a comment a folded member made and resolved on a file in the
+  -- direct message that folds, the file's text, the same file opened in both
+  INSERT INTO public.file_comment (workspace_id, chat_message_id, chat_file_path, body, author_id, resolved_at, resolved_by)
+  VALUES (s, (SELECT v FROM pg_temp.e2e WHERE k = 'msg_s'), 'files/brief-e2e.pdf', 'See page 2', m2s, now(), m2s) RETURNING id INTO fc;
+  INSERT INTO public.team_chat_file_chunk (workspace_id, channel_id, message_id, file_path, file_name, chunk_index, chunk_text)
+  VALUES (s, (SELECT v FROM pg_temp.e2e WHERE k = 'dm_s'), (SELECT v FROM pg_temp.e2e WHERE k = 'msg_s'), 'files/brief-e2e.pdf', 'brief-e2e.pdf', 0, 'the brief') RETURNING id INTO chunk;
+  INSERT INTO public.drive_file_open (user_id, workspace_id, file_key, opened_at) VALUES (u1, s, 'team_chat:files/brief-e2e.pdf', now()), (u1, d, 'team_chat:files/brief-e2e.pdf', now() - interval '1 day');
+  INSERT INTO pg_temp.e2e VALUES ('fc', fc), ('chunk', chunk);
 
   INSERT INTO pg_temp.e2e VALUES ('sn_same', sn_same), ('sn_other', sn_other), ('sn_mine', sn_mine), ('sn_only', sn_only), ('poll', poll),
     ('imp', imp), ('frm', frm), ('bl_form', bl);
@@ -410,7 +419,7 @@ DO $$
 DECLARE
   s uuid := (SELECT v FROM pg_temp.e2e WHERE k = 's'); d uuid := (SELECT v FROM pg_temp.e2e WHERE k = 'd');
   u1 uuid := (SELECT v FROM pg_temp.e2e WHERE k = 'u1'); u2 uuid := (SELECT v FROM pg_temp.e2e WHERE k = 'u2'); u3 uuid := (SELECT v FROM pg_temp.e2e WHERE k = 'u3');
-  fails text := ''; n int; txt text; ok boolean; id1 uuid; id2 uuid; v_j jsonb; new_prefix text;
+  fails text := ''; n int; txt text; ok boolean; id1 uuid; id2 uuid; v_ws uuid; v_j jsonb; new_prefix text;
   res jsonb := (SELECT j FROM pg_temp.e2e_out WHERE k = 'merge');
   pre jsonb := (SELECT j FROM pg_temp.e2e_out WHERE k = 'preflight');
   refusals jsonb := (SELECT j FROM pg_temp.e2e_out WHERE k = 'refusals');
@@ -675,6 +684,12 @@ BEGIN
   SELECT form_id, workspace_id INTO id1, id2 FROM public.booking_link WHERE id = (SELECT v FROM pg_temp.e2e WHERE k = 'bl_form');
   IF id1 IS DISTINCT FROM (SELECT v FROM pg_temp.e2e WHERE k = 'frm') OR id2 IS DISTINCT FROM d
      OR (SELECT workspace_id FROM public.data_form WHERE id = id1) IS DISTINCT FROM d THEN fails := fails || ' booking_link_form'; END IF;
+  SELECT author_id, resolved_by, workspace_id INTO id1, id2, v_ws FROM public.file_comment WHERE id = (SELECT v FROM pg_temp.e2e WHERE k = 'fc');
+  IF id1 IS DISTINCT FROM (SELECT v FROM pg_temp.e2e WHERE k = 'm2d') OR id2 IS DISTINCT FROM id1 OR v_ws IS DISTINCT FROM d THEN fails := fails || ' file_comment'; END IF;
+  SELECT channel_id, workspace_id INTO id1, v_ws FROM public.team_chat_file_chunk WHERE id = (SELECT v FROM pg_temp.e2e WHERE k = 'chunk');
+  IF id1 IS DISTINCT FROM (SELECT v FROM pg_temp.e2e WHERE k = 'dm_d') OR v_ws IS DISTINCT FROM d THEN fails := fails || ' file_chunk'; END IF;
+  SELECT count(*), max(opened_at) > now() - interval '1 hour' INTO n, ok FROM public.drive_file_open WHERE workspace_id = d AND user_id = u1 AND file_key = 'team_chat:files/brief-e2e.pdf';
+  IF n <> 1 OR NOT COALESCE(ok, false) THEN fails := fails || ' file_open=' || n; END IF;
   IF refusals->>'business_profile' NOT LIKE 'P0008%business profile%' THEN fails := fails || ' business_profile_refusal=' || COALESCE(refusals->>'business_profile', 'missing'); END IF;
   IF refusals->>'demo' NOT LIKE 'P0008%demo workspace%' THEN fails := fails || ' demo_refusal=' || COALESCE(refusals->>'demo', 'missing'); END IF;
 
