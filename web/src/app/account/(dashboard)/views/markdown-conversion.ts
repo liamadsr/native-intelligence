@@ -8,6 +8,16 @@ import { isMentionableType } from '@/lib/entity-links/mentionable'
 /** The editor's node for a record @-mentioned in the text (src/components/editor/record-mention.ts). */
 export const RECORD_MENTION_NODE = 'recordMention'
 
+/**
+ * Math (components/editor/doc-extras/math.ts): `$…$` inline, `$$` lines as a
+ * block. A `$` opens inline math only when a non-space follows and it is not
+ * right after a letter, digit, `\` or `$`; it closes only after a non-space and
+ * when no digit follows, so prices ("$5 to $10", "$5M/$10M") stay text.
+ */
+export const MATH_INLINE_NODE = 'mathInline'
+export const MATH_BLOCK_NODE = 'mathBlock'
+const MATH_BLOCK_ONE_LINE_RE = /^\$\$(.+)\$\$\s*$/
+
 /** Optional proposal change map for resolving <!-- proposal:ID --> markers */
 export interface ProposalChangeRef {
   byIndex: Map<number, string>  // sort_order index → change ID
@@ -203,6 +213,28 @@ export function markdownToJSONContent(markdown: string, proposalRefs?: ProposalC
       // blanking the entire note).
       if (code) codeBlock.content = [{ type: 'text', text: code }]
       content.push(codeBlock)
+      continue
+    }
+
+    // Math block: a `$$` line, the formula, a `$$` line (or `$$…$$` alone on a line).
+    if (line.trim() === '$$') {
+      const texLines: string[] = []
+      let j = i + 1
+      while (j < lines.length && lines[j].trim() !== '$$') {
+        texLines.push(lines[j])
+        j++
+      }
+      if (j < lines.length) {
+        content.push({ type: MATH_BLOCK_NODE, attrs: { latex: texLines.join('\n') } })
+        i = j + 1
+        continue
+      }
+      // No closing `$$`: an ordinary line.
+    }
+    const oneLineMath = line.match(MATH_BLOCK_ONE_LINE_RE)
+    if (oneLineMath && oneLineMath[1].trim() && !oneLineMath[1].includes('$$')) {
+      content.push({ type: MATH_BLOCK_NODE, attrs: { latex: oneLineMath[1].trim() } })
+      i++
       continue
     }
 
@@ -518,7 +550,7 @@ function parseInlineMarkdown(text: string): JSONContent[] {
   // A record mention (`[@Maya Chen](mention://contact/<id>)`,
   // src/lib/documents/mention-markdown.ts) is a chip, matched in place like
   // the rest: inside bold it is bold, inside backticks it stays code text.
-  const regex = /(\[([^\]\n]+)\]\(((?:https?:\/\/|mailto:|\/)[^)\s]*)\)|\*\*(.+?)\*\*|__(.+?)__(?![\p{L}\p{N}_])|_(.+?)_(?![\p{L}\p{N}_])|\*(.+?)\*|`(.+?)`|~~(.+?)~~|\[@([^\]\n]{1,200})\]\(mention:\/\/([a-z_]+)\/([0-9a-fA-F-]{36})\))/gu
+  const regex = /(\[([^\]\n]+)\]\(((?:https?:\/\/|mailto:|\/)[^)\s]*)\)|\*\*(.+?)\*\*|__(.+?)__(?![\p{L}\p{N}_])|_(.+?)_(?![\p{L}\p{N}_])|\*(.+?)\*|`(.+?)`|~~(.+?)~~|\[@([^\]\n]{1,200})\]\(mention:\/\/([a-z_]+)\/([0-9a-fA-F-]{36})\)|(?<![\p{L}\p{N}_\\$])\$([^\s$](?:[^$\n]*[^\s$\\])?)\$(?![\d$]))/gu
   let lastIndex = 0
   let match: RegExpExecArray | null
 
@@ -561,6 +593,9 @@ function parseInlineMarkdown(text: string): JSONContent[] {
           ? { type: RECORD_MENTION_NODE, attrs: { kind: match[11], id: match[12].toLowerCase(), label: match[10].trim() } }
           : { type: 'text', text: match[0] },
       )
+    } else if (match[13]) {
+      // Inline math
+      nodes.push({ type: MATH_INLINE_NODE, attrs: { latex: match[13] } })
     }
 
     lastIndex = match.index + match[0].length
@@ -625,6 +660,10 @@ function nodeToMarkdown(node: JSONContent): string {
     }
     case 'proposalNode':
       return `<!-- proposal:${node.attrs?.changeId ?? ''} -->`
+    case MATH_BLOCK_NODE: {
+      const latex = String(node.attrs?.latex ?? '').trim()
+      return latex ? `$$\n${latex}\n$$` : ''
+    }
     default:
       return inlineToMarkdown(node.content)
   }
@@ -748,12 +787,21 @@ function mentionNodeMarkdown(node: JSONContent): string | null {
   return mentionMarkdown({ type: node.attrs.kind, id: node.attrs.id, label: String(node.attrs.label ?? '') })
 }
 
+/** An inline atom's markdown (a record chip, a formula), without its marks; null for anything else. */
+function inlineAtomMarkdown(node: JSONContent): string | null {
+  const mention = mentionNodeMarkdown(node)
+  if (mention !== null) return mention
+  if (node.type !== MATH_INLINE_NODE) return null
+  const latex = String(node.attrs?.latex ?? '')
+  return latex.trim() ? `$${latex}$` : ''
+}
+
 /** The bold, italic and strike marks a run shares with a chip (a chip carries no code or link). */
 const RUN_MARKS = new Set(['bold', 'italic', 'strike'])
 function runKey(node: JSONContent): string | null {
   const marks = node.marks ?? []
   if (marks.length === 0 || marks.some((m) => !RUN_MARKS.has(m.type))) return null
-  if (node.type !== 'text' && mentionNodeMarkdown(node) === null) return null
+  if (node.type !== 'text' && inlineAtomMarkdown(node) === null) return null
   return marks.map((m) => m.type).join(',')
 }
 
@@ -771,8 +819,8 @@ function inlineToMarkdown(content?: JSONContent[]): string {
       let j = i
       while (j < content.length && runKey(content[j]) === key) j++
       const run = content.slice(i, j)
-      if (run.some((n) => n.type === RECORD_MENTION_NODE)) {
-        const words = run.map((n) => (n.type === 'text' ? (n.text ?? '') : (mentionNodeMarkdown(n) ?? ''))).join('')
+      if (run.some((n) => n.type !== 'text')) {
+        const words = run.map((n) => (n.type === 'text' ? (n.text ?? '') : (inlineAtomMarkdown(n) ?? ''))).join('')
         out.push(wrapMarks(words, node.marks))
         i = j - 1
         continue
@@ -780,7 +828,7 @@ function inlineToMarkdown(content?: JSONContent[]): string {
     }
     if (node.type === 'text') out.push(wrapMarks(node.text ?? '', node.marks))
     else if (node.type === 'hardBreak') out.push('\n')
-    else out.push(mentionNodeMarkdown(node) ?? '')
+    else out.push(inlineAtomMarkdown(node) ?? '')
   }
   return out.join('')
 }

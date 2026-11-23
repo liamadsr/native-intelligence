@@ -36,6 +36,7 @@ import {
   Circle,
   X,
   Search,
+  Download,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { CustomFieldsGroup } from '@/components/crm/custom-fields-group'
@@ -46,6 +47,13 @@ import { merge3 } from '@/lib/documents/line-diff'
 import { describeRevisionAuthor, type RevisionSummary } from '@/lib/documents/revision-format'
 import { SYSTEM_DOCUMENT_REFUSAL } from '@/lib/documents/system-document'
 import { NoteEditor } from './note-editor-lazy'
+// The editor's extras: outline, folding, find, math, counts… (docs/plans/doc-editor-extras.md)
+import { useDocumentExtras } from '@/components/editor/doc-extras/use-document-extras'
+import { DocumentCountLine, DocumentFindButton, DocumentFindSlot, DocumentOutlineColumn, DocumentOutlineGroup } from '@/components/editor/doc-extras/document-extras-slots'
+import { downloadMarkdown } from '@/components/editor/doc-extras/download-markdown'
+import { openTarget } from '@/lib/chat-cards/open-card'
+import { clearOfflineDraft, isOffline, isUndelivered, offlineDraftOnLoad, readOfflineDraft, writeOfflineDraft, type OfflineDraft } from '@/components/editor/doc-extras/offline-draft'
+import { OfflineNote, type OfflineState } from '@/components/editor/doc-extras/offline-note'
 import { formatCaptureDate } from './capture-utils'
 import { ShareDialog } from '../components/share-dialog'
 import {
@@ -263,6 +271,10 @@ export function DocumentDetailPanel({
   // Bumped to remount the editor on a resolved conflict, so it holds exactly
   // the text that was saved.
   const [editorEpoch, setEditorEpoch] = useState(0)
+  // Offline editing (docs/plans/doc-editor-extras.md, phase 5): a body save
+  // that couldn't reach the server is kept on this device (offline-draft.ts)
+  // and saved on its own base revision when the connection returns.
+  const [offlineState, setOfflineState] = useState<OfflineState>(null)
 
   // Projects for picker
   const [projects, setProjects] = useState<ProjectOption[]>([])
@@ -352,9 +364,10 @@ export function DocumentDetailPanel({
   const mentionExtension = useMemo(() => RecordMentionSuggestion.configure({ store: mentionStore }), [mentionStore])
   // All stable for the editor's lifetime: suggestion cards for `<!-- proposal:ID -->`
   // markers, the identifier decorations, and the `@` picker.
+  const docExtras = useDocumentExtras(documentId)
   const docExtraExtensions = useMemo(
-    () => [ProposalNodeExtension, entityRefExtension, mentionExtension],
-    [entityRefExtension, mentionExtension],
+    () => [ProposalNodeExtension, entityRefExtension, mentionExtension, ...docExtras.extensions],
+    [entityRefExtension, mentionExtension, docExtras.extensions],
   )
 
   // Re-fetch the document and reconcile local state. Used by both the AI-edit
@@ -440,9 +453,19 @@ export function DocumentDetailPanel({
         if (typeof data.document?.revision === 'number') baseRevisionRef.current = data.document.revision
         baseContentRef.current = data.document?.content || ''
         setLoading(false)
+        // Text kept on this device by an earlier visit that was offline: put
+        // it back and save it on the revision it was based on.
+        const kept = readOfflineDraft(documentId)
+        const plan = data.document.can_edit === false ? 'drop' : offlineDraftOnLoad(kept, data.document)
+        if (plan === 'drop') clearOfflineDraft(documentId)
+        else if (plan === 'restore' && kept) restoreOfflineDraftRef.current?.(kept)
       })
       .catch(() => {
-        if (!cancelled) setLoading(false)
+        if (cancelled) return
+        setLoading(false)
+        // Opened offline, from the cache: the kept text is what the person had.
+        const kept = readOfflineDraft(documentId)
+        if (kept && documentDetailCache.has(documentId)) restoreOfflineDraftRef.current?.(kept)
       })
 
     // Fetch inline comments + member identity in parallel
@@ -532,6 +555,16 @@ export function DocumentDetailPanel({
         // Held while a conflict is open: the banner decides what is saved.
         if (isBody && conflictRef.current) return
         const body = isBody && baseRevisionRef.current !== null ? { ...updates, base_revision: baseRevisionRef.current } : updates
+        // Offline: keep the text on this device instead of a request that can't land.
+        const keep = () =>
+          isBody &&
+          baseRevisionRef.current !== null &&
+          writeOfflineDraft(documentId, { content: updates.content as string, baseRevision: baseRevisionRef.current, baseContent: baseContentRef.current })
+        if (isBody && isOffline() && keep()) {
+          setSaveError(null)
+          setOfflineState('kept')
+          return
+        }
         inFlightRef.current++
         let result: Awaited<ReturnType<typeof patchDocumentFields>>
         try {
@@ -541,6 +574,12 @@ export function DocumentDetailPanel({
         }
         if (result.ok) {
           setSaveError(null)
+          if (isBody) {
+            // The kept copy landed (or newer text that holds it did).
+            const kept = readOfflineDraft(documentId)
+            if (kept && (kept.content === updates.content || latestContentRef.current === updates.content)) clearOfflineDraft(documentId)
+            setOfflineState(null)
+          }
           const saved = result.document as Partial<DocumentDetail> | null
           if (saved) {
             setDoc((prev) => (prev ? { ...prev, ...saved } : prev))
@@ -561,7 +600,13 @@ export function DocumentDetailPanel({
           return
         }
         if (optimistic) setDoc((prev) => (prev ? rollbackPatch(prev, optimistic.before, optimistic.patch) : prev))
+        if (isUndelivered(result) && keep()) {
+          setSaveError(null)
+          setOfflineState('kept')
+          return
+        }
         if (isBody && result.status === 409) {
+          setOfflineState(null)
           setSaveError(null)
           await resolveConflict()
           return
@@ -577,6 +622,41 @@ export function DocumentDetailPanel({
   // The body save (autosave and conflict resolution go through here).
   const saveText = useCallback((markdown: string) => saveField({ content: markdown }), [saveField])
   saveTextRef.current = saveText
+
+  // Put text kept offline back in the editor, on the base it was written
+  // against, and save it (online): the compare-and-swap decides, and a 409
+  // goes through resolveConflict's three-way merge like any other.
+  const restoreOfflineDraft = useCallback(
+    (kept: OfflineDraft) => {
+      baseRevisionRef.current = kept.baseRevision
+      baseContentRef.current = kept.baseContent
+      latestContentRef.current = kept.content
+      setDoc((prev) => (prev ? { ...prev, content: kept.content } : prev))
+      setEditorEpoch((n) => n + 1)
+      if (isOffline()) {
+        setOfflineState('kept')
+        return
+      }
+      setOfflineState('syncing')
+      void saveText(kept.content)
+    },
+    [saveText],
+  )
+  const restoreOfflineDraftRef = useRef(restoreOfflineDraft)
+  restoreOfflineDraftRef.current = restoreOfflineDraft
+
+  // Back online: save what was kept (the newest text the editor holds).
+  useEffect(() => {
+    const onOnline = () => {
+      const kept = readOfflineDraft(documentId)
+      if (!kept) return
+      if (saveTimeoutRef.current) return // the queued save is about to send it
+      setOfflineState('syncing')
+      void saveText(latestContentRef.current ?? kept.content)
+    }
+    window.addEventListener('online', onOnline)
+    return () => window.removeEventListener('online', onOnline)
+  }, [documentId, saveText])
 
   // The person's pick on the conflict banner: the whole text, or (a
   // section-level conflict, minimal D4) mine or theirs per section.
@@ -809,6 +889,7 @@ export function DocumentDetailPanel({
   const staleNote = <StaleSectionsNote documentId={documentId} sections={doc.stale_sections} canMark={!readOnly} onMarked={markSectionChecked} />
   const saveErrorLine = (
     <>
+      <OfflineNote state={offlineState} />
       {saveError ? <p role="alert" className="text-xs text-destructive">{saveError}</p> : null}
       {conflict ? (
         conflict.plan.kind === 'sections' ? (
@@ -866,6 +947,7 @@ export function DocumentDetailPanel({
           />
           {!isNowFile && <ShareDialog shareableType="document" shareableId={documentId} />}
           {/* P9 (decision 9): copy the whole text out, e.g. a newsletter into Substack. Hidden when empty. */}
+          <DocumentFindButton extras={docExtras} />
           {(doc.content ?? '').trim() && <CopyDocumentButton getMarkdown={() => latestContentRef.current ?? doc.content ?? ''} />}
           {/* More, last (docs/plans/properties-panels.md): the kind's menu, then
               Move to workspace (same post-move handling as delete: the document
@@ -877,6 +959,12 @@ export function DocumentDetailPanel({
             state={{ archived: doc.status === 'archived', status: doc.status }}
             omit={PANEL_OMIT}
             extra={[
+              {
+                id: 'download-markdown',
+                label: 'Download as Markdown',
+                icon: Download,
+                onSelect: () => downloadMarkdown(doc.title, latestContentRef.current ?? doc.content ?? ''),
+              },
               !isNowFile && moveToWorkspace.item,
               (canDelete || isSystem) && {
                 id: 'delete',
@@ -949,6 +1037,7 @@ export function DocumentDetailPanel({
                 {staleNote}
                     {saveErrorLine}
                   </div>
+                  <DocumentFindSlot extras={docExtras} />
                   <div className="mt-4">
                     <CommentableEditor
                       section="document"
@@ -958,11 +1047,13 @@ export function DocumentDetailPanel({
                       externalContent={externalEditorContent}
                       onSelectionChange={handleEditorSelectionChange}
                       extraExtensions={docExtraExtensions}
+                      onEditorReady={docExtras.onEditorReady}
                       proposalRefs={suggestionRefs}
                       readOnly={readOnly}
                       autoFocus={!readOnly}
                     />
                   </div>
+                  <DocumentCountLine editor={docExtras.editor} />
                 </AnnotatedContent>
               </div>
             </ScrollArea>
@@ -971,6 +1062,8 @@ export function DocumentDetailPanel({
               {/* Sidebar — properties + comments */}
               <WindowProperties key={documentId} title={doc.title || 'Document'} fallbackVisible={sidebarOpen}>
                       <div className="p-4 space-y-4">
+                        {/* The outline (3+ headings), first: jump around the text. */}
+                        <DocumentOutlineGroup editor={activeSection === 'overview' ? docExtras.editor : null} />
                         {/* Properties group */}
                         {/* The shared frame (docs/plans/properties-panels.md): core
                             rows, the optional properties that are set, then the
@@ -1096,8 +1189,10 @@ export function DocumentDetailPanel({
         </InlineCommentProvider>
       ) : (
         <div className={cn('flex flex-1 min-h-0', activeSection !== 'overview' && 'hidden')}>
-          <div className="flex-1 min-w-0">
+          <div className="@container flex-1 min-w-0">
           <ScrollArea scrollbar={false} className="h-full">
+            <div className="relative">
+            <DocumentOutlineColumn editor={docExtras.editor} />
             <div className="max-w-2xl mx-auto px-8 pb-28">
               <div className="pt-6 pb-2 space-y-2">
                 {editingTitle ? (
@@ -1121,6 +1216,7 @@ export function DocumentDetailPanel({
                 {staleNote}
                 {saveErrorLine}
               </div>
+              <DocumentFindSlot extras={docExtras} />
               <div className="mt-4">
                 <NoteEditor
                   key={`${documentId}:${editorEpoch}`}
@@ -1129,11 +1225,14 @@ export function DocumentDetailPanel({
                   externalContent={externalEditorContent}
                   onSelectionChange={handleEditorSelectionChange}
                   extraExtensions={docExtraExtensions}
+                  onEditorReady={docExtras.onEditorReady}
                   proposalRefs={suggestionRefs}
                   readOnly={readOnly}
                   autoFocus={!readOnly}
                 />
               </div>
+              <DocumentCountLine editor={docExtras.editor} />
+            </div>
             </div>
           </ScrollArea>
           </div>
@@ -1156,6 +1255,11 @@ export function DocumentDetailPanel({
               currentRevision={doc.revision ?? null}
               canRestore={!readOnly}
               onRestored={handleRestored}
+              onForked={(forked) =>
+                onOpenEntity
+                  ? onOpenEntity('document', forked.id, forked.title)
+                  : openTarget({ type: 'document', id: forked.id, title: forked.title }, { from: 'document' })
+              }
             />
           </div>
         </div>

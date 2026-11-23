@@ -41,6 +41,10 @@ import { RecordMentionMenu } from '@/components/editor/record-mention-menu'
 import { EDITOR_LINK_CLASS, UrlLinkDecorations } from '@/components/editor/url-link-decorations'
 import { pasteUrlTransaction } from '@/components/editor/paste-url'
 import { ReadAloudSections } from '@/components/editor/read-aloud-sections-extension'
+// Math, in every editor: the markdown parser is shared (docs/plans/doc-editor-extras.md).
+import { MathExtensions, insertMath } from '@/components/editor/doc-extras/math'
+// Code blocks highlighted by language, with a picker (replaces StarterKit's codeBlock).
+import { highlightedCodeBlock } from '@/components/editor/doc-extras/code-block'
 import {
   Heading1,
   Heading2,
@@ -69,6 +73,8 @@ import {
   Trash2,
   Columns3,
   Rows3,
+  Sigma,
+  Radical,
 } from 'lucide-react'
 import { OrbLoader } from '@/components/ui/loader'
 import { Button } from '@/components/ui/button'
@@ -180,11 +186,8 @@ const starterKit = StarterKit.configure({
   blockquote: {
     HTMLAttributes: { class: cx('border-l-4 border-primary') },
   },
-  codeBlock: {
-    HTMLAttributes: {
-      class: cx('rounded-sm bg-muted border p-5 font-mono font-medium'),
-    },
-  },
+  // Registered below, highlighted (doc-extras/code-block.ts).
+  codeBlock: false,
   code: {
     HTMLAttributes: {
       class: cx('rounded-md bg-muted px-1.5 py-1 font-mono font-medium'),
@@ -221,6 +224,10 @@ const defaultExtensions = [
   TableEmbedNode,
   // A record @-mentioned in the body, drawn as a chip in every editor (the `@` picker is the documents': record-mention.ts).
   RecordMention,
+  // `$…$` and `$$` math (KaTeX), read and written by markdown-conversion.ts.
+  ...MathExtensions,
+  // The same `codeBlock` node (its language in the fence), highlighted.
+  highlightedCodeBlock({ preClass: cx('rounded-sm bg-muted border p-5 font-mono font-medium') }),
 ]
 
 
@@ -311,6 +318,26 @@ function createSlashItems(onAIContinue: () => void): SuggestionItem[] {
       icon: <Code size={18} />,
       command: cmd((editor, range) => {
         editor.chain().focus().deleteRange(range).toggleCodeBlock().run()
+      }),
+    },
+    {
+      title: 'Math',
+      description: 'A formula on its own line (TeX).',
+      searchTerms: ['math', 'equation', 'formula', 'latex', 'tex', 'katex'],
+      icon: <Sigma size={18} />,
+      command: cmd((editor, range) => {
+        editor.chain().focus().deleteRange(range).run()
+        insertMath(editor, true)
+      }),
+    },
+    {
+      title: 'Inline math',
+      description: 'A formula in the line (TeX).',
+      searchTerms: ['math', 'inline', 'equation', 'formula', 'latex', 'tex'],
+      icon: <Radical size={18} />,
+      command: cmd((editor, range) => {
+        editor.chain().focus().deleteRange(range).run()
+        insertMath(editor, false)
       }),
     },
     {
