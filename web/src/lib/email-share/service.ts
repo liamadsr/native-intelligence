@@ -29,7 +29,8 @@ import { appUrl } from '@/lib/app-url'
 import { emailShareLinkPath, isEmailShareLinkToken } from './links'
 import { ownedMailbox } from '@/lib/email/thread-mailbox'
 import { readableWorkspaceEmailAccounts } from '@/lib/email/account-scope'
-import { TEAM_CHAT_MESSAGE_COLUMNS, dmOtherMember, isUuid, type TeamChatMessage } from '@/lib/team-chat/types'
+import { messageColumns } from '@/lib/team-chat/store'
+import { dmOtherMember, isUuid, type TeamChatMessage } from '@/lib/team-chat/types'
 import {
   liveSharedAttachment,
   liveSharedMessage,
@@ -279,7 +280,7 @@ export async function createEmailShare(deps: EmailShareDeps, caller: ShareCaller
       mentions_agent: false,
       email_share_id: share.id,
     })
-    .select(TEAM_CHAT_MESSAGE_COLUMNS)
+    .select(await messageColumns(deps.svc))
     .single<TeamChatMessage>()
   if (messageError || !message) {
     await deps.svc.from('email_share').delete().eq('id', share.id)

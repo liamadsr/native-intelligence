@@ -197,6 +197,7 @@ export const REGISTRY_READ_TOOL_NAMES: readonly string[] = [
   'read_local_agent',
   'read_spreadsheet',
   'read_team_chat_message',
+  'read_team_chat_poll',
   'review_post',
   'screenshot_browser',
   'search',
