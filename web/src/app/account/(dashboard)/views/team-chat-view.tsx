@@ -33,9 +33,9 @@
  * Managing a conversation (migration 714, ./team-chat-manage.tsx): its
  * header's settings menu, and the sub-nav's row menu through the card's
  * controls (`manage`), open Edit channel / Rename meeting chat and Delete
- * meeting chat for whoever may (the channel's can_manage). A rename lands in
+ * (a channel or a meeting chat) for whoever may (the channel's can_manage). A rename lands in
  * the list, the open header and the sub-nav at once and reaches every other
- * screen through Realtime; a delete takes the meeting chat out of all of
+ * screen through Realtime; a delete takes the conversation out of all of
  * them (another screen hears it through its unfiltered DELETE listener, which
  * carries only the id).
  *
@@ -104,7 +104,7 @@ import { setTeamChatOnScreen } from '@/lib/team-chat/on-screen'
 import type { TeamChatNotifyLevel } from '@/lib/team-chat/notify'
 import { isSnoozed } from '@/lib/team-chat/snooze'
 import { TeamChatNotifyMenu } from './team-chat-notify-menu'
-import { DeleteMeetingChatDialog, EditConversationDialog, TeamChatManageMenu, type TeamChatManageWhat } from './team-chat-manage'
+import { DeleteConversationDialog, EditConversationDialog, TeamChatManageMenu, type TeamChatManageWhat } from './team-chat-manage'
 import type { TeamChatEditedChannel } from '@/lib/team-chat/manage'
 import { emitEntityDeleted, emitEntityUpdated } from '@/lib/entity-events'
 import { useTeamChatCreateItems } from './team-chat-create-items'
@@ -910,11 +910,12 @@ export function TeamChatView({
   dropConversationRef.current = dropConversation
   const onDeleted = useCallback(
     (id: string) => {
+      const kind = channels?.find((c) => c.id === id)?.kind
       dropConversation(id)
       emitEntityDeleted({ entityType: 'team_chat_channel', id })
-      toast('Meeting chat deleted')
+      toast(kind === 'channel' ? 'Channel deleted' : 'Meeting chat deleted')
     },
-    [dropConversation],
+    [dropConversation, channels],
   )
   const manageChannel = useCallback((id: string, what: TeamChatManageWhat) => setManage({ id, what }), [])
   const canManage = useCallback((id: string) => !!channels?.find((c) => c.id === id)?.can_manage, [channels])
@@ -1305,11 +1306,11 @@ export function TeamChatView({
         onOpenChange={(open) => !open && setManage(null)}
         onSaved={onEdited}
       />
-      <DeleteMeetingChatDialog
+      <DeleteConversationDialog
         channel={manage?.what === 'delete' ? (channels?.find((c) => c.id === manage.id) ?? { id: manage.id, kind: 'meeting' }) : null}
         title={(() => {
           const c = manage?.what === 'delete' ? channels?.find((x) => x.id === manage.id) : undefined
-          return c ? channelTitle(c) : 'this meeting chat'
+          return c ? channelTitle(c) : 'this conversation'
         })()}
         open={manage?.what === 'delete'}
         onOpenChange={(open) => !open && setManage(null)}

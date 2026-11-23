@@ -235,6 +235,7 @@ function MeetingRow({
                 <DropdownMenuItem onSelect={() => onManage('edit')} data-meeting-rename="">
                   <Pencil className="h-4 w-4" /> Rename…
                 </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={() => onManage('delete')} className="text-destructive focus:text-destructive" data-meeting-delete="">
                   <Trash2 className="h-4 w-4" /> Delete meeting chat…
                 </DropdownMenuItem>

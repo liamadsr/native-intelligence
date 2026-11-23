@@ -1,9 +1,10 @@
 -- ============================================================
 -- 714: Manage a conversation (docs/plans/team-chat-manage.md): edit a
--- channel's name and topic, rename a meeting chat, delete a meeting chat
--- completely. The owner's report, 2026-11-23: "there's no way to edit a
--- channel in team-chat or rename a group chat or completely delete a meeting
--- channel".
+-- channel's name and topic, rename a meeting chat, delete a channel or a
+-- meeting chat completely. The owner's report, 2026-11-23: "there's no way to
+-- edit a channel in team-chat or rename a group chat or completely delete a
+-- meeting channel"; and, the same day, channels too ("they let you delete
+-- it, we should too").
 -- ============================================================
 --   team_chat_can_manage(ch)   the caller may manage this conversation: they
 --                     may read it (474/572's team_chat_can_read), it is a
@@ -25,15 +26,18 @@
 --                     the notifications its messages made (" in #old" ending
 --                     their title, and metadata.place), so the Inbox says
 --                     the new name. Returns the row as it now is.
---   team_chat_meeting_chat_contents(ch)  what a delete would take, counted
---                     for the confirmation: messages, files, polls, calls,
---                     the call notes that stay, whether a call is live,
---                     whether its link still works, and whether it is a
---                     booking's. Under team_chat_can_manage, meetings only.
---   team_chat_delete_meeting_chat(ch)  deletes a meeting chat and everything
---                     that hangs off it, as the caller, under
---                     team_chat_can_manage; meetings only, and never while
---                     its call is live (55000: end the call first).
+--   team_chat_delete_contents(ch)  what a delete would take, counted for the
+--                     confirmation: messages, files, polls, calls, members,
+--                     the call notes that stay, whether a call is live, and
+--                     (a meeting chat) whether its link still works and
+--                     whether it is a booking's. Under team_chat_can_manage:
+--                     a channel or a meeting chat, never a DM.
+--   team_chat_delete_conversation(ch)  deletes a channel or a meeting chat
+--                     and everything that hangs off it, as the caller, under
+--                     team_chat_can_manage (a channel's creator, a meeting's
+--                     host, or the workspace's owner or admin); never a DM
+--                     (22023), never while its call is live (55000: end the
+--                     call first).
 --                     KEPT: the call notes (captures with notes_channel_id =
 --                     ch, 566/567): each becomes its owner's own private
 --                     capture (notes_channel_id cleared, notes_owner_out
@@ -47,8 +51,8 @@
 --                     messages, threads, reactions, polls and votes, file
 --                     text, email shares; calls, rings, egress rows, the
 --                     calls' capture links and live agent rows; the meeting
---                     itself (its link stops working), its guests, keys and
---                     rates; labels; records shared with the chat (their
+--                     itself, for a meeting chat (its link stops working),
+--                     its guests, keys and rates; labels; records shared with the chat (their
 --                     grants to it). GONE, here, because nothing cascades to
 --                     them: notifications about it or its messages, the
 --                     Inbox holds on those notifications, entity links and
@@ -66,7 +70,8 @@
 --                     after (src/lib/team-chat/manage.ts). Until it has, no
 --                     one can read them: both buckets' read policy asks
 --                     team_chat_can_read of the first folder, a channel now
---                     gone.
+--                     gone. A channel's name is free again once it is gone
+--                     (474's unique index holds live rows only).
 --
 -- New functions only: no table, column, policy or existing function changes.
 -- Each is SECURITY DEFINER with search_path = public, pg_temp, revoked from
@@ -192,14 +197,15 @@ $$;
 revoke all on function public.team_chat_update_channel(uuid, text, text) from public, anon;
 grant execute on function public.team_chat_update_channel(uuid, text, text) to authenticated, service_role;
 
--- ── Delete a meeting chat: what it would take ───────────────────────────────
+-- ── Delete a channel or meeting chat: what it would take ─────────────────────
 
-create or replace function public.team_chat_meeting_chat_contents(ch uuid)
+create or replace function public.team_chat_delete_contents(ch uuid)
 returns table (
   messages integer,
   files integer,
   polls integer,
   calls integer,
+  members integer,
   notes_kept integer,
   live_call boolean,
   link_current boolean,
@@ -217,11 +223,11 @@ begin
   if not found or not public.team_chat_can_read(ch) then
     raise exception 'team chat: no such conversation' using errcode = 'P0002';
   end if;
-  if c.kind <> 'meeting' then
-    raise exception 'team chat: only a meeting chat can be deleted' using errcode = '22023';
+  if c.kind = 'dm' then
+    raise exception 'team chat: a direct message cannot be deleted' using errcode = '22023';
   end if;
   if not public.team_chat_can_manage(ch) then
-    raise exception 'team chat: only its host or a workspace admin can delete it' using errcode = '42501';
+    raise exception 'team chat: only its creator or a workspace admin can delete it' using errcode = '42501';
   end if;
   return query
   select
@@ -229,6 +235,7 @@ begin
     (select count(*)::integer from storage.objects o where o.bucket_id = 'team-chat-files' and o.name like ch::text || '/%'),
     (select count(*)::integer from public.team_chat_poll p where p.channel_id = ch),
     (select count(*)::integer from public.team_call k where k.channel_id = ch),
+    (select count(*)::integer from public.team_chat_member tm where tm.channel_id = ch),
     (select count(*)::integer from public.captures cap where cap.notes_channel_id = ch),
     exists (select 1 from public.team_call k where k.channel_id = ch and k.status = 'live'),
     exists (select 1 from public.meeting x where x.channel_id = ch and x.revoked_at is null and x.closes_at > now()),
@@ -236,12 +243,12 @@ begin
 end;
 $$;
 
-revoke all on function public.team_chat_meeting_chat_contents(uuid) from public, anon;
-grant execute on function public.team_chat_meeting_chat_contents(uuid) to authenticated, service_role;
+revoke all on function public.team_chat_delete_contents(uuid) from public, anon;
+grant execute on function public.team_chat_delete_contents(uuid) to authenticated, service_role;
 
--- ── Delete a meeting chat ───────────────────────────────────────────────────
+-- ── Delete a channel or meeting chat ────────────────────────────────────────
 
-create or replace function public.team_chat_delete_meeting_chat(ch uuid)
+create or replace function public.team_chat_delete_conversation(ch uuid)
 returns table (bucket text, object_name text)
 language plpgsql
 security definer
@@ -256,14 +263,14 @@ begin
   if not found or not public.team_chat_can_read(ch) then
     raise exception 'team chat: no such conversation' using errcode = 'P0002';
   end if;
-  if c.kind <> 'meeting' then
-    raise exception 'team chat: only a meeting chat can be deleted' using errcode = '22023';
+  if c.kind = 'dm' then
+    raise exception 'team chat: a direct message cannot be deleted' using errcode = '22023';
   end if;
   if not public.team_chat_can_manage(ch) then
-    raise exception 'team chat: only its host or a workspace admin can delete it' using errcode = '42501';
+    raise exception 'team chat: only its creator or a workspace admin can delete it' using errcode = '42501';
   end if;
   if exists (select 1 from public.team_call k where k.channel_id = ch and k.status = 'live') then
-    raise exception 'team chat: end the call before deleting the meeting chat' using errcode = '55000';
+    raise exception 'team chat: end the call before deleting the conversation' using errcode = '55000';
   end if;
 
   select coalesce(array_agg(m.id), '{}') into msg_ids from public.team_chat_message m where m.channel_id = ch;
@@ -338,8 +345,8 @@ begin
 end;
 $$;
 
-revoke all on function public.team_chat_delete_meeting_chat(uuid) from public, anon;
-grant execute on function public.team_chat_delete_meeting_chat(uuid) to authenticated, service_role;
+revoke all on function public.team_chat_delete_conversation(uuid) from public, anon;
+grant execute on function public.team_chat_delete_conversation(uuid) to authenticated, service_role;
 
 commit;
 

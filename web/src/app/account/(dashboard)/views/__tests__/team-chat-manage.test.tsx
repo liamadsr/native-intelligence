@@ -46,7 +46,7 @@ vi.mock('@/components/ui/alert-dialog', async () => {
   }
 })
 
-import { DeleteMeetingChatDialog, EditConversationDialog, TeamChatManageMenu, manageChoices, meetingChatGoes } from '../team-chat-manage'
+import { DeleteConversationDialog, EditConversationDialog, TeamChatManageMenu, manageChoices, conversationGoes } from '../team-chat-manage'
 
 let root: Root
 let host: HTMLDivElement
@@ -75,8 +75,8 @@ function type(el: HTMLInputElement | HTMLTextAreaElement, value: string) {
 }
 
 describe('what is offered', () => {
-  it('a channel: Edit; a meeting chat: Rename and Delete; a DM or no right: nothing', () => {
-    expect(manageChoices({ kind: 'channel', can_manage: true }).map((c) => c.what)).toEqual(['edit'])
+  it('a channel: Edit and Delete; a meeting chat: Rename and Delete; Delete last; a DM or no right: nothing', () => {
+    expect(manageChoices({ kind: 'channel', can_manage: true }).map((c) => c.what)).toEqual(['edit', 'delete'])
     expect(manageChoices({ kind: 'meeting', can_manage: true }).map((c) => c.what)).toEqual(['edit', 'delete'])
     expect(manageChoices({ kind: 'dm', can_manage: true })).toEqual([])
     expect(manageChoices({ kind: 'channel', can_manage: false })).toEqual([])
@@ -134,13 +134,13 @@ describe('EditConversationDialog', () => {
   })
 })
 
-describe('DeleteMeetingChatDialog', () => {
-  const contents = { messages: 12, files: 2, polls: 1, calls: 1, notesKept: 1, liveCall: false, linkCurrent: true, booked: false }
+describe('DeleteConversationDialog', () => {
+  const contents = { messages: 12, files: 2, polls: 1, calls: 1, members: 3, notesKept: 1, liveCall: false, linkCurrent: true, booked: false }
 
   it('counts what goes and what stays, then deletes', async () => {
     fetchMock.mockResolvedValueOnce(json(200, { contents })).mockResolvedValueOnce(json(200, { deleted: true, filesLeft: 0 }))
     const onDeleted = vi.fn()
-    act(() => root.render(h(DeleteMeetingChatDialog, { channel: { id: 'm-1', kind: 'meeting' }, title: 'Weekly sync', open: true, onOpenChange: vi.fn(), onDeleted })))
+    act(() => root.render(h(DeleteConversationDialog, { channel: { id: 'm-1', kind: 'meeting' }, title: 'Weekly sync', open: true, onOpenChange: vi.fn(), onDeleted })))
     expect((q('[data-team-chat-delete-confirm]') as HTMLButtonElement).disabled).toBe(true)
     await flush()
     const text = q('[data-team-chat-delete-dialog]')!.textContent ?? ''
@@ -155,16 +155,27 @@ describe('DeleteMeetingChatDialog', () => {
     expect(onDeleted).toHaveBeenCalledWith('m-1')
   })
 
+  it('a channel: named with its #, no link line, its name free again', async () => {
+    fetchMock.mockResolvedValueOnce(json(200, { contents: { ...contents, linkCurrent: false } }))
+    act(() => root.render(h(DeleteConversationDialog, { channel: { id: 'c-1', kind: 'channel' }, title: 'design', open: true, onOpenChange: vi.fn(), onDeleted: vi.fn() })))
+    await flush()
+    const text = q('[data-team-chat-delete-dialog]')!.textContent ?? ''
+    expect(text).toContain('Delete #design for everyone?')
+    expect(text).toContain('free to use again')
+    expect(text).not.toContain('meeting link')
+    expect(q('[data-team-chat-delete-confirm]')!.textContent).toBe('Delete channel')
+  })
+
   it('a live call keeps Delete off and says why', async () => {
     fetchMock.mockResolvedValueOnce(json(200, { contents: { ...contents, liveCall: true } }))
-    act(() => root.render(h(DeleteMeetingChatDialog, { channel: { id: 'm-1', kind: 'meeting' }, title: 'Weekly sync', open: true, onOpenChange: vi.fn(), onDeleted: vi.fn() })))
+    act(() => root.render(h(DeleteConversationDialog, { channel: { id: 'm-1', kind: 'meeting' }, title: 'Weekly sync', open: true, onOpenChange: vi.fn(), onDeleted: vi.fn() })))
     await flush()
     expect(q('[data-team-chat-delete-live]')).not.toBeNull()
     expect((q('[data-team-chat-delete-confirm]') as HTMLButtonElement).disabled).toBe(true)
   })
 
   it('a booked meeting says its guest’s link stops too; an empty one says so', () => {
-    expect(meetingChatGoes({ ...contents, booked: true })).toContain('The meeting link: it stops working, the booked guest’s too')
-    expect(meetingChatGoes({ ...contents, messages: 0, files: 0, polls: 0, calls: 0, linkCurrent: false })[0]).toBe('Its messages (there are none yet)')
+    expect(conversationGoes({ ...contents, booked: true })).toContain('The meeting link: it stops working, the booked guest’s too')
+    expect(conversationGoes({ ...contents, messages: 0, files: 0, polls: 0, calls: 0, linkCurrent: false })[0]).toBe('Its messages (there are none yet)')
   })
 })

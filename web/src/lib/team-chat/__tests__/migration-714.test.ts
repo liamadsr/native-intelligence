@@ -24,7 +24,11 @@
  * email shares, labels, the agent conversation and its messages, its
  * notifications, Inbox holds, links, activity, Drive opens), kept the notes
  * as the host's private capture, and touched nothing of another
- * conversation's. anon was refused every function.
+ * conversation's. Channels (the owner's addition, the same day): a member who
+ * didn't make one was refused (42501), a DM was 22023 for anyone, its creator
+ * deleted one (its message and notification gone, its call notes kept as
+ * theirs), the owner deleted another member's, and the deleted channel's name
+ * could be used again. anon was refused every function.
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -38,8 +42,8 @@ const body = code(F)
 const FUNCTIONS = [
   ['team_chat_can_manage', 'uuid'],
   ['team_chat_update_channel', 'uuid, text, text'],
-  ['team_chat_meeting_chat_contents', 'uuid'],
-  ['team_chat_delete_meeting_chat', 'uuid'],
+  ['team_chat_delete_contents', 'uuid'],
+  ['team_chat_delete_conversation', 'uuid'],
 ] as const
 
 /** One function's text, from its create to the end of its body. */
@@ -91,7 +95,7 @@ describe('who may manage', () => {
   })
 
   it('every change asks it, after reading is checked', () => {
-    for (const name of ['team_chat_update_channel', 'team_chat_meeting_chat_contents', 'team_chat_delete_meeting_chat']) {
+    for (const name of ['team_chat_update_channel', 'team_chat_delete_contents', 'team_chat_delete_conversation']) {
       const g = fn(name)
       expect(g).toMatch(/not public\.team_chat_can_read\(ch\)/)
       expect(g).toMatch(/if not public\.team_chat_can_manage\(ch\) then\s+raise exception[^;]*errcode = '42501'/)
@@ -117,9 +121,10 @@ describe('the edit', () => {
 })
 
 describe('the delete', () => {
-  const f = () => fn('team_chat_delete_meeting_chat')
-  it('meeting chats only, never while a call is live', () => {
-    expect(f()).toMatch(/c\.kind <> 'meeting' then\s+raise exception[^;]*'22023'/)
+  const f = () => fn('team_chat_delete_conversation')
+  it('a channel or meeting chat, never a DM, never while a call is live', () => {
+    expect(f()).toMatch(/c\.kind = 'dm' then\s+raise exception[^;]*'22023'/)
+    expect(f()).not.toMatch(/kind <> 'meeting'/)
     expect(f()).toMatch(/k\.status = 'live'\) then\s+raise exception[^;]*'55000'/)
   })
 

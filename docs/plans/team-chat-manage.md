@@ -1,7 +1,10 @@
-# Edit a channel, rename a meeting chat, delete a meeting chat
+# Edit a channel, rename a meeting chat, delete a channel or a meeting chat
 
 The owner, 2026-11-23: "I just noticed that there's no way to edit a channel in team-chat or
-rename a group chat or completely delete a meeting channel".
+rename a group chat or completely delete a meeting channel". And, the same day, through the
+managing session: ordinary channels can be deleted too ("they let you delete it, we should
+too"), by the channel's creator or the workspace's owner or admin, with Rename/Edit and
+Delete in the row's right-click menu, Delete last, in red, after a divider.
 
 Branch `claude/team-chat-manage`. Reserved migration: 714. Merged is not live: see "How
 production works" in `CLAUDE.md`. 714 has to be applied on the server's database before
@@ -59,14 +62,16 @@ menu (in the sub-nav and the page's list) also has **Rename…**. The meeting is
 its chat (`meeting.title`), so the Meetings list and the link's page say the same name. A DM
 offers nothing: it has no name to change.
 
-### 3. Delete a meeting chat completely
+### 3. Delete a channel or a meeting chat completely
 
-The same menus have **Delete meeting chat…**, which opens a confirmation that names the
-chat and counts what goes, read from the database when it opens:
+The same menus have **Delete channel…** or **Delete meeting chat…**, always last, in red,
+after a divider. It opens a confirmation that names the conversation ("Delete #design for
+everyone?") and counts what goes, read from the database when it opens:
 
 - **Goes:** the messages (with their threads and reactions), the files, the polls, the calls
-  and their recordings, the meeting link (it stops working; for a booked meeting, the booked
-  guest's too), its notifications, and the chat from everyone's list. And, without being
+  and their recordings, a meeting chat's link (it stops working; for a booked meeting, the
+  booked guest's too), its notifications, and the conversation from everyone's list. A
+  deleted channel's name is free to use again. And, without being
   listed one by one: members, read marks, snoozes, Inbox holds on its notifications, entity
   links and activity naming it or its messages, the text of its files, email shares, labels,
   records' shares with it, Drive's "opened" rows for its files, and each person's agent
@@ -74,9 +79,10 @@ chat and counts what goes, read from the database when it opens:
 - **Stays:** the call notes, each as a private capture of the person who owns it (no one
   else reads it through the chat any more), and anything made from the chat: tasks,
   documents, records.
-- **Refused while its call is live:** "End the call before deleting the meeting chat."
+- **Refused while its call is live:** "End the call before deleting it."
+- **Never a DM.**
 
-The Delete button stays off until the counts are in. After it, the chat leaves the list,
+The Delete button stays off until the counts are in. After it, the conversation leaves the list,
 the sub-nav, the Meetings section and Recent on the deleter's screen at once; another
 person's screen drops it through Realtime (an unfiltered DELETE listener: Realtime can't
 filter a delete, and the event carries only the id).
@@ -102,11 +108,12 @@ ask it again; the UI only uses the list's `can_manage` to decide whether to show
 
 | | Edit name/topic | Delete |
 |---|---|---|
-| Channel | its creator; an owner or admin | not built (decision below) |
+| Channel | its creator; an owner or admin (of a team's channel: one in the team) | the same, never during a live call |
 | Meeting chat | its host; an owner or admin who is in it | the same, never during a live call |
 | DM | nobody (no name) | not built |
 
-An owner or admin who isn't in a meeting chat can't see it, so can't manage it either.
+An owner or admin who isn't in a meeting chat (or in a private team's channel's team) can't
+see it, so can't manage it either.
 
 ### 5. Everything that shows the conversation follows
 
@@ -122,7 +129,7 @@ An owner or admin who isn't in a meeting chat can't see it, so can't manage it e
 
 New functions only, no table, column or policy change, nothing restated:
 `team_chat_can_manage(uuid)`, `team_chat_update_channel(uuid, text, text)`,
-`team_chat_meeting_chat_contents(uuid)`, `team_chat_delete_meeting_chat(uuid)`. Each is
+`team_chat_delete_contents(uuid)`, `team_chat_delete_conversation(uuid)`. Each is
 `security definer` with `search_path = public, pg_temp`, revoked from public and anon,
 granted to authenticated and service_role.
 
@@ -136,11 +143,10 @@ above held, as written in `web/src/lib/team-chat/__tests__/migration-714.test.ts
 
 ## Decisions for the owner
 
-1. **Channels: archive or delete?** Not built, as asked. A channel already has an
-   `archived_at` (474): archiving would hide it from lists, keep its history readable, free
-   its name, and stop new messages; deleting would work as a meeting chat's delete does.
-   Suggestion: archive for channels (with an Archived list and Restore), delete for meeting
-   chats only.
+1. **Archive as well as delete?** Delete is built for channels (the owner's addition).
+   Archive is not: a channel already has an `archived_at` (474), so archiving would hide it
+   from lists, keep its history readable, free its name and stop new messages, with an
+   Archived list and Restore. It would be a gentler choice next to Delete.
 2. **Group DMs.** There is no conversation with more than two people besides a meeting chat.
    If "group chat" meant a private chat with several teammates, that is a new kind
    (`dm` with more than two members, or a private channel with chosen members), not part of
@@ -151,7 +157,11 @@ above held, as written in `web/src/lib/team-chat/__tests__/migration-714.test.ts
 5. **The agent.** Its tools (`lib/ai/tools/team-chat.ts`) can't rename or delete a
    conversation. A rename tool would be small; a delete by the agent should ask the person
    first.
-6. **Calendar events** made for a scheduled meeting keep their title and link after a rename
+6. **More in the row's menu** (the reference product's menu has them; not built, as
+   asked): open in a split view, set a picture for a channel, copy a link to it, copy its
+   ID. Favorite/unfavorite and mute already exist (the row menu's star, the header's
+   notifications menu).
+7. **Calendar events** made for a scheduled meeting keep their title and link after a rename
    or a delete; the link then opens nothing. Updating them would mean writing to the
    person's calendar.
 

@@ -25,8 +25,9 @@
  *           that conversation in the card in front, as its own list does. A
  *           star on hover or focus, and the row's right-click menu, add it to
  *           Favorites or take it out (./team-chat-panel-prefs.ts: on this
- *           device for now). The menu also has Edit channel (a channel),
- *           and Rename and Delete meeting chat (a meeting chat), for whoever
+ *           device for now). The menu also has Edit and Delete channel (a
+ *           channel), Rename and Delete meeting chat (a meeting chat), Delete
+ *           last, in red, after a divider, for whoever
  *           may manage it (its can_manage, migration 714): they open the
  *           card's own dialogs (TeamChatCardControls.manage). A Meetings
  *           row's own menu has Rename and Delete too.
@@ -458,12 +459,11 @@ function ConversationRow({
               <Pencil className="h-4 w-4" />
               {conversation.channel.kind === 'channel' ? 'Edit channel…' : 'Rename meeting chat…'}
             </ContextMenuItem>
-            {conversation.channel.kind === 'meeting' && (
-              <ContextMenuItem data-team-chat-menu-item="delete" onSelect={() => onManage(id, 'delete')} className="text-destructive focus:text-destructive">
-                <Trash2 className="h-4 w-4" />
-                Delete meeting chat…
-              </ContextMenuItem>
-            )}
+            <ContextMenuSeparator />
+            <ContextMenuItem data-team-chat-menu-item="delete" onSelect={() => onManage(id, 'delete')} className="text-destructive focus:text-destructive">
+              <Trash2 className="h-4 w-4" />
+              {conversation.channel.kind === 'channel' ? 'Delete channel…' : 'Delete meeting chat…'}
+            </ContextMenuItem>
           </>
         )}
       </ContextMenuContent>

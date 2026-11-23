@@ -11,7 +11,7 @@ import { memoryDb } from '@/test/memory-db'
 vi.mock('server-only', () => ({}))
 
 import { canManageChannel, listChannels, TeamChatError, teamChatErrorOf } from '../store'
-import { deleteMeetingChat, meetingChatContents, parseChannelEdit, updateChannel } from '../manage'
+import { deleteContents, deleteConversation, parseChannelEdit, updateChannel } from '../manage'
 
 const CH = '6f1c2a40-1111-4c2b-9a51-0d1e2f3a4b5c'
 
@@ -107,17 +107,17 @@ describe('714’s answers', () => {
 
   it('the contents, counted', async () => {
     const { client } = rpcClient({
-      team_chat_meeting_chat_contents: { data: [{ messages: 12, files: 2, polls: 1, calls: 3, notes_kept: 2, live_call: false, link_current: true, booked: false }], error: null },
+      team_chat_delete_contents: { data: [{ messages: 12, files: 2, polls: 1, calls: 3, members: 4, notes_kept: 2, live_call: false, link_current: true, booked: false }], error: null },
     })
-    expect(await meetingChatContents(client, CH)).toEqual({ messages: 12, files: 2, polls: 1, calls: 3, notesKept: 2, liveCall: false, linkCurrent: true, booked: false })
+    expect(await deleteContents(client, CH)).toEqual({ messages: 12, files: 2, polls: 1, calls: 3, members: 4, notesKept: 2, liveCall: false, linkCurrent: true, booked: false })
   })
 })
 
-describe('deleting a meeting chat', () => {
+describe('deleting a channel or meeting chat', () => {
   it('runs as the person, then removes only its own folder’s objects from the two buckets, 100 at a time', async () => {
     const files = Array.from({ length: 150 }, (_, i) => ({ bucket: 'team-chat-files', object_name: `${CH}/user/${i}.pdf` }))
     const { client, calls } = rpcClient({
-      team_chat_delete_meeting_chat: {
+      team_chat_delete_conversation: {
         data: [
           ...files,
           { bucket: 'team-call-recordings', object_name: `${CH}/call/recording/r.mp4` },
@@ -129,8 +129,8 @@ describe('deleting a meeting chat', () => {
       },
     })
     const storage = storageClient()
-    expect(await deleteMeetingChat(client, storage.client, CH)).toEqual({ filesRemoved: 151, filesLeft: 0 })
-    expect(calls.map((c) => c.fn)).toEqual(['team_chat_delete_meeting_chat'])
+    expect(await deleteConversation(client, storage.client, CH)).toEqual({ filesRemoved: 151, filesLeft: 0 })
+    expect(calls.map((c) => c.fn)).toEqual(['team_chat_delete_conversation'])
     expect(storage.removed.map((r) => [r.bucket, r.names.length])).toEqual([
       ['team-chat-files', 100],
       ['team-chat-files', 50],
@@ -140,15 +140,15 @@ describe('deleting a meeting chat', () => {
   })
 
   it('a refused delete removes nothing; a storage failure is counted, never thrown', async () => {
-    const refused = rpcClient({ team_chat_delete_meeting_chat: { data: null, error: { code: '55000', message: 'live' } } })
+    const refused = rpcClient({ team_chat_delete_conversation: { data: null, error: { code: '55000', message: 'live' } } })
     const storage = storageClient()
-    await expect(deleteMeetingChat(refused.client, storage.client, CH)).rejects.toMatchObject({ code: 'busy' })
+    await expect(deleteConversation(refused.client, storage.client, CH)).rejects.toMatchObject({ code: 'busy' })
     expect(storage.removed).toEqual([])
 
-    const ok = rpcClient({ team_chat_delete_meeting_chat: { data: [{ bucket: 'team-call-recordings', object_name: `${CH}/c/r.mp4` }], error: null } })
+    const ok = rpcClient({ team_chat_delete_conversation: { data: [{ bucket: 'team-call-recordings', object_name: `${CH}/c/r.mp4` }], error: null } })
     const down = storageClient(() => true)
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    expect(await deleteMeetingChat(ok.client, down.client, CH)).toEqual({ filesRemoved: 0, filesLeft: 1 })
+    expect(await deleteConversation(ok.client, down.client, CH)).toEqual({ filesRemoved: 0, filesLeft: 1 })
     expect(warn).toHaveBeenCalled()
     warn.mockRestore()
   })

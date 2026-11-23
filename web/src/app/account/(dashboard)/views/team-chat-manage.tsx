@@ -3,20 +3,23 @@
 /**
  * Managing a conversation (migration 714, docs/plans/team-chat-manage.md;
  * the owner, 11-23: "there's no way to edit a channel in team-chat or rename
- * a group chat or completely delete a meeting channel").
+ * a group chat or completely delete a meeting channel"; and channels too:
+ * "they let you delete it, we should too").
  *
  *   TeamChatManageMenu       the conversation header's menu, beside its
- *                            notifications: Edit channel (a channel), Rename
- *                            and Delete meeting chat (a meeting chat). Shown
+ *                            notifications: Edit and Delete channel (a
+ *                            channel), Rename and Delete meeting chat (a
+ *                            meeting chat), Delete last, in red, after a
+ *                            divider. Shown
  *                            only to someone who may (TeamChatChannel's
  *                            can_manage); the database decides again.
  *   EditConversationDialog   a channel's name and topic, or a meeting chat's
  *                            name. A name another channel has comes back as
  *                            words under the field, the dialog still open.
- *   DeleteMeetingChatDialog  the confirmation: it names the meeting chat and
- *                            counts what goes (messages, files, polls, calls,
- *                            the link) and what stays (the call notes, as
- *                            the host's own). Delete stays off until the
+ *   DeleteConversationDialog the confirmation: it names the channel or
+ *                            meeting chat and counts what goes (messages,
+ *                            files, polls, calls, a meeting's link) and what
+ *                            stays (the call notes, as their owner's own). Delete stays off until the
  *                            counts are in, and while a call is live.
  *
  * The page's own dialogs (ui/dialog, ui/alert-dialog), as New message and
@@ -40,14 +43,18 @@ import {
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 import { TEAM_CHAT_NAME_MAX, TEAM_CHAT_TOPIC_MAX, type TeamChatChannel } from '@/lib/team-chat/types'
-import type { MeetingChatContents, TeamChatEditedChannel } from '@/lib/team-chat/manage'
+import type { ConversationContents, TeamChatEditedChannel } from '@/lib/team-chat/manage'
 
 export type TeamChatManageWhat = 'edit' | 'delete'
 
-/** Of a conversation, what its manager is offered: Edit for a channel; Rename and Delete for a meeting chat; nothing for a DM. */
+/** Of a conversation, what its manager is offered: Edit and Delete for a channel; Rename and Delete for a meeting chat; nothing for a DM. Delete is last. */
 export function manageChoices(channel: Pick<TeamChatChannel, 'kind' | 'can_manage'>): Array<{ what: TeamChatManageWhat; label: string }> {
   if (!channel.can_manage || channel.kind === 'dm') return []
-  if (channel.kind === 'channel') return [{ what: 'edit', label: 'Edit channel…' }]
+  if (channel.kind === 'channel')
+    return [
+      { what: 'edit', label: 'Edit channel…' },
+      { what: 'delete', label: 'Delete channel…' },
+    ]
   return [
     { what: 'edit', label: 'Rename meeting chat…' },
     { what: 'delete', label: 'Delete meeting chat…' },
@@ -247,7 +254,7 @@ function count(n: number, one: string, many: string): string | null {
 }
 
 /** What goes, in words, from the counts. */
-export function meetingChatGoes(c: MeetingChatContents): string[] {
+export function conversationGoes(c: ConversationContents): string[] {
   const things = [
     count(c.messages, 'message', 'messages') ?? 'Its messages (there are none yet)',
     count(c.files, 'file', 'files'),
@@ -256,11 +263,11 @@ export function meetingChatGoes(c: MeetingChatContents): string[] {
   ].filter((x): x is string => !!x)
   if (c.messages > 0) things[0] = `${things[0]}, with their threads and reactions`
   if (c.linkCurrent) things.push(c.booked ? 'The meeting link: it stops working, the booked guest’s too' : 'The meeting link: it stops working')
-  things.push('Its notifications, and the chat in everyone’s list')
+  things.push('Its notifications, and the conversation in everyone’s list')
   return things
 }
 
-export function DeleteMeetingChatDialog({
+export function DeleteConversationDialog({
   channel,
   title,
   open,
@@ -273,10 +280,12 @@ export function DeleteMeetingChatDialog({
   onOpenChange: (open: boolean) => void
   onDeleted: (id: string) => void
 }) {
-  const [contents, setContents] = useState<MeetingChatContents | null>(null)
+  const [contents, setContents] = useState<ConversationContents | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
   const id = channel?.id ?? null
+  const isChannel = channel?.kind === 'channel'
+  const noun = isChannel ? 'channel' : 'meeting chat'
 
   useEffect(() => {
     if (!open || !id) return
@@ -292,7 +301,7 @@ export function DeleteMeetingChatDialog({
           if (!gone) setError(line)
           return
         }
-        const json = (await res.json()) as { contents: MeetingChatContents }
+        const json = (await res.json()) as { contents: ConversationContents }
         if (!gone) setContents(json.contents)
       } catch {
         if (!gone) setError('Couldn’t read what’s in it. Check your connection and try again.')
@@ -326,8 +335,10 @@ export function DeleteMeetingChatDialog({
     <AlertDialog open={open} onOpenChange={(next) => !deleting && onOpenChange(next)}>
       <AlertDialogContent data-team-chat-delete-dialog="">
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete “{title}” for everyone?</AlertDialogTitle>
-          <AlertDialogDescription>This deletes the meeting chat completely, for everyone in it. It can’t be undone.</AlertDialogDescription>
+          <AlertDialogTitle>Delete {isChannel ? `#${title}` : `“${title}”`} for everyone?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This deletes the {noun} completely, for everyone in it. It can’t be undone.{isChannel ? ' Its name is free to use again.' : ''}
+          </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="space-y-3 text-sm" data-team-chat-delete-contents={contents ? 'ready' : 'loading'}>
           {contents ? (
@@ -335,7 +346,7 @@ export function DeleteMeetingChatDialog({
               <div>
                 <p className="mb-1 text-xs font-medium text-muted-foreground">Goes</p>
                 <ul className="list-disc space-y-0.5 pl-5 text-foreground">
-                  {meetingChatGoes(contents).map((line) => (
+                  {conversationGoes(contents).map((line) => (
                     <li key={line}>{line}</li>
                   ))}
                 </ul>
@@ -345,15 +356,15 @@ export function DeleteMeetingChatDialog({
                 <ul className="list-disc space-y-0.5 pl-5 text-foreground">
                   {contents.notesKept > 0 && (
                     <li>
-                      {contents.notesKept === 1 ? 'The call’s notes' : `The ${contents.notesKept} calls’ notes`}, as a private capture of whoever owns them (no one else sees them through the chat any more)
+                      {contents.notesKept === 1 ? 'The call’s notes' : `The ${contents.notesKept} calls’ notes`}, as a private capture of whoever owns them (no one else sees them through the {noun} any more)
                     </li>
                   )}
-                  <li>Anything made from the chat: tasks, documents and records</li>
+                  <li>Anything made from it: tasks, documents and records</li>
                 </ul>
               </div>
               {contents.liveCall && (
                 <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive" data-team-chat-delete-live="">
-                  A call is on in this meeting now. End it before deleting the chat.
+                  A call is on here now. End it before deleting the {noun}.
                 </p>
               )}
             </>
@@ -374,7 +385,7 @@ export function DeleteMeetingChatDialog({
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             data-team-chat-delete-confirm=""
           >
-            {deleting ? 'Deleting…' : 'Delete meeting chat'}
+            {deleting ? 'Deleting…' : `Delete ${noun}`}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>
