@@ -97,8 +97,15 @@ editor keys).
 
 ### 5. Offline editing
 - A save that can't reach the server (offline, or the request fails without an answer)
-  keeps the text on this device (`localStorage`, per document) with the revision and
-  text it was based on, and the panel says **"Offline: saved on this device"**.
+  keeps the text on this device (`localStorage`, keyed by the signed-in person, the
+  workspace and the document) with the revision and text it was based on, and the
+  panel says **"Offline: saved on this device"**.
+- Private text on a possibly shared computer: another person on the same browser reads
+  none of it (their key differs); the sign-out wipe (`main-chat/state-wipe.ts`, also
+  what an account switch goes through) removes every copy, and nothing is written
+  once it has begun; a copy goes the moment its text is saved, and one older than 30
+  days is swept (anyone's) whenever a document opens. Folds are in the same wipe, as
+  they name a document's headings.
 - When the connection returns (the `online` event, or the next open of the document),
   the kept text is saved with its original base revision. If nobody else changed the
   document it simply saves; if they did, the save loses the compare-and-swap and the
@@ -150,9 +157,11 @@ No migration.
    reaches more people than the original did, and grants are the owner's to give).
 6. **Sessions are a 30-minute gap**, worked out in the browser from the history rows; no
    column or migration.
-7. **Offline copy in `localStorage`**, not IndexedDB: a document body is small, and it
-   keeps the save path synchronous on unload. Cleared when the save lands; a copy older
-   than 30 days is dropped unsaved only if the document is gone.
+7. **Offline copies live in the browser's storage, unencrypted, until they sync.**
+   `localStorage`, not IndexedDB (a body is small, and the save path stays synchronous
+   on unload). Each is keyed by person and workspace, wiped on sign-out, removed once
+   saved, and dropped unsaved after 30 days. Anyone with the computer and this browser
+   profile, while the person is still signed in, could read an unsynced copy.
 8. **The outline lists top-level headings H1–H3** (H4+ are rare and would crowd it), and
    sits in the properties column: at the card's usual width there is no room left of
    the 736px text column.

@@ -8,7 +8,8 @@
  * anyone else, and a reader can fold too.
  *
  * Folds are remembered on this device (`localStorage`, under the extension's
- * `storageKey`, one per document), keyed by the heading's text and which
+ * `storageKey`, one per document; the sign-out wipe clears them, as they name
+ * the document's headings), keyed by the heading's text and which
  * occurrence of that text it is, so they survive a reload and other people's
  * edits elsewhere. Renaming a folded heading unfolds it.
  *
@@ -19,6 +20,7 @@ import { Extension } from '@tiptap/core'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import { Plugin, PluginKey, type EditorState, type Transaction } from '@tiptap/pm/state'
 import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view'
+import { isTabStateWipeActive } from '@/app/account/(dashboard)/main-chat/state-wipe'
 
 export interface HeadingInfo {
   /** Stable across reloads: the heading's text and its occurrence (`Notes#1`). */
@@ -109,7 +111,8 @@ function readStored(storageKey: string | null): Set<string> {
 }
 
 function writeStored(storageKey: string | null, folded: ReadonlySet<string>) {
-  if (!storageKey || typeof window === 'undefined') return
+  // Signing out wiped them (main-chat/state-wipe.ts): nothing comes back.
+  if (!storageKey || typeof window === 'undefined' || isTabStateWipeActive()) return
   try {
     if (folded.size === 0) window.localStorage.removeItem(storageKey)
     else window.localStorage.setItem(storageKey, JSON.stringify([...folded]))

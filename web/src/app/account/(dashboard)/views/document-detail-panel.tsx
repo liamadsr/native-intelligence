@@ -52,7 +52,7 @@ import { useDocumentExtras } from '@/components/editor/doc-extras/use-document-e
 import { DocumentCountLine, DocumentFindButton, DocumentFindSlot, DocumentOutlineColumn, DocumentOutlineGroup } from '@/components/editor/doc-extras/document-extras-slots'
 import { downloadMarkdown } from '@/components/editor/doc-extras/download-markdown'
 import { openTarget } from '@/lib/chat-cards/open-card'
-import { clearOfflineDraft, isOffline, isUndelivered, offlineDraftOnLoad, readOfflineDraft, writeOfflineDraft, type OfflineDraft } from '@/components/editor/doc-extras/offline-draft'
+import { clearOfflineDraft, isOffline, isUndelivered, offlineDraftOnLoad, pruneOfflineDrafts, readOfflineDraft, writeOfflineDraft, type OfflineDraft, type OfflineScope } from '@/components/editor/doc-extras/offline-draft'
 import { OfflineNote, type OfflineState } from '@/components/editor/doc-extras/offline-note'
 import { formatCaptureDate } from './capture-utils'
 import { ShareDialog } from '../components/share-dialog'
@@ -225,7 +225,14 @@ export function DocumentDetailPanel({
   // Who may be offered "Workspace / Only me": the creator, in a shared
   // workspace (the capture rule, visibility-control.tsx).
   const { currentId: currentWorkspaceId } = useWorkspaces()
-  const { memberId: viewerMemberId, memberCount: workspaceMemberCount } = useVisibilityViewer(currentWorkspaceId)
+  const { memberId: viewerMemberId, memberCount: workspaceMemberCount, userId: viewerUserId } = useVisibilityViewer(currentWorkspaceId)
+  // Whose offline copy (offline-draft.ts): the signed-in person, in this workspace.
+  const offlineScope = useMemo<OfflineScope | null>(
+    () => (viewerUserId && currentWorkspaceId ? { userId: viewerUserId, workspaceId: currentWorkspaceId } : null),
+    [viewerUserId, currentWorkspaceId],
+  )
+  const offlineScopeRef = useRef(offlineScope)
+  offlineScopeRef.current = offlineScope
   // Suggestions staged into this document (a brief's, a chat's): their
   // `<!-- proposal:ID -->` markers render as cards, kept live by the store.
   // Pending ones the text doesn't place are appended at the end, as on the
@@ -275,6 +282,9 @@ export function DocumentDetailPanel({
   // that couldn't reach the server is kept on this device (offline-draft.ts)
   // and saved on its own base revision when the connection returns.
   const [offlineState, setOfflineState] = useState<OfflineState>(null)
+  // The document as loaded, for the kept-copy check (null until it loads).
+  const [loadedForOffline, setLoadedForOffline] = useState<{ content: string | null; revision: number | null; canEdit: boolean; offline?: boolean } | null>(null)
+  const offlineCheckedRef = useRef(false)
 
   // Projects for picker
   const [projects, setProjects] = useState<ProjectOption[]>([])
@@ -442,6 +452,9 @@ export function DocumentDetailPanel({
   useEffect(() => {
     let cancelled = false
     const hasCached = documentDetailCache.has(documentId)
+    // A new document: its kept copy is checked afresh once it loads.
+    setLoadedForOffline(null)
+    offlineCheckedRef.current = false
     if (!hasCached) setLoading(true)
     fetch(`/api/account/documents/${documentId}`)
       .then((r) => r.json())
@@ -453,19 +466,14 @@ export function DocumentDetailPanel({
         if (typeof data.document?.revision === 'number') baseRevisionRef.current = data.document.revision
         baseContentRef.current = data.document?.content || ''
         setLoading(false)
-        // Text kept on this device by an earlier visit that was offline: put
-        // it back and save it on the revision it was based on.
-        const kept = readOfflineDraft(documentId)
-        const plan = data.document.can_edit === false ? 'drop' : offlineDraftOnLoad(kept, data.document)
-        if (plan === 'drop') clearOfflineDraft(documentId)
-        else if (plan === 'restore' && kept) restoreOfflineDraftRef.current?.(kept)
+        // Checked against text kept on this device (below, once we know whose).
+        setLoadedForOffline({ content: data.document.content ?? null, revision: data.document.revision ?? null, canEdit: data.document.can_edit !== false })
       })
       .catch(() => {
         if (cancelled) return
         setLoading(false)
         // Opened offline, from the cache: the kept text is what the person had.
-        const kept = readOfflineDraft(documentId)
-        if (kept && documentDetailCache.has(documentId)) restoreOfflineDraftRef.current?.(kept)
+        if (documentDetailCache.has(documentId)) setLoadedForOffline({ content: null, revision: null, canEdit: true, offline: true })
       })
 
     // Fetch inline comments + member identity in parallel
@@ -559,7 +567,7 @@ export function DocumentDetailPanel({
         const keep = () =>
           isBody &&
           baseRevisionRef.current !== null &&
-          writeOfflineDraft(documentId, { content: updates.content as string, baseRevision: baseRevisionRef.current, baseContent: baseContentRef.current })
+          writeOfflineDraft(offlineScopeRef.current, documentId, { content: updates.content as string, baseRevision: baseRevisionRef.current, baseContent: baseContentRef.current })
         if (isBody && isOffline() && keep()) {
           setSaveError(null)
           setOfflineState('kept')
@@ -576,8 +584,8 @@ export function DocumentDetailPanel({
           setSaveError(null)
           if (isBody) {
             // The kept copy landed (or newer text that holds it did).
-            const kept = readOfflineDraft(documentId)
-            if (kept && (kept.content === updates.content || latestContentRef.current === updates.content)) clearOfflineDraft(documentId)
+            const kept = readOfflineDraft(offlineScopeRef.current, documentId)
+            if (kept && (kept.content === updates.content || latestContentRef.current === updates.content)) clearOfflineDraft(offlineScopeRef.current, documentId)
             setOfflineState(null)
           }
           const saved = result.document as Partial<DocumentDetail> | null
@@ -642,13 +650,30 @@ export function DocumentDetailPanel({
     },
     [saveText],
   )
-  const restoreOfflineDraftRef = useRef(restoreOfflineDraft)
-  restoreOfflineDraftRef.current = restoreOfflineDraft
+
+  // Once the document has loaded and we know whose it is: text kept on this
+  // device by an earlier, offline visit is put back and saved on the revision
+  // it was based on (or dropped, when the server already has it). Copies past
+  // their age are swept for everyone first.
+  useEffect(() => {
+    if (!loadedForOffline || !offlineScope || offlineCheckedRef.current) return
+    offlineCheckedRef.current = true
+    pruneOfflineDrafts()
+    const kept = readOfflineDraft(offlineScope, documentId)
+    if (!kept) return
+    if (loadedForOffline.offline) {
+      restoreOfflineDraft(kept)
+      return
+    }
+    const plan = loadedForOffline.canEdit ? offlineDraftOnLoad(kept, loadedForOffline) : 'drop'
+    if (plan === 'drop') clearOfflineDraft(offlineScope, documentId)
+    else if (plan === 'restore') restoreOfflineDraft(kept)
+  }, [loadedForOffline, offlineScope, documentId, restoreOfflineDraft])
 
   // Back online: save what was kept (the newest text the editor holds).
   useEffect(() => {
     const onOnline = () => {
-      const kept = readOfflineDraft(documentId)
+      const kept = readOfflineDraft(offlineScopeRef.current, documentId)
       if (!kept) return
       if (saveTimeoutRef.current) return // the queued save is about to send it
       setOfflineState('syncing')
@@ -946,8 +971,9 @@ export function DocumentDetailPanel({
             }
           />
           {!isNowFile && <ShareDialog shareableType="document" shareableId={documentId} />}
-          {/* P9 (decision 9): copy the whole text out, e.g. a newsletter into Substack. Hidden when empty. */}
+          {/* Find (and replace) in the text, also ⌘⇧F in it (docs/plans/doc-editor-extras.md). */}
           <DocumentFindButton extras={docExtras} />
+          {/* P9 (decision 9): copy the whole text out, e.g. a newsletter into Substack. Hidden when empty. */}
           {(doc.content ?? '').trim() && <CopyDocumentButton getMarkdown={() => latestContentRef.current ?? doc.content ?? ''} />}
           {/* More, last (docs/plans/properties-panels.md): the kind's menu, then
               Move to workspace (same post-move handling as delete: the document

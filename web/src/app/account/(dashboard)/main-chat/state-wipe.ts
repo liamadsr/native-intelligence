@@ -34,6 +34,10 @@
 // drops it at once. And what the Studio keeps on a device (`ni:studio:*`): the
 // unsaved copy of an edit it holds for recovery (a video's whole document),
 // the page each video was left on, and its recording and layout choices.
+// And a document's text kept on this device while offline (`ni:doc-offline:`,
+// components/editor/doc-extras/offline-draft.ts: private text until it syncs)
+// and the sections folded in each document (`ni:doc-folds:`, heading-fold.ts:
+// they name its headings).
 const WIPE_KEY_PREFIXES = [
   'ni-chat:',
   'ni-tabs',
@@ -45,6 +49,8 @@ const WIPE_KEY_PREFIXES = [
   'ni:voice:assistant-name',
   'ni:rail-pages',
   'ni:studio:',
+  'ni:doc-offline:',
+  'ni:doc-folds:',
 ] as const
 // TODO(rename-compat): the same keys under their names from before the rename. The storage
 // rename script leaves the old keys beside the new ones for a release
