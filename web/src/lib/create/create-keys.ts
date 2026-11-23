@@ -1,6 +1,7 @@
 /**
- * The Create flow's keys (owner, 11-22: "match the macro experience when it
- * comes to creating new entities"; docs/plans/create-everything.md).
+ * The Create flow's keys (owner, 11-22: "match the [reference product's]
+ * experience when it comes to creating new entities";
+ * docs/plans/create-everything.md).
  *
  *   C              opens the Create menu: every type, type to filter, ↵ picks.
  *   C then letter  straight to that type's composer (C then A: a new action).
@@ -16,9 +17,10 @@
  * not `A` (a task's Assign) nor `G then A` (My Actions). Most mirror the
  * type's initial; where that is taken, the G letter of the type's page
  * (lib/shortcuts.ts GO_TO) so the two families agree: Contact O (G O
- * Contacts), Company B (G B Companies). Macro's own where it has one:
- * Canvas N, Channel G. Macro's Folder F is our Flow's, and folder's O, L
- * and D are taken (Contact, Deal, Doc): Folder is R, its next free letter.
+ * Contacts), Company B (G B Companies). The reference product's own letter
+ * where it has one: Canvas N, Channel G. Its Folder F is our Flow's, and
+ * folder's O, L and D are taken (Contact, Deal, Doc): Folder is R, its next
+ * free letter.
  *
  * Client-safe and pure (SEQUENCE_MS is the G sequences' window, shared).
  */

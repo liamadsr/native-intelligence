@@ -2,7 +2,7 @@
 /**
  * What opens the create dialog. The rail's + and the app-wide `c` (Liam,
  * 11-20: back after 10-20's removal) open the Create menu (owner, 11-22:
- * Macro's one menu); `open-create` naming a type opens its composer. `c` is skipped while typing and while another dialog or menu
+ * one menu, as the reference product has); `open-create` naming a type opens its composer. `c` is skipped while typing and while another dialog or menu
  * has the focus, and is never prevented, so Mail's own `c` (New email,
  * `open-create-email`) still sees it and lands on Email. The old top bar's
  * `open-create-action` stays retired.

@@ -1,14 +1,14 @@
 # Channels that keep the noise out, one inbox, and polls
 
-Owner, via the managing session: "lets build all of it", matching Macro's channels
-(macro.com/channels). Branch `claude/channels-inbox`. Reserved migrations: 702, 703.
-Merged is not live: see "How production works" in `CLAUDE.md`.
+Owner, via the managing session: "lets build all of it", matching the reference product's
+channels (its public Channels page). Branch `claude/channels-inbox`. Reserved migrations:
+702, 703. Merged is not live: see "How production works" in `CLAUDE.md`.
 
-Clean room: the behaviour comes from Macro's public product page only (macro.com/channels:
-mark each channel Signal or Noise, Signal reaches the inbox, items wait there and are marked
-done, mute or snooze from the channel's menu, polls and other Create items in the composer's
-menu, start a call from it). No code, styles, icons or wording come from Macro, and nothing
-was read from its source or any mirror of it. No new dependency.
+Clean room: the behaviour comes from the reference product's public product page only (its
+Channels page: mark each channel Signal or Noise, Signal reaches the inbox, items wait there
+and are marked done, mute or snooze from the channel's menu, polls and other Create items in
+the composer's menu, start a call from it). No code, styles, icons or wording come from the
+reference product, and nothing was read from its source or any mirror of it. No new dependency.
 
 ## What exists, and what this builds on
 

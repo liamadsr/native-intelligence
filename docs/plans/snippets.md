@@ -7,9 +7,9 @@ follow-up, a "thanks, here's the link"), gives each a short word, and types `;` 
 letters in any editor to put one in. Snippets are personal or shared with the workspace. The
 agent can read them and use them when it drafts.
 
-This matches the behaviour Macro's public docs describe ("Snippets: inserted by typing ;").
-It is a clean-room build: nothing was read from Macro's source, and no code, styles, icons or
-wording come from it. **No new dependency.**
+This matches the behaviour the reference product's public docs describe ("Snippets: inserted by
+typing ;"). It is a clean-room build: nothing was read from the reference product's source, and
+no code, styles, icons or wording come from it. **No new dependency.**
 
 ## 1. What already exists (and is reused)
 

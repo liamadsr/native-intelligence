@@ -1,9 +1,10 @@
 'use client'
 
 /**
- * The Create menu (owner, 11-22: Macro's one Create menu): what C and the
- * rail's + open. Every type the workspace can make, grouped as the rail
- * groups its pages, each with its letter; type to filter, ↑↓ and ↵ pick,
+ * The Create menu (owner, 11-22: one Create menu, as the reference product
+ * has): what C and the rail's + open. Every type the workspace can make,
+ * grouped as the rail groups its pages, each with its letter; type to
+ * filter, ↑↓ and ↵ pick,
  * or C then a letter goes straight to a type (lib/create/create-keys.ts:
  * the menu reads that letter as its first key, soon after it opened, while
  * nothing is typed). Picking opens the type's composer in the same dialog.

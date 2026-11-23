@@ -1,11 +1,11 @@
 # Create everything the same way
 
-Owner, 11-22: "match the macro experience when it comes to creating new entities, right now
-the UX for creating new i.e. actions, sheets, doc, project is all over the place but I think
-macro does a good job at this so lets also adopt that".
+Owner, 11-22: "match the [reference product's] experience when it comes to creating new
+entities, right now the UX for creating new i.e. actions, sheets, doc, project is all over the
+place but I think [the reference product] does a good job at this so lets also adopt that".
 
-This is a clean-room match of the behaviour Macro's public docs describe (docs.macro.com). No
-code or assets come from Macro's repository (AGPL), and no dependency was added.
+This is a clean-room match of the behaviour the reference product's public docs describe. No
+code or assets come from the reference product's repository (AGPL), and no dependency was added.
 
 ## The behaviour
 
@@ -108,26 +108,28 @@ No route itself changed in that first pass. Since then (11-22, the two items lef
 
 ## Decisions to review
 
-1. **C now opens the Create menu, not the action composer.** That is Macro's model.
-   C then A is the action composer in two keys. The rail's + opens the menu too.
+1. **C now opens the Create menu, not the action composer.** That is the reference product's
+   model. C then A is the action composer in two keys. The rail's + opens the menu too.
 2. **The letters** (C then …):
-   - A action, P project, I initiative, D doc, T table, S spreadsheet, N canvas (Macro's),
-     E event, M email.
+   - A action, P project, I initiative, D doc, T table, S spreadsheet, N canvas (the reference
+     product's), E event, M email.
    - O contact and B company, mirroring G O and G B.
-   - L deal, G channel (Macro's), F flow, U agent, K knowledge package.
+   - L deal, G channel (the reference product's), F flow, U agent, K knowledge package.
    - Skill, sequence, prospect list, campaign, booking link and the Studio types have no
      letter; they are a filter away.
    - Letters are read only by the open menu, so they cannot clash with a task's A, P, S, L
      keys or with the G sequences. The registry test checks this (`continues: 'create'`).
 3. **"Create more" became ⌘↵.** The switch is gone. The "Create another ⌘↵" button does the
    same thing.
-4. **↵ opens what was made**, as Macro does. Before, the dialog closed and showed a toast.
+4. **↵ opens what was made**, as the reference product does. Before, the dialog closed and
+   showed a toast.
 5. **Drive folders (11-22, migration 690).** Before this there was no folder record, so
    "Create in …" could only mean a project, an initiative, a team, a company, a contact or a
    deal. Folders are now a thing of their own; the design is in "Drive folders" below.
-6. **A project's Priority (11-22, migration 691).** The composer has Macro's Priority chip
-   for a project: the actions' pill and the actions' five values (none, low, medium, high,
-   urgent; `lib/projects/priority.ts`). The project card shows it and sets it, under Status.
+6. **A project's Priority (11-22, migration 691).** The composer has the reference product's
+   Priority chip for a project: the actions' pill and the actions' five values (none, low,
+   medium, high, urgent; `lib/projects/priority.ts`). The project card shows it and sets it,
+   under Status.
    - The update route already wrote `projects.priority`, and DEV had the column, but no
      migration made it. 691 adds it where it is missing (text, nullable: null is none set),
      puts right any stored value the check would refuse (a value in another case or with
@@ -135,8 +137,8 @@ No route itself changed in that first pass. Since then (11-22, the two items lef
      `projects_priority_check` with the five values or null.
    - Both routes now take only one of the five values, or null to clear it, and answer 400
      to anything else. Nothing else about a project changed: no policy, trigger or function.
-   - Macro's "Assignees" maps to the project's Lead, which is the one person field the
-     route takes.
+   - The reference product's "Assignees" maps to the project's Lead, which is the one person
+     field the route takes.
 7. **A doc made on a company or deal page is not linked to it.** No route links a doc to
    a company. Actions (`about`) and contacts (`company_id`) are linked.
 8. **Kept outside the composer, on purpose:**
@@ -217,9 +219,9 @@ These are before-write triggers, not definers. They hold a client's own token; t
 
 ### In the app
 
-- **New folder** is in the Create menu (Work group), **C then R**. Macro's letter is F, which our
-  Flow has. O, L and D are taken too (Contact, Deal, Doc), so it is the next letter of "folder"
-  that is free.
+- **New folder** is in the Create menu (Work group), **C then R**. The reference product's letter
+  is F, which our Flow has. O, L and D are taken too (Contact, Deal, Doc), so it is the next
+  letter of "folder" that is free.
 - **"Create in <folder>".** A doc, table, spreadsheet, canvas or folder made from a folder lands
   in it. The chip names the folder, and × makes the record without it, as every place does.
 - **The Folders page** is in the Drive group, after Docs. Its top level shows the top folders.

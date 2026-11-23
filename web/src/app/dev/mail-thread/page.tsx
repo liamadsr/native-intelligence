@@ -3,7 +3,7 @@ import MailThreadPreview from './mail-thread-preview'
 
 /**
  * Mail's thread view and composer, drawn standalone — DEV ONLY
- * (docs/plans/mail-macro.md): the real thread pane (email-thread-detail.tsx)
+ * (docs/plans/mail-client.md): the real thread pane (email-thread-detail.tsx)
  * and composer (email-composer.tsx) on a made-up thread, every mail request
  * answered in the browser from a fixture, so nothing is read from or sent to
  * any mailbox. For a screenshot without signing in.

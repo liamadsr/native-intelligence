@@ -1,13 +1,14 @@
 # Drive files: a viewer, attachments in Drive, search inside files, PDF comments
 
-Owner, 11-23 ("lets build all of it", matching Macro's Drive): files open inside the app;
-attachments from mail and team chat show in Drive and can be searched. Branch
-`claude/drive-files`. Migrations 709 and 710, and 711 (phase 4), approved by the managing
-session on 11-23; each is written, tested, and rehearsed on a local Postgres only. None is
-applied anywhere.
+Owner, 11-23 ("lets build all of it", matching the reference product's Drive): files open
+inside the app; attachments from mail and team chat show in Drive and can be searched.
+Branch `claude/drive-files`. Migrations 709 and 710, and 711 (phase 4), approved by the
+managing session on 11-23; each is written, tested, and rehearsed on a local Postgres only.
+None is applied anywhere.
 
-Clean room: behaviour comes from Macro's public pages only (macro.com/drive,
-docs.macro.com). No Macro source was read, and no code, CSS, icons or wording is copied.
+Clean room: behaviour comes from the reference product's public pages only (its public Drive
+page and its docs). No source of the reference product was read, and no code, CSS, icons or
+wording is copied.
 
 ## What is there today (research, 11-23)
 

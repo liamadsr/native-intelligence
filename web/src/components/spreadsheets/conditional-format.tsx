@@ -6,7 +6,8 @@
  * edits, deletes and reorders them. The engine evaluates every rule and the
  * grid draws the result; this panel only builds the rules.
  *
- * This goes past Macro, which only keeps the rules an imported file carried.
+ * This goes past the reference product, which only keeps the rules an
+ * imported file carried.
  */
 import { useState } from 'react'
 import { ArrowDown, ArrowUp, Pencil, Plus, Trash2, X } from 'lucide-react'

@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 /**
- * The one Create flow (owner, 11-22: "match the macro experience";
- * docs/plans/create-everything.md): C then a letter goes straight to a type,
+ * The one Create flow (owner, 11-22: "match the [reference product's]
+ * experience"; docs/plans/create-everything.md): C then a letter goes
+ * straight to a type,
  * ↵ creates and opens, ⌘↵ creates and keeps the composer for another, a
  * place gives what is made its link ("Create in <name>"), a table's starters
  * are a choice in the composer, and a task from an email links back to it.

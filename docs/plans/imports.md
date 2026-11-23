@@ -5,11 +5,12 @@ already connected, and pages and databases from a Notion export. Every import is
 previewed before it writes anything, shows in the work ledger while it runs, and can be
 undone as a whole.
 
-The behaviour we're aiming for is the one Macro's public pages describe ("Import Notion
-pages" on macro.com/documents; "Import Linear issues or task CSVs" on macro.com/tasks;
-Notion databases on macro.com/databases). Only those public product pages were read. None
-of Macro's source was read, and no code, CSS, icon, image or wording of theirs is used.
-Everything below is our own design, built on what this app already has.
+The behaviour we're aiming for is the one the reference product's public pages describe
+("Import Notion pages" on its Documents page; "Import Linear issues or task CSVs" on its
+Tasks page; Notion databases on its Databases page). Only those public product pages were
+read. None of the reference product's source was read, and no code, CSS, icon, image or
+wording of theirs is used. Everything below is our own design, built on what this app
+already has.
 
 Status: phases 1–4 built (task CSV, Linear, Notion; the shared journal, apply, undo, the
 Import page; the agent tools). Migration 704 is applied nowhere but a local Postgres
