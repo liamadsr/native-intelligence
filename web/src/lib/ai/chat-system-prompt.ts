@@ -714,7 +714,7 @@ export async function buildChatSystemPrompt(
   const filesContext = chatFiles?.length
     ? [
         `## Chat File Uploads`,
-        `The user has uploaded the following file(s) in this message. To look at a photo or image, call read_chat_file with its storage_path: images are not in the message itself. To read a text file (markdown, text, csv, json, code), call read_chat_file with its storage_path. To bring the people in a spreadsheet (csv, xlsx) or contacts file (vcf) into the CRM, call read_contact_file, then import_contact_file. To import TASKS from a spreadsheet, or a Notion export (.zip), call stage_import_from_file: it prepares a preview they run from the Import page. To attach any of these files to an action or capture, use the attach_chat_file tool with the storage_path shown below:`,
+        `The user has uploaded the following file(s) in this message. To look at a photo or image, call read_chat_file with its storage_path: images are not in the message itself. To read a text file (markdown, text, csv, json, code), call read_chat_file with its storage_path. To bring the people in a spreadsheet (csv, xlsx) or contacts file (vcf) into the CRM, call read_contact_file, then import_contact_file. To attach any of these files to an action or capture, use the attach_chat_file tool with the storage_path shown below:`,
         ...chatFiles.map(
           (f) => `- "${f.fileName}" (${f.mimeType}, ${Math.round(f.fileSize / 1024)}KB) — storage_path: ${f.storagePath}`,
         ),
