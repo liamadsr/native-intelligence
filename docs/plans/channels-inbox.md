@@ -296,5 +296,57 @@ Start a call.
 17. **Mail opens in Mail's own card** on its thread, not inside the inbox's pane. Team chat
     opens in the pane, and records open over the inbox in its card.
 18. **H holds until tomorrow morning; the row's clock picks another time.**
+20. **Only a poll's creator closes it** (the member, or the person whose agent posted it).
+    There is no admin override.
+21. **A vote cast before someone left the channel still counts.** After they leave they can no
+    longer read, vote or receive the poll's live changes.
+22. **No notification types are added or changed** by 702 or 703.
 19. **Message reads find out whether `poll_id` exists** (one probe per server process). A
     deploy that lands before 703 still reads team chat, without polls.
+
+## Rehearsal (702 and 703, local Postgres only)
+
+On a local Postgres 16 with the repository's migrations applied (the team chat, notification
+and membership schema; 572's team chat parts applied by hand, since its other parts need
+tables that predate the migrations), plus 702 and 703, each applied twice to show they are
+idempotent. 75 checks passed and none failed. The fixture is:
+
+- users A, B, C and E in workspace W, and D in W2;
+- team T made of A and B;
+- channel G open to the workspace, and channel TC for team T.
+
+What was checked:
+
+- **Snooze:** B snoozes only her own row; a time in the past or more than 31 days ahead is
+  refused; C, who isn't on team T, can't snooze TC; D, from another workspace, can't snooze G;
+  nobody writes `team_chat_member` directly. A mention while snoozed reads `muted` in
+  `team_chat_notify_candidates`, and reads `mentions` again once the snooze ends. The
+  candidates function stays service-role only.
+- **Holds:** the server sets `held_at`; nobody can hold for someone else or in a workspace they
+  aren't in; times in the past, more than 90 days ahead, and keys that aren't inbox items are
+  refused; a hold's key never changes; nobody can see or delete another person's holds; anon
+  has no access.
+- **Poll checks:** a retried send returns the same poll; 1 option, 11 options, a duplicate
+  option and a closing time in the past are all refused.
+- **Client writes:** clients can't write poll, option or vote rows; can't set or change a
+  message's `poll_id`; and can't edit a poll's words.
+- **Votes:**
+  - A one-choice poll takes one option; another poll's options are refused.
+  - Changing or taking back a vote updates the tally.
+  - Each person sees only their own vote rows.
+  - An anonymous poll returns no voter ids to anyone, its author included.
+- **Who can read:** someone from another workspace, someone outside the team, someone taken
+  off the team, and someone removed from the workspace can't read, can't vote and see no rows
+  (so no Realtime either).
+- **Closing:** a poll past its closing time refuses votes; so does a closed one, even when the
+  service role writes the vote directly; the database refuses a second choice on a one-choice
+  poll from any writer; only the creator can close.
+- **Integrity:** a message can't name another channel's poll; deleting a poll's message closes
+  the poll and hides it.
+- **The agent:**
+  - `team_chat_poll_create_for_agent` is service-role only.
+  - It refuses a member who can't post in that channel, and a member of another workspace.
+  - It posts as the member's agent.
+  - The internal writer can't be called directly.
+  - anon can call none of the functions.
+- **Realtime:** `team_chat_poll` is in the realtime publication.
