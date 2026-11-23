@@ -184,7 +184,7 @@ export function graphSearchUrl(opts: LiveSearchOptions, limit: number): string {
  * $search takes no $filter, so they are dropped from the page by
  * parentFolderId). A folder Graph won't name is not filtered.
  */
-async function graphExcludedFolderIds(token: string): Promise<Set<string>> {
+export async function graphExcludedFolderIds(token: string): Promise<Set<string>> {
   const ids = await Promise.all(
     GRAPH_EXCLUDED_FOLDERS.map(async (name) => {
       try {

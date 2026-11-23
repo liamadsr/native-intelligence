@@ -167,6 +167,9 @@ export async function resolveNotificationDetailPanel(
       return { type: 'canvas', id: targetId, title: '' }
     case 'spreadsheet':
       return { type: 'spreadsheet', id: targetId, title: '' }
+    // A comment on an uploaded file (711): the file, in the viewer.
+    case 'attachment':
+      return { type: 'attachment', id: targetId, title: '' }
     // A sprint that started: its team's board (the team rides in the row's
     // metadata; an older row without it opens nothing particular).
     case 'cycle': {

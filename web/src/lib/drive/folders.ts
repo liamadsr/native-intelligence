@@ -4,8 +4,12 @@
  * names them. Client-safe and pure.
  */
 
-/** The records a folder holds, by the kind drive_folder_item names them with. */
-export const FOLDER_ITEM_TYPES = ['document', 'data_table', 'spreadsheet', 'canvas'] as const
+/**
+ * The records a folder holds, by the kind drive_folder_item names them with.
+ * 'attachment' is a Drive upload (709): a file dropped on Drive, filed only by
+ * its uploader.
+ */
+export const FOLDER_ITEM_TYPES = ['document', 'data_table', 'spreadsheet', 'canvas', 'attachment'] as const
 export type FolderItemType = (typeof FOLDER_ITEM_TYPES)[number]
 
 export function isFolderItemType(v: unknown): v is FolderItemType {
@@ -18,6 +22,7 @@ export const FOLDER_ITEM_LABEL: Record<FolderItemType, string> = {
   data_table: 'Table',
   spreadsheet: 'Spreadsheet',
   canvas: 'Canvas',
+  attachment: 'File',
 }
 
 export const FOLDER_NAME_MAX = 200
@@ -48,6 +53,8 @@ export interface FolderItem {
   updated_at: string | null
   /** When it was put in the folder. */
   filed_at: string
+  /** A file's own facts (an 'attachment'): what the viewer needs to open it. */
+  file?: { storage_path: string; mime_type: string | null; size: number | null; user_id: string | null }
 }
 
 /** The folders from the top to this one (itself last); empty when it isn't among them. */

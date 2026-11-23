@@ -46,6 +46,7 @@ import { createCrmTools } from './crm'
 import { createEnrichContactTools } from './enrich-contact'
 import { createEmailManagementTools } from './email-management'
 import { createAttachmentTools } from './attachments'
+import { createFileCommentTools } from './file-comments'
 import { createFlowTools } from './flows'
 import { createPageWatchTools } from './page-watch'
 import { createConnectionTools } from './connections'
@@ -558,6 +559,8 @@ export function createTools(
     ...createReviewTools(userId, supabase, workspaceId, strict, { unattended: options?.unattended === true, omitGrants }),
     ...createEmailManagementTools(userId, supabase, workspaceId, accessToken),
     ...createAttachmentTools(userId, supabase, workspaceId, strict, omitPrivate, omitGrants, options?.signedUrlTtlSeconds),
+    // Comments on a file for the person (711): an upload's or a chat file's own read rule asked first.
+    ...createFileCommentTools(userId, supabase, workspaceId, omitGrants),
     // The browser zone: a schedule loop with no timezone takes the person's.
     // The chat's conversation counts the flow cards it raises (approval caps);
     // a replayed approval runs the stored change (F1, ../flows/flow-approvals.ts).

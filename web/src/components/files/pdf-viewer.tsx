@@ -59,7 +59,7 @@ const TEXT_LAYER_CSS = `
 .ni-pdf-text mark[data-current]{background:rgba(249,115,22,.65)}
 `
 
-export default function PdfViewer({ blob, overlay }: { blob: Blob; overlay?: PdfPageOverlay }) {
+export default function PdfViewer({ blob, overlay, jump }: { blob: Blob; overlay?: PdfPageOverlay; jump?: { page: number; n: number } | null }) {
   const [pdfjs, setPdfjs] = React.useState<PdfJs | null>(null)
   const [doc, setDoc] = React.useState<PdfDoc | null>(null)
   const [error, setError] = React.useState<string | null>(null)
@@ -137,6 +137,11 @@ export default function PdfViewer({ blob, overlay }: { blob: Blob; overlay?: Pdf
     const root = scrollRef.current
     if (el && root) root.scrollTo({ top: el.offsetTop - 12, behavior: 'auto' })
   }, [])
+
+  // Asked to show a page (a comment's thread): scroll to it.
+  React.useEffect(() => {
+    if (jump && doc) goTo(Math.min(Math.max(1, jump.page), doc.numPages))
+  }, [jump, doc, goTo])
 
   // Find.
   const [finding, setFinding] = React.useState(false)

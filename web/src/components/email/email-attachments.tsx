@@ -15,23 +15,9 @@ import { CalendarDays, Download, File, FileArchive, FileImage, FileSpreadsheet, 
 import type { LucideIcon } from 'lucide-react'
 import { isCalendarAttachment } from '@/lib/email/calendar-invite'
 import { useFileViewer } from '@/components/files/file-viewer'
-import { downloadFile } from '@/lib/download'
-import { routeLoader, type ViewerFile } from '@/lib/files/viewer-file'
+import { emailViewerFile } from '@/lib/files/sources'
 
-/** A mail attachment as the viewer takes it: read through its own attachment route. */
-export function emailViewerFile(attachment: AttachmentChipData, href: string): ViewerFile {
-  return {
-    key: `email:${href}`,
-    name: attachment.name,
-    mimeType: attachment.mimeType,
-    size: attachment.size,
-    sourceLabel: 'Email attachment',
-    load: routeLoader(href),
-    download: async () => {
-      await downloadFile(href, attachment.name)
-    },
-  }
-}
+export { emailViewerFile }
 
 export interface AttachmentChipData {
   name: string

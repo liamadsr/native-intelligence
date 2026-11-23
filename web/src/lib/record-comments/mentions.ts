@@ -41,7 +41,12 @@ export interface SavedRecordComment {
   viaAgent?: boolean
   /** An edit: who the comment already mentioned. Only the newly named are told, and nobody is told of a reply again. */
   alreadyMentioned?: readonly string[]
+  /** The record's name when it has none of its own (a chat file's name). */
+  recordTitle?: string | null
 }
+
+/** The linkable record a comment's mentions hang off: a chat file's is the message that carries it. */
+const SOURCE_TYPE: Record<SavedRecordComment['kind'], string> = { canvas: 'canvas', spreadsheet: 'spreadsheet', attachment: 'attachment', team_chat_file: 'team_chat_message' }
 
 export async function afterRecordComment(supabase: SupabaseClient, saved: SavedRecordComment): Promise<void> {
   try {
@@ -53,8 +58,8 @@ export async function afterRecordComment(supabase: SupabaseClient, saved: SavedR
         workspaceId: saved.workspaceId,
         userId: saved.userId,
         memberId: saved.memberId,
-        // The edge runs from the canvas or spreadsheet: both are linkable records.
-        commentable: { type: saved.kind as unknown as CommentableType, id: saved.recordId },
+        // The edge runs from the record: a canvas, a spreadsheet, a file, or a chat file's message.
+        commentable: { type: SOURCE_TYPE[saved.kind] as unknown as CommentableType, id: saved.recordId },
         mentions: saved.mentions,
       }),
       sendRecordCommentNotifications({
@@ -67,6 +72,7 @@ export async function afterRecordComment(supabase: SupabaseClient, saved: SavedR
         parentId: edit ? null : saved.parentId,
         mentionedMemberIds: mentioned,
         viaAgent: saved.viaAgent,
+        recordTitle: saved.recordTitle,
       }),
     ])
   } catch (err) {
