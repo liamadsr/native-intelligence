@@ -316,6 +316,8 @@ describe('computeWorkRunCeiling', () => {
         'create_form',
         'update_form',
         'create_form_invites',
+        // Channel polls: posting a poll reaches teammates, only on the person's own card.
+        'post_team_chat_poll',
         // GEN-1169: deleting a document is a delete, only on the person's own card.
         // (Archiving and restoring are internal writes and stay in.)
         'delete_document',

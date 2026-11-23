@@ -100,7 +100,7 @@ describe('the app rail', () => {
       'home',
       // Drive: Docs, Knowledge, Files · Calendar: Captures (Liam, 11-11): one icon each.
       // Projects and Initiatives nest under Tasks (Liam, 11-11): no icons of their own.
-      'drive', 'mail', 'team-chat', 'actions', 'calendar',
+      'drive', 'mail', 'team-chat', 'actions', 'calendar', 'inbox',
       // Contacts: Companies, Contacts, Deals · Outreach: Prospecting, Sequences, Campaigns (Liam, 11-11),
       // and the Studio (Liam, 11-13: "part of the outreach page"): no icon of its own.
       // SEO: Site audit (one icon; its sections join it as they land).
@@ -397,7 +397,7 @@ const savedBar = () => {
   return last ? JSON.parse(String((last[1] as RequestInit).body)).rail_pages : undefined
 }
 const DEFAULT_BAR = [
-  'drive', 'mail', 'team-chat', 'actions', 'calendar',
+  'drive', 'mail', 'team-chat', 'actions', 'calendar', 'inbox',
   'contacts', 'outreach', 'seo',
   'agents',
 ]
@@ -456,7 +456,7 @@ describe('the person’s bar', () => {
     })
     expect(bar().slice(0, 5)).toEqual(['drive', 'mail', 'team-chat', 'calendar', 'actions'])
     expect(document.activeElement).toBe(item('calendar'))
-    expect(container.querySelector('[data-app-rail-announce]')?.textContent).toBe('Calendar moved to 4 of 9')
+    expect(container.querySelector('[data-app-rail-announce]')?.textContent).toBe('Calendar moved to 4 of 10')
     expect(lines()).toBe(0)
     await act(async () => {
       item('calendar')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', altKey: true, bubbles: true, cancelable: true }))
@@ -745,7 +745,7 @@ describe('page groups (Liam, 11-11: "Contacts: Companies, Contacts, Deals · Out
     // Drive where Docs was; Agents where Flows was, its first member saved.
     // Outreach shows again: this bar hid its three pages but kept the Studio's own icon, and the Studio lives in
     // Outreach now (11-13). SEO came after this bar was saved: a page it doesn't mention, shown, after the rest.
-    expect(bar()).toEqual(['contacts', 'calendar', 'drive', 'mail', 'team-chat', 'actions', 'agents', 'outreach', 'seo'])
+    expect(bar()).toEqual(['contacts', 'calendar', 'inbox', 'drive', 'mail', 'team-chat', 'actions', 'agents', 'outreach', 'seo'])
     // The next save keeps rail ids in the order, and a hidden group as its members.
     await rightClick('mail')
     await pick('unpin')

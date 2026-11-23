@@ -183,8 +183,9 @@ describe('the kinds that came with P2 and P3', () => {
     const web = pagesFor(full, { desktop: false, now: NOW }).map((p) => p.slug)
     expect(web).toEqual(expect.arrayContaining(['sequences', 'prospecting', 'flows', 'campaigns', 'knowledge', 'agents', 'teams']))
     expect(web).not.toContain('browser')
-    // The inbox page went with the notifications page (docs/plans/retire-notifications-page.md).
-    expect(web).not.toContain('inbox')
+    // The old inbox page went with the notifications page (docs/plans/retire-notifications-page.md); the one inbox
+    // (docs/plans/channels-inbox.md) is a new page: notifications by conversation and mail that needs the person.
+    expect(web).toContain('inbox')
     const desk = withEffectiveSurface(full, { browser: 'on' })
     expect(pagesFor(desk, { desktop: true, now: NOW }).map((p) => p.slug)).not.toContain('browser')
   })

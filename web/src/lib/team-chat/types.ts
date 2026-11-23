@@ -181,6 +181,12 @@ export interface TeamChatMessage {
    */
   guest_id?: string | null
   guest_name?: string | null
+  /**
+   * The poll this message is (migration 703, ./polls.ts): drawn as the poll's
+   * card; its words are "Poll: <question>". Absent on an old realtime
+   * payload: none.
+   */
+  poll_id?: string | null
 }
 
 /** A record a message @-mentions: its kind and id, and the label its `@…` shows. */
@@ -188,7 +194,7 @@ export type TeamChatRecordMention = LabeledMentionRef
 
 /** The columns a message is read with. */
 export const TEAM_CHAT_MESSAGE_COLUMNS =
-  'id, channel_id, author_kind, author_member_id, agent_for_member_id, agent_name, in_reply_to, thread_root_id, client_id, body, mentions, mentions_agent, record_mentions, attachments, link_preview, created_at, edited_at, deleted_at, kind, call_id, email_share_id, guest_id, guest_name'
+  'id, channel_id, author_kind, author_member_id, agent_for_member_id, agent_name, in_reply_to, thread_root_id, client_id, body, mentions, mentions_agent, record_mentions, attachments, link_preview, created_at, edited_at, deleted_at, kind, call_id, email_share_id, guest_id, guest_name, poll_id'
 
 /** The most replies a thread's pane loads at once. */
 export const TEAM_CHAT_THREAD_MAX = 200

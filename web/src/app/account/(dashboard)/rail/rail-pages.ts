@@ -93,6 +93,8 @@ export const RAIL_PAGES: readonly RailPageDef[] = [
   def('actions', 'work'),
   // Calendar: Captures (Liam, 11-11).
   groupDef('calendar', 'work'),
+  // One inbox (docs/plans/channels-inbox.md): last of the work group, so a saved bar keeps its places (it can be moved).
+  def('inbox', 'work'),
   // Contacts: Companies, Contacts, Deals · Outreach: Prospecting, Sequences, Campaigns (Liam, 11-11),
   // and the Studio (Liam, 11-13: "part of the outreach page").
   groupDef('contacts', 'customers'),

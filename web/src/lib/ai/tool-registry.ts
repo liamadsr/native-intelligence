@@ -575,6 +575,11 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       // One team chat message, its thread so far and its channel's name, read as the caller (their channels only;
       // never on a guest's or a linked agent's turn). The read a chat_message loop's step makes.
       { name: 'read_team_chat_message', sideEffect: 'read', label: 'Read a Team Chat Message', description: "Read one team chat message by id (a chat loop's {{trigger.chat_message_id}}): who wrote it, its words, the thread so far and the channel's name; only in channels the person can read" },
+      // Channel polls (docs/plans/channels-inbox.md, migration 703): read as the caller, their channels only; an anonymous poll names nobody.
+      { name: 'read_team_chat_poll', sideEffect: 'read', label: 'Read a Team Chat Poll', description: "Read one team chat poll's question, options and vote counts, whether it is open, and who chose what unless it is anonymous; only in channels the person can read" },
+      // external-write: it posts to teammates, so the outward gate holds every call for the person's card (outward-gate.ts);
+      // attended only (ATTENDED_ONLY_TOOL_NAMES), never on a guest's or linked agent's turn.
+      { name: 'post_team_chat_poll', sideEffect: 'external-write', label: 'Post a Team Chat Poll', description: "Post a poll (a question and 2 to 10 options) in a team chat channel as the person's agent, only once they accept its card" },
     ],
   },
   {
@@ -1326,6 +1331,8 @@ export const ATTENDED_ONLY_TOOL_NAMES: ReadonlySet<string> = new Set([
   'update_form',
   // Forms phase 3: each personal link lets its holder add a row, so they are made only at the person's word.
   'create_form_invites',
+  // Channel polls (docs/plans/channels-inbox.md): a poll reaches teammates, so it is posted only from the person's card.
+  'post_team_chat_poll',
 ])
 
 /** True for a tool only an attended chat may hold (ATTENDED_ONLY_TOOL_NAMES). */
@@ -1484,6 +1491,8 @@ export const REPORT_MODE_WRITE_ALLOWLIST = ['create_document', 'add_comment', 's
  * `push_action_to_*` tool belongs here by construction.
  */
 const NON_PREFIX_MUTATING_TOOLS: string[] = [
+  // Channel polls (docs/plans/channels-inbox.md): posts a poll into a team chat channel. `post_` is no write verb here.
+  'post_team_chat_poll',
   // Deals (roadmap #8): moving a deal's stage and adding a workspace custom
   // field both write. (create_/update_/undo_/set_ deal tools match the prefix.)
   'move_deal',

@@ -93,6 +93,12 @@ export const OUTSIDE_TEXT_TOOLS: Readonly<Record<string, OutsideTextTool>> = {
     fence: ['wrapUntrusted'],
     note: "each message's words (a teammate's or a guest's in a shared channel, read by a loop that runs as someone else)",
   },
+  read_team_chat_poll: {
+    file: 'src/lib/ai/tools/team-chat-polls.ts',
+    kind: 'CHAT',
+    fence: ['wrapUntrusted'],
+    note: "a poll's question and options (what a teammate wrote)",
+  },
   read_browser_page: {
     file: 'src/lib/ai/tools/browser.ts',
     kind: 'BROWSER',

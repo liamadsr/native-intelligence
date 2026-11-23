@@ -93,6 +93,8 @@ export interface InboxItem {
   type: string
   /** While held: when it comes back. */
   heldUntil?: string
+  /** A notification item's newest row: what opening it resolves (notification-panel.tsx). */
+  row?: InboxNotificationRow
 }
 
 /** Notification types the inbox counts as "mentions and assignments". */
@@ -151,6 +153,7 @@ export function notificationItems(rows: readonly InboxNotificationRow[]): InboxI
       actor: top.actor ? { id: top.actor.id, name: top.actor.display_name?.trim() || 'A teammate', avatarUrl: top.actor.avatar_url } : null,
       open: notificationOpen(top),
       type: top.type,
+      row: top,
     })
   }
   return items.sort(byNewest)

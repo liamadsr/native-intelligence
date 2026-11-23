@@ -38,6 +38,7 @@ import { createDashboardTools } from './dashboard'
 import { createSearchTools } from './search'
 import { createNotificationTools } from './notifications'
 import { createTeamChatTools } from './team-chat'
+import { createTeamChatPollTools } from './team-chat-polls'
 import { createBrowserTools } from './browser'
 import { createCalendarCaptureTools } from './calendar-capture'
 import { createCrmTools } from './crm'
@@ -530,6 +531,8 @@ export function createTools(
     ...createNotificationTools(userId, supabase, workspaceId),
     // One team chat message and its thread, read as the caller (none on a guest's or a linked agent's turn).
     ...createTeamChatTools(userId, supabase, workspaceId, { strictWorkspace: strict, omitGrants }),
+    // Channel polls (docs/plans/channels-inbox.md): read, and post only as the replay of the person's card.
+    ...createTeamChatPollTools(userId, supabase, workspaceId, { strictWorkspace: strict, omitGrants, unattended: options?.unattended === true, approvedCall: options?.approvedCall }),
     ...createBrowserTools(userId, supabase, workspaceId, options?.browserAttribution, options?.browserSourceRequest, options?.approvedCall),
     ...createCalendarCaptureTools(userId, supabase, workspaceId, accessToken, omitPrivate, omitGrants),
     // The person's goal for one of their meetings (the prep card's composer writes the same store).

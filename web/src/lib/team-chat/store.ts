@@ -97,7 +97,7 @@ export async function listChannels(
   if (unread.error) throw teamChatErrorOf(unread.error, 'unread read')
   if (threadUnread.error) throw teamChatErrorOf(threadUnread.error, 'thread unread read')
   if (levels.error) throw teamChatErrorOf(levels.error, 'levels read')
-  const levelRows = (levels.data ?? []) as Array<{ channel_id: string; notify_level: string | null; muted_until?: string | null }>
+  const levelRows = (levels.data ?? []) as unknown as Array<{ channel_id: string; notify_level: string | null; muted_until?: string | null }>
   const levelOf = new Map(levelRows.map((r) => [r.channel_id, r.notify_level]))
   const now = new Date()
   const snoozeOf = new Map(levelRows.filter((r) => isSnoozed(r.muted_until, now)).map((r) => [r.channel_id, r.muted_until as string]))
