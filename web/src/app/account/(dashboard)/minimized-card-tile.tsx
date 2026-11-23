@@ -380,7 +380,7 @@ function Tile({
           still copy (the copy's own blurs stay off), masked to a band that eases out. */}
       {card.preview && <div aria-hidden data-minimized-card-edge-blur="" className={TILE_EDGE_BLUR} />}
       {/* Clear it: like the open view's header close (show-tool-card.tsx
-          `data-card-header-close`: a circle, the X at 1.75, muted to
+          `data-card-header-close`, an X until 11-23, Minimize's icon since: a circle, the glyph at 1.75, muted to
           foreground, the same hover tint; 28px here, where the header's is
           24px since 11-22, as a tile needs the bigger target), on a round backing of the
           panels' floating skin with its 1px edge so it reads on any page

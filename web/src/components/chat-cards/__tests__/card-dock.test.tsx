@@ -252,7 +252,7 @@ describe('the docked card', () => {
     await render(null)
     await act(async () => store.enterFullScreen('cap'))
     expect(fullScreenPage()).not.toBeNull()
-    expect(document.querySelector('[data-chat-card-fullscreen="cap"] button[aria-label="Close"]')).not.toBeNull()
+    expect(document.querySelector('[data-chat-card-fullscreen="cap"] [data-testid="card-close"]')).not.toBeNull()
     expect(attach).not.toHaveBeenCalled()
   })
 
