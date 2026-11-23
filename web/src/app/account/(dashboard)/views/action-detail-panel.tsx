@@ -1,5 +1,6 @@
 'use client'
 
+import { copyBranchName } from '@/lib/github/copy-branch-name'
 import { EntityIcon } from '@/components/entities/entity-icon'
 import { PreferenceActionButton } from '@/components/views/preference-action'
 
@@ -237,6 +238,9 @@ interface LinkedPr {
   pr_draft: boolean
   head_branch: string | null
   linked_at: string
+  /** The diff's size, kept by the GitHub webhook (migration 694); null before it reports. */
+  additions?: number | null
+  deletions?: number | null
 }
 
 interface LinkedDocument {
@@ -1324,7 +1328,7 @@ export function ActionDetailPanel({
   }
 
   const labelToggleInFlight = useRef(new Set<string>())
-  async function toggleLabel(labelId: string, isAttached: boolean) {
+  async function toggleLabel(labelId: string, isAttached: boolean, picked?: { id: string; name: string; color: string }) {
     if (!action) return
     if (labelToggleInFlight.current.has(labelId)) return
     labelToggleInFlight.current.add(labelId)
@@ -1334,7 +1338,8 @@ export function ActionDetailPanel({
     if (isAttached) {
       updated = { ...action, labels: (action.labels ?? []).filter((l) => l.id !== labelId) }
     } else {
-      const label = allLabels.find((l) => l.id === labelId)
+      // A tag just made with `#` is not in the cached list yet: the pick carries it.
+      const label = allLabels.find((l) => l.id === labelId) ?? (picked as ActionLabel | undefined)
       updated = label ? { ...action, labels: [...action.labels, label] } : action
     }
     setAction(updated)
@@ -1672,6 +1677,8 @@ export function ActionDetailPanel({
       { ...base, key: 'l', handler: open('labels') },
       { ...base, key: 'd', shift: true, handler: open('due_at') },
       { ...base, key: 'i', handler: assignToMe },
+      // ⇧⌘B: this action's branch name, for GitHub (docs/plans/github-reviews.md).
+      { ...base, key: 'b', mod: true, shift: true, handler: () => action?.identifier && void copyBranchName(action.identifier, action.title) },
     ]
   }, [taskPanelOwnsKeys, isWindowFocused, action, assignToMe, actionId, showProperties])
   useHotkeys(panelTaskKeys)
@@ -2088,6 +2095,13 @@ export function ActionDetailPanel({
                 onUpdate={handleDescriptionChange}
                 placeholder="Add description..."
                 recordMentions
+                tagging={{
+                  scope: 'action',
+                  // `#` in the description tags the action.
+                  onPick: (tag) => {
+                    if (!action.labels?.some((l) => l.id === tag.id)) void toggleLabel(tag.id, false, tag)
+                  },
+                }}
               />
             </div>
 
@@ -2903,6 +2917,16 @@ export function ActionDetailPanel({
                                   <span className="ml-1.5">{pr.pr_title}</span>
                                 )}
                               </a>
+                              {/* The diff's size and the state in words (docs/plans/github-reviews.md). */}
+                              {typeof pr.additions === 'number' && typeof pr.deletions === 'number' && (
+                                <span data-pr-size="" className="shrink-0 font-mono tabular-nums">
+                                  <span className="text-green-600">+{pr.additions}</span>{' '}
+                                  <span className="text-red-600">−{pr.deletions}</span>
+                                </span>
+                              )}
+                              <span data-pr-state="" className="shrink-0 text-muted-foreground">
+                                {pr.pr_state === 'merged' ? 'Merged' : pr.pr_state === 'closed' ? 'Closed' : pr.pr_draft ? 'Draft' : 'Open'}
+                              </span>
                               <button
                                 onClick={() => handleUnlinkPr(pr.id)}
                                 className="shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-foreground"

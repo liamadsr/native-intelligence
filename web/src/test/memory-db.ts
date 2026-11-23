@@ -9,7 +9,7 @@
  *   columns is updated, else inserted; `ignoreDuplicates: true` leaves a
  *   matching row as it is),
  *   eq, neq, in, is, gt, gte, lt, lte, not(col, 'is', null), not(col, 'in', '(a,b)'), contains,
- *   ilike ('%suffix' / 'prefix%' / '%mid%'), or('a.eq.x,b.cs.{"y"},c.is.null'),
+ *   ilike ('%suffix' / 'prefix%' / '%mid%'), or('a.eq.x,b.cs.{"y"},c.is.null,d.ilike.*z*'),
  *   order (strings or numbers), limit, range (fetchAllRows' pages), single,
  *   maybeSingle.
  *
@@ -26,7 +26,7 @@ type Filter = (r: Row) => boolean
 function orFilter(expr: string): Filter {
   const parts = expr.split(',').map((p) => p.trim()).filter(Boolean)
   const tests = parts.map((part): Filter => {
-    const m = /^([a-z_]+(?:->>[a-z_]+)?)\.(eq|cs|neq|is)\.(.*)$/.exec(part)
+    const m = /^([a-z_]+(?:->>[a-z_]+)?)\.(eq|cs|neq|is|ilike)\.(.*)$/.exec(part)
     if (!m) throw new Error(`memory-db: or ${part}`)
     const [, col, op, raw] = m
     if (col.includes('->>')) {
@@ -36,6 +36,8 @@ function orFilter(expr: string): Filter {
       if (op === 'neq') return (r) => jsonText(r, col) !== null && jsonText(r, col) !== raw
       throw new Error(`memory-db: or ${part}`)
     }
+    // ilike in an or: PostgREST's `*` wildcards, read as likeFilter's `%`.
+    if (op === 'ilike') return likeFilter(col, raw.replace(/^"(.*)"$/, '$1').replace(/\*/g, '%'))
     if (op === 'is') {
       if (raw !== 'null') throw new Error(`memory-db: or ${part}`)
       return (r) => r[col] === null || r[col] === undefined

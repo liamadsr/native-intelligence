@@ -204,6 +204,8 @@ describe('computeWorkRunCeiling', () => {
         // Custom vocabulary (migration 430): removing a word is a delete. (The
         // add/update tools are internal writes and refuse unattended runs themselves.)
         'delete_vocabulary_word',
+        // Snippets (migration 699): deleting one is a delete (and always asks the person first).
+        'delete_snippet',
         // Studio (migration 620): moving a video to the trash is classed a delete; the
         // Studio's reads and its artifact writes stay in.
         'archive_studio_video',
@@ -287,6 +289,9 @@ describe('computeWorkRunCeiling', () => {
         // Documents phase 1: rolling a document back is the person's call, an
         // internal (artifact) write, out as attended-only.
         'restore_document_revision',
+        // Booking insights: marking a past booking attended or a no-show is the host's
+        // own call, an internal write, out as attended-only.
+        'mark_booking_attendance',
         // Canon D2: undoing one edit at section level, the same call one section at a time.
         'revert_section_edit',
         // Flows-connectors F2: the person's connections, all out as attended-only.
@@ -316,6 +321,8 @@ describe('computeWorkRunCeiling', () => {
         'create_form',
         'update_form',
         'create_form_invites',
+        // Channel polls: posting a poll reaches teammates, only on the person's own card.
+        'post_team_chat_poll',
         // GEN-1169: deleting a document is a delete, only on the person's own card.
         // (Archiving and restoring are internal writes and stay in.)
         'delete_document',

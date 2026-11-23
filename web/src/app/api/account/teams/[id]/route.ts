@@ -72,6 +72,8 @@ export async function PATCH(
   if (body.issue_prefix !== undefined) updates.issue_prefix = body.issue_prefix
   if (body.timezone !== undefined) updates.timezone = body.timezone
   if (body.is_private !== undefined) updates.is_private = body.is_private
+  // Move actions with their pull requests (migration 694). The team's update policy limits it to owners, admins and leads.
+  if (typeof body.github_automation === 'boolean') updates.github_automation = body.github_automation
 
   const { data, error } = await supabase
     .from('team')

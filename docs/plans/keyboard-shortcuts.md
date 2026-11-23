@@ -80,6 +80,7 @@ of them is a one-line change in `GO_TO`.
 | G I | Agents & skills | the AI: A is Actions |
 | G W | Flows | Workflows: F is Files |
 | G Z | Evals | **leftover**: E, V, A, L and S are taken |
+| G G | Reviews | GitHub (docs/plans/github-reviews.md): G V was asked for, but it is the Studio's, and G was the one letter left. The owner can swap the two |
 
 Two pages competing for one letter, and who won:
 - **C**: Calendar, by the owner's example. Contacts takes O, Captures R, Companies B and

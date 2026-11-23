@@ -154,13 +154,14 @@ describe('the kinds that came with P2 and P3', () => {
     expect(CARD_PAGES.find((p) => p.kind === 'mail')?.personalTool).toBe(PERSONAL_CARD_TOOLS.mail)
   })
 
-  it('leaves out the members-only pages for a guest of the workspace: the Studio, whose routes refuse a guest', () => {
-    expect(CARD_PAGES.filter((p) => p.membersOnly).map((p) => p.slug)).toEqual(['studio'])
+  it('leaves out the members-only pages for a guest of the workspace: Reviews and the Studio, whose routes refuse a guest', () => {
+    expect(CARD_PAGES.filter((p) => p.membersOnly).map((p) => p.slug)).toEqual(['reviews', 'studio'])
     const member = pagesFor(full, { desktop: false, now: NOW }).map((p) => p.slug)
     const guest = pagesFor(full, { desktop: false, now: NOW, guest: true }).map((p) => p.slug)
     expect(member).toContain('studio')
+    expect(member).toContain('reviews')
     expect(pagesFor(full, { desktop: false, now: NOW, guest: false }).map((p) => p.slug)).toEqual(member)
-    expect(guest).toEqual(member.filter((slug) => slug !== 'studio'))
+    expect(guest).toEqual(member.filter((slug) => slug !== 'studio' && slug !== 'reviews'))
   })
 
   it('leaves out calendar and mail where the chat may not read them', () => {
@@ -183,8 +184,9 @@ describe('the kinds that came with P2 and P3', () => {
     const web = pagesFor(full, { desktop: false, now: NOW }).map((p) => p.slug)
     expect(web).toEqual(expect.arrayContaining(['sequences', 'prospecting', 'flows', 'campaigns', 'knowledge', 'agents', 'teams']))
     expect(web).not.toContain('browser')
-    // The inbox page went with the notifications page (docs/plans/retire-notifications-page.md).
-    expect(web).not.toContain('inbox')
+    // The old inbox page went with the notifications page (docs/plans/retire-notifications-page.md); the one inbox
+    // (docs/plans/channels-inbox.md) is a new page: notifications by conversation and mail that needs the person.
+    expect(web).toContain('inbox')
     const desk = withEffectiveSurface(full, { browser: 'on' })
     expect(pagesFor(desk, { desktop: true, now: NOW }).map((p) => p.slug)).not.toContain('browser')
   })

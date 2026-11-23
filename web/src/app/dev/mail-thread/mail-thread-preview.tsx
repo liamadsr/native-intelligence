@@ -82,6 +82,11 @@ const LIST = [
   { id: 't4', from: 'Ops Weekly', subject: 'Your weekly summary', snippet: 'Three sites on track, one waiting…', when: 'Sep 6', unread: false },
 ]
 
+const SNIPPETS = [
+  { id: 'snip-1', name: 'Meeting follow-up', shortcut: 'followup', body: 'Hi {{first_name}}, thanks for the call on {{date}}. Next steps:\n\n- Send the proposal\n- Book a demo', visibility: 'workspace', mine: false, canEdit: false, updatedAt: '2026-11-23T00:00:00Z' },
+  { id: 'snip-2', name: 'Signature', shortcut: 'sig', body: 'Best,\n\n**Rosa**', visibility: 'personal', mine: true, canEdit: true, updatedAt: '2026-11-23T00:00:00Z' },
+]
+
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 
 function useFixtureRoutes() {
@@ -101,6 +106,8 @@ function useFixtureRoutes() {
       if (path.endsWith('/labels')) return json({ labels: [] })
       if (path === '/api/account/email/threads/preview-thread') return json(THREAD)
       if (path.startsWith('/api/account/email/shares')) return json({ shares: [], links: [] })
+      // `;` in the composer (docs/plans/snippets.md): two made-up snippets.
+      if (path === '/api/account/snippets') return json({ snippets: SNIPPETS, me: { name: 'Jordan Reyes' } })
       // Anything else under /api answers empty: this page talks to no server.
       return json({})
     }

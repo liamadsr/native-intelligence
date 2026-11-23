@@ -72,6 +72,8 @@
  *   And create_booking_link, update_booking_link and delete_booking_link
  *   (availability phase 4a): the person making or changing their own booking
  *   page from their own client, as from the app's chat; each is undoable.
+ *   And mark_booking_attendance (booking insights): the person marking their
+ *   own past meeting from their own client; null clears it.
  *   And create_form and update_form (forms phase 1), and create_form_invites
  *   (phase 3): the person making or changing a form on their own table, or
  *   its personal links, from their own client, as from the app's chat.
@@ -109,6 +111,7 @@ export const MCP_ATTENDED_TOOL_NAMES: ReadonlySet<string> = new Set([
   'create_booking_link',
   'update_booking_link',
   'delete_booking_link',
+  'mark_booking_attendance',
   'create_form',
   'update_form',
   'create_form_invites',

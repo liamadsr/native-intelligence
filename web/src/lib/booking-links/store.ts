@@ -9,8 +9,9 @@
  * Server only.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { readWeekly } from '@/lib/availability/schedule'
+import { readOverrides, readWeekly } from '@/lib/availability/schedule'
 import { isConflict } from '@/lib/time-offers/store'
+import { readFormRule } from './form-rule'
 import {
   HOST_MODES,
   LINK_PURPOSES,
@@ -25,7 +26,7 @@ import {
 } from './types'
 
 const LINK_COLUMNS =
-  'id, workspace_id, owner_user_id, profile_id, slug, purpose, title, description, duration_minutes, buffer_before_minutes, buffer_after_minutes, notice_minutes, window_days, step_minutes, daily_cap, questions, video, call_here, location, ask_first, host_mode, weekly_hours, time_zone, job_kind, active, created_at, updated_at'
+  'id, workspace_id, owner_user_id, profile_id, slug, purpose, title, description, duration_minutes, buffer_before_minutes, buffer_after_minutes, notice_minutes, window_days, step_minutes, daily_cap, questions, video, call_here, location, ask_first, host_mode, weekly_hours, date_overrides, time_zone, job_kind, form_id, form_rule, form_refusal, active, created_at, updated_at'
 const PROFILE_COLUMNS = 'id, workspace_id, user_id, handle'
 const HOST_COLUMNS = 'link_id, user_id, position'
 
@@ -52,8 +53,14 @@ export interface LinkRow {
   ask_first: boolean
   host_mode: string
   weekly_hours: unknown
+  /** Migration 705: read as none when missing. */
+  date_overrides?: unknown
   time_zone: string | null
   job_kind: string | null
+  /** Migration 705: read as no form when missing. */
+  form_id?: string | null
+  form_rule?: unknown
+  form_refusal?: string | null
   active: boolean
   created_at: string
   updated_at: string
@@ -108,8 +115,12 @@ export function toLink(row: LinkRow, hosts: readonly HostRow[] = [], handle: str
     askFirst: row.ask_first === true,
     hostMode: (HOST_MODES as readonly string[]).includes(row.host_mode) ? (row.host_mode as HostMode) : 'one',
     weeklyHours: row.weekly_hours == null ? null : readWeekly(row.weekly_hours),
+    dateOverrides: row.date_overrides == null ? null : readOverrides(row.date_overrides),
     timeZone: row.time_zone,
     jobKind: row.job_kind,
+    formId: row.form_id ?? null,
+    formRule: row.form_id ? readFormRule(row.form_rule) : null,
+    formRefusal: row.form_refusal ?? null,
     active: row.active !== false,
     hosts: hosts
       .filter((h) => h.link_id === row.id)

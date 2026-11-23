@@ -38,6 +38,9 @@ export function notificationCardTarget(target: NotificationTarget): OpenTarget |
       return { type: 'canvas', id: target.id, title: target.title || null }
     case 'spreadsheet':
       return { type: 'spreadsheet', id: target.id, title: target.title || null }
+    // A GitHub notice (695): its pull request on the Reviews page.
+    case 'github_pr':
+      return { type: 'github_pr', id: target.id, title: target.title || null }
     case 'action':
     case 'capture':
     case 'document':

@@ -165,16 +165,17 @@ describe('migrations 572-575 and 585', () => {
     const types = [...(/notification_type_check check \(type = any \(array\[([^\]]*)\]\)\)/.exec(body)?.[1] ?? '').matchAll(/'([a-z_]+)'/g)].map((v) => v[1])
     // 642 (send later) adds 'email_send_failed' after it, and is the newest word on the type check since.
     // 671 (mentions everywhere) adds 'mentioned' after that, then 688 (record sharing) 'record_shared';
-    // 688 is the newest word since.
-    expect(types).toEqual(NOTIFICATION_TYPES.filter((t) => t !== 'email_send_failed' && t !== 'mentioned' && t !== 'record_shared'))
+    // 695 (GitHub notices) adds the GitHub types and is the newest word since.
+    expect(types).toEqual(NOTIFICATION_TYPES.filter((t) => t !== 'email_send_failed' && t !== 'mentioned' && t !== 'record_shared' && t !== 'github_review_requested' && t !== 'github_pr_comment' && t !== 'github_checks_failed'))
     const newest = (re: RegExp) => [...migrationsInOrder()].reverse().find((m) => re.test(m.sql))!.file
-    expect(newest(/add constraint notification_type_check/i)).toBe('688_record_sharing.sql')
+    expect(newest(/add constraint notification_type_check/i)).toBe('695_github_notifications.sql')
     // 679 (the CRM around the company) adds 'company' to the target check (src/lib/crm/__tests__/migration-679-680.test.ts
     // holds that it adds nothing else). 687 (comments on canvases and spreadsheets) adds 'canvas' and 'spreadsheet'
     // (src/lib/canvas/__tests__/migration-687-692.test.ts holds that it is 679's list plus those two), and 688
     // (record sharing) restates that same list, so 688 is its newest word since
-    // (src/lib/entity-access/__tests__/migration-688.test.ts holds it equal to 687's). 711 (comments on a file)
-    // adds 'attachment' after it, and is the newest word since (src/lib/drive/__tests__/migration-711.test.ts).
+    // (src/lib/entity-access/__tests__/migration-688.test.ts holds it equal to 687's). 695 (GitHub notices) adds
+    // 'github_pr', then 711 (comments on a file) 'attachment', and 711 is the newest word since
+    // (src/lib/drive/__tests__/migration-711.test.ts).
     expect(newest(/add constraint notification_target_type_check/i)).toBe('711_file_comments.sql')
     expect(body).toContain("check (kind in ('channel', 'dm', 'meeting'))")
     expect(body).toContain("(kind = 'meeting' and name is not null and char_length(name) between 1 and 80 and dm_key is null and team_id is null)")

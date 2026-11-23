@@ -4,7 +4,7 @@
  * written by whoever reads its file, under the caller's own row security (so
  * 709's Drive upload rule and team chat's rule decide, restated nowhere);
  * only its author changes its words (681's rule) and 692's via_agent guard
- * holds; never a mail attachment's; the notification list is 688's with
+ * holds; never a mail attachment's; the notification list is 695's with
  * 'attachment' added; its own transaction, bounded, no backslash.
  *
  * TEXT CHECKS here. By hand, outside this suite, the file was applied twice on
@@ -43,12 +43,12 @@ describe('migration 711', () => {
     expect(SQL).toMatch(/and not via_agent\s+and resolved_at is null/)
   })
 
-  it('widens 688’s notification list by attachment only', () => {
+  it('widens 695’s notification list (688’s with github_pr) by attachment only', () => {
     const list = (sql: string) => {
       const i = sql.indexOf('add constraint notification_target_type_check check (target_type in (')
       return sql.slice(i, sql.indexOf(')) not valid;', i))
     }
-    expect(list(SQL).replace(",\n  'attachment'", '')).toBe(list(read('688_record_sharing.sql')))
+    expect(list(SQL).replace(",\n  'attachment'", '')).toBe(list(read('695_github_notifications.sql')))
   })
 
   it('is its own transaction, bounded, re-runnable, and has no backslash', () => {

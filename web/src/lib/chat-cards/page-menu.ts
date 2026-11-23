@@ -119,6 +119,17 @@ export const CARD_PAGES: readonly CardPage[] = [
       { field: 'status_type', operator: 'is_none_of', value: ['completed', 'canceled'] },
     ]),
   },
+  // Reviews (docs/plans/github-reviews.md): the person's GitHub pull requests. Gated with My Actions; a member's, never a guest's (its routes refuse one).
+  {
+    slug: 'reviews',
+    label: 'Reviews',
+    description: 'Your pull requests on GitHub',
+    kind: 'reviews',
+    view: 'todo',
+    keywords: ['github', 'pull requests', 'prs', 'code review', 'merge'],
+    membersOnly: true,
+    spec: page('reviews', 'Reviews'),
+  },
   { slug: 'captures', label: 'Captures', description: 'Your meetings and notes', kind: 'list', view: 'captures', keywords: ['meetings', 'notes', 'recordings'], spec: list('Captures', 'capture') },
   // Studio (migration 620): Studio projects and their videos, each one edit. The agent opens it too (`show`).
   {
@@ -212,6 +223,8 @@ export const CARD_PAGES: readonly CardPage[] = [
   // Its kind is `library`, but `/library` is the Library's (above), so it isn't one of its words.
   { slug: 'agents', label: 'Agents & skills', description: 'Your agents and skills', kind: 'library', view: 'agents', keywords: ['skills', 'bots'], spec: page('library', 'Agents & skills') },
   { slug: 'teams', label: 'Teams', description: 'Your teams', kind: 'teams', view: 'teams', spec: page('teams', 'Teams') },
+  // One inbox (docs/plans/channels-inbox.md): what needs the person, in one list.
+  { slug: 'inbox', label: 'Inbox', description: 'Messages, mentions, assignments and mail that need you', kind: 'inbox', view: 'teams', keywords: ['notifications', 'signal', 'mentions', 'done', 'later'], spec: page('inbox', 'Inbox') },
   { slug: 'team-chat', label: 'Team chat', description: 'Channels and direct messages with your team', kind: 'team_chat', view: 'teams', keywords: ['chat', 'channels', 'messages', 'dm'], spec: page('team_chat', 'Team chat') },
 ]
 

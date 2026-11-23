@@ -33,7 +33,7 @@
 --                         via_agent as it was made. Both hold a client's own
 --                         token; the service role and a database owner are
 --                         not held to them.
---   notification          its target list (688's, the newest) gains
+--   notification          its target list (695's, the newest) gains
 --                         'attachment', so a notice can open the file. The
 --                         notices go through the existing path
 --                         (src/lib/record-comments/notify.ts), only to a
@@ -41,7 +41,7 @@
 --
 -- No realtime publication. Re-runnable. Its own transaction (begin ...
 -- commit), so it is all or nothing however it is applied. No backslashes
--- anywhere in this file. After 709, 692 and 688. Each statement waits at most
+-- anywhere in this file. After 709, 692, 688 and 695. Each statement waits at most
 -- 5 s for a lock; one that waits longer rolls the file back, to be applied
 -- again.
 -- ============================================================
@@ -236,7 +236,7 @@ revoke all on table public.file_comment from anon, authenticated;
 grant select, insert, update, delete on table public.file_comment to authenticated;
 grant all on table public.file_comment to service_role;
 
--- 688's list, with 'attachment'.
+-- 695's list (688's with 'github_pr'), with 'attachment'.
 alter table public.notification drop constraint if exists notification_target_type_check;
 alter table public.notification add constraint notification_target_type_check check (target_type in (
   'action', 'capture', 'document', 'project', 'contact', 'company',
@@ -245,6 +245,7 @@ alter table public.notification add constraint notification_target_type_check ch
   'work_item', 'email_draft', 'sequence',
   'team_chat_message', 'team_chat_channel',
   'canvas', 'spreadsheet',
+  'github_pr',
   'attachment'
 )) not valid;
 alter table public.notification validate constraint notification_target_type_check;

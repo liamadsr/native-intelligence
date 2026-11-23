@@ -20,7 +20,7 @@ import { useIsWorkspaceGuest, useWorkspaceEdition } from '@/app/account/workspac
 import { PAGE_GROUPS } from '../rail/page-groups'
 import { OPEN_SHORTCUTS_SHEET_EVENT } from './open-shortcuts-sheet'
 
-const SECTIONS: readonly ShortcutSection[] = ['General', 'Go to', 'Create', 'Lists', 'Tasks', 'Mail']
+const SECTIONS: readonly ShortcutSection[] = ['General', 'Go to', 'Create', 'Lists', 'Tasks', 'Mail', 'Inbox', 'Documents']
 
 export const KBD_CHIP =
   'inline-flex h-5 min-w-5 items-center justify-center rounded-[5px] border border-border bg-muted/60 px-1 font-sans text-[11px] font-medium text-muted-foreground'
