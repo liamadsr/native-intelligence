@@ -34,8 +34,13 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { resolveEntityLabels } from '@/lib/knowledge/graph-map/source'
 import type { FileParentType, WorkspaceFile, WorkspaceFilesPage, WorkspaceFilesQuery } from './workspace-files-model'
 
-const FILE_FIELDS =
-  'id, workspace_id, user_id, file_name, file_size_bytes, mime_type, file_extension, file_category, storage_path, thumbnail_path, note_id, action_id, project_id, data_row_id, from_form, drive_upload, created_at, updated_at'
+const BASE_FIELDS =
+  'id, workspace_id, user_id, file_name, file_size_bytes, mime_type, file_extension, file_category, storage_path, thumbnail_path, note_id, action_id, project_id, data_row_id, from_form, created_at, updated_at'
+/** With 696's Drive upload mark. A database before 696 is read without it (it has no Drive uploads). */
+const FILE_FIELDS = `${BASE_FIELDS}, drive_upload`
+
+/** The column is not there: 696 has not been applied to this database yet. */
+export const driveColumnMissing = (e: { code?: string; message?: string } | null | undefined) => !!e && (e.code === '42703' || e.code === 'PGRST204') && /drive_upload/.test(e.message ?? '')
 
 interface AttachmentRow {
   id: string
@@ -82,19 +87,23 @@ export async function listWorkspaceFiles(
   /** The caller, for `owner` (My files / Shared with me). */
   userId?: string,
 ): Promise<WorkspaceFilesPage> {
-  let read = supabase.from('attachments').select(FILE_FIELDS).eq('workspace_id', workspaceId)
-  if (query.owner === 'mine' && userId) read = read.eq('user_id', userId)
-  if (query.owner === 'others' && userId) read = read.neq('user_id', userId)
-  if (query.ids) read = read.in('id', [...query.ids])
-  if (query.category) read = read.eq('file_category', query.category)
-  if (query.q) read = read.ilike('file_name', `%${likeLiteral(query.q)}%`)
-  const { data, error } = await read
-    .order('created_at', { ascending: false })
-    .order('id', { ascending: false })
-    .range(query.offset, query.offset + query.limit)
+  const ask = (fields: string) => {
+    let read = supabase.from('attachments').select(fields).eq('workspace_id', workspaceId)
+    if (query.owner === 'mine' && userId) read = read.eq('user_id', userId)
+    if (query.owner === 'others' && userId) read = read.neq('user_id', userId)
+    if (query.ids) read = read.in('id', [...query.ids])
+    if (query.category) read = read.eq('file_category', query.category)
+    if (query.q) read = read.ilike('file_name', `%${likeLiteral(query.q)}%`)
+    return read
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .range(query.offset, query.offset + query.limit)
+  }
+  let { data, error } = await ask(FILE_FIELDS)
+  if (driveColumnMissing(error)) ({ data, error } = await ask(BASE_FIELDS))
   if (error) throw new Error(`files: ${error.message}`)
 
-  const rows = ((data ?? []) as AttachmentRow[]).filter((r) => r.workspace_id === workspaceId)
+  const rows = ((data ?? []) as unknown as AttachmentRow[]).filter((r) => r.workspace_id === workspaceId)
   const more = (data ?? []).length > query.limit
   const page = rows.slice(0, query.limit)
 

@@ -27,11 +27,18 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { getServiceClient } from '@/lib/admin'
 import { createNotification } from '@/lib/notifications'
 
-export type CommentedRecordKind = 'canvas' | 'spreadsheet'
+/**
+ * 'attachment' and 'team_chat_file' are comments on a file (migration 706): an
+ * uploaded file (its record is the attachment), or one sent in team chat (its
+ * record is the message that carries it; the notice names the file).
+ */
+export type CommentedRecordKind = 'canvas' | 'spreadsheet' | 'attachment' | 'team_chat_file'
 
-const TABLES: Record<CommentedRecordKind, { record: string; comment: string; noun: string }> = {
-  canvas: { record: 'canvas', comment: 'canvas_comment', noun: 'a canvas' },
-  spreadsheet: { record: 'spreadsheet', comment: 'spreadsheet_comment', noun: 'a spreadsheet' },
+const TABLES: Record<CommentedRecordKind, { record: string; title: string; comment: string; on: string; noun: string; target: string }> = {
+  canvas: { record: 'canvas', title: 'title', comment: 'canvas_comment', on: 'canvas_id', noun: 'a canvas', target: 'canvas' },
+  spreadsheet: { record: 'spreadsheet', title: 'title', comment: 'spreadsheet_comment', on: 'spreadsheet_id', noun: 'a spreadsheet', target: 'spreadsheet' },
+  attachment: { record: 'attachments', title: 'file_name', comment: 'file_comment', on: 'attachment_id', noun: 'a file', target: 'attachment' },
+  team_chat_file: { record: 'team_chat_message', title: 'id', comment: 'file_comment', on: 'chat_message_id', noun: 'a file', target: 'team_chat_message' },
 }
 
 export interface RecordCommentNotice {
@@ -47,6 +54,8 @@ export interface RecordCommentNotice {
   mentionedMemberIds?: readonly string[]
   /** The assistant wrote it for the author. */
   viaAgent?: boolean
+  /** The record's name when it has no title of its own (a chat file's name). */
+  recordTitle?: string | null
 }
 
 /** Can this member open the record? Asked of the record's own read rule; anything unsure is no. */
@@ -58,7 +67,11 @@ export async function memberCanOpenRecord(service: SupabaseClient, kind: Comment
     const { data, error } =
       kind === 'canvas'
         ? await service.rpc('canvas_visible_to', { p_canvas_id: recordId, p_user_id: userId })
-        : await service.rpc('spreadsheet_entity_visible_to', { p_id: recordId, p_workspace: workspaceId, p_user: userId })
+        : kind === 'spreadsheet'
+          ? await service.rpc('spreadsheet_entity_visible_to', { p_id: recordId, p_workspace: workspaceId, p_user: userId })
+          : // A file: its own read rule (entity_visible_to's attachment arm, with 696's Drive
+            // rule), or, for a chat file, its message's (the channel's readers).
+            await service.rpc('entity_visible_to', { p_type: kind === 'attachment' ? 'attachment' : 'team_chat_message', p_id: recordId, p_workspace: workspaceId, p_user: userId })
     return !error && data === true
   } catch {
     return false
@@ -73,13 +86,14 @@ export async function sendRecordCommentNotifications(notice: RecordCommentNotice
     const t = TABLES[notice.kind]
     const [{ data: author }, { data: record }] = await Promise.all([
       service.from('member').select('display_name').eq('id', notice.authorMemberId).eq('workspace_id', notice.workspaceId).maybeSingle(),
-      service.from(t.record).select('title').eq('id', notice.recordId).eq('workspace_id', notice.workspaceId).maybeSingle(),
+      service.from(t.record).select(t.title).eq('id', notice.recordId).eq('workspace_id', notice.workspaceId).maybeSingle(),
     ])
     // The record is gone, or is not this workspace's: nobody is told anything.
     if (!record) return 0
     const name = ((author as { display_name?: string | null } | null)?.display_name ?? '').trim() || 'Someone'
     const actor = notice.viaAgent ? `${name}'s assistant` : name
-    const title = ((record as { title?: string | null }).title ?? '').trim() || t.noun
+    const own = t.title === 'id' ? '' : String((record as unknown as Record<string, unknown>)[t.title] ?? '')
+    const title = (notice.recordTitle ?? own).trim() || t.noun
     const preview = notice.body.slice(0, 200)
 
     const asked = new Map<string, boolean>()
@@ -100,7 +114,7 @@ export async function sendRecordCommentNotifications(notice: RecordCommentNotice
         title: line,
         body: notice.body.slice(0, 100),
         actorId: notice.authorMemberId,
-        targetType: notice.kind,
+        targetType: t.target as Parameters<typeof createNotification>[0]['targetType'],
         targetId: notice.recordId,
         metadata: { comment_preview: preview, comment_id: notice.commentId, ...(notice.viaAgent ? { via_agent: true } : {}), ...extra },
       })
@@ -110,7 +124,7 @@ export async function sendRecordCommentNotifications(notice: RecordCommentNotice
     for (const id of new Set(notice.mentionedMemberIds ?? [])) await tell(id, 'mentioned', `${actor} mentioned you on ${title}`)
 
     if (notice.parentId) {
-      const { data: parent } = await service.from(t.comment).select('author_id').eq('id', notice.parentId).eq(`${t.record}_id`, notice.recordId).maybeSingle()
+      const { data: parent } = await service.from(t.comment).select('author_id').eq('id', notice.parentId).eq(t.on, notice.recordId).maybeSingle()
       const parentAuthor = (parent as { author_id?: string | null } | null)?.author_id
       if (parentAuthor) await tell(parentAuthor, 'comment_reply', `${actor} replied to your comment on ${title}`, { parent_comment_id: notice.parentId })
     }

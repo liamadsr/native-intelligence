@@ -495,6 +495,8 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
     tools: [
       { name: 'list_attachments', sideEffect: 'read', label: 'List Attachments', description: "List file attachments on a capture, an action, a project or a table's row" },
       { name: 'get_attachment_content', sideEffect: 'read', label: 'Get Content', description: 'Get file content or download URL' },
+      // Comments on a file (migration 706): a thread on a place on a PDF's page, the whole file, or a reply, for the person.
+      { name: 'comment_on_file', sideEffect: 'internal-write', writeTarget: 'board', label: 'Comment on File', description: "Write a comment on an uploaded file or a team chat file for the person (a thread on a place on a PDF's page or the whole file, or a reply), marked as written by their assistant; can @-mention teammates" },
       { name: 'read_chat_file', sideEffect: 'read', label: 'Read Chat File', description: 'Read a file the user just uploaded in chat, or look at a photo they uploaded, by storage_path, without attaching it' },
       { name: 'attach_chat_file', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Attach File', description: 'Attach a chat-uploaded file to an action or capture' },
     ],
@@ -1608,6 +1610,8 @@ const NON_PREFIX_MUTATING_TOOLS: string[] = [
   'resolve_canvas_comment',
   'comment_on_spreadsheet',
   'resolve_spreadsheet_comment',
+  // Comments the assistant writes on a file for the person (706). `comment_` is not a write verb.
+  'comment_on_file',
   // Studio's reference blueprint: a video's storyboard laid out in a reference's rhythm. `storyboard_` is not a write verb.
   'storyboard_from_studio_blueprint',
   // Studio code scenes: a scene's source compiled and kept (files and a record). `write_` is not a write verb.

@@ -100,7 +100,7 @@ const MAIL: MailFile = {
   href: '/api/account/email/threads/t1/attachment?message=m1&name=plan.pdf',
 }
 
-let routes: Record<string, (url: URL, init?: RequestInit) => unknown>
+let routes: Partial<Record<string, (url: URL, init?: RequestInit) => unknown>>
 const asked: string[] = []
 let mount: ReturnType<typeof mountRoot>
 
@@ -122,7 +122,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', async (input: unknown, init?: RequestInit) => {
     const url = new URL(String(input), 'http://localhost')
     asked.push(`${init?.method ?? 'GET'} ${url.pathname}${url.search}`)
-    const route = routes[url.pathname] ?? (url.pathname.startsWith('/api/account/folders/') ? () => ({ ok: true }) : null)
+    const route: ((url: URL, init?: RequestInit) => unknown) | null = routes[url.pathname] ?? (url.pathname.startsWith('/api/account/folders/') ? () => ({ ok: true }) : null)
     return new Response(JSON.stringify(route ? route(url, init) : {}), { status: route ? 200 : 404, headers: { 'Content-Type': 'application/json' } })
   })
   mount = mountRoot()

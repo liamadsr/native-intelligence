@@ -13,6 +13,7 @@
  * and puts the card in that workspace's chat, never against this one's data.
  */
 import { openTarget, type OpenTarget } from '@/lib/chat-cards/open-card'
+import { openAttachmentById } from '@/components/files/global-file-viewer'
 import type { NotificationTarget } from './notification-panel'
 
 /** The card a notification's target opens, or null for one nothing draws. */
@@ -56,6 +57,12 @@ export function notificationCardTarget(target: NotificationTarget): OpenTarget |
  * False when the target is nothing a card draws.
  */
 export function openNotificationTarget(target: NotificationTarget, opts: { foreignWorkspaceId: string | null }): boolean {
+  // A file (a comment on it, 706) opens in the viewer, read as the person reads it. Not across workspaces.
+  if (target.type === 'attachment') {
+    if (opts.foreignWorkspaceId) return false
+    void openAttachmentById(target.id)
+    return true
+  }
   const card = notificationCardTarget(target)
   if (!card) return false
   // Team chat is one card: the one in the chat comes back, on the message.

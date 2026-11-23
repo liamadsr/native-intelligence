@@ -173,8 +173,9 @@ describe('migrations 572-575 and 585', () => {
     // holds that it adds nothing else). 687 (comments on canvases and spreadsheets) adds 'canvas' and 'spreadsheet'
     // (src/lib/canvas/__tests__/migration-687-692.test.ts holds that it is 679's list plus those two), and 688
     // (record sharing) restates that same list, so 688 is its newest word since
-    // (src/lib/entity-access/__tests__/migration-688.test.ts holds it equal to 687's).
-    expect(newest(/add constraint notification_target_type_check/i)).toBe('688_record_sharing.sql')
+    // (src/lib/entity-access/__tests__/migration-688.test.ts holds it equal to 687's). 706 (comments on a file)
+    // adds 'attachment' after it, and is the newest word since (src/lib/drive/__tests__/migration-706.test.ts).
+    expect(newest(/add constraint notification_target_type_check/i)).toBe('706_file_comments.sql')
     expect(body).toContain("check (kind in ('channel', 'dm', 'meeting'))")
     expect(body).toContain("(kind = 'meeting' and name is not null and char_length(name) between 1 and 80 and dm_key is null and team_id is null)")
     expect(body).toContain("'meeting_waiting'")

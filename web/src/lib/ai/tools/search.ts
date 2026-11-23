@@ -831,7 +831,7 @@ export function createSearchTools(
         const fileTextRunner = (async () => {
           if (!wantsAttachments || !query.trim()) return { results: [] as HybridRow[], error: undefined as string | undefined }
           const [uploads, chats] = await Promise.all([
-            omitGrants ? Promise.resolve({ hits: [] as Awaited<ReturnType<typeof searchUploadText>>['hits'] }) : searchUploadText(supabase, { workspaceId, userId: requestingUserId }, query, cap),
+            omitGrants ? Promise.resolve({ hits: [] as Awaited<ReturnType<typeof searchUploadText>>['hits'], error: undefined }) : searchUploadText(supabase, { workspaceId, userId: requestingUserId }, query, cap),
             searchChatFileText(supabase, { workspaceId, requestingUserId }, query, cap),
           ])
           const rows: HybridRow[] = [

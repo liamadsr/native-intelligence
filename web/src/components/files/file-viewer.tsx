@@ -26,6 +26,7 @@ import { figmaEmbedUrl, fitsViewer, viewerKindOf, type ViewerKind } from '@/lib/
 import { loadViewerBytes, type ViewerFile } from '@/lib/files/viewer-file'
 import { cn } from '@/lib/utils'
 import type { PdfPageOverlay } from './pdf-viewer'
+import { FileCommentsButton, FileCommentsPanel, useFileCommentOverlay, useFileComments, type PendingPin } from './file-comments'
 
 const PdfViewer = React.lazy(() => import('./pdf-viewer'))
 const DocxViewer = React.lazy(() => import('./docx-viewer'))
@@ -139,6 +140,54 @@ function ViewerBody({ file, pdfOverlay, headerExtra, aside }: { file: ViewerFile
     }
   }, [file, loaded])
 
+  // Comments (706): on an upload or a chat file, never a mail attachment; pins on a PDF's pages.
+  const commentable = !!file.commentTarget && shows && kind !== 'figma'
+  const comments = useFileComments(commentable ? file.commentTarget : null, file.name)
+  const [commentsOpen, setCommentsOpen] = React.useState(false)
+  const [placing, setPlacing] = React.useState(false)
+  const [pending, setPending] = React.useState<PendingPin | null>(null)
+  const [focus, setFocus] = React.useState<string | null>(null)
+  const [jump, setJump] = React.useState<{ page: number; n: number } | null>(null)
+  const showThread = (id: string | null) => {
+    setFocus(id)
+    const page = comments.threads.find((t) => t.root.id === id)?.root.page
+    if (page) setJump((j) => ({ page, n: (j?.n ?? 0) + 1 }))
+  }
+  const commentOverlay = useFileCommentOverlay({
+    comments,
+    placing,
+    pending,
+    focus,
+    onPlace: (pin) => {
+      setPending(pin)
+      setPlacing(false)
+      setCommentsOpen(true)
+    },
+    onOpen: (id) => {
+      setCommentsOpen(true)
+      setFocus(id)
+    },
+  })
+  const overlay = pdfOverlay ?? (commentable && comments.state === 'ready' ? commentOverlay : undefined)
+  const commentsAside =
+    commentable && commentsOpen ? (
+      <FileCommentsPanel
+        comments={comments}
+        focus={focus}
+        onFocus={showThread}
+        pending={pending}
+        onPendingDone={() => setPending(null)}
+        canPlace={kind === 'pdf'}
+        placing={placing}
+        onPlacing={setPlacing}
+        onClose={() => {
+          setCommentsOpen(false)
+          setPlacing(false)
+          setPending(null)
+        }}
+      />
+    ) : null
+
   const size = formatFileSize(file.size ?? null)
   const Icon = KIND_ICON[kind]
   return (
@@ -156,6 +205,7 @@ function ViewerBody({ file, pdfOverlay, headerExtra, aside }: { file: ViewerFile
           )}
         </div>
         {headerExtra}
+        {commentable && <FileCommentsButton comments={comments} pressed={commentsOpen} onClick={() => setCommentsOpen((o) => !o)} />}
         {kind !== 'figma' && (
           <button
             type="button"
@@ -205,20 +255,20 @@ function ViewerBody({ file, pdfOverlay, headerExtra, aside }: { file: ViewerFile
                 </Centered>
               }
             >
-              <KindView kind={kind} blob={loaded.blob} file={file} pdfOverlay={pdfOverlay} onDownload={() => void download()} />
+              <KindView kind={kind} blob={loaded.blob} file={file} pdfOverlay={overlay} jump={jump} onDownload={() => void download()} />
             </React.Suspense>
           )}
         </div>
-        {aside}
+        {aside ?? commentsAside}
       </div>
     </>
   )
 }
 
-function KindView({ kind, blob, file, pdfOverlay, onDownload }: { kind: ViewerKind; blob: Blob; file: ViewerFile; pdfOverlay?: PdfPageOverlay; onDownload: () => void }) {
+function KindView({ kind, blob, file, pdfOverlay, jump, onDownload }: { kind: ViewerKind; blob: Blob; file: ViewerFile; pdfOverlay?: PdfPageOverlay; jump?: { page: number; n: number } | null; onDownload: () => void }) {
   switch (kind) {
     case 'pdf':
-      return <PdfViewer blob={blob} overlay={pdfOverlay} />
+      return <PdfViewer blob={blob} overlay={pdfOverlay} jump={jump} />
     case 'docx':
       return <DocxViewer blob={blob} onDownload={onDownload} />
     case 'sheet':

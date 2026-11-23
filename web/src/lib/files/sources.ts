@@ -30,9 +30,10 @@ export function emailViewerFile(attachment: { name: string; size: number; mimeTy
   }
 }
 
-/** A team chat file as the viewer takes it, at `url` (a signed link). */
-export function teamChatViewerFile(attachment: Pick<TeamChatAttachment, 'path' | 'name' | 'size' | 'type'>, url: string, sourceLabel = 'Team chat'): ViewerFile {
+/** A team chat file as the viewer takes it, at `url` (a signed link); comments on it when its message is known. */
+export function teamChatViewerFile(attachment: Pick<TeamChatAttachment, 'path' | 'name' | 'size' | 'type'>, url: string, sourceLabel = 'Team chat', messageId?: string | null): ViewerFile {
   return {
+    ...(messageId ? { commentTarget: { kind: 'chat' as const, messageId, path: attachment.path } } : {}),
     key: `team-chat:${attachment.path}`,
     name: attachment.name,
     mimeType: attachment.type,
@@ -69,6 +70,8 @@ export function uploadViewerFile(
 ): ViewerFile {
   return {
     key: `attachment:${file.id}`,
+    // A stranger's file is never opened in place, so no comments are kept on it here.
+    ...(file.from_form ? {} : { commentTarget: { kind: 'attachment' as const, id: file.id } }),
     name: file.file_name,
     mimeType: file.mime_type,
     size: file.file_size_bytes,

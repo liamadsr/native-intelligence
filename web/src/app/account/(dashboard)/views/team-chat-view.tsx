@@ -2033,7 +2033,7 @@ function MessageRow({
             )}
             {/* A shared email thread (migration 646), from the picker or a pasted link: read live by whoever reads here, stored nowhere. */}
             {message.email_share_id && <EmailShareCards message={message} />}
-            <MessageAttachments attachments={message.attachments} />
+            <MessageAttachments attachments={message.attachments} messageId={message.id} />
             <LinkPreviewCard preview={message.link_preview} />
             {pending === 'failed' && (
               <p className="mt-0.5 flex items-center gap-1.5 text-xs text-destructive" data-team-chat-failed="">

@@ -51,6 +51,8 @@ async function readRecords(
       if (opts.search) q = q.ilike(src.title, `%${toIlikeSearchTerm(opts.search)}%`)
       q = q.order('updated_at', { ascending: false }).limit(opts.limit ?? 500)
       const { data, error } = await q
+      // Before 696 there are no Drive uploads to file: that kind reads as none.
+      if (error && type === 'attachment' && (error.code === '42703' || error.code === 'PGRST204')) return
       if (error) throw new Error(error.message)
       for (const row of (data ?? []) as unknown as Array<Record<string, unknown>>) {
         out.push({

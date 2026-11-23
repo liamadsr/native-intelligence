@@ -35,6 +35,8 @@ export async function recordOpen(supabase: SupabaseClient, scope: { workspaceId:
   const { error } = await supabase
     .from('drive_file_open')
     .upsert({ user_id: scope.userId, workspace_id: scope.workspaceId, file_key: key, opened_at: new Date().toISOString() }, { onConflict: 'user_id,workspace_id,file_key' })
+  // Before 696 there is nowhere to record it: nothing is kept.
+  if (error && (error.code === '42P01' || error.code === 'PGRST205')) return
   if (error) throw new Error(`open: ${error.message}`)
 }
 
@@ -57,6 +59,8 @@ export async function recentFiles(supabase: SupabaseClient, scope: { workspaceId
     .eq('workspace_id', scope.workspaceId)
     .order('opened_at', { ascending: false })
     .limit(RECENT_MAX)
+  // Before 696 nothing has been recorded: no recent files.
+  if (error && (error.code === '42P01' || error.code === 'PGRST205')) return []
   if (error) throw new Error(`recent: ${error.message}`)
   const opens = (data ?? []) as Array<{ file_key: string; opened_at: string }>
   const uploadIds = opens.filter((o) => o.file_key.startsWith('upload:')).map((o) => o.file_key.slice(7))

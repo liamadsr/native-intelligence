@@ -210,6 +210,24 @@ the page, 0 to 1), with threads, mentions, `via_agent` (692) and resolve.
 - unfiling an upload hides its comments from the others;
 - a deleted file leaves no comment.
 
+## Status (11-23)
+
+| Phase | Built | Checked |
+|---|---|---|
+| 1. The viewer | All of it. | Pushed at `057ebcd2`. In a browser as the test account: every kind, find, thumbnails, search opens it. |
+| 2. Attachments in Drive | The Files card's tabs, sources, type, creator and sort. Mail attachments live behind their filter. Team chat files. Drive uploads (drop on the card or a folder, or Upload). M moves a focused row. Folders hold files. Opens recorded. | Unit and route tests. 696 rehearsed with 40 checks. In a browser: the card, the tabs, the filters, the email filter (no mailbox linked: says so), the viewer. |
+| 3. Search inside files | `find` and `search` (ni_search) and the palette find uploads (their extracted text, fenced) and team chat files (697) by their words. Posting a message with files queues its text job. | Unit tests. 697 rehearsed with 17 checks. |
+| 4. PDF comments | The viewer's Comments panel: pins on a page, threads on the whole file, replies, resolve, @-mentions. Notices to those who can open the file; a notice opens the file. The `comment_on_file` agent tool. | Unit tests. 706 rehearsed with 25 checks. |
+
+**Before 696, 697 and 706 are applied, the code reads as it would without them:**
+- Files list as before.
+- No Drive uploads: an upload fails and says why.
+- Recent is empty and opens are not recorded.
+- Comments are hidden: their route answers 503 and the button does not show.
+- Chat file text search finds nothing.
+
+The dev project has none of the three migrations, so the Drive upload, Recent, comments and chat file search paths were not seen in a browser. They were checked by the tests and the local rehearsals. Apply each migration before the code that uses it, as usual.
+
 ## New dependencies
 
 None new. Already present and used: `unpdf` (MIT, bundling pdf.js, Apache-2.0; the managing

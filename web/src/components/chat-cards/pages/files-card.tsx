@@ -174,7 +174,7 @@ export default function FilesCard(props: PageCardProps) {
         } else if (item.chat) {
           const url = await teamChatFileLink(item.chat.key)
           if (!url) throw new Error('Could not open the file')
-          openViewer(teamChatViewerFile({ path: item.chat.key, name: item.chat.name, size: item.chat.size, type: item.chat.mimeType }, url, item.where))
+          openViewer(teamChatViewerFile({ path: item.chat.key, name: item.chat.name, size: item.chat.size, type: item.chat.mimeType }, url, item.where, item.chat.messageId))
         } else if (item.mail) {
           openViewer(emailViewerFile({ name: item.mail.name, size: item.mail.size, mimeType: item.mail.mimeType }, item.mail.href, item.where))
         } else return
