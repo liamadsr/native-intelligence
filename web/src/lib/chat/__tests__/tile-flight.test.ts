@@ -471,7 +471,7 @@ describe('the flights', () => {
     const frame = frameEl()
     column.append(frame)
     const rider = box({ left: FRAME.left + 40, top: FRAME.top - 47, width: 300, height: 42 }, { [TILE_FLIGHT_RIDER_ATTR]: '', 'data-card-header': '' })
-    rider.innerHTML = '<div data-card-header-pill="controls"><button data-testid="card-close" data-card-header-close="" aria-label="Minimize">-</button></div>'
+    rider.innerHTML = '<div data-card-header-pill="controls"><span data-tile-flight-hide="">Interactive</span><button data-testid="card-close" data-card-header-close="" aria-label="Minimize">-</button></div>'
     column.append(rider)
     const contextOf = (el: Element) => animate.mock.calls[(animate.mock.contexts as Element[]).indexOf(el)]
 
@@ -486,6 +486,9 @@ describe('the flights', () => {
     expect(copy.hasAttribute('data-card-header')).toBe(true)
     expect(copy.querySelector('[data-testid], [data-card-header-close], [data-card-header-pill]')).toBeNull()
     expect(document.querySelectorAll('[data-card-header-close]')).toHaveLength(1)
+    // What a copy can't draw (Interactive's metal) keeps its room on the copy, unseen.
+    expect(copy.querySelector<HTMLElement>('[data-tile-flight-hide]')!.style.visibility).toBe('hidden')
+    expect(rider.querySelector<HTMLElement>('[data-tile-flight-hide]')!.style.visibility).toBe('')
     expect(contextOf(copy)).toEqual([[{ opacity: 1 }, { opacity: 0 }], { duration: TILE_HANDOFF_MS, easing: 'ease-out', fill: 'forwards' }])
     // Ended before the hand-over: shown again with its frame.
     flyIntoTile(flightCopyOf(stillCopyOf(frame)), tileEl())

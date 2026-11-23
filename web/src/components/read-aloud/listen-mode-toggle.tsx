@@ -47,6 +47,16 @@
  * toggle, outside the metal pill (which stays the toggle's alone), so the
  * toggle doesn't move as they appear.
  *
+ * Over a full-screen page beside the rail it lives in the page's header
+ * (`variant="header"`, show-tool-card.tsx: the controls' pill up on the sky;
+ * Liam, 11-23: "that button also shows in the header so it's not a different
+ * thing … updated to look nice in the header but it should keep its look and
+ * fx"): the same metal pill and rainbow ring at the header's 24px, its label
+ * and icon the size of the header's pill buttons' (card-header-button.ts
+ * CARD_HEADER_PILL_BUTTON; Liam, 11-23: at 32px it was "way too big compared
+ * to everything else on that header"), and Next and the mic as the header's
+ * 24px round buttons.
+ *
  * Rendered only where read-aloud can play (the section player's `supported`:
  * the desktop app, local-tts Ready, no capture or dictation), so a browser
  * never shows it; and only while the window the user works in has something
@@ -67,6 +77,10 @@ import { useAssistantName } from '@/lib/voice/assistant-name-store'
 import { toggleInteractiveMute, useInteractiveVoice, type InteractivePhase } from '@/lib/voice/interactive-store'
 import { useVoiceStatus } from '@/lib/voice/status-store'
 import { useListenNextHere, useListenReadableHere } from './listen-frame'
+import { TILE_FLIGHT_HIDE_ATTR } from '@/lib/chat/tile-flight'
+
+/** On the toggle in a page's header: the header keeps its width out of the room its page's controls measure (sky-header-row.tsx). */
+export const LISTEN_HEADER_ATTR = 'data-listen-header'
 
 /**
  * The colourful border listen mode being on puts on the button: a conic
@@ -103,7 +117,11 @@ const NoMetal = () => null
 
 const ListenMetal = lazy(() => import('./listen-metal').catch(() => ({ default: NoMetal })))
 
-export function ListenModeToggle({ className }: { className?: string }) {
+/** Where it stands: the top bar (36px, beside its pills) or a full-screen page's header (24px, as its controls are). */
+export type ListenModeToggleVariant = 'bar' | 'header'
+
+export function ListenModeToggle({ className, variant = 'bar' }: { className?: string; variant?: ListenModeToggleVariant }) {
+  const header = variant === 'header'
   const supported = useSectionPlayerSupported()
   const on = useListenMode()
   const readableHere = useListenReadableHere()
@@ -120,12 +138,16 @@ export function ListenModeToggle({ className }: { className?: string }) {
     // so the pill is the toggle's alone. The button stays the same element as
     // listen mode turns on and off, and as the Next button comes and goes
     // before it, so it keeps focus.
-    <span className={cn('relative inline-flex shrink-0 items-center gap-1.5', className)}>
+    // In a header: not drawn on the header's flight copy (its metal can't be copied), and its width kept out of the page's controls' room.
+    <span
+      {...(header ? { [LISTEN_HEADER_ATTR]: '', [TILE_FLIGHT_HIDE_ATTR]: '' } : {})}
+      className={cn('relative inline-flex shrink-0 items-center', header ? 'mr-1 gap-0.5' : 'gap-1.5', className)}
+    >
       {/* Before the toggle, not after: the top bar's cluster is right-aligned,
           so the toggle the user just pressed stays under the pointer as Next
           comes and goes. */}
-      {on && next && <ListenNextButton label={next.label} go={next.go} />}
-      {on && canTalk && <InteractiveMicButton />}
+      {on && next && <ListenNextButton label={next.label} go={next.go} header={header} />}
+      {on && canTalk && <InteractiveMicButton header={header} />}
       <span className="relative inline-flex shrink-0">
         {/* Nothing while its chunk loads: the plain button shows meanwhile. */}
         <Suspense fallback={null}>
@@ -142,7 +164,10 @@ export function ListenModeToggle({ className }: { className?: string }) {
                 aria-pressed={on}
                 data-listen-mode={on ? 'on' : 'off'}
                 // No fill of its own, on or off: the metal's surface is its face.
-                className="relative inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-xs font-medium text-foreground transition-colors hover:text-foreground/80"
+                className={cn(
+                  'relative inline-flex shrink-0 items-center gap-1.5 rounded-full text-xs font-medium text-foreground transition-colors hover:text-foreground/80',
+                  header ? 'h-6 gap-1 px-2.5' : 'h-9 px-3.5',
+                )}
               >
                 {/* On: the colourful border (LISTEN_ON_RING), under the label.
                     Its glow lies just outside the pill, the ring on its rim;
@@ -158,7 +183,11 @@ export function ListenModeToggle({ className }: { className?: string }) {
                   <span className="absolute -inset-0.5 rounded-full opacity-60 blur-[3px]" style={GLOW_STYLE} />
                   <span className="absolute inset-0 rounded-full" style={RING_STYLE} />
                 </span>
-                {on ? <Pause className="relative h-3.5 w-3.5 fill-current" /> : <Play className="relative h-3.5 w-3.5 fill-current" />}
+                {on ? (
+                  <Pause className={cn('relative fill-current', header ? 'size-2.5' : 'h-3.5 w-3.5')} />
+                ) : (
+                  <Play className={cn('relative fill-current', header ? 'size-2.5' : 'h-3.5 w-3.5')} />
+                )}
                 <span className="relative">Interactive</span>
               </button>
             </TooltipTrigger>
@@ -176,7 +205,7 @@ export function ListenModeToggle({ className }: { className?: string }) {
 
 /** Moves on to what the window in front offers next (Mail's next thread),
  *  which then reads itself. One of the bar's round pills (BAR_PILL). */
-function ListenNextButton({ label, go }: { label: string; go: () => void }) {
+function ListenNextButton({ label, go, header }: { label: string; go: () => void; header: boolean }) {
   return (
     <TooltipProvider delayDuration={300}>
       <Tooltip>
@@ -188,7 +217,7 @@ function ListenNextButton({ label, go }: { label: string; go: () => void }) {
             onClick={() => go()}
             aria-label={label}
             data-listen-next=""
-            className={BAR_PILL}
+            className={header ? HEADER_ROUND : BAR_PILL}
           >
             <SkipForward className="h-3.5 w-3.5 fill-current" />
           </button>
@@ -222,6 +251,11 @@ export const INTERACTIVE_PHASE_LABEL: Record<InteractivePhase, string> = {
 const BAR_PILL =
   'relative inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-white text-sidebar-foreground/70 shadow-sm transition-colors hover:bg-muted hover:text-sidebar-foreground dark:bg-black dark:shadow-none'
 
+/** In a page's header: its 24px round buttons (card-header-button.ts CARD_HEADER_ICON_BUTTON's look), no surface of their own. */
+const HEADER_ROUND =
+  // A transparent border, so the mic's phases (PHASE_STYLE: heard, answering, follow-up) colour it as in the bar.
+  'relative grid size-6 shrink-0 place-items-center rounded-full border border-transparent text-muted-foreground/70 transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none'
+
 /** Per phase: how the mic's pill shows it, on its own border and fill. Quiet
  *  (the plain pill) while listening. */
 const PHASE_STYLE: Record<InteractivePhase, string> = {
@@ -238,7 +272,7 @@ const PHASE_STYLE: Record<InteractivePhase, string> = {
  * conversation is. One of the bar's round pills (BAR_PILL). Muted, it says so
  * whatever the phase: nothing is heard.
  */
-function InteractiveMicButton() {
+function InteractiveMicButton({ header }: { header: boolean }) {
   const { phase, muted } = useInteractiveVoice()
   const { name } = useAssistantName()
   const label = muted ? 'Unmute microphone' : 'Mute microphone'
@@ -260,7 +294,7 @@ function InteractiveMicButton() {
             aria-pressed={muted}
             data-interactive-mic=""
             data-interactive-phase={muted ? 'muted' : phase}
-            className={cn(BAR_PILL, muted ? 'text-sidebar-foreground/50' : PHASE_STYLE[phase])}
+            className={cn(header ? HEADER_ROUND : BAR_PILL, muted ? 'text-sidebar-foreground/50' : PHASE_STYLE[phase])}
           >
             {muted ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
             <span className="sr-only" aria-live="polite">
