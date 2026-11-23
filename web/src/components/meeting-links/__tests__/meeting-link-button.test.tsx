@@ -18,6 +18,8 @@ const { client, clip } = vi.hoisted(() => ({
   client: {
     meeting: null as MeetingView | null,
     newLink: vi.fn(async () => ({ ok: true as const, url: 'https://example.test/m/new' })),
+    revoke: vi.fn(async () => ({ ok: true as const })),
+    end: vi.fn(async () => ({ ok: true as const })),
   },
   clip: vi.fn(async () => true),
 }))
@@ -26,8 +28,8 @@ vi.mock('@/lib/clipboard', () => ({ copyTextToClipboard: clip }))
 vi.mock('@/lib/meeting-links/client', () => ({
   fetchMeetingOf: async () => client.meeting,
   requestNewLink: client.newLink,
-  requestRevoke: vi.fn(async () => ({ ok: true })),
-  requestEnd: vi.fn(async () => ({ ok: true })),
+  requestRevoke: client.revoke,
+  requestEnd: client.end,
 }))
 
 const { MeetingLinkButton } = await import('../meeting-link-button')
@@ -63,8 +65,8 @@ afterEach(() => {
   container.remove()
 })
 
-async function draw(meId: string | null) {
-  await act(async () => root.render(<MeetingLinkButton channelId="c1" meId={meId} live={false} />))
+async function draw(meId: string | null, live = false) {
+  await act(async () => root.render(<MeetingLinkButton channelId="c1" meId={meId} live={live} />))
   await act(async () => {})
 }
 const copyButton = () => container.querySelector<HTMLButtonElement>('[data-meeting-link-copy]')
@@ -114,5 +116,46 @@ describe('the invite link in the header', () => {
     await draw('host')
     expect(container.querySelector('[data-meeting-link-off="closed"]')!.textContent).toBe('Link expired')
     expect(copyButton()).toBeNull()
+  })
+
+  it('the host’s menu: New link and Turn off link each asked twice inside it (one click never breaks a link people hold), Keep it steps back, End for everyone only while live', async () => {
+    client.meeting = meeting()
+    client.revoke.mockClear()
+    client.newLink.mockClear()
+    await draw('host', true)
+    const openMenu = async () => {
+      const trigger = container.querySelector<HTMLButtonElement>('[data-meeting-link-menu]')!
+      await act(async () => void trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })))
+    }
+    const item = (sel: string) => document.querySelector<HTMLElement>(sel)
+    await openMenu()
+    expect(item('[data-meeting-end]')).not.toBeNull()
+    // Turn off: the first press only asks.
+    await act(async () => item('[data-meeting-revoke]')!.click())
+    expect(client.revoke).not.toHaveBeenCalled()
+    expect(document.body.textContent).toContain('Anyone who opens it is told it’s no longer active.')
+    // Keep it: back to the menu, nothing changed.
+    const keep = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((el) => el.textContent === 'Keep it')!
+    await act(async () => keep.click())
+    expect(item('[data-meeting-revoke]')).not.toBeNull()
+    expect(client.revoke).not.toHaveBeenCalled()
+    // Asked, then confirmed: now it turns off.
+    await act(async () => item('[data-meeting-revoke]')!.click())
+    await act(async () => item('[data-meeting-revoke-confirm]')!.click())
+    expect(client.revoke).toHaveBeenCalledWith('m1')
+    await act(async () => {})
+    expect(container.querySelector('[data-meeting-new-link]')!.textContent).toBe('New invite link')
+
+    // New link: the same, asked first.
+    client.meeting = meeting()
+    act(() => root.unmount())
+    root = createRoot(container)
+    await draw('host', false)
+    await openMenu()
+    expect(item('[data-meeting-end]')).toBeNull()
+    await act(async () => item('[data-meeting-new-link-ask]')!.click())
+    expect(client.newLink).not.toHaveBeenCalled()
+    await act(async () => document.querySelector<HTMLElement>('[role="menuitem"][data-meeting-new-link]')!.click())
+    expect(client.newLink).toHaveBeenCalledWith('m1')
   })
 })

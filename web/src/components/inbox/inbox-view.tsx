@@ -203,8 +203,13 @@ export function InboxView({
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.metaKey || e.ctrlKey || e.altKey || typing(e.target)) return
-    // Inside the opened conversation, its own keys are its own.
-    if ((e.target as Element).closest?.('[data-inbox-pane]')) {
+    // Inside the opened conversation, its own keys are its own; so are the
+    // card header's controls (the filters, the conversation's Copy invite
+    // link, call, bell): portalled out of this page, their keys still bubble
+    // here through React, and Enter on one would open a row instead of
+    // pressing it.
+    const inHeader = !e.currentTarget.contains(e.target as Node)
+    if (inHeader || (e.target as Element).closest?.('[data-inbox-pane]')) {
       if (e.key === 'Escape' && openKey) {
         e.preventDefault()
         setOpenKey(null)

@@ -59,4 +59,22 @@ describe('the inbox’s filters', () => {
     expect(container.querySelector('[role="tablist"] [data-inbox-filter="all"]')).not.toBeNull()
     expect(right.childElementCount).toBe(0)
   })
+
+  it('a key on a header control is that control’s, not the list’s (it is portalled out of the page but bubbles through React): Enter presses it, e and h never touch a row', async () => {
+    const item = { key: 'n1', source: 'notification', category: 'other', at: new Date().toISOString(), title: 'A note', body: null, unread: true, count: 1, notificationIds: ['n1'], actor: null, open: { kind: 'none' }, type: 'other' }
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ items: [item], held: [], mail: [] }), { status: 200 })) as typeof fetch
+    await act(async () => root.render(<CardHeaderSlotsProvider value={{ left: null, right }}><InboxView /></CardHeaderSlotsProvider>))
+    await act(async () => {})
+    expect(container.textContent).toContain('A note')
+    const calls = () => (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.length
+    const before = calls()
+    for (const key of ['Enter', 'e', 'h', 'j']) {
+      const ev = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+      await act(async () => void right.querySelector<HTMLButtonElement>('[data-inbox-filter="messages"]')!.dispatchEvent(ev))
+      // Not taken by the list: the button's own Enter (its click) still happens.
+      expect(ev.defaultPrevented).toBe(false)
+    }
+    // No Done, no hold: nothing was sent for the row.
+    expect(calls()).toBe(before)
+  })
 })

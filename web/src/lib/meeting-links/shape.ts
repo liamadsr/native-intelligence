@@ -168,7 +168,7 @@ export function meetingLinkState(m: { opens_at: string; closes_at: string; revok
   return 'open'
 }
 
-/** A meeting as the conversation's link bar shows it (573's columns a member may read, and its link). */
+/** A meeting as the conversation's Copy invite link button reads it (573's columns a member may read, and its link). */
 export interface MeetingView {
   id: string
   channel_id: string
