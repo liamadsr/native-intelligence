@@ -490,6 +490,7 @@ const PAGE_BODIES: Record<PageKind, React.LazyExoticComponent<React.ComponentTyp
   team_chat: React.lazy(() => import('./pages/team-chat-card')),
   availability: React.lazy(() => import('./pages/availability-card')),
   files: React.lazy(() => import('./pages/files-card')),
+  reviews: React.lazy(() => import('./pages/reviews-card')),
   studio: React.lazy(() => import('./pages/studio-card')),
   seo_audit: React.lazy(() => import('./pages/seo-audit-card')),
   seo_keywords: React.lazy(() => import('./pages/seo-keywords-card')),

@@ -46,6 +46,7 @@ export const PAGE_KIND_NAMES = [
   'team_chat',
   'availability',
   'files',
+  'reviews',
   'studio',
   'seo_audit',
   'seo_keywords',
@@ -315,6 +316,17 @@ export const PAGE_KINDS: Record<PageKind, PageKindDef> = {
     view: 'docs',
     personOnly: true,
   },
+  // Reviews (docs/plans/github-reviews.md): the person's GitHub pull requests,
+  // read live with their own token (review requests, authored, assigned,
+  // involving them), as a list or a board, with a pull request's panel and a
+  // merge that confirms first. Gated with My Actions. The person's own GitHub
+  // data: `show` doesn't offer it, and it has no rows for the agent's note.
+  reviews: {
+    label: 'Reviews',
+    rows: 'pull requests',
+    view: 'todo',
+    personOnly: true,
+  },
   // Studio (migration 620): making videos and ads. A Studio project groups
   // videos; each video is one edit. Unlike Files, the agent opens it with
   // `show`, on one video or one Studio project (`target`, checked to be the
@@ -391,7 +403,7 @@ export const PAGE_KINDS: Record<PageKind, PageKindDef> = {
 }
 
 /** The page kinds `show` offers: every one the person alone doesn't open. */
-export const SHOW_PAGE_KIND_NAMES = PAGE_KIND_NAMES.filter((k) => !PAGE_KINDS[k].personOnly) as Exclude<PageKind, 'bot' | 'work_item' | 'guest' | 'agent_link' | 'team_chat' | 'availability' | 'files' | 'seo_audit' | 'seo_keywords' | 'seo_rankings' | 'seo_search' | 'seo_competitors' | 'seo_backlinks' | 'seo_ai_visibility' | 'seo_local'>[]
+export const SHOW_PAGE_KIND_NAMES = PAGE_KIND_NAMES.filter((k) => !PAGE_KINDS[k].personOnly) as Exclude<PageKind, 'bot' | 'work_item' | 'guest' | 'agent_link' | 'team_chat' | 'availability' | 'files' | 'reviews' | 'seo_audit' | 'seo_keywords' | 'seo_rankings' | 'seo_search' | 'seo_competitors' | 'seo_backlinks' | 'seo_ai_visibility' | 'seo_local'>[]
 
 /** What each place is called, in the note and in refusals. */
 export const PLACE_NOUN: Record<PagePlaceType, string> = {

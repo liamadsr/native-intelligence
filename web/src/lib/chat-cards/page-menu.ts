@@ -119,6 +119,17 @@ export const CARD_PAGES: readonly CardPage[] = [
       { field: 'status_type', operator: 'is_none_of', value: ['completed', 'canceled'] },
     ]),
   },
+  // Reviews (docs/plans/github-reviews.md): the person's GitHub pull requests. Gated with My Actions; a member's, never a guest's (its routes refuse one).
+  {
+    slug: 'reviews',
+    label: 'Reviews',
+    description: 'Your pull requests on GitHub',
+    kind: 'reviews',
+    view: 'todo',
+    keywords: ['github', 'pull requests', 'prs', 'code review', 'merge'],
+    membersOnly: true,
+    spec: page('reviews', 'Reviews'),
+  },
   { slug: 'captures', label: 'Captures', description: 'Your meetings and notes', kind: 'list', view: 'captures', keywords: ['meetings', 'notes', 'recordings'], spec: list('Captures', 'capture') },
   // Studio (migration 620): Studio projects and their videos, each one edit. The agent opens it too (`show`).
   {

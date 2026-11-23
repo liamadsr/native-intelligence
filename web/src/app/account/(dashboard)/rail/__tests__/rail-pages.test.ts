@@ -56,7 +56,7 @@ describe('the rail pages', () => {
 
   it('keep the reference order first, then the customers and the agents (Liam, 11-11: Drive and Agents took the plans section’s pages)', () => {
     expect(RAIL_PAGES.map((d) => d.id)).toEqual([
-      'drive', 'mail', 'team-chat', 'actions', 'calendar',
+      'drive', 'mail', 'team-chat', 'actions', 'reviews', 'calendar',
       'contacts', 'outreach', 'seo',
       'agents',
     ])
@@ -88,9 +88,10 @@ describe('the rail pages', () => {
     const forGuest = railPagesFor(pagesFor(full, { desktop: false, now: NOW, guest: true }))
     const members = (pages: ReturnType<typeof railPagesFor>, id: string) => pages.find((p) => p.def.id === id)!.members!.map((m) => m.slug)
     expect(members(offered(), 'outreach')).toEqual(['prospecting', 'sequences', 'campaigns', 'studio'])
-    // Outreach stays for a guest, without its Studio row; every other icon as for a member.
+    // Outreach stays for a guest, without its Studio row; every other icon as for a member but
+    // Reviews (docs/plans/github-reviews.md), whose routes refuse a guest too.
     expect(members(forGuest, 'outreach')).toEqual(['prospecting', 'sequences', 'campaigns'])
-    expect(forGuest.map((p) => p.def.id)).toEqual(offered().map((p) => p.def.id))
+    expect(forGuest.map((p) => p.def.id)).toEqual(offered().map((p) => p.def.id).filter((id) => id !== 'reviews'))
   })
 
   it('name a page in the workspace’s words', () => {
@@ -191,7 +192,7 @@ describe('the person’s bar (railLayout)', () => {
   it('puts a page the prefs don’t mention (new, or just turned on) in its default place, pinned', () => {
     // Saved before Calendar and Captures existed: calendar lands after actions, captures after it.
     const order = ['mail', 'drive', 'team-chat', 'actions', ...ids.filter((id) => !['mail', 'drive', 'team-chat', 'actions', 'calendar', 'captures'].includes(id))]
-    expect(all({ order, hidden: [] }).slice(0, 6)).toEqual(['mail', 'drive', 'team-chat', 'actions', 'calendar', 'contacts'])
+    expect(all({ order, hidden: [] }).slice(0, 7)).toEqual(['mail', 'drive', 'team-chat', 'actions', 'reviews', 'calendar', 'contacts'])
     // Each after the page before it by default, wherever that one stands: Drive (first) first, Contacts after Calendar.
     const partial = all({ order: ['calendar', 'mail'], hidden: [] })
     expect(partial.slice(0, 3)).toEqual(['drive', 'calendar', 'contacts'])
@@ -227,7 +228,7 @@ describe('a bar saved while Projects and Initiatives had icons (Liam, 11-11: the
       'knowledge', 'flows', 'companies', 'contacts', 'deals', 'prospecting', 'sequences', 'campaigns', 'agents', 'evals', 'teams',
     ]
     // SEO is newer than that order: it takes its default place (after Outreach).
-    expect(railLayout(pages, { order: oldDefault, hidden: [] }).all.map((p) => p.def.id)).toEqual(['drive', 'mail', 'team-chat', 'actions', 'calendar', 'agents', 'contacts', 'outreach', 'seo'])
+    expect(railLayout(pages, { order: oldDefault, hidden: [] }).all.map((p) => p.def.id)).toEqual(['drive', 'mail', 'team-chat', 'actions', 'reviews', 'calendar', 'agents', 'contacts', 'outreach', 'seo'])
     // Teams had an icon too (Liam, 11-11: it nests under My Actions now): its id is skipped, shown or hidden.
     expect(railLayout(pages, { order: oldDefault, hidden: ['teams'] }).shown.map((p) => p.def.id)).not.toContain('teams')
     expect(railLayout(pages, { order: oldDefault, hidden: ['teams'] }).shown).toHaveLength(pages.length)
@@ -459,7 +460,7 @@ describe('a bar saved before the page groups (Liam, 11-11)', () => {
     expect(moved.order).not.toContain('deals')
     expect(moved.hidden).toEqual(['calendar', 'availability', 'captures'])
     // Moving past a hidden group counts it hidden.
-    expect(moveRailPageBy({ order: [], hidden: ['calendar', 'availability', 'captures'] }, ids, 'contacts', -1)!.order.slice(0, 5)).toEqual(['drive', 'mail', 'team-chat', 'contacts', 'actions'])
+    expect(moveRailPageBy({ order: [], hidden: ['calendar', 'availability', 'captures'] }, ids, 'contacts', -1)!.order.slice(0, 6)).toEqual(['drive', 'mail', 'team-chat', 'actions', 'contacts', 'reviews'])
   })
 })
 

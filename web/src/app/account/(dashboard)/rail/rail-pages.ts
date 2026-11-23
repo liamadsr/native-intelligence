@@ -91,6 +91,8 @@ export const RAIL_PAGES: readonly RailPageDef[] = [
   def('mail', 'work'),
   def('team-chat', 'work'),
   def('actions', 'work'),
+  // Reviews (docs/plans/github-reviews.md): the person's GitHub pull requests, beside the work they close.
+  def('reviews', 'work'),
   // Calendar: Captures (Liam, 11-11).
   groupDef('calendar', 'work'),
   // Contacts: Companies, Contacts, Deals · Outreach: Prospecting, Sequences, Campaigns (Liam, 11-11),
