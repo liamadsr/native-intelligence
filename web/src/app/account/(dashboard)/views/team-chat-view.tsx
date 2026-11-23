@@ -113,7 +113,7 @@ import { useTeamCalls } from '@/components/team-calls/team-calls-provider'
 import { upsertParticipant, type TeamCall, type TeamCallParticipant, type TeamCallView } from '@/lib/team-calls/types'
 import { CallMessage, CallButton } from './team-call-parts'
 import { NewMeetingDialog } from '@/components/meeting-links/new-meeting-dialog'
-import { MeetingLinkBar } from '@/components/meeting-links/meeting-link-bar'
+import { MeetingLinkButton } from '@/components/meeting-links/meeting-link-button'
 import { MeetingsSection } from '@/components/meeting-links/meetings-section'
 import { Avatar, LinkPreviewCard, MessageAttachments, memberName, ReactButton, ReactionChips, ThreadBar, type Member } from './team-chat-message-parts'
 import { lastTeamChat, publishTeamChatCard, unpublishTeamChatCard, type TeamChatPanelConversation } from '@/components/chat-cards/team-chat-card-controls'
@@ -1471,6 +1471,12 @@ function ChannelPane({
   const archived = !!channel.archived_at
   const callsHere = useTeamCalls()
   const meetingBar = callsHere.available
+  // A meeting's invite link, a Copy invite link button among the header's controls (meeting-link-button.tsx; Liam, 11-23:
+  // "the invite link doesn't have to show it should just be a copy invite link button"), where calling is on.
+  const meetingLink =
+    channel.kind === 'meeting' && meetingBar ? (
+      <MeetingLinkButton channelId={channel.id} meId={meId} live={Object.values(calls).some((c) => c.call.channel_id === channel.id && c.call.status === 'live')} />
+    ) : null
   // A meeting's live call with a guest let in (the call this page is in: its lobby, live): they read this chat (migration 670).
   const guestsRead = channel.kind === 'meeting' && callsHere.active?.channelId === channel.id && callsHere.active.guests.some((g) => g.state === 'admitted')
 
@@ -1525,6 +1531,7 @@ function ChannelPane({
           </CardHeaderTrail>
           <CardHeaderSlot side="right">
             <div data-team-chat-header-controls="" className="flex items-center gap-0.5">
+              {meetingLink}
               <CallButton channel={channel} label={callLabel} className="grid size-6 place-items-center rounded-full p-0 hover:bg-foreground/[0.06]" />
               <TeamChatNotifyMenu kind={channel.kind} level={channel.notify} mutedUntil={channel.muted_until} onChange={onNotify} onSnooze={onSnooze} inHeader headerButtonClass={CARD_HEADER_ICON_BUTTON} />
             </div>
@@ -1556,12 +1563,10 @@ function ChannelPane({
         )}
         {channel.topic && <span className="min-w-0 truncate text-sm text-muted-foreground">{channel.topic}</span>}
         <span className="ml-auto" aria-hidden />
+        {meetingLink}
         <CallButton channel={channel} label={callLabel} />
         <TeamChatNotifyMenu kind={channel.kind} level={channel.notify} mutedUntil={channel.muted_until} onChange={onNotify} onSnooze={onSnooze} />
       </div>
-      )}
-      {channel.kind === 'meeting' && meetingBar && (
-        <MeetingLinkBar channelId={channel.id} meId={meId} live={Object.values(calls).some((c) => c.call.channel_id === channel.id && c.call.status === 'live')} />
       )}
 
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-5 py-4">

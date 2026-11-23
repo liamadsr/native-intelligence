@@ -43,6 +43,7 @@ import {
   type InboxMailRow,
 } from '@/lib/inbox/items'
 import { CARD_RECORD_TYPES, type CardRecordType } from '@/lib/chat-cards/kinds'
+import { CardHeaderSlot, useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
 
 type MailRow = InboxMailRow & { provider: string | null; provider_message_id: string | null; folder: string | null; subject?: string | null; snippet?: string | null; from_name?: string | null }
 
@@ -59,6 +60,8 @@ const FILTER_LABELS: Record<InboxFilter, string> = {
   mail: 'Mail',
   held: 'Held',
 }
+/** In a card's header, where room is short: the long one shortened until the header is wide (its full name is the tooltip). */
+const HEADER_SHORT_LABELS: Partial<Record<InboxFilter, string>> = { mentions: 'Mentions' }
 
 /** How often the list reads itself again while it is on screen. */
 const REFRESH_MS = 60_000
@@ -88,6 +91,8 @@ export function InboxView({
   const [data, setData] = useState<InboxData | null>(null)
   const [failed, setFailed] = useState(false)
   const [filter, setFilter] = useState<InboxFilter>('all')
+  // In a card its filters go up into the card's header (CardHeaderSlot); on their own, a row over the list.
+  const inCard = useCardHeaderSlots() !== null
   const [cursor, setCursor] = useState(0)
   const [openKey, setOpenKey] = useState<string | null>(null)
   const [, setHeadersTick] = useState(0)
@@ -198,8 +203,13 @@ export function InboxView({
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.metaKey || e.ctrlKey || e.altKey || typing(e.target)) return
-    // Inside the opened conversation, its own keys are its own.
-    if ((e.target as Element).closest?.('[data-inbox-pane]')) {
+    // Inside the opened conversation, its own keys are its own; so are the
+    // card header's controls (the filters, the conversation's Copy invite
+    // link, call, bell): portalled out of this page, their keys still bubble
+    // here through React, and Enter on one would open a row instead of
+    // pressing it.
+    const inHeader = !e.currentTarget.contains(e.target as Node)
+    if (inHeader || (e.target as Element).closest?.('[data-inbox-pane]')) {
       if (e.key === 'Escape' && openKey) {
         e.preventDefault()
         setOpenKey(null)
@@ -237,30 +247,63 @@ export function InboxView({
     return { all: items.length, messages: filterItems(items, 'messages').length, mentions: filterItems(items, 'mentions').length, mail: filterItems(items, 'mail').length, held: data?.held.length ?? 0 }
   }, [data])
 
+  const choose = (f: InboxFilter) => {
+    setFilter(f)
+    setCursor(0)
+  }
+
   return (
     <div className="flex h-full min-h-0" data-inbox-view="" onKeyDown={onKeyDown} tabIndex={-1}>
+      {/* In a card: the filters in its header, a capsule of segments as Calendar's views are (Liam, 11-23: "Into the header"); the page starts with the list. */}
+      {inCard && (
+        <CardHeaderSlot side="right">
+          <div role="tablist" aria-label="Show" data-inbox-filters="header" className="flex h-6 shrink-0 items-center overflow-hidden rounded-full bg-foreground/[0.05]">
+            {INBOX_FILTERS.map((f) => (
+              <button
+                key={f}
+                type="button"
+                role="tab"
+                aria-selected={filter === f}
+                data-inbox-filter={f}
+                title={FILTER_LABELS[f]}
+                onClick={() => choose(f)}
+                className="flex h-full items-center whitespace-nowrap px-2.5 text-xs text-muted-foreground transition-colors hover:bg-foreground/[0.05] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring aria-selected:bg-foreground/[0.1] aria-selected:font-medium aria-selected:text-foreground motion-reduce:transition-none"
+              >
+                {HEADER_SHORT_LABELS[f] ? (
+                  <>
+                    <span className="@[52rem]:hidden">{HEADER_SHORT_LABELS[f]}</span>
+                    <span className="hidden @[52rem]:inline">{FILTER_LABELS[f]}</span>
+                  </>
+                ) : (
+                  FILTER_LABELS[f]
+                )}
+                {counts[f] > 0 && <span className="ml-1 tabular-nums opacity-60">{counts[f]}</span>}
+              </button>
+            ))}
+          </div>
+        </CardHeaderSlot>
+      )}
       <div className={cn('flex min-h-0 flex-col', opened ? 'hidden w-[22rem] shrink-0 md:flex' : 'flex-1')}>
-        <div className="flex shrink-0 flex-wrap gap-1 px-4 pb-2 pt-3" role="tablist" aria-label="Show">
-          {INBOX_FILTERS.map((f) => (
-            <button
-              key={f}
-              type="button"
-              role="tab"
-              aria-selected={filter === f}
-              data-inbox-filter={f}
-              onClick={() => {
-                setFilter(f)
-                setCursor(0)
-              }}
-              // As every page's pills (Reviews, Drive): the chosen one tinted, the rest clear (Liam, 11-20: unselected pills are transparent).
-              className={cn('h-7 rounded-full px-3 text-xs transition-colors', filter === f ? 'bg-foreground/[0.08] font-medium text-foreground' : 'text-muted-foreground hover:bg-foreground/[0.05] hover:text-foreground')}
-            >
-              {FILTER_LABELS[f]}
-              {counts[f] > 0 && <span className="ml-1 tabular-nums opacity-70">{counts[f]}</span>}
-            </button>
-          ))}
-        </div>
-        <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto px-2 pb-4" role="listbox" aria-label="Inbox" tabIndex={0} data-inbox-list="">
+        {!inCard && (
+          <div className="flex shrink-0 flex-wrap gap-1 px-4 pb-2 pt-3" role="tablist" aria-label="Show">
+            {INBOX_FILTERS.map((f) => (
+              <button
+                key={f}
+                type="button"
+                role="tab"
+                aria-selected={filter === f}
+                data-inbox-filter={f}
+                onClick={() => choose(f)}
+                // As every page's pills (Reviews, Drive): the chosen one tinted, the rest clear (Liam, 11-20: unselected pills are transparent).
+                className={cn('h-7 rounded-full px-3 text-xs transition-colors', filter === f ? 'bg-foreground/[0.08] font-medium text-foreground' : 'text-muted-foreground hover:bg-foreground/[0.05] hover:text-foreground')}
+              >
+                {FILTER_LABELS[f]}
+                {counts[f] > 0 && <span className="ml-1 tabular-nums opacity-70">{counts[f]}</span>}
+              </button>
+            ))}
+          </div>
+        )}
+        <div ref={listRef} className={cn('min-h-0 flex-1 overflow-y-auto px-2 pb-4', inCard && 'pt-2')} role="listbox" aria-label="Inbox" tabIndex={0} data-inbox-list="">
           {forYouCount > 0 && filter === 'all' && (
             <button
               type="button"
