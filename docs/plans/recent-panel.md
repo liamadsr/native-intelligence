@@ -1,16 +1,17 @@
 # Recent: everything you worked on, and what needs you
 
 Owner, via the managing session: "In the home page the recent panel you don't see team chat
-you've interacted with recently. Look at how Macro's recent panel works and update ours to work
-the same way: you should see everything you've interacted with, like chats, docs, projects…"
+you've interacted with recently. Look at how [the reference product's] recent panel works and
+update ours to work the same way: you should see everything you've interacted with, like chats,
+docs, projects…"
 Branch `claude/recent-panel`. Reserved migrations: 712, 713. Merged is not live: see "How
 production works" in `CLAUDE.md`.
 
-Clean room: the behaviour below comes from Macro's public docs only (macro.com/docs/product/home,
-as the managing session summarized it): Home lists what you recently did and what needs you,
+Clean room: the behaviour below comes from the reference product's public docs only (its docs
+page on Home, as the managing session summarized it): Home lists what you recently did and what needs you,
 grouped by time; a filter (key F, or a button) by status and type, kept across reloads; J/K to
 move, Enter to open, Shift+Enter to open in a split. No code, styles, icons or wording come from
-Macro, and nothing was read from its source or any mirror. **No new dependency.**
+the reference product, and nothing was read from its source or any mirror. **No new dependency.**
 
 ## What exists, and why team chat is missing
 
@@ -98,7 +99,7 @@ tool is ever added) would call the same server function with the same session, s
 
 ## Phases
 
-1. **Panel behaviour, no migration.** Macro's groups (Last few minutes, Last hour, This morning,
+1. **Panel behaviour, no migration.** The time groups (Last few minutes, Last hour, This morning,
    This afternoon, This evening, Earlier today, Yesterday, then each date); the filter (F or its
    button: Status Unread / Read / All on the dot model, Type one per kind, Reset filters, kept per
    device in localStorage like the panel's open state); J/K/arrows move, Enter opens. A new
@@ -135,7 +136,8 @@ tool is ever added) would call the same server function with the same session, s
 1. **No new activity rows; each kind read from its own table** (above). The cost: the route makes
    one read per source (about eight small indexed reads plus the fences), all in parallel, only
    when the panel is on screen, as today.
-2. **Opening something doesn't count.** Macro's examples are all doings (edits, sends, starts).
+2. **Opening something doesn't count.** The reference product's examples are all doings
+   (edits, sends, starts).
    We track opens for Drive files only (`drive_file_open`, 709); counting them would put files
    you merely previewed among your work, and only files, which reads uneven. Recommended: not
    counted. If wanted later, it adds one indexed read of `drive_file_open` and a row per file
@@ -154,7 +156,7 @@ tool is ever added) would call the same server function with the same session, s
    no filter, an empty list still hides the panel, as today).
 8. **"Read" and "Unread"** are the dot: Unread = something came to me after my own last touch and
    I haven't opened it here; Read = everything else (my own work included).
-9. **"The last few minutes" is 10 minutes**; Macro's docs don't give a number.
+9. **"The last few minutes" is 10 minutes**; the reference product's docs don't give a number.
 10. **The Type filter offers only the kinds the list has rows of** (and any already chosen), so it
     never lists sixteen empty choices. Deals share "Tables and deals" with table rows: a deal is a
     `data_row` since 548, and the feed's rows don't say which table a row is in.
