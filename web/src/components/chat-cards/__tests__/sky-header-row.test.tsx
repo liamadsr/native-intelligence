@@ -9,7 +9,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createRoot, type Root } from 'react-dom/client'
-import { act, createElement as h } from 'react'
+import { act } from 'react'
 import { FULL_SCREEN_INTERACTIVE_ATTR, SkyHeaderRow } from '../sky-header-row'
 import { FULL_SCREEN_CONTROL_ATTR } from '../outside-card-press'
 import { TILE_FLIGHT_RIDER_ATTR } from '@/lib/chat/tile-flight'
@@ -72,11 +72,17 @@ afterEach(() => {
   HTMLElement.prototype.getBoundingClientRect = realRect
 })
 
+/** The header as show-tool-card.tsx draws it (its pills elided). */
+const header = () => (
+  <SkyHeaderRow data-card-header="">
+    <div>My actions</div>
+  </SkyHeaderRow>
+)
 const row = () => column.querySelector<HTMLElement>('[data-card-header]')!
 
 describe('the header up on the sky', () => {
   it('level with the rail’s header, a press on it the card’s, riding the card’s flight', () => {
-    act(() => root.render(h(SkyHeaderRow, { 'data-card-header': '' }, h('div', null, 'My actions'))))
+    act(() => root.render(header()))
     // The rail's header's top (3) in the column's coordinates (its top at 50).
     expect(row().style.top).toBe('-47px')
     expect(row().style.height).toBe('42px')
@@ -87,7 +93,7 @@ describe('the header up on the sky', () => {
   })
 
   it('the card moved under the rail’s header without resizing (the side panel closed): measured again off the stage, past the rail’s header', () => {
-    act(() => root.render(h(SkyHeaderRow, { 'data-card-header': '' }, h('div', null, 'My actions'))))
+    act(() => root.render(header()))
     place(column, { left: 70, top: 50, width: 900, height: 700 })
     resize(stage)
     // The rail's header ends at 266; 8px after it, from the card's left at 70.
@@ -95,7 +101,7 @@ describe('the header up on the sky', () => {
   })
 
   it('clear of the Interactive capsule while it shows, at the window’s right in the same row', () => {
-    act(() => root.render(h(SkyHeaderRow, { 'data-card-header': '' }, h('div', null, 'My actions'))))
+    act(() => root.render(header()))
     // The card ends at 1300; the capsule shows from 1220.
     place(interactive, { left: 1220, top: 3, width: 112, height: 42 })
     resize(interactive)
