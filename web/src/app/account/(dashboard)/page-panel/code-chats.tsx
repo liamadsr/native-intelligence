@@ -36,7 +36,7 @@ import { useCodeView } from '../chat/use-code-view'
 import { useScrollFades } from '@/components/attention/scroll-fades'
 import { getClientWorkspaceId } from '@/lib/workspace-fetch'
 import { PagePanelFrame } from './page-panel-frame'
-import { RECENTS_PAGE, RECENT_GROUP_LABEL, recentGroupOf, shortRecentTime, type RecentGroupKey } from './recents-model'
+import { RECENTS_PAGE, groupRecents, shortRecentTime, type RecentGroup } from './recents-model'
 import { codeChatsOf, type CodeChatItem } from './code-chats-model'
 import { codeChatsVersion, subscribeCodeChats } from './code-chats-store'
 import type { PagePanelProps } from './page-panel-types'
@@ -44,18 +44,9 @@ import type { PagePanelProps } from './page-panel-types'
 /** The rail's lit tint (home-recents.tsx ROW_LIT), for the selected chat's row. */
 const ROW_LIT = 'bg-foreground/[0.08] hover:bg-foreground/[0.08]'
 
-const GROUP_ORDER: readonly RecentGroupKey[] = ['evening', 'afternoon', 'morning', 'yesterday', 'week', 'month', 'older']
-
-/** The list under the recents' section headings, newest section first, empty ones left out. */
-export function groupCodeChats(items: readonly CodeChatItem[], now: Date): Array<{ key: RecentGroupKey; label: string; items: CodeChatItem[] }> {
-  const by = new Map<RecentGroupKey, CodeChatItem[]>()
-  for (const item of items) {
-    const key = recentGroupOf(item.at, now)
-    const list = by.get(key)
-    if (list) list.push(item)
-    else by.set(key, [item])
-  }
-  return GROUP_ORDER.filter((key) => by.has(key)).map((key) => ({ key, label: RECENT_GROUP_LABEL[key], items: by.get(key)! }))
+/** The list under the recents' section headings (recents-model.ts groupRecents), newest first, empty ones left out. */
+export function groupCodeChats(items: readonly CodeChatItem[], now: Date): RecentGroup<CodeChatItem>[] {
+  return groupRecents(items, now)
 }
 
 interface Read {

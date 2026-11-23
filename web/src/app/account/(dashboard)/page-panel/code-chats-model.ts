@@ -10,6 +10,7 @@
  *
  * Pure: no clock, no reads.
  */
+import { firstLineTitle } from '@/lib/entities/recents-model'
 import { codeJobOpen, codeJobWorking } from '@/lib/local-agent/code-tab'
 import type { PanelSession } from '@/components/local-agent/session-api'
 import type { SessionAction } from '@/lib/local-agent/store'
@@ -34,14 +35,8 @@ export interface CodeChatItem {
   action: SessionAction | null
 }
 
-const TITLE_MAX = 120
-
 /** The request's first line with something in it, on one line, cut to a title. */
-export function codeChatTitle(request: string | null | undefined): string {
-  const line = (request ?? '').split('\n').map((l) => l.replace(/\s+/g, ' ').trim()).find(Boolean) ?? ''
-  if (!line) return 'Untitled'
-  return line.length > TITLE_MAX ? `${line.slice(0, TITLE_MAX - 1).trimEnd()}…` : line
-}
+export const codeChatTitle = firstLineTitle
 
 const ms = (iso: string | null | undefined): number => {
   const t = iso ? Date.parse(iso) : NaN

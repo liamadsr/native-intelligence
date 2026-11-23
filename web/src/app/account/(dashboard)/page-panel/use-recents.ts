@@ -3,12 +3,13 @@
 /**
  * The home page's recents, read (recents-model.ts says what they are): the
  * palette's two feed lists (chat/use-palette-feed.ts, the same reader),
- * longer, merged into one.
+ * longer, and Recent's direct reads (GET /api/account/recents: what the log
+ * doesn't hold), merged into one.
  *
  * Flat cost: read when the panel comes on screen (`active` turning on), on
  * window focus while it shows, and when a card in front of it closes or
  * another takes its place (Liam, 11-11: the panel persists when you open
- * something), so what the person just touched moves up; no timer. Two small
+ * something), so what the person just touched moves up; no timer. Three small
  * reads at a time, never two at once (one asked meanwhile runs right after).
  * In the window's workspace: another workspace's list never shows.
  * Fail-soft: a failed read keeps the last list (or nothing, before the
@@ -21,6 +22,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FeedEntry } from '@/lib/entities/feed-model'
 import { FEED_MAX_LIMIT } from '@/lib/entities/feed-model'
 import { getClientWorkspaceId } from '@/lib/workspace-fetch'
+import { RECENTS_URL, type RecentSourceEntry } from '@/lib/entities/recents-model'
 import { paletteInboxUrl, paletteRecentUrl, readFeedEntries } from '../chat/use-palette-feed'
 import { RECENTS_PAGE, markSeen, mergeRecents, parseSeen, type RecentItem, type SeenMap } from './recents-model'
 
@@ -36,8 +38,22 @@ interface Lists {
   workspaceId: string | null
   inbox: FeedEntry[] | null
   recent: FeedEntry[] | null
+  /** What they did to records the log doesn't hold (GET /api/account/recents). */
+  sources: RecentSourceEntry[] | null
   /** When the lists were last answered: the clock the rows' times and groups read against. */
   readAt: Date | null
+}
+
+/** The direct reads: their entries, or null when the read failed. */
+export async function readRecentSources(): Promise<RecentSourceEntry[] | null> {
+  try {
+    const res = await fetch(RECENTS_URL, { cache: 'no-store' })
+    if (!res.ok) return null
+    const data = (await res.json()) as { entries?: RecentSourceEntry[] }
+    return Array.isArray(data.entries) ? data.entries : null
+  } catch {
+    return null
+  }
 }
 
 function readSeen(): SeenMap {
@@ -69,7 +85,7 @@ export interface Recents {
 export function useRecents(active: boolean, frontId: string | null = null): Recents {
   // The window's workspace, as its requests name it (lib/workspace-fetch.ts).
   const workspaceId = getClientWorkspaceId()
-  const [lists, setLists] = useState<Lists>({ workspaceId, inbox: null, recent: null, readAt: null })
+  const [lists, setLists] = useState<Lists>({ workspaceId, inbox: null, recent: null, sources: null, readAt: null })
   const [seen, setSeen] = useState<SeenMap | null>(null)
   const inFlight = useRef(false)
   // A read asked for while one runs: it runs once that one is answered.
@@ -83,9 +99,10 @@ export function useRecents(active: boolean, frontId: string | null = null): Rece
     inFlight.current = true
     const forWorkspace = getClientWorkspaceId()
     try {
-      const [inbox, recent] = await Promise.all([
+      const [inbox, recent, sources] = await Promise.all([
         readFeedEntries(paletteInboxUrl(new Date(), RECENTS_INBOX_LIMIT)),
         readFeedEntries(paletteRecentUrl(RECENTS_MINE_LIMIT)),
+        readRecentSources(),
       ])
       // The window moved to another workspace meanwhile: this answer is not its.
       if (getClientWorkspaceId() !== forWorkspace) return
@@ -93,8 +110,14 @@ export function useRecents(active: boolean, frontId: string | null = null): Rece
       setLists((was) => {
         const same = was.workspaceId === forWorkspace
         // A failed read keeps what was there (this workspace's).
-        if (same && !inbox && !recent) return was
-        return { workspaceId: forWorkspace, inbox: inbox ?? (same ? was.inbox : null), recent: recent ?? (same ? was.recent : null), readAt }
+        if (same && !inbox && !recent && !sources) return was
+        return {
+          workspaceId: forWorkspace,
+          inbox: inbox ?? (same ? was.inbox : null),
+          recent: recent ?? (same ? was.recent : null),
+          sources: sources ?? (same ? was.sources : null),
+          readAt,
+        }
       })
     } finally {
       inFlight.current = false
@@ -127,7 +150,8 @@ export function useRecents(active: boolean, frontId: string | null = null): Rece
   const ofWorkspace = lists.workspaceId === workspaceId
   const inbox = ofWorkspace ? lists.inbox : null
   const recent = ofWorkspace ? lists.recent : null
-  const items = useMemo(() => mergeRecents({ inbox, recent, seen: seen ?? {} }), [inbox, recent, seen])
+  const sources = ofWorkspace ? lists.sources : null
+  const items = useMemo(() => mergeRecents({ inbox, recent, sources, seen: seen ?? {} }), [inbox, recent, sources, seen])
 
   const markOpened = useCallback((item: RecentItem) => {
     if (!item.inboxAt) return
