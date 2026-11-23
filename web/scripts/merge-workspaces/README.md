@@ -49,3 +49,15 @@ node scripts/merge-workspaces/postgrest-timeout-probe.mjs .env.local 12
 ## Rehearsing on PROD
 
 A real merge is rehearsed with `merge_workspace` itself inside one rolled-back transaction (the CLI's single implicit transaction, ended by a `RAISE EXCEPTION` carrying the result). Two limits shape it: the Management API cuts a request at about 100 s (HTTP 524) and gives its session a 2 min `statement_timeout`, so run one merge per call and cap it with `SET LOCAL statement_timeout = '85s'` and a `WHEN query_canceled` handler that reports how far it got. Report counts only for a workspace whose content must not be reported. Afterwards check that nothing stayed: the sources exist, `workspace_merge` has no new row, the destination's counts are unchanged.
+
+## Open decision for the owner (707)
+
+Migration 707 refuses a merge (P0008, before anything moves) when the two
+workspaces cannot be combined automatically: a business phone number, a
+connected website, a live website form key or a live customer booking page on
+both sides, the same customer texting both, a customer booking at the same
+time, or a quote with the same outside id. The preflight
+(`merge_workspace_preflight`) does not list these yet: they show only as the
+merge's error, naming what collides. Listing them as a preflight blocker
+(a new code beside `source_busy` and `drift`, and its wording in
+`src/lib/workspace-merge/wording.ts`) is a follow-up, not part of 707.
