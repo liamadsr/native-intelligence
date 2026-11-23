@@ -126,6 +126,8 @@ tool is ever added) would call the same server function with the same session, s
      "A channel they left": leaving a channel isn't recorded anywhere (no leave function); what
      takes a channel away is leaving its team (or the workspace, or a DM's membership), and that
      case drops out.
+     **A channel stays in Recent for as long as `team_chat_can_read` lets the person read it, and
+     no longer**: 713 checks it on every read, and the route's fence checks it again.
 3. **Mail.** Sent mail with live subjects (decision 5).
 
 ## Decisions to review

@@ -16,6 +16,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { migrationsInOrder } from '@/test/migration-sql'
 
 const read = (file: string) => readFileSync(join(process.cwd(), 'supabase/migrations', file), 'utf8')
 const I = read('712_recent_indexes.sql')
@@ -64,5 +65,42 @@ describe('713: my_recent_work answers only the caller’s own work, under their 
     expect(body).toMatch(/^\s*begin;/m)
     expect(body).toMatch(/set local lock_timeout = '5s';/)
     expect(body).toMatch(/commit;\s*notify pgrst, 'reload schema';\s*$/)
+  })
+})
+
+describe('my_recent_work, as the database ends up with it (its newest definition, in any later migration too)', () => {
+  // The newest file that (re)defines it, in either letter case (lib's definitionsIn reads upper case only).
+  const latest = (() => {
+    const head = /create\s+or\s+replace\s+function\s+public\.my_recent_work\s*\(/gi
+    const files = migrationsInOrder()
+    for (let i = files.length - 1; i >= 0; i--) {
+      const sql = files[i].sql.replace(/--[^\n]*/g, '')
+      const blocks: string[] = []
+      for (const m of sql.matchAll(head)) {
+        const open = sql.indexOf('$$', m.index)
+        const close = sql.indexOf('$$', open + 2)
+        const semi = sql.indexOf(';', close + 2)
+        blocks.push(sql.slice(m.index, semi + 1))
+      }
+      if (blocks.length) return { file: files[i].file, blocks }
+    }
+    return { file: '(none)', blocks: [] as string[] }
+  })()
+  it('still takes no user or member argument: "me" is only ever the session’s own', () => {
+    expect(latest.blocks.length).toBeGreaterThan(0)
+    for (const block of latest.blocks) {
+      const args = /function\s+public\.my_recent_work\s*\(([^)]*)\)/i.exec(block)?.[1] ?? ''
+      expect(args.replace(/\s+/g, ' ').trim(), latest.file).toBe('p_workspace uuid, p_since timestamptz, p_limit integer default 50')
+      const names = args.split(',').map((a) => a.trim().split(/\s+/)[0])
+      for (const n of names) expect(n, latest.file).not.toMatch(/user|member|uid|actor|person/i)
+    }
+  })
+
+  it('is still SECURITY INVOKER, never DEFINER', () => {
+    for (const block of latest.blocks) {
+      const sql = block.replace(/--[^\n]*/g, '')
+      expect(sql, latest.file).toMatch(/security invoker/i)
+      expect(sql, latest.file).not.toMatch(/security definer/i)
+    }
   })
 })
