@@ -62,7 +62,7 @@ export function TeamChatNotifyMenu({ kind, level, mutedUntil, onChange, onSnooze
           title={`Notifications: ${summary}`}
           className={
             inHeader
-              ? cn('grid size-7 shrink-0 place-items-center data-[state=open]:bg-foreground/[0.06] data-[state=open]:text-foreground', headerButtonClass)
+              ? cn('grid size-6 shrink-0 place-items-center data-[state=open]:bg-foreground/[0.06] data-[state=open]:text-foreground', headerButtonClass)
               : 'shrink-0 rounded-lg p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground data-[state=open]:bg-accent'
           }
         >

@@ -1290,6 +1290,15 @@
 .ni-studio .with-rail .app-header .hdr-menu-wrap>button{border:0;background:transparent;border-radius:var(--st-r-md);color:var(--st-text-faint)}
 .ni-studio .with-rail .app-header .hdr-menu-wrap>button:hover{background:var(--st-hover);color:var(--st-text)}
 
+/* In a page's card header (StudioHeaderScope): the header is a 32px row and every control in it is 24px and round, as on
+   every other page (Liam, 11-22: "a bit less tall and more slick … clean like apple made it"). */
+[data-card-header] .ni-studio .with-rail .app-header .hdr-right[data-studio-header-actions]{gap:2px}
+[data-card-header] .ni-studio .with-rail .app-header .hdr-right[data-studio-header-actions]>button,[data-card-header] .ni-studio .with-rail .app-header .hdr-right[data-studio-header-actions] .cost-chip,[data-card-header] .ni-studio .with-rail .app-header .hdr-right[data-studio-header-actions] .hdr-menu-wrap>button{height:24px;border-radius:999px;font-size:12px;gap:4px}
+[data-card-header] .ni-studio .with-rail .app-header .hdr-right[data-studio-header-actions]>button:not(.hdr-record):not(.primary),[data-card-header] .ni-studio .with-rail .app-header .hdr-right[data-studio-header-actions] .hdr-menu-wrap>button{width:24px;padding:0}
+[data-card-header] .ni-studio .with-rail .app-header .hdr-right[data-studio-header-actions] :is(.hdr-record,.primary,.cost-chip){padding:0 10px}
+[data-card-header] .ni-studio .with-rail .app-header .hdr-right[data-studio-header-actions] .primary{margin-left:2px}
+[data-card-header] .ni-studio .with-rail .app-header .hdr-right[data-studio-header-actions] :is(button,.cost-chip) svg{width:14px;height:14px}
+
 /* No lines: areas are told apart by their fill, not by outlines (the rail, the panels, the timeline). */
 .ni-studio .with-rail .project-library,.ni-studio .with-rail .workspace>.asset-browser,.ni-studio .with-rail .timeline{border-color:transparent}
 .ni-studio .with-rail .ab-places{border-right-color:transparent;background:var(--st-raised)}

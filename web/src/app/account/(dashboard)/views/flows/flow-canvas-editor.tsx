@@ -610,7 +610,7 @@ export function FlowCanvasEditor({ flowId, initialRunId = null, onClose, onSaved
           }
           actions={
             <>
-              <FlowBotChip editor={editor} options={botOptions} onOpen={() => setSelected({ kind: 'bot' })} />
+              <FlowBotChip inHeader={inCard} editor={editor} options={botOptions} onOpen={() => setSelected({ kind: 'bot' })} />
               {editor.id && (
                 <Button
                   variant="outline"
