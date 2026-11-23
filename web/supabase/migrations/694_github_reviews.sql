@@ -17,14 +17,17 @@
 --                          identifier in a branch or pull request of a repo
 --                          a workspace hasn't added moves nothing there, so
 --                          two workspaces sharing a team prefix (ENG) never
---                          move each other's actions.
+--                          move each other's actions. In a workspace merge a
+--                          repository both added folds into one row.
 --
 --   action_github_branch   a branch that named an action before any pull
 --                          request came from it ("branch created → in
 --                          progress"), with the state the action was in
 --                          before (for "closed without merging → back").
 --                          Read through the action (its team's visibility);
---                          written by the service role only.
+--                          written by the service role only. Dropped when its
+--                          action moves to another workspace (as its PR links
+--                          are, 221).
 --
 --   action_github_pr       + additions, deletions, changed_files (the size the
 --                          action shows), author_github_id, status_before_id,
@@ -121,6 +124,33 @@ drop policy if exists workspace_github_repo_delete on public.workspace_github_re
 create policy workspace_github_repo_delete on public.workspace_github_repo
   for delete using (public.get_member_role(workspace_id) in ('owner', 'admin'));
 
+-- A workspace merge (402; its generic re-stamp, 707) moves the source's rows
+-- to the destination. A repository both had added would meet the unique key
+-- and stop the merge, so during a merge (_wsmerge_active) the destination's
+-- row for the same repository goes and the source's takes its place: the
+-- same repository, one row. Nothing else changes a row's workspace.
+create or replace function public.workspace_github_repo_merge_fold()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if new.workspace_id is distinct from old.workspace_id and public._wsmerge_active() then
+    delete from public.workspace_github_repo
+     where workspace_id = new.workspace_id and repo_full_name = new.repo_full_name and id <> old.id;
+  end if;
+  return new;
+end;
+$$;
+
+revoke all on function public.workspace_github_repo_merge_fold() from public, anon, authenticated;
+
+drop trigger if exists workspace_github_repo_merge_fold on public.workspace_github_repo;
+create trigger workspace_github_repo_merge_fold
+  before update of workspace_id on public.workspace_github_repo
+  for each row execute function public.workspace_github_repo_merge_fold();
+
 -- No update: a repo is added or removed, never renamed in place.
 revoke update on table public.workspace_github_repo from authenticated, anon;
 grant select, insert, delete on table public.workspace_github_repo to authenticated;
@@ -157,6 +187,31 @@ create policy action_github_branch_select on public.action_github_branch
 revoke insert, update, delete on table public.action_github_branch from authenticated, anon;
 grant select on table public.action_github_branch to authenticated;
 grant all on table public.action_github_branch to service_role;
+
+-- An action moved to another workspace (the move engine, 221) leaves its
+-- pull request links behind (it deletes them: workspace-bound joins); its
+-- branches go the same way, so no row names a workspace its action left. A
+-- whole-workspace merge (_wsmerge_active) moves them with it instead.
+create or replace function public.action_github_branch_follow_move()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if new.workspace_id is distinct from old.workspace_id and not public._wsmerge_active() then
+    delete from public.action_github_branch where action_id = new.id and workspace_id <> new.workspace_id;
+  end if;
+  return new;
+end;
+$$;
+
+revoke all on function public.action_github_branch_follow_move() from public, anon, authenticated;
+
+drop trigger if exists action_github_branch_follow_move on public.actions;
+create trigger action_github_branch_follow_move
+  after update of workspace_id on public.actions
+  for each row execute function public.action_github_branch_follow_move();
 
 -- ── action_github_pr: size, and the automation's memory ───────
 

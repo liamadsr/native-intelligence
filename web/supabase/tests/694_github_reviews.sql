@@ -17,7 +17,7 @@
 -- back. Made-up people only (example.com). A failed check raises.
 -- Rehearsed on a local Postgres 16 holding the baseline's definitions of the
 -- tables, functions and policies it touches (no other triggers), with
--- Supabase's roles and auth.uid() stood in: 20 checks passed.
+-- Supabase's roles, auth.uid() and _wsmerge_active() stood in: 24 checks passed.
 
 begin;
 
@@ -91,6 +91,23 @@ insert into results select 'owner flips the team switch', not (select github_aut
 set local role authenticated; select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000c","role":"authenticated"}', true);
 insert into results select 'C sees no ws1 repos or branches', (select count(*) from workspace_github_repo) = 0 and (select count(*) from action_github_branch) = 0;
 reset role; select set_config('request.jwt.claims', '', true);
+
+-- A workspace merge: a repository both added folds into one row; outside a merge a row keeps its workspace.
+insert into workspace_github_repo (workspace_id, repo_full_name) values ('11111111-0000-0000-0000-000000000002', 'acme/app'), ('11111111-0000-0000-0000-000000000002', 'acme/other');
+select set_config('dial8.workspace_merge', 'rehearsal', true);
+update workspace_github_repo set workspace_id = '11111111-0000-0000-0000-000000000001' where workspace_id = '11111111-0000-0000-0000-000000000002';
+select set_config('dial8.workspace_merge', '', true);
+insert into results select 'a merge folds a repository both added', (select count(*) from workspace_github_repo where workspace_id = '11111111-0000-0000-0000-000000000001' and repo_full_name = 'acme/app') = 1 and (select count(*) from workspace_github_repo where workspace_id = '11111111-0000-0000-0000-000000000002') = 0;
+insert into workspace_github_repo (workspace_id, repo_full_name) values ('11111111-0000-0000-0000-000000000002', 'acme/app');
+do $$ begin update workspace_github_repo set workspace_id = '11111111-0000-0000-0000-000000000001' where workspace_id = '11111111-0000-0000-0000-000000000002'; insert into results values ('outside a merge, no fold', false); exception when unique_violation then insert into results values ('outside a merge, no fold', true); end $$;
+
+-- An action moved to another workspace drops its branches; a merge keeps them.
+update actions set workspace_id = '11111111-0000-0000-0000-000000000002' where id = '55555555-0000-0000-0000-000000000001';
+insert into results select 'a moved action drops its branches', not exists (select 1 from action_github_branch where action_id = '55555555-0000-0000-0000-000000000001');
+select set_config('dial8.workspace_merge', 'rehearsal', true);
+update actions set workspace_id = '11111111-0000-0000-0000-000000000002' where id = '55555555-0000-0000-0000-000000000002';
+select set_config('dial8.workspace_merge', '', true);
+insert into results select 'a merge keeps them (it moves them itself)', exists (select 1 from action_github_branch where action_id = '55555555-0000-0000-0000-000000000002');
 
 -- Disconnecting: identity stays while one GitHub connection is left, goes with the last.
 delete from connected_account where id = '66666666-0000-0000-0000-000000000001';

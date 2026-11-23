@@ -188,12 +188,18 @@ team PATCH; ⇧⌘B in task lists and the action panel; size and state on the pa
   675 style (`current_user` authenticated/anon) clears those on a client insert and refuses
   a client update of them, or of the link's action or workspace (the existing member
   policies stay for linking, renaming and unlinking).
+- A workspace merge (402's generic re-stamp, newest in 707) moves every `workspace_id`
+  row: a repository both workspaces added folds into one row (a trigger, only while
+  `_wsmerge_active()`), where it would otherwise stop the merge on the unique key. An
+  action moved to another workspace on its own (the move engine, 221) drops its branch
+  rows, as the engine already drops its pull request links. Neither restates anyone
+  else's function.
 - `team.github_automation boolean not null default true`. The team's update policy is
   already owners, admins and the team's leads, the same people who change its other
   settings, so it needs no guard of its own (checked in the rehearsal).
 - Rehearsed on a local Postgres 16 (the baseline's definitions of the tables, functions
   and policies it touches, Supabase's roles and `auth.uid()` stood in), applied twice
-  cleanly; `supabase/tests/694_github_reviews.sql` runs 20 checks as three people in two
+  cleanly; `supabase/tests/694_github_reviews.sql` runs 24 checks as three people in two
   workspaces with a private team: all passed.
 
 ## Phase 3: GitHub notices in the inbox (migration 695)
