@@ -51,9 +51,11 @@
  * (`variant="header"`, show-tool-card.tsx: the controls' pill up on the sky;
  * Liam, 11-23: "that button also shows in the header so it's not a different
  * thing … updated to look nice in the header but it should keep its look and
- * fx"): the same metal pill and rainbow ring at the header's 32px (the rail
- * header's buttons' height, 4px in from the pill's round end, concentric with
- * it), and Next and the mic as the header's 24px round buttons.
+ * fx"): the same metal pill and rainbow ring at the header's 24px, its label
+ * and icon the size of the header's pill buttons' (card-header-button.ts
+ * CARD_HEADER_PILL_BUTTON; Liam, 11-23: at 32px it was "way too big compared
+ * to everything else on that header"), and Next and the mic as the header's
+ * 24px round buttons.
  *
  * Rendered only where read-aloud can play (the section player's `supported`:
  * the desktop app, local-tts Ready, no capture or dictation), so a browser
@@ -111,7 +113,7 @@ const NoMetal = () => null
 
 const ListenMetal = lazy(() => import('./listen-metal').catch(() => ({ default: NoMetal })))
 
-/** Where it stands: the top bar (36px, beside its pills) or a full-screen page's header (32px, among its 24px controls). */
+/** Where it stands: the top bar (36px, beside its pills) or a full-screen page's header (24px, as its controls are). */
 export type ListenModeToggleVariant = 'bar' | 'header'
 
 export function ListenModeToggle({ className, variant = 'bar' }: { className?: string; variant?: ListenModeToggleVariant }) {
@@ -132,10 +134,9 @@ export function ListenModeToggle({ className, variant = 'bar' }: { className?: s
     // so the pill is the toggle's alone. The button stays the same element as
     // listen mode turns on and off, and as the Next button comes and goes
     // before it, so it keeps focus.
-    // In a header: a round button first (Next, the mic) sits 8px in from the pill's end, as the header's 24px ones do; the toggle 4px in.
     <span
       {...(header ? { 'data-listen-header': '' } : {})}
-      className={cn('relative inline-flex shrink-0 items-center', header ? 'mr-1 gap-0.5 [&>button:first-child]:ml-1' : 'gap-1.5', className)}
+      className={cn('relative inline-flex shrink-0 items-center', header ? 'mr-1 gap-0.5' : 'gap-1.5', className)}
     >
       {/* Before the toggle, not after: the top bar's cluster is right-aligned,
           so the toggle the user just pressed stays under the pointer as Next
@@ -160,7 +161,7 @@ export function ListenModeToggle({ className, variant = 'bar' }: { className?: s
                 // No fill of its own, on or off: the metal's surface is its face.
                 className={cn(
                   'relative inline-flex shrink-0 items-center gap-1.5 rounded-full text-xs font-medium text-foreground transition-colors hover:text-foreground/80',
-                  header ? 'h-8 px-3' : 'h-9 px-3.5',
+                  header ? 'h-6 gap-1 px-2.5' : 'h-9 px-3.5',
                 )}
               >
                 {/* On: the colourful border (LISTEN_ON_RING), under the label.
@@ -177,7 +178,11 @@ export function ListenModeToggle({ className, variant = 'bar' }: { className?: s
                   <span className="absolute -inset-0.5 rounded-full opacity-60 blur-[3px]" style={GLOW_STYLE} />
                   <span className="absolute inset-0 rounded-full" style={RING_STYLE} />
                 </span>
-                {on ? <Pause className="relative h-3.5 w-3.5 fill-current" /> : <Play className="relative h-3.5 w-3.5 fill-current" />}
+                {on ? (
+                  <Pause className={cn('relative fill-current', header ? 'size-2.5' : 'h-3.5 w-3.5')} />
+                ) : (
+                  <Play className={cn('relative fill-current', header ? 'size-2.5' : 'h-3.5 w-3.5')} />
+                )}
                 <span className="relative">Interactive</span>
               </button>
             </TooltipTrigger>

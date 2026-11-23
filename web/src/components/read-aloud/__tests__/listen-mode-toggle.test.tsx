@@ -495,7 +495,7 @@ describe('ListenModeToggle', () => {
     expect(toggle()).toBe(button)
   })
 
-  it('in a full-screen page\'s header (variant "header"): the same metal pill and rainbow ring at the header\'s 32px; Next and the mic as its 24px round buttons, the first 4px further in', async () => {
+  it('in a full-screen page\'s header (variant "header"): the same metal pill and rainbow ring at the header\'s 24px (at 32px it was "way too big"); Next and the mic as its 24px round buttons', async () => {
     desktop.app = true
     desktop.voice = { ...desktop.voice, interactive: true }
     setSectionPlayerSupported(true)
@@ -504,9 +504,9 @@ describe('ListenModeToggle', () => {
     await until(() => metal() !== null)
     const outer = container.firstElementChild as HTMLElement
     expect(outer.hasAttribute('data-listen-header')).toBe(true)
-    expect(outer.className).toContain('[&>button:first-child]:ml-1')
-    // The toggle: the header's 32px, its metal and its ring as in the bar.
-    expect(toggle()!.classList.contains('h-8')).toBe(true)
+    // The toggle: the header's 24px, its metal and its ring as in the bar.
+    expect(toggle()!.classList.contains('h-6')).toBe(true)
+    expect(toggle()!.querySelector('svg')?.classList.contains('size-2.5')).toBe(true)
     expect(toggle()!.classList.contains('h-9')).toBe(false)
     expect(ring()).not.toBeNull()
     await act(async () => toggle()!.click())

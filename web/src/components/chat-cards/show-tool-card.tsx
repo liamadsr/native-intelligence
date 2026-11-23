@@ -941,9 +941,9 @@ export function ShowToolCard({
           </div>
           {/* Hidden while it holds no control (a card from the chat with no page controls: its Minimize is under it).
               Interactive (listen mode, the desktop app) leads it, the same toggle as the top bar's at the header's
-              32px, 4px in from the round end (Liam, 11-23: "that button also shows in the header so it's not a
+              24px, as its other controls (Liam, 11-23: "that button also shows in the header so it's not a
               different thing"); first, so the page's controls and Minimize never move as it comes and goes. */}
-          <div data-card-header-pill="controls" className={cn(SKY_PILL, 'ml-auto shrink-0 gap-0.5 px-2 has-[>[data-listen-header]]:pl-1 [&:not(:has(button))]:hidden')}>
+          <div data-card-header-pill="controls" className={cn(SKY_PILL, 'ml-auto shrink-0 gap-0.5 px-2 [&:not(:has(button))]:hidden')}>
             <ListenModeToggle variant="header" />
             {controls}
           </div>
