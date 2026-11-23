@@ -309,6 +309,8 @@ describe('a private spreadsheet shared with the person (migration 688)', () => {
 
   it('a view grant reads and calculates it, and never edits it', async () => {
     tables.entity_access = [grant('view')]
+    // The seeded workbook itself: a fresh blankWorkbook() stamps the time to the second, so it can differ.
+    const before = rows[1].workbook
     const t = toolsWith(true, false)
     expect((await run(t, 'read_spreadsheet', { id: SECRET })).success).toBe(true)
     expect((await run(t, 'calculate_spreadsheet', { id: SECRET, formulas: ['=1+1'] })).success).toBe(true)
@@ -323,19 +325,20 @@ describe('a private spreadsheet shared with the person (migration 688)', () => {
     const resolved = await run(t, 'resolve_spreadsheet_comment', { id: SECRET, thread_id: '66666666-6666-4666-8666-666666666666' })
     expect(String(resolved.error)).toContain('not comment on it')
     expect(tables.spreadsheet_comment).toEqual([])
-    expect(rows[1].workbook).toBe(blankWorkbook())
+    expect(rows[1].workbook).toBe(before)
     expect(rows[1].edit_source).toBeUndefined()
   })
 
   it('an edit grant edits it, but only on a turn that may use one', async () => {
     tables.entity_access = [grant('edit')]
+    const before = rows[1].workbook
     const held = await run(toolsWith(false, false), 'edit_spreadsheet', edit)
     expect(held.success).toBe(false)
     expect(String(held.error)).toContain('not change it')
     expect(rows[1].edit_source).toBeUndefined()
     const res = await run(toolsWith(true, false), 'edit_spreadsheet', edit)
     expect(res.success, JSON.stringify(res)).toBe(true)
-    expect(rows[1].workbook).not.toBe(blankWorkbook())
+    expect(rows[1].workbook).not.toBe(before)
     expect(rows[1].edit_source).toBe('agent')
     expect(rows[1].last_edited_by).toBe(M1)
   })
