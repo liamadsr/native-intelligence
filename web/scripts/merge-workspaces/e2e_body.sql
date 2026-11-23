@@ -193,6 +193,96 @@ BEGIN
   INSERT INTO pg_temp.e2e VALUES ('cap_stale', cap_stale), ('run_pr', run_pr), ('run_wait', run_wait), ('job_review', job_review);
 END $$;
 
+-- ---------- 707: what has been added since 528 ----------
+-- Company stages (679: both workspaces have the defaults), a person's
+-- company and email consent, team chat (a direct message between the same two
+-- people in both, a direct message with someone only in the source, a channel
+-- named like one in the destination), their reactions, threads and calls'
+-- rows, shares, spreadsheets, canvases, the drive, vocabulary, a day's
+-- auto-archive, a private thread, booking pages, a grant to the folding team.
+DO $$
+DECLARE
+  s uuid := (SELECT v FROM pg_temp.e2e WHERE k = 's'); d uuid := (SELECT v FROM pg_temp.e2e WHERE k = 'd');
+  u1 uuid := (SELECT v FROM pg_temp.e2e WHERE k = 'u1'); u2 uuid := (SELECT v FROM pg_temp.e2e WHERE k = 'u2');
+  m1s uuid := (SELECT v FROM pg_temp.e2e WHERE k = 'm1s'); m1d uuid := (SELECT v FROM pg_temp.e2e WHERE k = 'm1d');
+  m2s uuid := (SELECT v FROM pg_temp.e2e WHERE k = 'm2s'); m2d uuid := (SELECT v FROM pg_temp.e2e WHERE k = 'm2d');
+  m3s uuid := (SELECT v FROM pg_temp.e2e WHERE k = 'm3s');
+  co_acme_s uuid := (SELECT v FROM pg_temp.e2e WHERE k = 'co_acme_s'); co_acme_d uuid := (SELECT v FROM pg_temp.e2e WHERE k = 'co_acme_d');
+  t1s uuid := (SELECT v FROM pg_temp.e2e WHERE k = 't1s'); t1d uuid := (SELECT v FROM pg_temp.e2e WHERE k = 't1d');
+  s_mkt uuid := (SELECT v FROM pg_temp.e2e WHERE k = 's_mkt');
+  st_lead_s uuid; st_demo_s uuid; st_pilot_s uuid; st_lead_d uuid; st_demo_d uuid;
+  co_only uuid; co_pilot uuid; view_st uuid;
+  dm_s uuid; dm_d uuid; dm3_s uuid; ch_s uuid; ch_d uuid; ch_mkt uuid; msg_s uuid; msg_d uuid;
+  sheet uuid; cnv uuid; fold uuid; conv uuid; doc uuid;
+  bp_s uuid; bp_d uuid; bl_s uuid;
+BEGIN
+  -- stages: the seeded defaults on both, and one the source added
+  SELECT id INTO st_lead_s FROM public.company_stage WHERE workspace_id = s AND name = 'Lead';
+  SELECT id INTO st_demo_s FROM public.company_stage WHERE workspace_id = s AND name = 'Demo';
+  SELECT id INTO st_lead_d FROM public.company_stage WHERE workspace_id = d AND name = 'Lead';
+  SELECT id INTO st_demo_d FROM public.company_stage WHERE workspace_id = d AND name = 'Demo';
+  IF st_lead_s IS NULL OR st_lead_d IS NULL THEN RAISE EXCEPTION 'E2E SETUP: the default company stages were not seeded'; END IF;
+  INSERT INTO public.company_stage (workspace_id, name, position) VALUES (s, 'Pilot', 9) RETURNING id INTO st_pilot_s;
+  -- Acme folds into ACME Inc (no stage, no owner): it takes the source's
+  UPDATE public.company SET stage_id = st_lead_s, owner_member_id = m3s WHERE id = co_acme_s;
+  INSERT INTO public.company (workspace_id, name, domain, stage_id, owner_member_id) VALUES (s, 'Only Co', 'only-co-e2e.com', st_demo_s, m2s) RETURNING id INTO co_only;
+  INSERT INTO public.company (workspace_id, name, domain, stage_id) VALUES (s, 'Pilot Co', 'pilot-co-e2e.com', st_pilot_s) RETURNING id INTO co_pilot;
+  INSERT INTO public.view (workspace_id, created_by, name, entity_type, slug, filters)
+  VALUES (s, u1, 'Demos', 'company', 'demos-e2e', jsonb_build_object('stage_id', jsonb_build_array(st_demo_s))) RETURNING id INTO view_st;
+  INSERT INTO public.comment (body, commentable_type, commentable_id, author_id) VALUES ('on acme', 'company', co_acme_s, m2s);
+  INSERT INTO public.company_email_consent (workspace_id, company_id, user_id) VALUES (s, co_acme_s, u1), (d, co_acme_d, u1);
+  UPDATE public.company SET share_email_changed_by_member_id = m2s WHERE id = co_only;
+  INSERT INTO pg_temp.e2e VALUES ('st_lead_s', st_lead_s), ('st_demo_s', st_demo_s), ('st_pilot_s', st_pilot_s), ('st_lead_d', st_lead_d), ('st_demo_d', st_demo_d),
+    ('co_only', co_only), ('co_pilot', co_pilot), ('view_st', view_st);
+
+  -- team chat
+  INSERT INTO public.team_chat_channel (workspace_id, kind, dm_key, created_by)
+  VALUES (s, 'dm', CASE WHEN m1s::text < m2s::text THEN m1s::text || ':' || m2s::text ELSE m2s::text || ':' || m1s::text END, m1s) RETURNING id INTO dm_s;
+  INSERT INTO public.team_chat_channel (workspace_id, kind, dm_key, created_by)
+  VALUES (d, 'dm', CASE WHEN m1d::text < m2d::text THEN m1d::text || ':' || m2d::text ELSE m2d::text || ':' || m1d::text END, m1d) RETURNING id INTO dm_d;
+  INSERT INTO public.team_chat_channel (workspace_id, kind, dm_key, created_by)
+  VALUES (s, 'dm', CASE WHEN m1s::text < m3s::text THEN m1s::text || ':' || m3s::text ELSE m3s::text || ':' || m1s::text END, m3s) RETURNING id INTO dm3_s;
+  INSERT INTO public.team_chat_channel (workspace_id, kind, name, created_by) VALUES (s, 'channel', 'General', m2s) RETURNING id INTO ch_s;
+  INSERT INTO public.team_chat_channel (workspace_id, kind, name, created_by) VALUES (d, 'channel', 'general', m1d) RETURNING id INTO ch_d;
+  INSERT INTO public.team_chat_channel (workspace_id, team_id, kind, name, created_by) VALUES (s, s_mkt, 'channel', 'Campaigns', m2s) RETURNING id INTO ch_mkt;
+  INSERT INTO public.team_chat_member (channel_id, member_id, workspace_id, last_read_at) VALUES
+    (dm_s, m1s, s, now()), (dm_s, m2s, s, now() - interval '1 hour'), (dm_d, m1d, d, now() - interval '2 hours'), (dm_d, m2d, d, now() - interval '1 day'),
+    (dm3_s, m1s, s, now()), (dm3_s, m3s, s, now()), (ch_s, m2s, s, now()), (ch_d, m2d, d, now());
+  INSERT INTO public.team_chat_message (channel_id, workspace_id, author_kind, author_member_id, body) VALUES (dm_s, s, 'member', m2s, 'hi from s') RETURNING id INTO msg_s;
+  INSERT INTO public.team_chat_message (channel_id, workspace_id, author_kind, author_member_id, body) VALUES (dm_d, d, 'member', m2d, 'hi from d') RETURNING id INTO msg_d;
+  INSERT INTO public.team_chat_message (channel_id, workspace_id, author_kind, author_member_id, body) VALUES (ch_s, s, 'member', m2s, 'in general');
+  INSERT INTO public.team_chat_reaction (message_id, member_id, emoji, channel_id, workspace_id) VALUES (msg_s, m2s, ':+1:', dm_s, s), (msg_s, m1s, ':+1:', dm_s, s);
+  INSERT INTO public.team_chat_thread_member (root_id, member_id, channel_id, workspace_id, last_read_at) VALUES (msg_s, m2s, dm_s, s, now());
+  INSERT INTO pg_temp.e2e VALUES ('dm_s', dm_s), ('dm_d', dm_d), ('dm3_s', dm3_s), ('ch_s', ch_s), ('ch_d', ch_d), ('ch_mkt', ch_mkt), ('msg_s', msg_s), ('msg_d', msg_d);
+
+  -- what a member made or was given
+  INSERT INTO public.spreadsheet (workspace_id, created_by, last_edited_by) VALUES (s, m2s, m2s) RETURNING id INTO sheet;
+  INSERT INTO public.canvas (workspace_id, owner_member_id) VALUES (s, m2s) RETURNING id INTO cnv;
+  INSERT INTO public.drive_folder (workspace_id, name, created_by) VALUES (s, 'Shared e2e', m2s) RETURNING id INTO fold;
+  SELECT id INTO conv FROM public.chat_conversations WHERE workspace_id = s ORDER BY created_at LIMIT 1;
+  INSERT INTO public.conversation_share (workspace_id, conversation_id, shared_by, grantee_member_id) VALUES (s, conv, u1, m2s);
+  INSERT INTO public.email_thread_share (workspace_id, owner_user_id, provider, provider_thread_id, message_ids, grantee_member_id, thread_index_id)
+  VALUES (s, u1, 'google', 'T1-e2e', '{m-e2e-1}', m2s, t1s), (d, u1, 'google', 'T1-e2e', '{m-e2e-1}', m2d, t1d);
+  INSERT INTO pg_temp.e2e VALUES ('sheet', sheet), ('cnv', cnv), ('fold', fold), ('conv', conv);
+
+  -- one per person: a word, a day's auto-archive, a private thread, a booking profile with a taken slug
+  INSERT INTO public.vocabulary_term (workspace_id, user_id, term) VALUES (s, u1, 'Coherix'), (d, u1, 'coherix '), (s, u1, 'Only source word');
+  INSERT INTO public.email_auto_archive (workspace_id, user_id, local_date, cutoff_at, thread_ids) VALUES
+    (s, u1, current_date, now(), ARRAY['th-s']), (d, u1, current_date, now(), ARRAY['th-d']);
+  INSERT INTO public.email_thread_team_private (workspace_id, owner_user_id, provider_thread_id, thread_index_id) VALUES (s, u1, 'T1-e2e', t1s), (d, u1, 'T1-e2e', t1d);
+  INSERT INTO public.booking_profile (workspace_id, user_id, handle) VALUES (s, u1, 'u1-s-' || left(s::text, 8)) RETURNING id INTO bp_s;
+  INSERT INTO public.booking_profile (workspace_id, user_id, handle) VALUES (d, u1, 'u1-d-' || left(d::text, 8)) RETURNING id INTO bp_d;
+  INSERT INTO public.booking_link (workspace_id, owner_user_id, profile_id, slug, title) VALUES (s, u1, bp_s, 'intro', 'Intro (s)') RETURNING id INTO bl_s;
+  INSERT INTO public.booking_link (workspace_id, owner_user_id, profile_id, slug, title) VALUES (d, u1, bp_d, 'intro', 'Intro (d)');
+  INSERT INTO pg_temp.e2e VALUES ('bp_s', bp_s), ('bp_d', bp_d), ('bl_s', bl_s);
+
+  -- a grant to the Marketing team, which folds
+  SELECT id INTO doc FROM public.document WHERE workspace_id = s ORDER BY created_at LIMIT 1;
+  INSERT INTO public.entity_access (workspace_id, entity_type, entity_id, grantee_kind, grantee_team_id, level)
+  VALUES (s, 'document', doc, 'team', s_mkt, 'view');
+  INSERT INTO pg_temp.e2e VALUES ('doc_grant', doc);
+END $$;
+
 -- ---------- refusals ----------
 DO $$
 DECLARE s uuid := (SELECT v FROM pg_temp.e2e WHERE k = 's'); d uuid := (SELECT v FROM pg_temp.e2e WHERE k = 'd');
@@ -228,6 +318,11 @@ BEGIN
   EXCEPTION WHEN OTHERS THEN out := out || jsonb_build_object('guard', SQLSTATE || ' ' || SQLERRM); END;
   BEGIN PERFORM public._wsmerge_assert_no_refs('label', ARRAY[(SELECT v FROM pg_temp.e2e WHERE k = 'l_bug_s')], ARRAY['action_label', 'email_thread_label']); out := out || '{"guard_except":"ok"}';
   EXCEPTION WHEN OTHERS THEN out := out || jsonb_build_object('guard_except', SQLSTATE || ' ' || SQLERRM); END;
+  -- 707: what the merge cannot settle on its own (a business phone number on both sides) refuses, naming it
+  INSERT INTO public.business_phone_number (workspace_id, owner_user_id, phone_e164) VALUES (s, u1, '+15550100701'), (d, u1, '+15550100702');
+  BEGIN PERFORM public.merge_workspace(s, d, u1); out := out || '{"front_door":"NO ERROR"}';
+  EXCEPTION WHEN OTHERS THEN out := out || jsonb_build_object('front_door', SQLSTATE || ' ' || SQLERRM); END;
+  DELETE FROM public.business_phone_number WHERE workspace_id IN (s, d);
   INSERT INTO pg_temp.e2e_out VALUES ('refusals', out);
 END $$;
 
@@ -245,8 +340,14 @@ BEGIN
     teams := teams || t;
   END LOOP;
   plan := jsonb_build_object('teams', teams, 'snapshot', jsonb_build_object('bucket', 'workspace-merges', 'pages', 3));
-  res := public.merge_workspace(s, d, u1, plan);
-  INSERT INTO pg_temp.e2e_out VALUES ('merge', res);
+  -- A merge that errors is the verdict (707), not an aborted script: its
+  -- step and message come back as E2E FAILED.
+  BEGIN
+    res := public.merge_workspace(s, d, u1, plan);
+    INSERT INTO pg_temp.e2e_out VALUES ('merge', res);
+  EXCEPTION WHEN OTHERS THEN
+    INSERT INTO pg_temp.e2e_out VALUES ('merge_error', jsonb_build_object('sqlstate', SQLSTATE, 'message', SQLERRM));
+  END;
 END $$;
 
 -- ---------- assertions ----------
@@ -259,6 +360,10 @@ DECLARE
   pre jsonb := (SELECT j FROM pg_temp.e2e_out WHERE k = 'preflight');
   refusals jsonb := (SELECT j FROM pg_temp.e2e_out WHERE k = 'refusals');
 BEGIN
+  IF EXISTS (SELECT 1 FROM pg_temp.e2e_out WHERE k = 'merge_error') THEN
+    RAISE EXCEPTION USING MESSAGE = 'E2E FAILED: the merge raised ' || (SELECT j->>'sqlstate' || ' ' || (j->>'message') FROM pg_temp.e2e_out WHERE k = 'merge_error');
+  END IF;
+
   -- refusals
   IF refusals->>'not_owner' <> '42501' THEN fails := fails || ' not_owner=' || (refusals->>'not_owner'); END IF;
   IF refusals->>'stranger' <> 'P0002' THEN fails := fails || ' stranger=' || (refusals->>'stranger'); END IF;
@@ -411,6 +516,83 @@ BEGIN
   SELECT workspace_id, status INTO id1, txt FROM public.agent_run WHERE id = (SELECT v FROM pg_temp.e2e WHERE k = 'run_wait'); IF id1 <> d OR txt <> 'needs_input' THEN fails := fails || ' needs_input_run=' || COALESCE(txt, 'missing'); END IF;
   SELECT workspace_id, status, member_id INTO id1, txt, id2 FROM public.tracked_job WHERE id = (SELECT v FROM pg_temp.e2e WHERE k = 'job_review');
   IF id1 <> d OR txt <> 'needs_review' OR id2 <> (SELECT v FROM pg_temp.e2e WHERE k = 'm1d') THEN fails := fails || ' review_job=' || COALESCE(txt, 'missing'); END IF;
+
+  -- 707: company stages fold by name; the source's own one follows the destination's
+  SELECT count(*) INTO n FROM public.company_stage WHERE workspace_id = d;
+  IF n <> 5 OR n <> (SELECT count(DISTINCT lower(btrim(name))) FROM public.company_stage WHERE workspace_id = d) THEN fails := fails || ' company_stages=' || n; END IF;
+  SELECT count(*) INTO n FROM public.company_stage WHERE id IN ((SELECT v FROM pg_temp.e2e WHERE k = 'st_lead_s'), (SELECT v FROM pg_temp.e2e WHERE k = 'st_demo_s'));
+  IF n <> 0 THEN fails := fails || ' source_default_stages_left=' || n; END IF;
+  SELECT workspace_id, position INTO id1, n FROM public.company_stage WHERE id = (SELECT v FROM pg_temp.e2e WHERE k = 'st_pilot_s');
+  IF id1 IS DISTINCT FROM d OR n <= (SELECT max(position) FROM public.company_stage WHERE workspace_id = d AND id <> (SELECT v FROM pg_temp.e2e WHERE k = 'st_pilot_s')) THEN
+    fails := fails || ' pilot_stage=' || COALESCE(n::text, 'missing'); END IF;
+  SELECT stage_id, owner_member_id INTO id1, id2 FROM public.company WHERE id = (SELECT v FROM pg_temp.e2e WHERE k = 'co_only');
+  IF id1 IS DISTINCT FROM (SELECT v FROM pg_temp.e2e WHERE k = 'st_demo_d') THEN fails := fails || ' only_co_stage'; END IF;
+  IF id2 IS DISTINCT FROM (SELECT v FROM pg_temp.e2e WHERE k = 'm2d') THEN fails := fails || ' only_co_owner'; END IF;
+  SELECT stage_id INTO id1 FROM public.company WHERE id = (SELECT v FROM pg_temp.e2e WHERE k = 'co_pilot');
+  IF id1 IS DISTINCT FROM (SELECT v FROM pg_temp.e2e WHERE k = 'st_pilot_s') THEN fails := fails || ' pilot_co_stage'; END IF;
+  SELECT stage_id, owner_member_id INTO id1, id2 FROM public.company WHERE id = (SELECT v FROM pg_temp.e2e WHERE k = 'co_acme_d');
+  IF id1 IS DISTINCT FROM (SELECT v FROM pg_temp.e2e WHERE k = 'st_lead_d') THEN fails := fails || ' acme_folded_stage'; END IF;
+  IF id2 IS DISTINCT FROM (SELECT v FROM pg_temp.e2e WHERE k = 'm3s') THEN fails := fails || ' acme_folded_owner'; END IF;
+  SELECT filters::text INTO txt FROM public.view WHERE id = (SELECT v FROM pg_temp.e2e WHERE k = 'view_st');
+  IF txt IS NULL OR position((SELECT v FROM pg_temp.e2e WHERE k = 'st_demo_d')::text IN txt) = 0 THEN fails := fails || ' stage_view_filter'; END IF;
+  SELECT count(*) INTO n FROM public.comment WHERE commentable_type::text = 'company' AND commentable_id = (SELECT v FROM pg_temp.e2e WHERE k = 'co_acme_d');
+  IF n <> 1 THEN fails := fails || ' company_comment=' || n; END IF;
+  SELECT count(*) INTO n FROM public.company_email_consent WHERE company_id = (SELECT v FROM pg_temp.e2e WHERE k = 'co_acme_d') AND user_id = u1 AND revoked_at IS NULL;
+  IF n <> 1 THEN fails := fails || ' email_consent=' || n; END IF;
+
+  -- 707: team chat
+  SELECT count(*) INTO n FROM public.team_chat_channel WHERE id = (SELECT v FROM pg_temp.e2e WHERE k = 'dm_s');
+  IF n <> 0 THEN fails := fails || ' dm_not_folded'; END IF;
+  SELECT channel_id INTO id1 FROM public.team_chat_message WHERE id = (SELECT v FROM pg_temp.e2e WHERE k = 'msg_s');
+  IF id1 IS DISTINCT FROM (SELECT v FROM pg_temp.e2e WHERE k = 'dm_d') THEN fails := fails || ' dm_message'; END IF;
+  SELECT count(*) INTO n FROM public.team_chat_member WHERE channel_id = (SELECT v FROM pg_temp.e2e WHERE k = 'dm_d');
+  IF n <> 2 THEN fails := fails || ' dm_members=' || n; END IF;
+  SELECT count(*) INTO n FROM public.team_chat_member WHERE channel_id = (SELECT v FROM pg_temp.e2e WHERE k = 'dm_d')
+    AND member_id = (SELECT v FROM pg_temp.e2e WHERE k = 'm2d') AND last_read_at > now() - interval '90 minutes';
+  IF n <> 1 THEN fails := fails || ' dm_read_mark'; END IF;
+  SELECT count(*) INTO n FROM public.team_chat_reaction WHERE message_id = (SELECT v FROM pg_temp.e2e WHERE k = 'msg_s')
+    AND member_id IN ((SELECT v FROM pg_temp.e2e WHERE k = 'm1d'), (SELECT v FROM pg_temp.e2e WHERE k = 'm2d'));
+  IF n <> 2 THEN fails := fails || ' dm_reactions=' || n; END IF;
+  SELECT member_id, channel_id INTO id1, id2 FROM public.team_chat_thread_member WHERE root_id = (SELECT v FROM pg_temp.e2e WHERE k = 'msg_s');
+  IF id1 IS DISTINCT FROM (SELECT v FROM pg_temp.e2e WHERE k = 'm2d') OR id2 IS DISTINCT FROM (SELECT v FROM pg_temp.e2e WHERE k = 'dm_d') THEN fails := fails || ' dm_thread_member'; END IF;
+  SELECT dm_key, workspace_id INTO txt, id1 FROM public.team_chat_channel WHERE id = (SELECT v FROM pg_temp.e2e WHERE k = 'dm3_s');
+  IF id1 IS DISTINCT FROM d OR txt IS DISTINCT FROM (SELECT CASE WHEN a::text < b::text THEN a::text || ':' || b::text ELSE b::text || ':' || a::text END
+                                   FROM (SELECT (SELECT v FROM pg_temp.e2e WHERE k = 'm1d') a, (SELECT v FROM pg_temp.e2e WHERE k = 'm3s') b) x) THEN
+    fails := fails || ' dm_rekey=' || COALESCE(txt, 'missing'); END IF;
+  SELECT name, workspace_id INTO txt, id1 FROM public.team_chat_channel WHERE id = (SELECT v FROM pg_temp.e2e WHERE k = 'ch_s');
+  IF id1 IS DISTINCT FROM d OR txt IS DISTINCT FROM 'General (Coherix E2E)' THEN fails := fails || ' channel_name=' || COALESCE(txt, 'missing'); END IF;
+
+  SELECT team_id INTO id1 FROM public.team_chat_channel WHERE id = (SELECT v FROM pg_temp.e2e WHERE k = 'ch_mkt');
+  IF id1 IS DISTINCT FROM (SELECT v FROM pg_temp.e2e WHERE k = 'd_mkt') THEN fails := fails || ' team_channel'; END IF;
+
+  -- 707: what a folded member made or was given names the destination member
+  SELECT count(*) INTO n FROM public.spreadsheet WHERE id = (SELECT v FROM pg_temp.e2e WHERE k = 'sheet') AND created_by = (SELECT v FROM pg_temp.e2e WHERE k = 'm2d') AND last_edited_by = created_by;
+  IF n <> 1 THEN fails := fails || ' spreadsheet_member'; END IF;
+  SELECT count(*) INTO n FROM public.canvas WHERE id = (SELECT v FROM pg_temp.e2e WHERE k = 'cnv') AND owner_member_id = (SELECT v FROM pg_temp.e2e WHERE k = 'm2d');
+  IF n <> 1 THEN fails := fails || ' canvas_owner'; END IF;
+  SELECT count(*) INTO n FROM public.drive_folder WHERE id = (SELECT v FROM pg_temp.e2e WHERE k = 'fold') AND created_by = (SELECT v FROM pg_temp.e2e WHERE k = 'm2d');
+  IF n <> 1 THEN fails := fails || ' drive_folder_member'; END IF;
+  SELECT count(*) INTO n FROM public.conversation_share WHERE conversation_id = (SELECT v FROM pg_temp.e2e WHERE k = 'conv') AND grantee_member_id = (SELECT v FROM pg_temp.e2e WHERE k = 'm2d');
+  IF n <> 1 THEN fails := fails || ' conversation_share'; END IF;
+  SELECT count(*) INTO n FROM public.email_thread_share WHERE owner_user_id = u1 AND provider_thread_id = 'T1-e2e' AND revoked_at IS NULL
+    AND grantee_member_id = (SELECT v FROM pg_temp.e2e WHERE k = 'm2d') AND thread_index_id = (SELECT v FROM pg_temp.e2e WHERE k = 't1d');
+  IF n <> 1 THEN fails := fails || ' thread_share=' || n; END IF;
+
+  -- 707: one per person
+  SELECT count(*) INTO n FROM public.vocabulary_term WHERE workspace_id = d AND user_id = u1;
+  IF n <> 2 THEN fails := fails || ' vocabulary=' || n; END IF;
+  SELECT count(*) INTO n FROM public.email_auto_archive WHERE workspace_id = d AND user_id = u1 AND local_date = current_date;
+  SELECT thread_ids @> ARRAY['th-s', 'th-d'] INTO ok FROM public.email_auto_archive WHERE workspace_id = d AND user_id = u1 AND local_date = current_date LIMIT 1;
+  IF n <> 1 OR NOT COALESCE(ok, false) THEN fails := fails || ' auto_archive=' || n; END IF;
+  SELECT count(*) INTO n FROM public.email_thread_team_private WHERE workspace_id = d AND owner_user_id = u1 AND provider_thread_id = 'T1-e2e';
+  IF n <> 1 THEN fails := fails || ' private_thread=' || n; END IF;
+  SELECT count(*) INTO n FROM public.booking_profile WHERE id = (SELECT v FROM pg_temp.e2e WHERE k = 'bp_s');
+  IF n <> 0 THEN fails := fails || ' booking_profile_left'; END IF;
+  SELECT profile_id, slug INTO id1, txt FROM public.booking_link WHERE id = (SELECT v FROM pg_temp.e2e WHERE k = 'bl_s');
+  IF id1 IS DISTINCT FROM (SELECT v FROM pg_temp.e2e WHERE k = 'bp_d') OR txt IS DISTINCT FROM 'intro-2' THEN fails := fails || ' booking_link=' || COALESCE(txt, 'missing'); END IF;
+  SELECT grantee_team_id INTO id1 FROM public.entity_access WHERE entity_type = 'document' AND entity_id = (SELECT v FROM pg_temp.e2e WHERE k = 'doc_grant') AND grantee_kind = 'team';
+  IF id1 IS DISTINCT FROM (SELECT v FROM pg_temp.e2e WHERE k = 'd_mkt') THEN fails := fails || ' team_grant'; END IF;
+  IF refusals->>'front_door' NOT LIKE 'P0008%business phone%' THEN fails := fails || ' front_door=' || COALESCE(refusals->>'front_door', 'missing'); END IF;
 
   -- nothing left, destination clean
   SELECT count(*) INTO n FROM public.workspace_integrity_sweep(d); IF n <> 0 THEN fails := fails || ' sweep_violations=' || n; END IF;
