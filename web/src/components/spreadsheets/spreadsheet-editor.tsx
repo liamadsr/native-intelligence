@@ -14,7 +14,9 @@
  * save is refused, and that person is told and offered the newer version.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, History, Link2, Lock, MessageSquare } from 'lucide-react'
+import { ArrowLeft, History, Link2, Lock, MessageSquare, Share2 } from 'lucide-react'
+import { RecordShareDialog, SharingChip, canShareFromMenu } from '@/app/account/(dashboard)/components/record-share-dialog'
+import type { RecordSharing } from '@/lib/entity-access/store'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -62,6 +64,10 @@ interface Loaded {
   record: SpreadsheetRecord
   workbook: WorkbookController
   memberId: string
+  /** The GET's can_edit (688): false for someone it was shared with to view. */
+  canEdit: boolean
+  /** Its sharing (688), from its GET: the Share button and the chips. Null when not told. */
+  sharing: RecordSharing | null
 }
 
 export interface SpreadsheetEditorProps {
@@ -84,15 +90,18 @@ export function SpreadsheetEditor({ spreadsheetId, onBack, onOpen }: Spreadsheet
     void (async () => {
       try {
         const res = await fetch(`/api/account/spreadsheets/${spreadsheetId}`)
-        const json = (await res.json().catch(() => ({}))) as { spreadsheet?: SpreadsheetRecord; member_id?: string; error?: string }
+        const json = (await res.json().catch(() => ({}))) as { spreadsheet?: SpreadsheetRecord; member_id?: string; can_edit?: boolean; sharing?: RecordSharing; error?: string }
         if (!res.ok || !json.spreadsheet) throw new Error(json.error || 'Could not load the spreadsheet')
         const model = await openModel(json.spreadsheet.workbook, json.spreadsheet.title)
         if (!live) {
           model.free()
           return
         }
-        made = new WorkbookController(model, { readOnly: json.spreadsheet.status === 'archived', extras: readExtras(json.spreadsheet.extras) })
-        setLoaded({ record: json.spreadsheet, workbook: made, memberId: json.member_id ?? '' })
+        // View only when archived, or when it was shared with this person to view (688's
+        // spreadsheet_editable_by, the GET's can_edit): nothing typed, pasted, imported or saved.
+        const canEdit = json.can_edit !== false
+        made = new WorkbookController(model, { readOnly: json.spreadsheet.status === 'archived' || !canEdit, extras: readExtras(json.spreadsheet.extras) })
+        setLoaded({ record: json.spreadsheet, workbook: made, memberId: json.member_id ?? '', canEdit, sharing: json.sharing ?? null })
       } catch (e) {
         if (live) setError(e instanceof Error ? e.message : 'Could not load the spreadsheet')
       }
@@ -171,6 +180,8 @@ function GridSkeleton({ onBack }: { onBack?: () => void }) {
 }
 
 function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded; onBack?: () => void; onOpen?: (id: string, title: string) => void; onReload: () => void }) {
+  const onReloadRef = useRef(onReload)
+  onReloadRef.current = onReload
   const { workbook } = loaded
   useWorkbook(workbook)
   const [record, setRecord] = useState<SpreadsheetSummary>(loaded.record)
@@ -180,6 +191,17 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
   const [view, setView] = useState<ViewOptions>({ formulaBar: true, formulas: false })
   const [finding, setFinding] = useState(false)
   const [history, setHistory] = useState(false)
+  // Its sharing (688): the Share button is its owner's; when the dialog closes, the count is read again.
+  const [sharing, setSharing] = useState<RecordSharing | null>(loaded.sharing)
+  const [shareOpen, setShareOpen] = useState(false)
+  const recountShares = useCallback(() => {
+    void fetch(`/api/account/entity-access?type=spreadsheet&id=${loaded.record.id}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { grants?: unknown[] } | null) => {
+        if (j && Array.isArray(j.grants)) setSharing((s) => (s ? { ...s, grant_count: j.grants!.length } : s))
+      })
+      .catch(() => {})
+  }, [loaded.record.id])
   const [dialog, setDialog] = useState<'dropdown' | 'goalSeek' | null>(null)
   const [conditional, setConditional] = useState(false)
   const [tableMenu, setTableMenu] = useState<ColumnMenuState | null>(null)
@@ -213,7 +235,8 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
     gridHost.current?.querySelector<HTMLElement>('[role="grid"]')?.focus({ preventScroll: true })
   }, [])
   const onMessage = useCallback((message: string) => toast.error(message), [])
-  const comments = useSpreadsheetComments(loaded.record.id, onMessage)
+  // Someone it was shared with to view reads the threads and writes none (688).
+  const comments = useSpreadsheetComments(loaded.record.id, onMessage, { canComment: loaded.canEdit })
 
   // ── Presence: who else has this open, and each one's selected cell ─────────
   // Independent of saving — a view-only (archived) viewer is as much "here" as
@@ -240,6 +263,18 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
       const key = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
       const me = { key, userId: user.id, name, color: peerColor(user.id) }
       controller = new SpreadsheetPresence(supabase as unknown as RoomClient, loaded.record.id, me, snapshot())
+      // Its sharing changed (688): ask again as this person, and open it afresh only when their own answer
+      // changed (gone, or a new can_edit), so someone else's grant never costs this person their typing.
+      controller.setOnAccessChanged(() => {
+        void fetch(`/api/account/spreadsheets/${loaded.record.id}`)
+          .then(async (r) => {
+            if (r.status === 404 || r.status === 403) return onReloadRef.current()
+            if (!r.ok) return
+            const j = (await r.json().catch(() => null)) as { can_edit?: boolean } | null
+            if (j && (j.can_edit !== false) !== loaded.canEdit) onReloadRef.current()
+          })
+          .catch(() => {})
+      })
       setPresence(controller)
       controller.setVisible(!document.hidden)
       controller.start()
@@ -643,6 +678,23 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
     </button>
   )
 
+  const shareButton = (standalone?: boolean) =>
+    canShareFromMenu(sharing) ? (
+      <button
+        type="button"
+        aria-label="Share with people"
+        title="Share with people"
+        onClick={() => setShareOpen(true)}
+        className={
+          standalone
+            ? 'flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground'
+            : 'flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground'
+        }
+      >
+        <Share2 className={standalone ? 'size-4' : 'size-3.5'} strokeWidth={1.75} aria-hidden />
+      </button>
+    ) : null
+
   // The name's field, in the card's header or the page's own title row.
   const nameProps = {
     'aria-label': 'Spreadsheet name',
@@ -692,11 +744,13 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
               />
             </span>
             {record.visibility === 'private' && <Lock className="size-3 shrink-0 text-muted-foreground" aria-label="Private" />}
+            <SharingChip sharing={sharing} noun="spreadsheet" compact />
           </CardHeaderTrail>
           <CardHeaderSlot side="right">
             <PeerFaces peers={peers} />
             <CommentsButton count={comments.openCount} open={showComments} onClick={() => setShowComments((on) => !on)} />
             {linksButton()}
+            {shareButton()}
             <button
               type="button"
               aria-label="Version history"
@@ -710,7 +764,7 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
             <EntityActionsMenu entity={entityRef} state={entityState} omit={PANEL_OMIT} className="mr-1 size-6 p-0 text-muted-foreground hover:text-foreground" />
             <span className="mr-2 flex items-center gap-2 empty:hidden">
               {updatedBy && <span className="text-xs text-muted-foreground">Updated by {updatedBy}</span>}
-              <SaveNote state={workbook.readOnly ? 'saved' : save} readOnly={workbook.readOnly} onRetry={() => void saveNow()} guard={guard} onReload={onReload} />
+              <SaveNote state={workbook.readOnly ? 'saved' : save} readOnly={workbook.readOnly} archived={record.status === 'archived'} onRetry={() => void saveNow()} guard={guard} onReload={onReload} />
             </span>
           </CardHeaderSlot>
         </>
@@ -730,15 +784,17 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
               <Lock className="h-3 w-3" /> Private
             </span>
           )}
+          <SharingChip sharing={sharing} noun="spreadsheet" />
           <PeerFaces peers={peers} />
           <CommentsButton count={comments.openCount} open={showComments} onClick={() => setShowComments((on) => !on)} standalone />
           {linksButton(true)}
+          {shareButton(true)}
           <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" aria-label="Version history" aria-pressed={history} title="Version history" onClick={() => setHistory((on) => !on)}>
             <History className="h-4 w-4" />
           </Button>
           <EntityActionsMenu entity={entityRef} state={entityState} omit={PANEL_OMIT} className="h-7 w-7 shrink-0 p-0 text-muted-foreground hover:text-foreground" />
           {updatedBy && <span className="shrink-0 text-xs text-muted-foreground">Updated by {updatedBy}</span>}
-          <SaveNote state={workbook.readOnly ? 'saved' : save} readOnly={workbook.readOnly} onRetry={() => void saveNow()} guard={guard} onReload={onReload} />
+          <SaveNote state={workbook.readOnly ? 'saved' : save} readOnly={workbook.readOnly} archived={record.status === 'archived'} onRetry={() => void saveNow()} guard={guard} onReload={onReload} />
         </div>
       )}
 
@@ -968,6 +1024,19 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
           }}
         />
       )}
+      {canShareFromMenu(sharing) ? (
+        <RecordShareDialog
+          type="spreadsheet"
+          id={loaded.record.id}
+          title={record.title}
+          open={shareOpen}
+          onOpenChange={setShareOpen}
+          onClosed={() => {
+            recountShares()
+            focusGrid()
+          }}
+        />
+      ) : null}
     </div>
   )
 }
@@ -1020,10 +1089,10 @@ function CommentsButton({ count, open, onClick, standalone }: { count: number; o
   )
 }
 
-function SaveNote({ state, readOnly, onRetry, guard, onReload }: { state: SaveState; readOnly: boolean; onRetry: () => void; guard: { name: string | null } | null; onReload: () => void }) {
+function SaveNote({ state, readOnly, archived, onRetry, guard, onReload }: { state: SaveState; readOnly: boolean; archived: boolean; onRetry: () => void; guard: { name: string | null } | null; onReload: () => void }) {
   // The full notice, with its button, is a banner over the grid: the header has no room for it.
   if (guard) return <span className="shrink-0 text-xs text-destructive">Not saved</span>
-  if (readOnly) return <span className="shrink-0 text-xs text-muted-foreground">Archived: view only</span>
+  if (readOnly) return <span data-spreadsheet-view-only="" className="shrink-0 text-xs text-muted-foreground">{archived ? 'Archived: view only' : 'View only'}</span>
   if (state === 'failed') {
     return (
       <span role="alert" className="flex shrink-0 items-center gap-2 text-xs text-destructive">

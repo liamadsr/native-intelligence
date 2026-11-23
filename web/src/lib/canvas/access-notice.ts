@@ -16,8 +16,13 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { ACCESS_CHANGED_EVENT, presenceTopic } from './presence'
 
 export async function announceCanvasAccessChanged(svc: SupabaseClient, canvasId: string): Promise<void> {
+  await announceAccessChanged(svc, presenceTopic(canvasId))
+}
+
+/** The same word in any record's presence room (a spreadsheet's, 689, as its editor listens for it). Never throws. */
+export async function announceAccessChanged(svc: SupabaseClient, topic: string): Promise<void> {
   try {
-    const channel = svc.channel(presenceTopic(canvasId), { config: { private: true, broadcast: { ack: false } } })
+    const channel = svc.channel(topic, { config: { private: true, broadcast: { ack: false } } })
     await channel.send({ type: 'broadcast', event: ACCESS_CHANGED_EVENT, payload: {} })
     await svc.removeChannel(channel)
   } catch {

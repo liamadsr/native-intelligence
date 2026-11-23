@@ -148,6 +148,26 @@ describe('opening a spreadsheet', () => {
     expect(container.querySelector('textarea')).toBeNull()
     expect(grid().getAttribute('aria-readonly')).toBe('true')
   })
+
+  it('a spreadsheet shared with the person to view opens view-only, and saves nothing (688)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push({ url, method: init?.method ?? 'GET', body: undefined })
+        return url.endsWith('/comments') ? json({ threads: [] }) : json({ spreadsheet: current, member_id: 'm-2', can_edit: false })
+      }),
+    )
+    await open()
+    expect(container.querySelector('[data-spreadsheet-view-only]')?.textContent).toBe('View only')
+    expect(container.textContent).not.toContain('Archived')
+    key('x')
+    expect(container.querySelector('textarea')).toBeNull()
+    expect(grid().getAttribute('aria-readonly')).toBe('true')
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000)
+    })
+    expect(calls.filter((c) => c.method !== 'GET')).toEqual([])
+  })
 })
 
 describe('saving', () => {

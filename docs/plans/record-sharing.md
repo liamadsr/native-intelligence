@@ -537,3 +537,59 @@ Phase 3.
 - Both sides had added `canvas` and `spreadsheet` notification targets. The
   merge keeps 687's cases, which open the record's card; `record_shared` uses
   them as they are.
+
+## Phase 3a as built: canvas sharing UI (held)
+
+Canvases and spreadsheets both stay held (`GRANTING_HELD_TYPES`) until the
+owner answers decision 12, so **nothing below shows yet**. Each piece
+appears as soon as `canvas` leaves the set.
+
+- **Share in the ⋯ menu** ("Share with people…"), for whoever may share it
+  (its owner) and only when canvas is not held (`canShareFromMenu`). It opens
+  `RecordShareDialog`, a controlled dialog around `EntityAccessSection` with
+  its picker, Can view / Can edit and Remove. The dialog is rendered outside
+  the canvas surface, so its presses and keys never reach the canvas.
+- **The header's chip** (`SharingChip`): "Shared · N" for the owner, "Shared
+  with you" for a grantee. The canvas GET returns `sharing` (`loadRecordSharing`:
+  `can_share`, `held`, `grant_count`, `shared_with_me`). After the dialog
+  closes, the count is read again from the grants list.
+- **The canvases list**: each row's `sharing` (`listSharingByRecord`: one
+  grants read for the owner's own canvases). The row shows "Shared with you",
+  "Shared · N" or "Private".
+- **The agent**: `read_canvas` returns `canvas.shared_with` (names, kinds,
+  levels) for the canvas's owner only (`sharedWithForOwner`, which checks the
+  owner for the explicit user because the tool may run on a service-role client).
+
+Not done: a read-only "Shared with…" list for people who may not share
+(`EntityAccessSection` shows nothing to them). It wasn't checked in a browser
+either: this checkout has no dev settings, and with canvases held there is
+nothing new on screen.
+
+## Phase 3b as built: the spreadsheet (held)
+
+Spreadsheets also stay held, so the Share button, the chips and
+`shared_with` don't show yet. **View-only does work now**: no new view
+grant can be made yet, but the editor already opens view-only for anyone
+whose `can_edit` is false.
+
+- **The read-only editor**: the editor already had one, for an archived
+  spreadsheet (`WorkbookController`'s `readOnly`, honoured by the grid, the
+  formula bar, the menus, find and replace, floating objects and saving). It now
+  also turns on when the GET's `can_edit` is false. The note says "View only"
+  ("Archived: view only" for an archived one). Nothing is typed, pasted,
+  imported or saved.
+- **Comments**: `useSpreadsheetComments` takes `canComment` (the GET's
+  `can_edit`). A view-only reader reads the threads; the composer, the reply
+  box and Resolve are not shown, and a write says why. That matches what 688
+  refuses in the database.
+- **Share**: a "Share with people" button beside Links, for the maker, once
+  spreadsheets are not held. It opens the same `RecordShareDialog`.
+  `canShareFromMenu` and `SharingChip` moved there from the canvas editor, so
+  both kinds use one chip. The GET returns `sharing`, and the list returns each
+  row's ("Shared with you", "Shared · N").
+- **The agent**: `read_spreadsheet` returns `shared_with` for the maker only.
+- **Revoke and presence (689)**: a spreadsheet grant removed, or lowered to
+  view, says `access_changed` in its presence room (`announceAccessChanged`,
+  `lib/spreadsheets/presence-topic.ts`). The editor asks its GET again, and
+  opens afresh only when its own answer changed (404, or a new `can_edit`), so
+  another person's grant never costs anyone unsaved typing.

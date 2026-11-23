@@ -49,11 +49,18 @@ export interface CommentsApi {
   editComment: (commentId: string, body: string, named?: CommentMentionsPayload) => Promise<boolean>
   setResolved: (commentId: string, resolved: boolean) => Promise<boolean>
   remove: (commentId: string) => Promise<boolean>
+  /**
+   * May this person write threads (start, reply, resolve)? False for someone
+   * it was shared with to view (migration 688 refuses their comments): they
+   * read the threads, and the composer, the reply box and Resolve are not shown.
+   */
+  canComment: boolean
   /** Move the anchors of threads affected by a structural change, and save them. Undo sends the inverse. */
   shiftAnchors: (change: ExtrasChange) => void
 }
 
-export function useSpreadsheetComments(spreadsheetId: string, onError: (message: string) => void): CommentsApi {
+export function useSpreadsheetComments(spreadsheetId: string, onError: (message: string) => void, opts: { canComment?: boolean } = {}): CommentsApi {
+  const canComment = opts.canComment !== false
   const [threads, setThreads] = useState<CommentThread[]>([])
   const [loading, setLoading] = useState(true)
   const [orphaned, setOrphaned] = useState<Set<string>>(new Set())
@@ -111,10 +118,15 @@ export function useSpreadsheetComments(spreadsheetId: string, onError: (message:
     [base, onError, reload],
   )
 
-  const createThread = useCallback((input: { sheetId: number; anchor: string; body: string }, named?: CommentMentionsPayload) => post({ sheet_id: input.sheetId, anchor: input.anchor, body: input.body, ...(named ?? {}) }), [post])
-  const createReply = useCallback((parentId: string, body: string, named?: CommentMentionsPayload) => post({ parent_id: parentId, body, ...(named ?? {}) }), [post])
-  const editComment = useCallback((commentId: string, body: string, named?: CommentMentionsPayload) => patch(commentId, { body, ...(named ?? {}) }), [patch])
-  const setResolved = useCallback((commentId: string, resolved: boolean) => patch(commentId, { resolved }), [patch])
+  // A view-only reader (688) writes no thread: said here once, whichever control asked.
+  const refused = useCallback(async () => {
+    onError('You can view this spreadsheet but not comment on it.')
+    return false
+  }, [onError])
+  const createThread = useCallback((input: { sheetId: number; anchor: string; body: string }, named?: CommentMentionsPayload) => (canComment ? post({ sheet_id: input.sheetId, anchor: input.anchor, body: input.body, ...(named ?? {}) }) : refused()), [post, canComment, refused])
+  const createReply = useCallback((parentId: string, body: string, named?: CommentMentionsPayload) => (canComment ? post({ parent_id: parentId, body, ...(named ?? {}) }) : refused()), [post, canComment, refused])
+  const editComment = useCallback((commentId: string, body: string, named?: CommentMentionsPayload) => (canComment ? patch(commentId, { body, ...(named ?? {}) }) : refused()), [patch, canComment, refused])
+  const setResolved = useCallback((commentId: string, resolved: boolean) => (canComment ? patch(commentId, { resolved }) : refused()), [patch, canComment, refused])
 
   const remove = useCallback(
     async (commentId: string): Promise<boolean> => {
@@ -167,7 +179,7 @@ export function useSpreadsheetComments(spreadsheetId: string, onError: (message:
 
   const openCount = useMemo(() => threads.filter((t) => !t.resolved_at).length, [threads])
 
-  return { threads, openCount, loading, orphaned, reload, createThread, createReply, editComment, setResolved, remove, shiftAnchors }
+  return { threads, openCount, loading, orphaned, reload, createThread, createReply, editComment, setResolved, remove, canComment, shiftAnchors }
 }
 
 // ── The overlay: markers and the open thread, in the sheet's content space ───
@@ -230,7 +242,7 @@ export function CommentOverlay({ workbook, sheet, layout, comments, memberId, op
         </div>
       )}
 
-      {composeRange && !openThreadId && (
+      {composeRange && !openThreadId && comments.canComment && (
         <div className="absolute z-30 max-[480px]:!fixed max-[480px]:!inset-x-2 max-[480px]:!bottom-2 max-[480px]:!top-auto max-[480px]:!z-50" style={cardAt(composeRange.r1, composeRange.c2 + 1)} onPointerDown={(e) => e.stopPropagation()}>
           <Composer
             anchorLabel={composingAnchor ?? ''}
@@ -257,15 +269,17 @@ function ThreadCard({ thread, comments, memberId, orphaned, onClose }: { thread:
       <div className="flex items-center justify-between">
         <span className="font-mono text-xs text-muted-foreground">{thread.anchor}{orphaned ? ' · its cells were deleted' : ''}</span>
         <div className="flex items-center gap-1">
-          <button
-            type="button"
-            aria-label={resolved ? 'Reopen thread' : 'Resolve thread'}
-            title={resolved ? 'Reopen' : 'Resolve'}
-            className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-            onClick={() => void comments.setResolved(thread.id, !resolved)}
-          >
-            {resolved ? <RotateCcw className="h-3.5 w-3.5" /> : <Check className="h-3.5 w-3.5" />}
-          </button>
+          {comments.canComment ? (
+            <button
+              type="button"
+              aria-label={resolved ? 'Reopen thread' : 'Resolve thread'}
+              title={resolved ? 'Reopen' : 'Resolve'}
+              className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+              onClick={() => void comments.setResolved(thread.id, !resolved)}
+            >
+              {resolved ? <RotateCcw className="h-3.5 w-3.5" /> : <Check className="h-3.5 w-3.5" />}
+            </button>
+          ) : null}
           <button type="button" aria-label="Close thread" className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground" onClick={onClose}>
             <X className="h-3.5 w-3.5" />
           </button>
@@ -291,7 +305,7 @@ function ThreadCard({ thread, comments, memberId, orphaned, onClose }: { thread:
       </div>
       {resolved ? (
         <p className="text-xs text-muted-foreground">Resolved{thread.resolved_by_name ? ` by ${thread.resolved_by_name}` : ''}.</p>
-      ) : (
+      ) : !comments.canComment ? null : (
         <ReplyBox
           value={reply}
           onChange={setReply}

@@ -13,6 +13,8 @@
  * `peerColor`, `PRESENCE`, `ROOM` and the room's client types are the canvas's,
  * reused read-only; the classes here are the spreadsheet's own.
  */
+import { ACCESS_CHANGED_EVENT } from '@/lib/canvas/presence'
+import { spreadsheetPresenceTopic } from '@/lib/spreadsheets/presence-topic'
 import { MAX_COLUMNS, MAX_ROWS, type CellRange } from '@/lib/spreadsheets/a1'
 import { PRESENCE, ROOM, peerColor, type RoomChannel, type RoomClient } from '@/components/canvas/live'
 
@@ -124,7 +126,7 @@ export class SheetPeerList {
 
 /** The Realtime topic of a spreadsheet's presence room. Migration 689's policies read the id back out of it. */
 export function presenceTopic(spreadsheetId: string): string {
-  return `spreadsheet-presence:${spreadsheetId.toLowerCase()}`
+  return spreadsheetPresenceTopic(spreadsheetId)
 }
 
 /**
@@ -149,7 +151,13 @@ export class SheetPresenceRoom {
   constructor(
     private client: RoomClient,
     private spreadsheetId: string,
-    private hooks: { hear: (payload: unknown) => void; open: () => void; closed: () => void },
+    private hooks: {
+      hear: (payload: unknown) => void
+      open: () => void
+      closed: () => void
+      /** The server said the spreadsheet's sharing changed (688, lib/canvas/access-notice.ts): ask again. */
+      accessChanged?: () => void
+    },
   ) {}
 
   start(): void {
@@ -177,6 +185,9 @@ export class SheetPresenceRoom {
     this.channel = channel
     channel.on('broadcast', { event: 'peer' }, (m) => {
       if (channel === this.channel) this.hooks.hear(m.payload)
+    })
+    channel.on('broadcast', { event: ACCESS_CHANGED_EVENT }, () => {
+      if (channel === this.channel && !this.stopped) this.hooks.accessChanged?.()
     })
     channel.subscribe((status) => {
       // A replaced channel has nothing more to say.
@@ -248,6 +259,7 @@ export class SpreadsheetPresence {
   private started = false
   private stopped = false
   private here: SheetSelection
+  private accessChanged: (() => void) | null = null
 
   constructor(
     private client: RoomClient,
@@ -258,6 +270,11 @@ export class SpreadsheetPresence {
   ) {
     this.peers = new SheetPeerList(me.key)
     this.here = initial
+  }
+
+  /** Told when the server says the spreadsheet's sharing changed (a grant removed or lowered, 688). */
+  setOnAccessChanged(cb: (() => void) | null): void {
+    this.accessChanged = cb
   }
 
   start(): void {
@@ -293,6 +310,7 @@ export class SpreadsheetPresence {
     if (this.room || this.stopped) return
     const room = new SheetPresenceRoom(this.client, this.spreadsheetId, {
       hear: (payload) => this.peers.hear(payload, this.now()),
+      accessChanged: () => this.accessChanged?.(),
       open: () => {
         this.joined = true
         this.beat = setInterval(() => this.push(true), PRESENCE.heartbeat)

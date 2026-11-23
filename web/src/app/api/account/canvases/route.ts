@@ -4,15 +4,23 @@ import { badRequest, serverError } from '@/lib/api-errors'
 import { createCanvas, listCanvases } from '@/lib/canvas/store'
 import { canvasRefusal } from '@/lib/canvas/responses'
 import type { CanvasVisibility } from '@/lib/canvas/types'
+import { listSharingByRecord } from '@/lib/entity-access/store'
 
 /** GET: the workspace's canvases (?archived=1 for the archived ones). POST: a new canvas. */
 export async function GET(request: NextRequest) {
   const auth = await requireWorkspaceMember()
   if (auth instanceof Response) return auth
-  const { supabase, workspaceId } = auth
+  const { supabase, workspaceId, member } = auth
   try {
     const canvases = await listCanvases(supabase, workspaceId, { archived: request.nextUrl.searchParams.get('archived') === '1' })
-    return NextResponse.json({ canvases })
+    // Each row's sharing (688): how many its owner shared it with, or that it was shared with the viewer.
+    const sharing = await listSharingByRecord(
+      supabase,
+      { workspaceId, memberId: member.id },
+      'canvas',
+      canvases.map((c) => ({ id: c.id, owner: c.owner_member_id ?? null, visibility: c.visibility })),
+    )
+    return NextResponse.json({ canvases: canvases.map((c) => ({ ...c, sharing: sharing.get(c.id) ?? { shared_count: 0, shared_with_me: false } })) })
   } catch (e) {
     return serverError(e instanceof Error ? e.message : 'Could not load canvases')
   }

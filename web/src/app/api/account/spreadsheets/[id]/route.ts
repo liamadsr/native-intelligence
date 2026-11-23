@@ -4,6 +4,7 @@ import { badRequest, notFound, serverError } from '@/lib/api-errors'
 import { spreadsheetRefusal } from '@/lib/spreadsheets/responses'
 import { deleteSpreadsheet, getSpreadsheet, saveSpreadsheet, spreadsheetEditableBy, updateSpreadsheetMeta } from '@/lib/spreadsheets/store'
 import type { SpreadsheetExtras } from '@/lib/spreadsheets/types'
+import { loadRecordSharing } from '@/lib/entity-access/store'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -22,8 +23,8 @@ export async function GET(_request: NextRequest, { params }: Params) {
   try {
     const spreadsheet = await getSpreadsheet(supabase, workspaceId, id)
     if (!spreadsheet) return notFound('Spreadsheet not found.')
-    const canEdit = await spreadsheetEditableBy(supabase, id, user.id)
-    return NextResponse.json({ spreadsheet, member_id: member.id, can_edit: canEdit })
+    const [canEdit, sharing] = await Promise.all([spreadsheetEditableBy(supabase, id, user.id), loadRecordSharing(supabase, workspaceId, 'spreadsheet', id)])
+    return NextResponse.json({ spreadsheet, member_id: member.id, can_edit: canEdit, sharing })
   } catch (e) {
     return serverError(e instanceof Error ? e.message : 'Could not load the spreadsheet')
   }

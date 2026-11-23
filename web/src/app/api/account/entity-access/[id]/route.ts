@@ -7,8 +7,8 @@
  *   DELETE → { ok: true } one grant removed: by someone who may share its
  *          record, or by whoever made it (a share-by-mention's Undo). 404
  *          when there is none the person may remove.
- * A canvas grant removed, or lowered to view, is announced in the canvas's
- * presence room (lib/canvas/access-notice.ts) so its open editors ask again.
+ * A canvas or spreadsheet grant removed, or lowered to view, is announced in
+ * its presence room (lib/canvas/access-notice.ts) so its open editors ask again.
  * Runs as the person, under RLS.
  */
 import { NextResponse, type NextRequest } from 'next/server'
@@ -16,14 +16,16 @@ import { requireWorkspaceMember } from '@/lib/api-auth'
 import { badRequest, notFound, serverError } from '@/lib/api-errors'
 import { isGrantLevel } from '@/lib/entity-access/model'
 import { notifyRecordShared, readGrantForNotice, type GrantForNotice } from '@/lib/entity-access/notify'
-import { announceCanvasAccessChanged } from '@/lib/canvas/access-notice'
+import { announceAccessChanged, announceCanvasAccessChanged } from '@/lib/canvas/access-notice'
+import { spreadsheetPresenceTopic } from '@/lib/spreadsheets/presence-topic'
 import { getServiceClient } from '@/lib/admin'
 
-/** A canvas's open editors ask again whether they may open or edit it. Never throws. */
+/** A canvas's or a spreadsheet's open editors ask again whether they may open or edit it. Never throws. */
 async function announceIfCanvas(grant: GrantForNotice | null): Promise<void> {
-  if (grant?.type !== 'canvas') return
+  if (grant?.type !== 'canvas' && grant?.type !== 'spreadsheet') return
   try {
-    await announceCanvasAccessChanged(getServiceClient(), grant.id)
+    if (grant.type === 'canvas') await announceCanvasAccessChanged(getServiceClient(), grant.id)
+    else await announceAccessChanged(getServiceClient(), spreadsheetPresenceTopic(grant.id))
   } catch {
     /* no service client: the editor's next save or read fails under RLS in any case */
   }

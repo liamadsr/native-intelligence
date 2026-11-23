@@ -409,3 +409,19 @@ describe('comment_on_spreadsheet and resolve_spreadsheet_comment', () => {
     ])
   })
 })
+
+describe('read_spreadsheet tells its maker who it is shared with (688)', () => {
+  it('lists the grants, named, for the maker only', async () => {
+    rows[0].visibility = 'private'
+    tables.entity_access = [
+      { id: 'g-1', workspace_id: WS, entity_type: 'spreadsheet', entity_id: PLAN, grantee_kind: 'member', grantee_member_id: M2, grantee_team_id: null, grantee_channel_id: null, level: 'view', source: 'manual', created_at: '2026-11-22T10:00:00Z' },
+    ]
+    const mine = await call('read_spreadsheet', { id: PLAN })
+    expect(mine.shared_with).toEqual([{ name: 'Jamie Park', kind: 'member', level: 'view' }])
+    rows[0].created_by = M2
+    tables.entity_access.push({ id: 'g-2', workspace_id: WS, entity_type: 'spreadsheet', entity_id: PLAN, grantee_kind: 'member', grantee_member_id: M1, grantee_team_id: null, grantee_channel_id: null, level: 'view', source: 'manual', created_at: '2026-11-22T11:00:00Z' })
+    const theirs = await call('read_spreadsheet', { id: PLAN })
+    expect(theirs.success).toBe(true)
+    expect(theirs).not.toHaveProperty('shared_with')
+  })
+})
