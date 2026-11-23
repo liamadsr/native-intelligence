@@ -1,10 +1,10 @@
 # GitHub Reviews and pull-request automation
 
 One place to see and act on a person's GitHub pull requests, and actions that move on
-their own as their pull requests move. Built to match the behaviour Macro describes in its
-public docs (macro.com/github: a "Reviews" view, and status sync from pull requests). Clean
-room: only Macro's public product pages were read for behaviour; none of its code,
-wording, CSS or icons. Everything here is written from scratch.
+their own as their pull requests move. Built to match the behaviour the reference product
+describes in its public docs (its GitHub page: a "Reviews" view, and status sync from pull
+requests). Clean room: only the reference product's public product pages were read for
+behaviour; none of its code, wording, CSS or icons. Everything here is written from scratch.
 
 Branch `claude/github-reviews`. Reserved migrations 694 and 695.
 
@@ -298,8 +298,8 @@ None planned (GraphQL through `fetch`; the diff renderer is our own).
 
 1. **Go-to key.** G V is Studio's; every other letter but G is taken. Proposal: Reviews
    gets **G G**, Studio keeps G V. Alternative: Reviews takes G V and Studio moves to G G.
-2. **Automation default.** On for every team (as Macro does), with the per-team switch to
-   turn it off. Alternative: off until a team turns it on.
+2. **Automation default.** On for every team (as the reference product does), with the per-team
+   switch to turn it off. Alternative: off until a team turns it on.
 3. **A team with no review state.** "In review" moves the action to the team's first
    started state (In Progress) and no further; we don't create a state for them.
 4. **Closed without merging.** Back to the state before the automation's first move for

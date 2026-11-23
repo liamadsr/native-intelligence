@@ -8,11 +8,12 @@ record headers, and are set from each properties panel. Search and list views fi
 (Any or All), and lists group by tag. Each tag is either a workspace tag or a personal tag
 that only its owner sees. Agents can search by tag and tag records.
 
-This is a clean-room build. Behaviour comes from Macro's public pages only (macro.com/documents,
-macro.com/docs/product/search): `#` in a title or body opens a tag menu, and you can pick a
-tag or create one. A new tag gets a color and is personal or shared. Clicking a pill lists
-everything with that tag. The search Tags chip matches Any by default; once two or more tags
-are picked it can match All. None of Macro's code, CSS, icons or wording is used.
+This is a clean-room build. Behaviour comes from the reference product's public pages only (its
+public Documents page and its public docs on search): `#` in a title or body opens a tag menu,
+and you can pick a tag or create one. A new tag gets a color and is personal or shared. Clicking
+a pill lists everything with that tag. The search Tags chip matches Any by default; once two or
+more tags are picked it can match All. None of the reference product's code, CSS, icons or
+wording is used.
 
 ## 1. What exists today (research)
 

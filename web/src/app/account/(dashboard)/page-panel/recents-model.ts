@@ -21,10 +21,9 @@
  * Liam, 11-11: the panel persists when you open something, so the record a
  * full-screen card shows has its row lit (frontRecentKey).
  *
- * Sections by time (docs/plans/recent-panel.md, as Macro's Home groups its
- * feed): Last few minutes, Last hour, the part of today it is now (This
- * morning, This afternoon, This evening), Earlier today, Yesterday, then
- * each day (recentGroupOf).
+ * Sections by time (docs/plans/recent-panel.md): Last few minutes, Last
+ * hour, the part of today it is now (This morning, This afternoon, This
+ * evening), Earlier today, Yesterday, then each day (recentGroupOf).
  *
  * Besides the feed, what the person did to records the log doesn't hold
  * (their Drive uploads, their coding jobs: GET /api/account/recents) joins

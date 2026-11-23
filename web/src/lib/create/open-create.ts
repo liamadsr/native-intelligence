@@ -11,10 +11,10 @@
  * did (`open-create-email`, kept as it was, and `open-create-contact`):
  * `open-create` with an optional type to start on.
  *
- * Owner, 11-22 ("match the macro experience when it comes to creating new
- * entities"): every page's New button opens it too, preset to its type and
- * its place (docs/plans/create-everything.md), so creating reads the same
- * everywhere.
+ * Owner, 11-22 ("match the [reference product's] experience when it comes
+ * to creating new entities"): every page's New button opens it too, preset
+ * to its type and its place (docs/plans/create-everything.md), so creating
+ * reads the same everywhere.
  */
 import type { CreateTypeId } from './create-types'
 import type { CreateContext, CreateSource } from './create-context'
@@ -25,8 +25,8 @@ export const OPEN_CREATE_EVENT = 'open-create'
 export interface OpenCreateRequest {
   /**
    * The type whose composer opens. Absent: the Create menu (every type, type
-   * to filter), as C and the rail's + open it (owner, 11-22: Macro's one
-   * Create menu). A page's New button names its own type.
+   * to filter), as C and the rail's + open it (owner, 11-22: one Create
+   * menu, as the reference product has). A page's New button names its own type.
    */
   type?: CreateTypeId
   /** Where it was opened: "Create in <name>", prefills, the record a task links back to (create-context.ts). */

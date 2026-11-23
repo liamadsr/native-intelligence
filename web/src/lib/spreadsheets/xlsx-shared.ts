@@ -5,7 +5,7 @@
  * Excel error strings. Pure and isomorphic (no node: imports), so the reader
  * and writer run in the browser (the editor) and on the server (the route)
  * alike. We write the XML ourselves over a zip container (jszip); none of
- * Macro's code is used.
+ * the reference product's code is used.
  */
 import { isDateFormat } from './formats'
 

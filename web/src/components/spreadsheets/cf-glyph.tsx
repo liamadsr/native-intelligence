@@ -3,7 +3,8 @@
 /**
  * The 20 conditional-formatting icon kinds the engine can return, drawn as
  * small inline glyphs: lucide icons where one fits, a rotated triangle or a
- * CSS rhombus where it does not. Our own drawings, not Macro's assets.
+ * CSS rhombus where it does not. Our own drawings, not the reference
+ * product's assets.
  */
 import {
   ArrowDown,

@@ -1,14 +1,14 @@
 # Mail: a calmer reader and a composer of its own
 
-The owner (2026-11-21): "update our mail experience to be more like Macro … it's a little
-hard to read mail and the UX isn't ideal … we don't even have a way to manually write a
-response to an email so we should just match their experience."
+The owner (2026-11-21): "update our mail experience to be more like [the reference product] …
+it's a little hard to read mail and the UX isn't ideal … we don't even have a way to manually
+write a response to an email so we should just match their experience."
 
-Macro's mail client is AGPL. This is a clean-room match of the look and behaviour described
-from a screenshot: no code, styles or assets from it, and no new dependency (the composer's
-rich text is tiptap, which the app already ships through `novel`).
+The reference product's mail client is AGPL. This is a clean-room match of the look and
+behaviour described from a screenshot: no code, styles or assets from it, and no new dependency
+(the composer's rich text is tiptap, which the app already ships through `novel`).
 
-Branch `claude/mail-macro`. Merged is not live: see "How production works" in `CLAUDE.md`.
+Built in #225, #227 and #228. Merged is not live: see "How production works" in `CLAUDE.md`.
 
 ## What it is now
 
@@ -134,8 +134,9 @@ made-up thread, every mail request answered in the browser, nothing sent. `?comp
 1. **Forward starts a thread of its own** (no `thread_id`): Gmail threads a send only with
    matching References, and Outlook's forward path would need `createForward`. Gmail's own
    UI keeps a forward in the thread; ours shows it in Sent.
-2. **A reply quotes nothing.** The thread is the context, as in Macro and as `sendEmail`'s
-   Outlook path already does (it strips `createReply`'s quote). A forward quotes in full.
+2. **A reply quotes nothing.** The thread is the context, as in the reference product and as
+   `sendEmail`'s Outlook path already does (it strips `createReply`'s quote). A forward quotes
+   in full.
 3. **The original's attachments are not forwarded.** Re-attaching them needs the server to
    fetch each file from the mailbox; left for later (the composer's own files go, phase 2).
 4. **Older messages collapse to one line** even when unread; the last message and drafts are
@@ -158,4 +159,4 @@ made-up thread, every mail request answered in the browser, nothing sent. `?comp
 
 ## Left out, and why
 
-- Copying anything from Macro: AGPL; clean-room only.
+- Copying anything from the reference product: AGPL; clean-room only.

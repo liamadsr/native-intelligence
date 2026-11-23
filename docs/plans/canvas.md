@@ -5,29 +5,31 @@ Status, 2026-11-22, on `claude/canvas-whiteboards`: phase 1 and most of phases 2
 676 is merged and applied to the dev project; migration 682 (comments, private
 presence) is written and rehearsed on a local Postgres only, applied nowhere.
 
-The target is parity with the canvas in Macro (github.com/macro-inc/macro): the
-same tools, interactions, menus, shortcuts and screen layout, drawn in this app's
-glass look and wired in as a record like a document.
+The target is parity with the canvas in the reference product (its public source
+repository): the same tools, interactions, menus, shortcuts and screen layout, drawn
+in this app's glass look and wired in as a record like a document.
 
-## How this is built without Macro's code (clean room)
+## How this is built without the reference product's code (clean room)
 
-Macro is AGPL-3.0. None of its code, CSS, SVG or assets is in this repository.
+The reference product is AGPL-3.0. None of its code, CSS, SVG or assets is in
+this repository.
 
-- One agent read Macro's source and wrote a description of the behaviour in plain
-  prose. It is the only thing that crossed over. Part 1 below is that description,
-  condensed.
+- One agent read the reference product's source and wrote a description of the
+  behaviour in plain prose. It is the only thing that crossed over. Part 1 below is
+  that description, condensed.
 - Everything here is written from that description. Nobody who writes canvas code
-  in this repository reads Macro's source.
+  in this repository reads the reference product's source.
 - Where a number appears (zoom limits, a 24-unit paste offset, a 6 px snap
   tolerance), it is an observed behaviour, not copied text.
 
 ### The engine
 
-Macro's canvas is its own engine, not tldraw and not Excalidraw: a scene tree of
-items drawn as DOM and inline SVG. So there is no restrictive engine to route
-around, and wrapping Excalidraw would not give Macro's layout or interactions
-(different toolbar, hand-drawn look, no record cards). **We build our own engine
-in React, DOM + SVG, the same shape as Macro's.**
+The reference product's canvas is its own engine, not tldraw and not Excalidraw: a
+scene tree of items drawn as DOM and inline SVG. So there is no restrictive engine
+to route around, and wrapping Excalidraw would not give the reference product's
+layout or interactions (different toolbar, hand-drawn look, no record cards). **We
+build our own engine in React, DOM + SVG, the same shape as the
+reference product's.**
 
 ### Dependencies
 
@@ -37,17 +39,17 @@ in React, DOM + SVG, the same shape as Macro's.**
 | `@tiptap/*` | MIT | rich text in text items and labels | already in the app |
 | `pdf-lib` | MIT | PDF export, if the owner wants it (beyond parity) | already in the app |
 
-Not used: tldraw (needs a paid key or shows a watermark), Macro's CRDT `loro-crdt`
-(not needed, see "Collaboration" in part 2), `fractional-indexing` (CC0, outside
-the allowed list; sibling order keys are a small function of our own).
+Not used: tldraw (needs a paid key or shows a watermark), the reference product's
+CRDT `loro-crdt` (not needed, see "Collaboration" in part 2), `fractional-indexing`
+(CC0, outside the allowed list; sibling order keys are a small function of our own).
 
-## Part 1: what Macro's canvas has
+## Part 1: what the reference product's canvas has
 
-"Yes" is in Macro. "No" was looked for and is not there.
+"Yes" is in the reference product. "No" was looked for and is not there.
 
 ### The canvas
 
-| Item | Macro | Notes |
+| Item | Reference product | Notes |
 |---|---|---|
 | Infinite canvas | Yes | Camera is x, y, scale. |
 | Zoom | Yes | 1% to 800%. Ctrl/Cmd + wheel zooms at the pointer; plain wheel pans. Buttons and Cmd +/- step by 1.2. Presets 25/50/100/200%. |
@@ -59,7 +61,7 @@ the allowed list; sibling order keys are a small function of our own).
 
 ### Tools
 
-| Tool | Macro | Key | Behaviour |
+| Tool | Reference product | Key | Behaviour |
 |---|---|---|---|
 | Select | Yes | V | Click, shift-click, marquee, drag to move. |
 | Hand | Yes | H | Drag to pan. |
@@ -77,7 +79,7 @@ the allowed list; sibling order keys are a small function of our own).
 | Artifacts | Yes (flagged) | | A sandboxed HTML page as an item, with a full-screen "Present". Mostly written by the AI. |
 | Shape labels | Yes | | Double-click a rectangle or ellipse to add centered rich text. |
 | Sticky notes | No | | |
-| Frames | No | | Listed by Macro as a gap. |
+| Frames | No | | Listed by the reference product as a gap. |
 | Highlighter | No | | Text has a highlight mark; no ink highlighter. |
 | Diamonds, polygons, stars | No | | |
 | Mermaid import | No | | |
@@ -95,7 +97,7 @@ where it was. No bend-point editing.
 
 ### Shape behaviour
 
-| Item | Macro | Notes |
+| Item | Reference product | Notes |
 |---|---|---|
 | Fill and stroke color | Yes | A picker (hue, opacity, hex) plus swatches: the app palette and the colors already on this canvas. Theme colors stay theme-aware until edited. |
 | Stroke weight and style | Yes | Up to 40 in steps of 0.5. Solid, dashed, dotted. |
@@ -114,7 +116,7 @@ where it was. No bend-point editing.
 
 ### Editing
 
-| Item | Macro | Notes |
+| Item | Reference product | Notes |
 |---|---|---|
 | Copy, cut, paste | Yes | Same-canvas paste steps 24 units each time; from elsewhere it lands centered in the view. |
 | Paste in place | Yes | Shift+Cmd+V. |
@@ -128,7 +130,7 @@ where it was. No bend-point editing.
 
 ### Collaboration
 
-| Item | Macro | Notes |
+| Item | Reference product | Notes |
 |---|---|---|
 | Live multi-user editing | Yes | Two people moving one item end on one pose; two people editing one text end on one whole text (no character merge, no shared caret). |
 | Cursors and selections | Yes | Others' cursors, selections and in-progress drags. |
@@ -140,16 +142,16 @@ where it was. No bend-point editing.
 
 ### Files
 
-| Item | Macro | Notes |
+| Item | Reference product | Notes |
 |---|---|---|
 | Download as JSON | Yes | The only whole-canvas export. |
-| PNG, SVG, PDF export | No | Listed by Macro as a gap. |
+| PNG, SVG, PDF export | No | Listed by the reference product as a gap. |
 | Copy image, save image | Yes | For one selected image only (the original file). |
 | Drop files and records | Yes | |
 
 ### The surroundings
 
-| Item | Macro | Notes |
+| Item | Reference product | Notes |
 |---|---|---|
 | Templates | No | An empty board shows a small tutorial pill until something is drawn. |
 | Toolbar | Yes | Floating, bottom center, about 40 px tall: Select, Hand, Rectangle, Ellipse, Arrow, Pencil, Eraser, Text, a divider, Attach. Tooltips show the key. |
@@ -217,18 +219,18 @@ history yet; 521 is the pattern).
   so the same code runs in the browser, in tests and in the agent tools.
 - Drawing: one transformed layer for the camera (panning re-renders nothing),
   items as memoized components, and items outside the view not mounted. That is
-  the route to 2,000+ objects; Macro itself does not cull.
+  the route to 2,000+ objects; the reference product itself does not cull.
 - Look: the toolbar, zoom bar and inspector are floating glass cards
   (`FLOATING_CARD_CLASS`), theme tokens for ink, grid and selection, dark and light.
 
 ### Collaboration
 
-Macro uses a CRDT, but what it gives people is "one pose per item, one whole text
-per item". Item rows with last-write-wins give the same result without a new
-dependency: each save upserts the changed rows, other people receive them over
-Supabase Realtime, and cursors and selections travel on a Realtime broadcast
-channel (nothing stored). Unsent edits wait in the browser and warn before the
-page closes.
+The reference product uses a CRDT, but what it gives people is "one pose per item,
+one whole text per item". Item rows with last-write-wins give the same result
+without a new dependency: each save upserts the changed rows, other people receive
+them over Supabase Realtime, and cursors and selections travel on a Realtime
+broadcast channel (nothing stored). Unsent edits wait in the browser and warn before
+the page closes.
 
 ### Agents
 
@@ -264,9 +266,9 @@ Each phase is pushed when the full test run passes.
 
 ### Beyond parity (the owner's call)
 
-Macro does not have these. They are not in the phases above: sticky notes,
-frames, a highlighter, locking, a minimap, PNG/SVG/PDF export, templates, version
-history, comments pinned to a spot on the canvas.
+The reference product does not have these. They are not in the phases above: sticky
+notes, frames, a highlighter, locking, a minimap, PNG/SVG/PDF export, templates,
+version history, comments pinned to a spot on the canvas.
 
 ## Where it stands (2026-11-22)
 
@@ -307,8 +309,8 @@ Built and checked in a browser against the dev project (50 scripted checks):
   reading order, with the arrow keys. Agents make and change them
   (`create_artifact`, `set_artifact` in `edit_canvas`) only where
   `CANVAS_AGENT_ARTIFACTS=1`, off by default; a person changes one's
-  markup from its menu ("Edit page…"). Not built: Macro's per-canvas library
-  of named styles and components.
+  markup from its menu ("Edit page…"). Not built: the reference product's per-canvas
+  library of named styles and components.
 - **Unsent edits survive a reload.** What the server does not have yet is
   kept in the browser (localStorage), per canvas and per person, from the
   moment an edit is made until its write is answered. Opening the canvas again
@@ -539,8 +541,8 @@ Made without asking, while working through the night of 2026-11-22.
     code is unchanged and the default stays off. What follows is how it was
     put to them.
     **Artifacts are OFF for agents unless `CANVAS_AGENT_ARTIFACTS=1`** (the
-    managing session's direction, 2026-11-22, until the owner decides; Macro
-    keeps them behind a flag too). With it off, `create_artifact` and
+    managing session's direction, 2026-11-22, until the owner decides; the reference
+    product keeps them behind a flag too). With it off, `create_artifact` and
     `set_artifact` are refused with the reason and the rest of the batch still
     applies; a person makes, edits, opens and presents artifacts either way.
     It is an env setting because a workspace setting would need a migration:

@@ -16,8 +16,8 @@
  * The Calendar page and its window, never the slim calendar card inline in a
  * chat, and only where the calendar is wide enough (client-container.tsx).
  * In the window the grid holds only the range on screen, so the upcoming list
- * is given its own events (today and the month ahead). Behaviour after Macro's
- * calendar sidebar (AGPL-3.0); the code is our own.
+ * is given its own events (today and the month ahead). Behaviour after the
+ * reference product's calendar sidebar (AGPL-3.0); the code is our own.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, PanelLeftClose } from "lucide-react";

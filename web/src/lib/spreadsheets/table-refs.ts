@@ -3,7 +3,7 @@
  * the engine (which knows nothing of tables) ever sees them. A missing table or
  * column becomes `#REF!`.
  *
- * Supported, as Macro writes them:
+ * Supported, as the reference product writes them:
  *   Sales[Amount]              a column's data cells
  *   Sales[[#Totals],[Amount]]  that column's total cell
  *   Sales[[#Headers],[Amount]] that column's header cell
