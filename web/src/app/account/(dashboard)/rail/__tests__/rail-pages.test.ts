@@ -8,7 +8,10 @@ import { describe, expect, it } from 'vitest'
 import { getEdition, withEffectiveSurface } from '@/lib/editions/manifest'
 import { CARD_PAGES, pagesFor } from '@/lib/chat-cards/page-menu'
 import type { CardSpec } from '@/lib/chat-cards/kinds'
+import { cardForTarget } from '@/lib/chat-cards/open-card'
 import {
+  HUB_PLACES,
+  isHubPlace,
   NESTED_RAIL_PAGES,
   RAIL_PAGES,
   activeRailItem,
@@ -148,6 +151,33 @@ describe('the selected place', () => {
   it('keeps the page for a record opened from inside it, and for the same card in front again', () => {
     expect(nextSelectedPlace({ place: 'actions', frontId: 'a1' }, { id: 'r1', spec: record('project') }, true, NOW)).toBe('actions')
     expect(nextSelectedPlace({ place: 'actions', frontId: 'r1' }, { id: 'r1', spec: record('project') }, false, NOW)).toBe('actions')
+  })
+
+  // Liam, 11-23: "from the home page if I click on a chat history it loads the panel but also navigates me to the team
+  // chat and I see the team chat sub-nav… nothing from the home page should open the full page" (docs/plans/hub-panels.md).
+  it('keeps the hub for whatever its panel opens, a page’s own card included; a rail press still selects the page', () => {
+    // A team chat channel from Recent is Team chat's one card on that channel: its spec is the page's own.
+    const teamChat = cardForTarget({ type: 'team_chat', channelId: 'ch1' }, NOW)!.spec
+    expect(pageOfCard(teamChat, NOW)).toBe('team-chat')
+    // The regression: opened from Recent (a press in home's panel), home stays selected.
+    expect(nextSelectedPlace({ place: 'home', frontId: null }, { id: 'tc', spec: teamChat }, false, NOW, 'home')).toBe('home')
+    // Over a record Recent opened, flipping to the channel: still home.
+    expect(nextSelectedPlace({ place: 'home', frontId: 'r1' }, { id: 'tc', spec: teamChat }, false, NOW, 'home')).toBe('home')
+    // Mail's own card from a hub too.
+    expect(nextSelectedPlace({ place: 'home', frontId: null }, { id: 'm1', spec: own('mail') }, false, NOW, 'home')).toBe('home')
+    // Inbox's list: Inbox stays selected for what it opens (an event's card, the page's own team chat card).
+    expect(nextSelectedPlace({ place: 'inbox', frontId: 'in1' }, { id: 'ev', spec: own('calendar') }, false, NOW, 'inbox')).toBe('inbox')
+    expect(nextSelectedPlace({ place: 'inbox', frontId: 'in1' }, { id: 'tc', spec: teamChat }, false, NOW, 'inbox')).toBe('inbox')
+    // The rail (no hub press): the page's own card selects the page, as before.
+    expect(nextSelectedPlace({ place: 'home', frontId: null }, { id: 'tc', spec: teamChat }, false, NOW, null)).toBe('team-chat')
+    expect(nextSelectedPlace({ place: 'home', frontId: null }, { id: 'in1', spec: own('inbox') }, false, NOW)).toBe('inbox')
+    // Not a hub: ignored.
+    expect(nextSelectedPlace({ place: 'home', frontId: null }, { id: 'tc', spec: teamChat }, false, NOW, 'actions')).toBe('team-chat')
+    // Nothing in front is home, whatever the press.
+    expect(nextSelectedPlace({ place: 'inbox', frontId: 'in1' }, null, false, NOW, 'inbox')).toBe('home')
+    expect(HUB_PLACES).toEqual(['home', 'inbox'])
+    expect(isHubPlace('inbox')).toBe(true)
+    expect(isHubPlace('mail')).toBe(false)
   })
 
   it('lights Home or the page selected, and nothing for a page the workspace has off', () => {

@@ -242,11 +242,30 @@ export function nestedPageOpen(
 }
 
 /**
+ * The hubs (Liam, 11-23: "The homepage is supposed to be an easy access place
+ * nothing from the home page should open the full page that's so I can flip
+ * through the recent things I've looked at"; Inbox "Like Home"): home, with
+ * its Recent panel, and Inbox, with its list in its panel. What a hub's panel
+ * opens is just that one item, beside the panel, and the hub stays selected
+ * (docs/plans/hub-panels.md).
+ */
+export const HUB_PLACES: readonly SelectedPlace[] = ['home', 'inbox']
+
+/** Is `place` a hub (HUB_PLACES)? */
+export const isHubPlace = (place: SelectedPlace | null | undefined): boolean => !!place && HUB_PLACES.includes(place)
+
+/**
  * The place selected once the card in front is `front` (null: none), from
  * where it was (`was`: the place, and the card in front then).
  *
  *   nothing in front              home
  *   the same card as before       unchanged (it remounted, moved inside)
+ *   another card, opened from a   that hub (`fromHub`: the person's last
+ *   hub's panel                   press was in home's Recent or Inbox's
+ *                                 list), even a page's own card: a team chat
+ *                                 channel opened from Recent is Team chat's
+ *                                 card on that channel, and selecting Team
+ *                                 chat for it was the bug (Liam, 11-23)
  *   a page's own card             that page (a group member's: its group)
  *   another card, opened from     unchanged: a record opened from inside the
  *   inside the place on screen    page keeps it (`fromInside`: the person's
@@ -264,9 +283,11 @@ export function nextSelectedPlace(
   front: { id: string; spec: CardSpec } | null,
   fromInside: boolean,
   now: Date = new Date(),
+  fromHub: SelectedPlace | null = null,
 ): SelectedPlace {
   if (!front) return 'home'
   if (front.id === was.frontId) return was.place
+  if (fromHub && isHubPlace(fromHub)) return fromHub
   const own = pageOfCard(front.spec, now)
   if (own) return own
   return fromInside ? was.place : 'home'

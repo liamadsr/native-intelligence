@@ -1,0 +1,139 @@
+# Hubs: Home and Inbox open just the one item
+
+Branch `claude/hub-panels`. No migration. Merged is not live: see "How production works" in
+`CLAUDE.md`.
+
+## What the owner said (2026-11-23)
+
+> "I noticed an issue where the inbox page doesn't have a sub-menu panel and if you click on any
+> of the notifications like for mail or something then it loads that page without its side panel.
+> I also noticed that from the home page if I click on a chat history it loads the panel but also
+> navigates me to the team chat and I see the team chat sub-nav. The homepage is supposed to be an
+> easy access place nothing from the home page should open the full page that's so I can flip
+> through the recent things I've looked at"
+
+Asked how Inbox should work, they picked **"Like Home"**: Inbox gets a panel holding its list and
+its filter (All / Messages / Mentions & assignments / Mail / Held); clicking a notification opens
+just that item beside the list; the panel stays and J/K flips; nothing opens the full Mail or Team
+chat page.
+
+```
+[rail] | Inbox panel            | opened item
+       | All · Mail · Mentions  | ┌──────────────┐
+       | ● Backblaze Team       | │ Backblaze    │
+       |   American Express  ◀  | │ privacy note │
+       |   Mem0                 | │ (just this   │
+       |   Ava Steijger         | │  thread)     │
+```
+
+## Why it happened
+
+**Team chat from Home.** There is one team chat card. Opening a channel or a message from anywhere
+(`open-card.ts` `cardForTarget`, `{ type: 'team_chat', channelId }`) builds exactly the Team chat
+page's own card, `{ kind: 'team_chat', title: 'Team chat' }`, and puts the channel in its seed. The
+rail's selected place (`rail/selected-place.ts`, `rail-pages.ts` `nextSelectedPlace`) has the rule
+"a page's own card coming in front selects the page", and `ownPageOfCard` says, on purpose, that "a
+page's own card reused for a place inside it is still that page's". So a channel opened from
+Recent selected Team chat, lit its rail icon, swapped Recent for the Team chat sub-nav, and the card
+drew its channel list. The rule never asked where the open came from. Mail's own card has the same
+shape: a Mail card opened from a hub with Mail's page spec would have selected Mail too.
+
+**Inbox.** Inbox had no entry in `PAGE_PANELS`, so selecting it left the slot empty. Its card drew
+its own list, and a mail row opened a Mail card (`openTarget({ type: 'mail', threadId })`): the
+Mail page's list and reader, with no panel at all (Mail's sub-nav only shows when Mail is
+selected), while Inbox stayed lit in the rail. That is the owner's second screenshot.
+
+## The design
+
+### A hub
+
+Home and Inbox are **hubs** (`rail-pages.ts` `HUB_PLACES`). A hub's panel (home's Recent, Inbox's
+list) wears `data-hub-place` (`selected-place.ts` `HUB_PLACE_ATTR`, put on by
+`page-panel-frame.tsx`). The selected place already notes the person's last press (a pointer down
+or a key) to tell "opened from inside a page" apart; it now also notes which hub the press was in.
+`nextSelectedPlace` gains one rule, ahead of the page's-own-card rule: **a card that comes in
+front within a moment of a press in a hub's panel keeps that hub selected**, whatever card it is.
+
+| Opened by | Card in front | Selected |
+| --- | --- | --- |
+| A Recent row (click, Enter, J/K) | Team chat's card on a channel | Home (was Team chat: the bug) |
+| A Recent row | A record's card | Home (as before) |
+| Inbox's list | An event's card, a flow… | Inbox |
+| The rail's Team chat button | Team chat's own card | Team chat, with its sub-nav (unchanged) |
+| The rail's Mail button | Mail's own card | Mail, with its sub-nav (unchanged) |
+
+### Just the one item
+
+With a hub selected, from `md` up (`selected-place.ts` `useHubSingle`), a card in front shows
+just its one item:
+
+- **Team chat on a channel or a message**: that one conversation, no channel list
+  (`TeamChatView` `single`, laid out as beside the sub-nav). Opened on no channel, it is the page.
+- **Mail on a thread**: that thread alone, no folders, no search, no thread list
+  (`EmailLayout` `single`). A mail card on a folder (no thread) is still the list.
+- **Records** (doc, action, contact…) were already their own card: unchanged, beside Recent.
+- **An agent chat** opens in the read-only viewer over the page, as before: nothing leaves Home.
+  (We read the owner's "chat history" as the team chat channel rows in Recent, the case that
+  selected Team chat; an agent chat never did.)
+
+### Flipping, without stacking
+
+Every card opened is a card in the chat's thread. Flipping through ten records would have left ten
+cards. A hub's open now carries `flip` (`OpenCardRequest`, `openTarget`): in the chat
+(`chat-panel.tsx` `openCardHere`), when the card in front was itself put in by a hub, the new card
+takes its place and the old one is taken out of the thread. A card the person opened another way,
+or one already in the chat that a hub brought back, is never taken out. Team chat flips in place
+(one card, moved channel to channel).
+
+In Recent, with one of its rows open in front, J/K (and the arrows) move to the next row **and
+open it** there. A file or an agent chat (they open a viewer over the page) is only moved to;
+Enter opens it. The lit row follows the card in front; for a team chat card, which names no
+record, the panel remembers the row it opened (`page-panel/hub-open.ts`).
+
+### Inbox's panel
+
+`PAGE_PANELS.inbox` (`page-panel/inbox-panel.tsx`) holds the filter (small pills, with counts) and
+the list, then the keys' hint. The list, its filter, the row the keys are on and the item open are
+**one store** (`components/inbox/inbox-store.ts`), and the rows are one component
+(`inbox-view.tsx` `InboxList`), drawn by the panel and, where there is no panel, by the card: no
+copy of the list.
+
+- **Click or Enter** opens just that item. A conversation or a mail thread opens in the Inbox card,
+  alone (the same `single` views as Home), and the Inbox card is brought in front for it if
+  another card is. A record opens over the Inbox card (its record overlay). Anything else (an
+  event, a flow) opens its own card, `flip`ped. Never the Mail or Team chat page.
+- Inbox stays selected and lit; the open item's row is lit.
+- **J / K** move, and with an item open flip it; **E** done; **H** hold until tomorrow (Held:
+  brings it back); **Esc** closes the item.
+
+### Decisions to note
+
+1. **One filter, in one place.** While Inbox's panel is on screen the filter is the panel's and the
+   card's header has none. Whenever the panel isn't there (closed by its button, a capture's
+   notepad on the left, below `md`, the Inbox card inline in the chat) the card draws its own list
+   and the filter goes in its header, as PR #256 (commit ce95cc45) put it. Same filter, same
+   store: switching between them keeps the choice.
+2. **Inbox selected, nothing open:** the card area shows a quiet note, "Open something from the
+   list to see it here." with the keys' hint (or "Nothing needs you. You're all caught up."). Not
+   the first item auto-opened: opening reads it (marks it read), and we shouldn't do that unasked.
+3. **Phones (below `md`) are unchanged.** There is no panel there; the Inbox card keeps its list
+   and filter (a mail row now opens the thread inside the Inbox card rather than the Mail page,
+   which is the same fix), and Home's cards are as before (no `single`).
+4. **Closing an item card opened from Inbox** (an event, say) leaves nothing in front, which is
+   Home, as closing any card is. Conversations, threads and records stay inside the Inbox card, so
+   this only touches the rarer kinds.
+5. A card in front that came from Home's chat (a chip, the agent's mail card on a thread) also
+   shows as its one item while Home is selected, since Home is the hub. A mail card on a folder,
+   or Team chat's own page card, is the full page.
+
+## Tests
+
+- `rail/__tests__/rail-pages.test.ts`: a hub open keeps the hub (a page's own card included); a
+  rail press selects the page; the regression "team chat channel from Recent keeps Home".
+- `rail/__tests__/selected-place-hub.test.ts`: the same with real presses and keys through the store.
+- `page-panel/__tests__/inbox-panel.test.tsx`: the Inbox panel (registered, a hub's, filter and
+  list, opening a mail thread beside it, E / H, flipping with J/K).
+- `page-panel/__tests__/page-panel.test.tsx`: Recent flips with J/K (`flip`), and lights a team chat
+  channel's row.
+- `page-panel/__tests__/hub-open.test.ts`: which row is lit for a card that names no record.
+- `components/inbox/__tests__/inbox-filters-header.test.tsx` (existing): the header's filter.

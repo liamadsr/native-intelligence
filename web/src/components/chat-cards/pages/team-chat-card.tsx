@@ -11,9 +11,14 @@
  * beside the rail (Liam, 11-11: "make the team-chat one look like this";
  * ../team-chat-card-controls.ts), by this card's id, and the sub-nav puts
  * it full screen again when another card is in front.
+ *
+ * Opened on a channel or a message with a hub selected (home, Inbox: Liam,
+ * 11-23, "nothing from the home page should open the full page"), it is that
+ * one conversation alone (`single`), from `md` up.
  */
 import * as React from 'react'
 import { TeamChatView, type TeamChatFocus } from '@/app/account/(dashboard)/views/team-chat-view'
+import { useHubSingle } from '@/app/account/(dashboard)/rail/selected-place'
 import { usePagePlace, type PageCardProps } from './page-card'
 
 export default function TeamChatCard(props: PageCardProps) {
@@ -22,12 +27,17 @@ export default function TeamChatCard(props: PageCardProps) {
   // The view acts on its type and id only (a fresh object each render moves nothing).
   const focus: TeamChatFocus | null =
     at?.type === 'team_chat_message' ? { type: 'message', id: at.id } : at?.type === 'team_chat_channel' ? { type: 'channel', id: at.id } : null
+  // Opened from a hub (home's Recent, a chip, a notification; Inbox), full
+  // screen from `md` up: that one conversation, no channel list and no Team
+  // chat sub-nav (Liam, 11-23). The page itself (its rail button) is as it was.
+  const hub = useHubSingle()
+  const single = !!fullScreen && hub && focus !== null
   const showCard = React.useCallback(() => {
     if (store.fullScreen() !== toolCallId) store.enterFullScreen(toolCallId)
   }, [store, toolCallId])
   return (
     <div className="h-full min-h-0">
-      <TeamChatView onCount={onCount} compact={!fullScreen} focus={focus} cardId={toolCallId} onShowCard={showCard} />
+      <TeamChatView onCount={onCount} compact={!fullScreen} focus={focus} cardId={toolCallId} onShowCard={showCard} single={single} />
     </div>
   )
 }
