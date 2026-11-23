@@ -185,6 +185,27 @@ describe('Drive’s Files card', () => {
     expect(asked).toContain('GET /api/account/drive/chat-files?limit=50&tab=shared')
   })
 
+  it('in a card, Which files is a capsule in its header (Liam, 11-23), not a row over the list; a press there still switches', async () => {
+    const right = document.createElement('div')
+    document.body.append(right)
+    const { CardHeaderSlotsProvider } = await import('../card-header-slot')
+    await mount.render(
+      React.createElement(CardHeaderSlotsProvider, { value: { left: null, right } }, React.createElement(FilesCard, { toolCallId: 'files-1', spec, store: makeStore('files-1', spec), fullScreen: true })),
+    )
+    await settle()
+    const capsule = right.querySelector<HTMLElement>('[data-drive-tabs="header"]')!
+    expect(capsule.getAttribute('role')).toBe('radiogroup')
+    expect(Array.from(capsule.querySelectorAll('[data-drive-tab]')).map((b) => b.textContent)).toEqual(['All', 'My files', 'Recent', 'Shared with me'])
+    expect(q('[data-drive-tabs]')).toBeNull()
+    // The sources and choices stay over the list.
+    expect(q('[data-drive-source="upload"], [data-source-toggle="upload"], button')).not.toBeNull()
+    await act(async () => capsule.querySelector<HTMLButtonElement>('[data-drive-tab="mine"]')!.click())
+    await settle()
+    expect(asked).toContain('GET /api/account/files?limit=50&owner=mine')
+    expect(capsule.querySelector('[data-drive-tab="mine"]')!.getAttribute('aria-checked')).toBe('true')
+    right.remove()
+  })
+
   it('Recent lists what the person opened, most recent first', async () => {
     routes['/api/account/drive/opens'] = () => ({
       files: [

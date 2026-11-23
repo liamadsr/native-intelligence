@@ -6,6 +6,10 @@
  * button is the request: it spends unless the site was looked up in the
  * last 12 hours, and the header's spend line is right there. A site the
  * server can't use is said beside the field, never in a toast.
+ *
+ * In a card (`header`) it is the card header's (Liam, 11-23: "all the SEO
+ * pages"): a 24px field named for the old label, the choices, "Look up";
+ * the page says the field's error at its top.
  */
 import * as React from 'react'
 import { Loader2 } from 'lucide-react'
@@ -13,6 +17,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import type { SeoLocationOption } from '@/lib/seo/keywords/view'
+import { cn } from '@/lib/utils'
+import { SEO_HEADER_CHOICE, SEO_HEADER_FIELD, SEO_HEADER_HIDE_COUNTRY, SEO_HEADER_HIDE_LANGUAGE, SeoHeaderForm, SeoHeaderSubmit } from '../shared/header-controls'
 import type { Market } from './api'
 
 const TRIGGER = 'h-8 w-auto min-w-0 gap-1.5 rounded-md px-2.5 text-xs shadow-none'
@@ -27,6 +33,7 @@ export function StartControl({
   blockedReason,
   error,
   onSubmit,
+  header,
 }: {
   site: string
   onSite: (next: string) => void
@@ -39,12 +46,74 @@ export function StartControl({
   blockedReason: string | null
   error: string | null
   onSubmit: () => void
+  /** Drawn in the card's header, without its label and error line. */
+  header?: boolean
 }) {
   const location = market ? locations.find((l) => l.code === market.location_code) : undefined
   const languages = location?.languages ?? []
   const disabled = busy || !!blockedReason || !site.trim()
   const submit = () => {
     if (!disabled) onSubmit()
+  }
+  const pickCountry = (v: string) => {
+    const next = locations.find((l) => String(l.code) === v)
+    if (next) onMarket({ location_code: next.code, language_code: next.default_language })
+  }
+  if (header) {
+    return (
+      <SeoHeaderForm label="Look up a site" onSubmit={submit} data-seo-start-control="header">
+        <input
+          data-seo-site=""
+          value={site}
+          placeholder="example.com"
+          aria-label="Website address"
+          inputMode="url"
+          autoComplete="url"
+          spellCheck={false}
+          aria-invalid={error ? true : undefined}
+          onChange={(e) => onSite(e.target.value)}
+          className={SEO_HEADER_FIELD}
+        />
+        {locations.length > 0 && market && (
+          <>
+            <Select value={String(market.location_code)} onValueChange={pickCountry}>
+              <SelectTrigger data-seo-country="" aria-label="Country" title="The country whose Google results to read" className={cn(SEO_HEADER_CHOICE, SEO_HEADER_HIDE_COUNTRY)}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent align="end">
+                {locations.map((l) => (
+                  <SelectItem key={l.code} value={String(l.code)} className="text-xs">
+                    {l.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {languages.length > 1 && (
+              <Select value={market.language_code} onValueChange={(v) => onMarket({ location_code: market.location_code, language_code: v })}>
+                <SelectTrigger data-seo-language="" aria-label="Language" className={cn(SEO_HEADER_CHOICE, SEO_HEADER_HIDE_LANGUAGE)}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="end">
+                  {languages.map((l) => (
+                    <SelectItem key={l.code} value={l.code} className="text-xs">
+                      {l.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </>
+        )}
+        <SeoHeaderSubmit
+          data-seo-look-up=""
+          busy={busy}
+          disabled={disabled}
+          title={blockedReason ?? 'Look the site up: a small charge, unless it was looked up in the last 12 hours'}
+        >
+          Look up
+        </SeoHeaderSubmit>
+      </SeoHeaderForm>
+    )
   }
   return (
     <div data-seo-start-control="" className="w-full space-y-1.5">
@@ -72,13 +141,7 @@ export function StartControl({
         />
         {locations.length > 0 && market && (
           <div className="flex items-center gap-2">
-            <Select
-              value={String(market.location_code)}
-              onValueChange={(v) => {
-                const next = locations.find((l) => String(l.code) === v)
-                if (next) onMarket({ location_code: next.code, language_code: next.default_language })
-              }}
-            >
+            <Select value={String(market.location_code)} onValueChange={pickCountry}>
               <SelectTrigger data-seo-country="" aria-label="Country" title="The country whose Google results to read" className={TRIGGER}>
                 <SelectValue />
               </SelectTrigger>

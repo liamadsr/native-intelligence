@@ -9,6 +9,9 @@
  *   Header     "Keywords" and the month's search data spend (in a card,
  *              the card's header: its title, the spend at its right). No
  *              primary button: the research field is the page's main control.
+ *              In a card the header holds the research field too, while
+ *              Research is in force, and the two tabs as its capsule (Liam,
+ *              11-23: "all the SEO pages"): the page starts with the tab.
  *   Research   ./research-tab.tsx
  *   Saved      ./saved-tab.tsx (always mounted, so its count is known for
  *              the tab and the card header; hidden when not in force)
@@ -24,7 +27,7 @@ import { seoMarketOptions } from '@/lib/seo/keywords/view'
 import { cn } from '@/lib/utils'
 import { ViewHeader } from '../../views/view-header'
 import { SeoSpendLine, buyBlockedReason, useSeoData } from '../shared/data-status'
-import { useInCard } from '../shared/header-controls'
+import { SEO_HEADER_SPEND, useInCard } from '../shared/header-controls'
 import { TabPills } from '../shared/tab-pills'
 import { readStoredMarket, writeStoredMarket, type Market } from './keyword-helpers'
 import { ResearchTab } from './research-tab'
@@ -53,6 +56,8 @@ export function KeywordsPage({ tab, onTab, onCount }: KeywordsPageProps) {
   const [savedVersion, setSavedVersion] = React.useState(0)
   const [savedTotal, setSavedTotal] = React.useState<number | null>(null)
   const [serp, setSerp] = React.useState<SerpTarget | null>(null)
+  // In a card: where the research tab draws its start control, in the header.
+  const [formHost, setFormHost] = React.useState<HTMLElement | null>(null)
   const active: KeywordTab = tab === 'saved' ? 'saved' : 'research'
   const { refresh } = seoData
 
@@ -69,22 +74,41 @@ export function KeywordsPage({ tab, onTab, onCount }: KeywordsPageProps) {
     [onCount],
   )
 
+  const tabs = (
+    <TabPills
+      label="Keywords"
+      header={inCard}
+      className={inCard ? undefined : 'mt-1'}
+      value={active}
+      onChange={onTab}
+      tabs={[
+        { id: 'research', label: 'Research' },
+        { id: 'saved', label: 'Saved', count: savedTotal ?? undefined },
+      ]}
+    />
+  )
+
   return (
     <div data-kw-page="" className={cn('relative flex h-full min-h-0 flex-col', inCard && 'pt-2')}>
-      <ViewHeader title={<PageTitle label="Keywords" as="h1" />} actions={<SeoSpendLine view={seoData.view} />} />
+      <ViewHeader
+        title={<PageTitle label="Keywords" as="h1" />}
+        actions={
+          inCard ? (
+            <>
+              {active === 'research' && <span ref={setFormHost} data-kw-form-host="" className="contents" />}
+              <SeoSpendLine view={seoData.view} className={SEO_HEADER_SPEND} />
+              {tabs}
+            </>
+          ) : (
+            <SeoSpendLine view={seoData.view} />
+          )
+        }
+      />
       <div className="@container min-h-0 flex-1 overflow-y-auto px-5 pb-6">
-        <TabPills
-          label="Keywords"
-          className="mt-1"
-          value={active}
-          onChange={onTab}
-          tabs={[
-            { id: 'research', label: 'Research' },
-            { id: 'saved', label: 'Saved', count: savedTotal ?? undefined },
-          ]}
-        />
-        <div hidden={active !== 'research'} className="mt-4">
+        {!inCard && tabs}
+        <div hidden={active !== 'research'} className={inCard ? 'mt-1' : 'mt-4'}>
           <ResearchTab
+            header={inCard ? formHost : undefined}
             markets={markets}
             market={market}
             onMarket={pickMarket}
@@ -95,7 +119,7 @@ export function KeywordsPage({ tab, onTab, onCount }: KeywordsPageProps) {
             onSaved={() => setSavedVersion((v) => v + 1)}
           />
         </div>
-        <div hidden={active !== 'saved'} className="mt-4">
+        <div hidden={active !== 'saved'} className={inCard ? 'mt-1' : 'mt-4'}>
           <SavedTab
             market={market}
             version={savedVersion}

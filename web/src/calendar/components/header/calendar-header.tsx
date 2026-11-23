@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { AccountFilterDropdown } from "@/components/account-filter-dropdown";
 import { CardHeaderSlot, useCardHeaderSlots } from "@/components/chat-cards/card-header-slot";
-import { CARD_HEADER_ICON_BUTTON, CARD_HEADER_PILL_BUTTON } from "@/components/chat-cards/card-header-button";
+import { CARD_HEADER_CAPSULE, CARD_HEADER_ICON_BUTTON, CARD_HEADER_PILL_BUTTON } from "@/components/chat-cards/card-header-button";
 
 import { useCalendar } from "@/calendar/contexts/calendar-context";
 import { AddEventDialog } from "@/calendar/components/dialogs/add-event-dialog";
@@ -285,7 +285,7 @@ function CardCalendarHeader({
             </button>
           </AddEventDialog>
           {/* The views: a capsule of segments, the one in use lifted, as the layout switcher's in every list's header. */}
-          <div role="group" aria-label="View" className="flex h-6 shrink-0 items-center overflow-hidden rounded-full bg-foreground/[0.05]">
+          <div role="group" aria-label="View" className={CARD_HEADER_CAPSULE}>
             {viewButtons.map((btn) => {
               const Icon = btn.icon;
               return (

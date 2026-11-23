@@ -202,6 +202,24 @@ describe('ReviewsCard', () => {
     expect(q('[data-record-panel="action:act-1"]')).not.toBeNull()
   })
 
+  it('in a card, an action opened from a pull request covers it: only one page\'s section tabs stand in the header (a review, 11-23)', async () => {
+    const right = document.createElement('div')
+    document.body.append(right)
+    const { CardHeaderSlotsProvider } = await import('../card-header-slot')
+    await mount.render(
+      React.createElement(CardHeaderSlotsProvider, { value: { left: null, right } }, React.createElement(ReviewsCard, { toolCallId: 'rev-1', spec, store: makeStore('rev-1', spec), fullScreen: true })),
+    )
+    await settle()
+    await click(row('acme/app#1'))
+    // The pull request's sections in the header.
+    expect(right.querySelectorAll('[data-detail-tabs="header"] [data-reviews-tab]').length).toBe(3)
+    await click('[data-reviews-linked="act-1"]')
+    expect(q('[data-record-panel="action:act-1"]')).not.toBeNull()
+    // Covered: its tabs leave the header while the action is over it.
+    expect(right.querySelector('[data-reviews-tab]')).toBeNull()
+    right.remove()
+  })
+
   it('steps to the next pull request from the open one', async () => {
     await render()
     await click(row('acme/app#1'))

@@ -53,6 +53,7 @@ import { PRIORITY_OPTIONS } from '@/lib/views/property-options'
 import { EntityTitleInput } from '@/components/views/entity-title-input'
 import { usePropertiesVisible } from '@/components/views/use-properties-visible'
 import { WindowProperties, WindowActions } from '@/components/views/window-properties'
+import { DetailTabsInHeader, useDetailTabsInHeader } from '@/components/chat-cards/detail-tabs'
 import { CreateHereButton } from '@/components/create/create-here-button'
 import { UnifiedViewLayout, useIsWindowFocused } from '@/components/views/unified-view-layout'
 import { PropertyGroup } from '@/components/views/property-group'
@@ -196,6 +197,7 @@ export function InitiativeDetailPanel({
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [activeTab, setActiveTab] = usePanelSection<InitiativeSection>(section, onSectionChange, 'overview', INITIATIVE_SECTIONS)
+  const tabsInHeader = useDetailTabsInHeader()
   // The page-level inspector owns visibility; standalone panels use their width.
   const panelBodyRef = useRef<HTMLDivElement>(null)
   const propertiesOpen = usePropertiesVisible(panelBodyRef)
@@ -517,7 +519,21 @@ export function InitiativeDetailPanel({
           a row's checkbox stand on, left of the content line (Liam, 11-21:
           "the pills should be more to the left"; view-toolbar.tsx
           alignToContent); 48px tall, its end where a row's content ends. */}
-      <div data-detail-tabs="" className="flex h-12 shrink-0 items-center pl-[18px] pr-[17px]">
+      {/* In a card, the sections are a capsule in the card's header and this
+          row keeps only what is left in it (Liam, 11-23: "these details view
+          pages … that show the different pages at the top … feel out of
+          place"); empty (the actions in the Properties popover), it is gone. */}
+      <DetailTabsInHeader
+        label="Initiative"
+        tabs={INITIATIVE_SECTIONS.map(tab => ({
+          id: tab,
+          label: tab.charAt(0).toUpperCase() + tab.slice(1),
+        }))}
+        value={activeTab}
+        onChange={setActiveTab}
+      />
+      <div data-detail-tabs="" className="flex h-12 shrink-0 items-center pl-[18px] pr-[17px] empty:hidden">
+        {!tabsInHeader && (
         <div className="flex items-center gap-1">
           {INITIATIVE_SECTIONS.map(tab => (
             <button
@@ -534,6 +550,7 @@ export function InitiativeDetailPanel({
             </button>
           ))}
         </div>
+        )}
         <WindowActions reveal={reminderOpen} className="ml-auto flex items-center gap-1">
           {saving && <span className="text-xs text-muted-foreground">Saving...</span>}
           {/* Remind me — the same picker ⇧H opens, anchored on its own button so
@@ -666,7 +683,7 @@ export function InitiativeDetailPanel({
 
           {activeTab === 'agents' && (
             <ScrollArea className="h-full">
-              <div className="pl-10 pr-3.5">
+              <div className={cn('pl-10 pr-3.5', tabsInHeader && 'pt-4')}>
                 <EntityActivitySection entityType="initiative" entityId={initiativeId} />
               </div>
             </ScrollArea>

@@ -41,6 +41,7 @@ import { setRightPanelOpen, setSidePanelView } from '@/app/account/(dashboard)/s
 import { HOLD_CHOICES, INBOX_FILTERS, holdChoiceLabel, holdUntil, type HoldChoice, type InboxFilter, type InboxItem } from '@/lib/inbox/items'
 import type { CardRecordType } from '@/lib/chat-cards/kinds'
 import { CardHeaderSlot, useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
+import { CARD_HEADER_CAPSULE, CARD_HEADER_SEGMENT } from '@/components/chat-cards/card-header-button'
 import { keepFocusAfterFlip } from '@/app/account/(dashboard)/page-panel/hub-open'
 import {
   closeInboxItem,
@@ -183,7 +184,7 @@ export function InboxFilters({ s, variant }: { s: InboxState; variant: 'header' 
     )
   }
   return (
-    <div role="tablist" aria-label="Show" data-inbox-filters="header" className="flex h-6 shrink-0 items-center overflow-hidden rounded-full bg-foreground/[0.05]">
+    <div role="tablist" aria-label="Show" data-inbox-filters="header" className={CARD_HEADER_CAPSULE}>
       {INBOX_FILTERS.map((f) => (
         <button
           key={f}
@@ -193,7 +194,7 @@ export function InboxFilters({ s, variant }: { s: InboxState; variant: 'header' 
           data-inbox-filter={f}
           title={FILTER_LABELS[f]}
           onClick={() => setInboxFilter(f)}
-          className="flex h-full items-center whitespace-nowrap px-2.5 text-xs text-muted-foreground transition-colors hover:bg-foreground/[0.05] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring aria-selected:bg-foreground/[0.1] aria-selected:font-medium aria-selected:text-foreground motion-reduce:transition-none"
+          className={CARD_HEADER_SEGMENT}
         >
           {SHORT_LABELS[f] ? (
             <>

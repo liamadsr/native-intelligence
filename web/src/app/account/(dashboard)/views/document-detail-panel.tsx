@@ -77,6 +77,7 @@ import { SelectionPopover } from '@/components/inline-comments/selection-popover
 import { EntityTitleInput } from '@/components/views/entity-title-input'
 import { usePropertiesVisible } from '@/components/views/use-properties-visible'
 import { WindowProperties, WindowActions } from '@/components/views/window-properties'
+import { DetailTabsInHeader, useDetailTabsInHeader } from '@/components/chat-cards/detail-tabs'
 import { ProjectPanelField, type ProjectOption as PickerProjectOption } from '@/components/views/properties'
 import { ActivityRow } from '@/components/views/activity-row'
 import { InlineCommentPopover } from '@/components/inline-comments/inline-comment-popover'
@@ -312,6 +313,8 @@ export function DocumentDetailPanel({
   const panelBodyRef = useRef<HTMLDivElement>(null)
   const sidebarOpen = usePropertiesVisible(panelBodyRef)
   const [activeSection, setActiveSection] = usePanelSection<DocumentSection>(section, onSectionChange, 'overview', DOCUMENT_SECTIONS)
+  // In a card the sections are a capsule in the card's header (DetailTabsInHeader below).
+  const tabsInHeader = useDetailTabsInHeader()
 
 
   // Fetch projects for picker
@@ -928,8 +931,19 @@ export function DocumentDetailPanel({
 
   return (
     <div className="flex h-full flex-col">
+      {/* In a card, the sections are a capsule in the card's header, and this
+          row keeps only what is left in it (Liam, 11-23: "these details view
+          pages … that show the different pages at the top … feel out of
+          place"); empty (the actions in the Properties popover), it is gone. */}
+      <DetailTabsInHeader
+        label="Document"
+        tabs={DOCUMENT_SECTIONS.map((tab) => ({ id: tab, label: SECTION_LABELS[tab] }))}
+        value={activeSection}
+        onChange={setActiveSection}
+      />
       {/* Header */}
-      <div className="flex h-10 shrink-0 items-center px-5">
+      <div className="flex h-10 shrink-0 items-center px-5 empty:hidden">
+        {!tabsInHeader && (
         <div className="flex shrink-0 items-center gap-1">
           {DOCUMENT_SECTIONS.map((tab) => (
             <button
@@ -947,6 +961,7 @@ export function DocumentDetailPanel({
             </button>
           ))}
         </div>
+        )}
         <WindowActions className="ml-auto flex items-center gap-1">
           {/* Visibility is creator-only and only offered in shared workspaces;
               a system document is never private (migration 369). */}
@@ -1267,7 +1282,7 @@ export function DocumentDetailPanel({
 
       {activeSection === 'agents' && (
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-[736px] px-8">
+          <div className={cn('mx-auto w-full max-w-[736px] px-8', tabsInHeader && 'pt-4')}>
             <EntityActivitySection entityType="document" entityId={documentId} />
           </div>
         </div>
@@ -1275,7 +1290,7 @@ export function DocumentDetailPanel({
 
       {activeSection === 'history' && (
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-[736px] px-8">
+          <div className={cn('mx-auto w-full max-w-[736px] px-8', tabsInHeader && 'pt-4')}>
             <DocumentHistory
               documentId={documentId}
               currentRevision={doc.revision ?? null}

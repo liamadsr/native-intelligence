@@ -12,6 +12,9 @@
  *   Reviews       its Google reviews, read on request (./reviews-tab.tsx);
  *                 what was read stays while the tabs change
  *
+ * In a card the three tabs are its header's, a capsule before the spend
+ * line and the menu (Liam, 11-23: "all the SEO pages").
+ *
  * The "…" menu removes the business (ConfirmDialog, never window.confirm).
  * A spend limit or lookups turning out to be off is a neutral banner under
  * the header: the page stays usable.
@@ -163,6 +166,22 @@ export function BusinessDetail({
   const name = business?.title ?? label ?? 'Business'
   const activeTab: BusinessTab = tab && (BUSINESS_TABS as readonly string[]).includes(tab) ? (tab as BusinessTab) : BUSINESS_TABS[0]
 
+  // Drawn with the business, as the page's body is (a reply without it shows the loader).
+  const tabs = detail && business ? (
+    <TabPills
+      header={inCard}
+      className={inCard ? undefined : 'mt-1'}
+      label="Business"
+      tabs={[
+        { id: 'grid', label: 'Map rankings', count: detail.grids.length > 1 ? detail.grids.length : undefined },
+        { id: 'profile', label: 'Profile' },
+        { id: 'reviews', label: 'Reviews', count: reviews?.data?.reviews.length },
+      ]}
+      value={activeTab}
+      onChange={onTab}
+    />
+  ) : null
+
   const header = (
     <ViewHeader
       className="gap-3"
@@ -181,6 +200,7 @@ export function BusinessDetail({
       actions={
         business ? (
           <>
+            {inCard && tabs}
             {/* The header gives way by truncating the name, so the spend line stays there; the page's own row hides it when narrow. */}
             <SeoSpendLine view={seo.view} className={inCard ? 'mr-1' : 'mr-1 hidden @lg/local:inline'} />
             <Popover open={menuOpen} onOpenChange={setMenuOpen}>
@@ -230,18 +250,8 @@ export function BusinessDetail({
       {notice && <NoticeBanner text={notice} className="mx-5 mb-2" />}
 
       <div className="@container min-h-0 flex-1 overflow-y-auto px-5 pb-6">
-        <TabPills
-          className="mt-1"
-          label="Business"
-          tabs={[
-            { id: 'grid', label: 'Map rankings', count: detail.grids.length > 1 ? detail.grids.length : undefined },
-            { id: 'profile', label: 'Profile' },
-            { id: 'reviews', label: 'Reviews', count: reviews?.data?.reviews.length },
-          ]}
-          value={activeTab}
-          onChange={onTab}
-        />
-        <div className="mt-4">
+        {!inCard && tabs}
+        <div className={inCard ? 'mt-1' : 'mt-4'}>
           {activeTab === 'profile' ? (
             <ProfileTab profile={detail.profile} blocked={blocked} busy={refreshing} onRead={() => void readProfile()} />
           ) : activeTab === 'reviews' ? (
