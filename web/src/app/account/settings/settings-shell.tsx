@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Bug, CreditCard, Mic, Link2, Building2, User, UserCircle, Tag, Mail, Terminal, Cpu, MessageSquare, MessageSquareText, Server, AudioWaveform, Sparkles, Lightbulb, SpellCheck, Keyboard, SlidersHorizontal, TextQuote } from 'lucide-react'
+import { ArrowLeft, Bug, CreditCard, Mic, Link2, Building2, User, UserCircle, Tag, Mail, Terminal, Cpu, MessageSquare, MessageSquareText, Server, AudioWaveform, Sparkles, Lightbulb, SpellCheck, Keyboard, SlidersHorizontal, TextQuote, Upload } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { navRowClass, navSectionLabelClass } from '@/lib/nav-styles'
 import { useIsDesktop } from '@/components/desktop-titlebar'
@@ -61,6 +61,8 @@ const navSections: NavSection[] = [
     items: [
       // Integrations and outbound MCP servers, one list (Claude's Connectors).
       { href: '/account/settings/connectors', label: 'Connectors', icon: Link2 },
+      // Tasks from a CSV, Linear issues, a Notion export (docs/plans/imports.md).
+      { href: '/account/settings/import', label: 'Import', icon: Upload },
       // Native Intelligence as an MCP server, for Claude Code / Cursor.
       { href: '/account/settings/mcp', label: 'NI MCP', icon: Terminal },
       { href: '/account/settings/environments', label: 'Environments', icon: Server },

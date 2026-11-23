@@ -287,6 +287,8 @@ export const WORK_KINDS = {
   crmEnrichment: 'crm_enrichment',
   crmImport: 'crm_import',
   emailImport: 'email_import',
+  /** A task CSV, Linear or Notion import, and its undo (src/lib/imports/ledger.ts, migration 704). */
+  workImport: 'work_import',
   /** A finished (or failed) Studio export delivered to whoever asked (src/lib/studio/server/delivery.ts). */
   studioExport: 'studio_export',
 } as const

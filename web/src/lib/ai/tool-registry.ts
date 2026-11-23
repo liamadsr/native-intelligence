@@ -398,6 +398,11 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       { name: 'import_stripe_customers', sideEffect: 'internal-write', writeTarget: 'crm', label: 'Import Stripe Customers', description: 'Import the customers of their connected Stripe account, with their payments: deduped, undoable as a whole; nothing goes out, nothing in Stripe changes' },
       { name: 'list_contact_imports', sideEffect: 'read', label: 'List Contact Imports', description: 'Their recent imports of existing customers (files and app exports, Google Contacts, HubSpot, Brevo, Stripe) with counts and the contacts to check' },
       { name: 'undo_contact_import', sideEffect: 'delete', label: 'Undo Contact Import', description: 'Take one import back as a whole: the contacts it added are removed, what it changed goes back; edits since stay' },
+      // Work from other tools (docs/plans/imports.md, src/lib/ai/tools/imports.ts). Staging writes only the
+      // import's own journal (a preview); the person runs and undoes it on the preview page, never the agent.
+      { name: 'stage_import_from_file', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Prepare Import', description: 'Read a task CSV or a Notion export the person gave you and prepare an import: a preview they run from the Import page; nothing is made' },
+      { name: 'stage_linear_import', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Prepare Linear Import', description: 'Prepare an import of issues from the connected Linear: a preview they run from the Import page; nothing is made' },
+      { name: 'list_imports', sideEffect: 'read', label: 'List Imports', description: 'Their recent imports of tasks, Linear issues and Notion pages, with status, summary and the page to open each' },
       { name: 'update_contact', sideEffect: 'internal-write', writeTarget: 'crm', label: 'Update Contact', description: 'Edit contact details' },
       { name: 'update_crm_contact', sideEffect: 'internal-write', writeTarget: 'crm', label: 'Update CRM', description: 'Update CRM relationship fields' },
       // internal-write: one paid web search (counted as a read, like web research) whose
@@ -1581,6 +1586,10 @@ const NON_PREFIX_MUTATING_TOOLS: string[] = [
   // Imports a contact file into the CRM (roadmap track G), or a connected Stripe's customers (#10). `import_` is not a write verb.
   'import_contact_file',
   'import_stripe_customers',
+  // Prepares (stages) an import of tasks, Linear issues or a Notion export: its journal only, a preview
+  // the person runs from the Import page (docs/plans/imports.md). `stage_` is not a write verb.
+  'stage_import_from_file',
+  'stage_linear_import',
   // A business's website (roadmap track E): connect_website saves the site and its project; the
   // other two open a pull request on its repo. None of `connect_`, `wire_`, `change_` is a write verb.
   'connect_website',

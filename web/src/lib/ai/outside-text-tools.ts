@@ -81,6 +81,24 @@ export const OUTSIDE_TEXT_TOOLS: Readonly<Record<string, OutsideTextTool>> = {
     fence: ['wrapUntrusted'],
     note: "a contacts file's column headers and sample values (a spreadsheet or vCard someone sent)",
   },
+  stage_import_from_file: {
+    file: 'src/lib/ai/tools/imports.ts',
+    kind: 'FILE',
+    fence: ['wrapUntrusted'],
+    note: "a task file's or Notion export's own words in the preview: titles, headers, page and project names",
+  },
+  stage_linear_import: {
+    file: 'src/lib/ai/tools/imports.ts',
+    kind: 'FILE',
+    fence: ['wrapUntrusted'],
+    note: "Linear's issue titles, team, label and project names in the preview",
+  },
+  list_imports: {
+    file: 'src/lib/ai/tools/imports.ts',
+    kind: 'FILE',
+    fence: ['wrapUntrusted'],
+    note: "an import's file name and, for one import, its preview's titles and names",
+  },
   read_chat_file: {
     file: 'src/lib/ai/tools/attachments.ts',
     kind: 'FILE',
