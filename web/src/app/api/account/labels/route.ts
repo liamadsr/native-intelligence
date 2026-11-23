@@ -1,10 +1,11 @@
 import { requireWorkspace } from '@/lib/api-auth'
 import { apiError, badRequest, serverError } from '@/lib/api-errors'
 import { NextResponse, type NextRequest } from 'next/server'
+import { cleanScopes, isScope, LABEL_FIELDS, labelWriteError, toLabelResponse, type LabelRow } from '@/lib/tags/label-rows'
+import { isTagColor, TAG_DEFAULT_COLOR } from '@/lib/tags/palette'
 
-const LABEL_FIELDS = 'id, name, color, group_name, scopes, created_at'
-
-const VALID_SCOPES = ['action', 'email_thread', 'project', 'initiative', 'capture']
+// Labels are tags (docs/plans/tags.md). Row-level security returns the
+// workspace's tags and the caller's own personal ones (migration 700).
 
 export async function GET(request: NextRequest) {
   const auth = await requireWorkspace()
@@ -19,7 +20,7 @@ export async function GET(request: NextRequest) {
     .eq('workspace_id', workspaceId)
 
   // Filter by scope: return labels that are universal (scopes IS NULL) or include the requested scope
-  if (scope && VALID_SCOPES.includes(scope)) {
+  if (isScope(scope)) {
     query = query.or(`scopes.is.null,scopes.cs.{${scope}}`)
   }
 
@@ -29,39 +30,41 @@ export async function GET(request: NextRequest) {
 
   if (error) return serverError(error.message)
 
-  return NextResponse.json({ labels: data || [] })
+  return NextResponse.json({ labels: ((data ?? []) as LabelRow[]).map(toLabelResponse) })
 }
 
 export async function POST(request: NextRequest) {
   const auth = await requireWorkspace()
   if (auth instanceof Response) return auth
-  const { supabase, workspaceId } = auth
+  const { supabase, user, workspaceId } = auth
 
-  const body = await request.json()
-  const name = (body.name || '').trim()
+  const body = await request.json().catch(() => ({}))
+  const name = typeof body.name === 'string' ? body.name.trim() : ''
 
   if (!name) return badRequest('Name is required')
+  if (body.color !== undefined && !isTagColor(body.color)) return badRequest('A tag color is #rrggbb')
 
   const { data, error } = await supabase
     .from('label')
     .insert({
       workspace_id: workspaceId,
       name,
-      color: body.color || '#6b7280',
+      color: body.color || TAG_DEFAULT_COLOR,
       group_name: body.group_name || null,
-      scopes: Array.isArray(body.scopes) && body.scopes.length > 0
-        ? body.scopes.filter((s: string) => VALID_SCOPES.includes(s))
-        : null,
+      scopes: cleanScopes(body.scopes),
+      // A personal tag: only its maker sees it.
+      owner_user_id: body.personal === true ? user.id : null,
     })
     .select(LABEL_FIELDS)
     .single()
 
   if (error) {
-    if (error.code === '23505') {
-      return apiError('A label with that name already exists', { status: 409, code: 'CONFLICT' })
+    const known = labelWriteError(error.code)
+    if (known) {
+      return apiError(known.message, { status: known.status, code: known.status === 409 ? 'CONFLICT' : undefined })
     }
     return serverError(error.message)
   }
 
-  return NextResponse.json({ label: data })
+  return NextResponse.json({ label: toLabelResponse(data as LabelRow) })
 }

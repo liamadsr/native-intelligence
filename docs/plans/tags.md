@@ -263,7 +263,9 @@ Each phase ends tested (typecheck 0, full vitest 0 failed) and is pushed only th
    - The menu: matching tags (personal marked), then "Create #name". Create opens a small
      color and personal/shared step, defaulting to shared and the next palette color.
    - In a record's own text (document body, action, project and initiative descriptions,
-     contact notes, capture notes), saving attaches every tag pill new to the text.
+     contact notes, capture notes), a pick tags the record at once, through the route above.
+     A server-side save also attaches any pill new to the text (`addedTextTagIds`), for text
+     written by agents.
    - Elsewhere (chat, comments): the pill opens the tag's list and tags nothing.
    - `;` is not touched.
 3. **Pills and properties.**
@@ -295,10 +297,13 @@ Each phase ends tested (typecheck 0, full vitest 0 failed) and is pushed only th
 
 ### API
 
-- `GET /api/account/tags?kind=&q=`: the caller's tags (workspace and own personal).
-- `POST /api/account/tags {name, color?, personal?}`.
-- `GET|PUT|POST|DELETE /api/account/tags/on/[kind]/[id]` (PUT replaces the set). One route
-  for every kind, through `TAGGABLE`.
+- The existing `GET|POST /api/account/labels` and `PATCH|DELETE /api/account/labels/[id]`
+  stay the tag list. No second list route. After 700 their reads return only what RLS shows
+  (workspace tags and the caller's own). Changes: `personal` and `owner_user_id` in the rows,
+  `personal: true` on POST, and every taggable kind accepted as a `scope`.
+  `useScopedLabels` stays the one client cache.
+- New: `GET|PUT|POST|DELETE /api/account/tags/on/[kind]/[id]` (PUT replaces the set). One
+  route for every kind, through `TAGGABLE`. No per-kind route exists for the new kinds.
 - The existing per-kind label routes keep working, so old desktop builds and the iOS app don't
   break.
 

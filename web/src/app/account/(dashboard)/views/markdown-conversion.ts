@@ -2,11 +2,15 @@ import { parseTableLink, tableLink } from '@/lib/tables/embed'
 import type { JSONContent } from 'novel'
 import { mentionMarkdown } from '@/lib/documents/mention-markdown'
 import { isMentionableType } from '@/lib/entity-links/mentionable'
+import { tagMarkdown } from '@/lib/tags/markdown'
 
 // --- Markdown <-> JSONContent conversion ---
 
 /** The editor's node for a record @-mentioned in the text (src/components/editor/record-mention.ts). */
 export const RECORD_MENTION_NODE = 'recordMention'
+
+/** The editor's node for a tag typed with `#` (src/components/editor/tag-suggestion.ts). */
+export const TAG_NODE = 'tagPill'
 
 /** Optional proposal change map for resolving <!-- proposal:ID --> markers */
 export interface ProposalChangeRef {
@@ -518,7 +522,7 @@ function parseInlineMarkdown(text: string): JSONContent[] {
   // A record mention (`[@Maya Chen](mention://contact/<id>)`,
   // src/lib/documents/mention-markdown.ts) is a chip, matched in place like
   // the rest: inside bold it is bold, inside backticks it stays code text.
-  const regex = /(\[([^\]\n]+)\]\(((?:https?:\/\/|mailto:|\/)[^)\s]*)\)|\*\*(.+?)\*\*|__(.+?)__(?![\p{L}\p{N}_])|_(.+?)_(?![\p{L}\p{N}_])|\*(.+?)\*|`(.+?)`|~~(.+?)~~|\[@([^\]\n]{1,200})\]\(mention:\/\/([a-z_]+)\/([0-9a-fA-F-]{36})\))/gu
+  const regex = /(\[([^\]\n]+)\]\(((?:https?:\/\/|mailto:|\/)[^)\s]*)\)|\*\*(.+?)\*\*|__(.+?)__(?![\p{L}\p{N}_])|_(.+?)_(?![\p{L}\p{N}_])|\*(.+?)\*|`(.+?)`|~~(.+?)~~|\[@([^\]\n]{1,200})\]\(mention:\/\/([a-z_]+)\/([0-9a-fA-F-]{36})\)|\[#([^\]\n]{1,80})\]\(tag:\/\/([0-9a-fA-F-]{36})\))/gu
   let lastIndex = 0
   let match: RegExpExecArray | null
 
@@ -561,6 +565,9 @@ function parseInlineMarkdown(text: string): JSONContent[] {
           ? { type: RECORD_MENTION_NODE, attrs: { kind: match[11], id: match[12].toLowerCase(), label: match[10].trim() } }
           : { type: 'text', text: match[0] },
       )
+    } else if (match[13] && match[14]) {
+      // A tag typed with `#` (src/lib/tags/markdown.ts)
+      nodes.push({ type: TAG_NODE, attrs: { id: match[14].toLowerCase(), name: match[13].trim() } })
     }
 
     lastIndex = match.index + match[0].length
@@ -744,6 +751,9 @@ function wrapMarks(text: string, marks: JSONContent['marks']): string {
 
 /** A record mention's markdown, without its marks; null for a node that isn't a whole one. */
 function mentionNodeMarkdown(node: JSONContent): string | null {
+  if (node.type === TAG_NODE) {
+    return typeof node.attrs?.id === 'string' ? tagMarkdown({ id: node.attrs.id, name: String(node.attrs.name ?? '') }) : null
+  }
   if (node.type !== RECORD_MENTION_NODE || !isMentionableType(node.attrs?.kind) || typeof node.attrs?.id !== 'string') return null
   return mentionMarkdown({ type: node.attrs.kind, id: node.attrs.id, label: String(node.attrs.label ?? '') })
 }
@@ -771,7 +781,7 @@ function inlineToMarkdown(content?: JSONContent[]): string {
       let j = i
       while (j < content.length && runKey(content[j]) === key) j++
       const run = content.slice(i, j)
-      if (run.some((n) => n.type === RECORD_MENTION_NODE)) {
+      if (run.some((n) => n.type === RECORD_MENTION_NODE || n.type === TAG_NODE)) {
         const words = run.map((n) => (n.type === 'text' ? (n.text ?? '') : (mentionNodeMarkdown(n) ?? ''))).join('')
         out.push(wrapMarks(words, node.marks))
         i = j - 1

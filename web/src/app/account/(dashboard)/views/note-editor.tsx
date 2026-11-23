@@ -38,6 +38,9 @@ import { LinkPreviewNode } from '@/components/editor/link-preview-extension'
 import { TableEmbedNode } from '@/components/editor/table-embed-extension'
 import { RecordMention, RecordMentionSuggestion, createMentionSuggestionStore } from '@/components/editor/record-mention'
 import { RecordMentionMenu } from '@/components/editor/record-mention-menu'
+import { TagPill, TagSuggestion, createTagSuggestionStore, type PickedTag } from '@/components/editor/tag-suggestion'
+import { TagMenu } from '@/components/editor/tag-menu'
+import type { LabelScope } from '@/lib/labels/utils'
 import { EDITOR_LINK_CLASS, UrlLinkDecorations } from '@/components/editor/url-link-decorations'
 import { pasteUrlTransaction } from '@/components/editor/paste-url'
 import { ReadAloudSections } from '@/components/editor/read-aloud-sections-extension'
@@ -221,6 +224,8 @@ const defaultExtensions = [
   TableEmbedNode,
   // A record @-mentioned in the body, drawn as a chip in every editor (the `@` picker is the documents': record-mention.ts).
   RecordMention,
+  // A tag typed with `#`, drawn as a pill in every editor (the `#` menu is per editor: tag-suggestion.ts).
+  TagPill,
 ]
 
 
@@ -422,6 +427,13 @@ export interface NoteEditorProps {
    * notes editors). Read once, when the editor is created.
    */
   recordMentions?: boolean
+  /**
+   * `#` in the body: the tag menu (TagMenu), inserting a tag's pill (saved as
+   * `[#name](tag://id)`). `onPick` is told each pick, so a record's own text can
+   * tag the record. `scope` narrows the menu to the tags meant for that kind.
+   * Off by default. Read once, when the editor is created.
+   */
+  tagging?: { scope?: LabelScope; onPick?: (tag: PickedTag) => void }
 }
 
 export function NoteEditor({
@@ -442,6 +454,7 @@ export function NoteEditor({
   proposalRefs,
   readAloudSections = true,
   recordMentions = false,
+  tagging,
 }: NoteEditorProps) {
   const [openNode, setOpenNode] = useState(false)
   const [openLink, setOpenLink] = useState(false)
@@ -954,6 +967,19 @@ export function NoteEditor({
     [],
   )
 
+  // `#` in the body: the tag menu (TagMenu, below), joined to its plugin by a
+  // store. The pick callback is read through a ref, so the latest one runs.
+  const [tagStore] = useState(createTagSuggestionStore)
+  const tagPickRef = useRef(tagging?.onPick)
+  tagPickRef.current = tagging?.onPick
+  const [taggingOn] = useState(() => Boolean(tagging))
+  const tagExtension = useMemo(
+    () => (taggingOn ? [TagSuggestion.configure({ store: tagStore, onPick: (tag: PickedTag) => tagPickRef.current?.(tag) })] : []),
+    // Read at creation, like the rest of the extension list.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  )
+
   const extensions = useMemo(
     () => {
       if (placeholderText) {
@@ -976,12 +1002,20 @@ export function NoteEditor({
           slashCommand,
           ...readAloudSectionsExtension,
           ...mentionExtension,
+          ...tagExtension,
           ...(extraExtensions || []),
         ]
       }
-      return [...defaultExtensions, slashCommand, ...readAloudSectionsExtension, ...mentionExtension, ...(extraExtensions || [])]
+      return [
+        ...defaultExtensions,
+        slashCommand,
+        ...readAloudSectionsExtension,
+        ...mentionExtension,
+        ...tagExtension,
+        ...(extraExtensions || []),
+      ]
     },
-    [slashCommand, readAloudSectionsExtension, mentionExtension, extraExtensions, placeholderText],
+    [slashCommand, readAloudSectionsExtension, mentionExtension, tagExtension, extraExtensions, placeholderText],
   )
 
   return (
@@ -1196,6 +1230,7 @@ export function NoteEditor({
       {/* The `@` picker (drawn only while an `@…` is open; it portals and
           positions itself under the caret). */}
       {recordMentions && <RecordMentionMenu store={mentionStore} />}
+      {taggingOn && <TagMenu store={tagStore} scope={tagging?.scope} />}
     </div>
   )
 }
