@@ -19,11 +19,13 @@ import { MEETING_RECENT_MS } from '@/lib/meeting-links/section'
 import {
   TEAM_CHAT_MESSAGE_COLUMNS,
   TEAM_CHAT_MESSAGE_COLUMNS_BEFORE_703,
+  TEAM_CHAT_MESSAGE_COLUMNS_BEFORE_715,
   TEAM_CHAT_PAGE_SIZE,
   TEAM_CHAT_THREAD_MAX,
   dmOtherMember,
   type TeamChatAttachment,
   type TeamChatChannel,
+  type TeamChatChannelKind,
   type TeamChatMessage,
   type TeamChatReaction,
   type TeamChatRecordMention,
@@ -57,19 +59,26 @@ export function teamChatErrorOf(error: { code?: string; message?: string } | nul
 }
 
 /**
- * The columns a message is read with: with poll_id once migration 703 is
- * there, without it before (so a deploy that lands ahead of 703 still reads
- * team chat). Asked once per server process and kept once it is there; a
- * "not yet" is asked again after a minute.
+ * The columns a message is read with: every one once migrations 703 (poll_id)
+ * and 715 (the support_* columns) are there, without the ones that aren't
+ * yet (so a deploy that lands ahead of either still reads team chat). Asked
+ * once per server process and kept once both are there; a "not yet" is asked
+ * again after a minute.
  */
-let pollColumn: { at: number; there: boolean } | null = null
+let pollColumn: { at: number; columns: string } | null = null
 export async function messageColumns(supabase: SupabaseClient, now: number = Date.now()): Promise<string> {
-  if (pollColumn?.there) return TEAM_CHAT_MESSAGE_COLUMNS
-  if (pollColumn && now - pollColumn.at < 60_000) return TEAM_CHAT_MESSAGE_COLUMNS_BEFORE_703
-  const { error } = await supabase.from('team_chat_message').select('poll_id').limit(0)
-  const there = !(error && isMissingColumnError(error, 'poll_id'))
-  pollColumn = { at: now, there }
-  return there ? TEAM_CHAT_MESSAGE_COLUMNS : TEAM_CHAT_MESSAGE_COLUMNS_BEFORE_703
+  if (pollColumn?.columns === TEAM_CHAT_MESSAGE_COLUMNS) return TEAM_CHAT_MESSAGE_COLUMNS
+  if (pollColumn && now - pollColumn.at < 60_000) return pollColumn.columns
+  // Postgres names the first missing column: poll_id (703) first, then 715's.
+  const { error } = await supabase.from('team_chat_message').select('poll_id, support_name').limit(0)
+  const columns =
+    error && isMissingColumnError(error, 'poll_id')
+      ? TEAM_CHAT_MESSAGE_COLUMNS_BEFORE_703
+      : error && isMissingColumnError(error, 'support_name')
+        ? TEAM_CHAT_MESSAGE_COLUMNS_BEFORE_715
+        : TEAM_CHAT_MESSAGE_COLUMNS
+  pollColumn = { at: now, columns }
+  return columns
 }
 
 /** Tests only. */
@@ -79,7 +88,7 @@ export function resetMessageColumns(): void {
 
 interface ChannelRow {
   id: string
-  kind: 'channel' | 'dm' | 'meeting'
+  kind: TeamChatChannelKind
   name: string | null
   topic: string | null
   team_id: string | null

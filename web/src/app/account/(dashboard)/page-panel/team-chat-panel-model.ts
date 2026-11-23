@@ -5,9 +5,12 @@
  *
  *   All     the sections, top to bottom (Channels and DMs always, for their
  *           "+"; Meetings whenever calling is on; the rest only with a row):
+ *           Support     our support staff's view of every customer's support
+ *                       conversation (migration 715), latest activity first
  *           Favorites   the conversations the person starred, in the order
  *                       starred; each listed here only, not again in its
- *                       own section
+ *                       own section. The person's own support conversation
+ *                       (715) is always first here, pinned: never unstarred
  *           Team channels  channels for one team (`team_id`)
  *           Channels    the whole workspace's (`team_id` null)
  *           DMs         direct messages (a note to self among them)
@@ -38,7 +41,7 @@ export interface TeamChatPanelRow {
 }
 
 export interface TeamChatPanelSection {
-  key: 'favorites' | 'team' | 'channels' | 'dms' | 'meetings'
+  key: 'support' | 'favorites' | 'team' | 'channels' | 'dms' | 'meetings'
   heading: string
   /** Its sort (null: none of its own: Favorites, Meetings). */
   sort: TeamChatSortedSection | null
@@ -46,6 +49,7 @@ export interface TeamChatPanelSection {
 }
 
 const SECTION_HEADINGS: Record<TeamChatPanelSection['key'], string> = {
+  support: 'Support',
   favorites: 'Favorites',
   team: 'Team channels',
   channels: 'Channels',
@@ -72,6 +76,7 @@ export function sortConversations(list: readonly TeamChatPanelConversation[], so
 
 /** Which kind of section a conversation belongs to. */
 export function sectionOf(c: TeamChatPanelConversation): Exclude<TeamChatPanelSection['key'], 'favorites'> {
+  if (c.channel.kind === 'support') return 'support'
   if (c.channel.kind === 'dm') return 'dms'
   if (c.channel.kind === 'meeting') return 'meetings'
   return c.channel.team_id ? 'team' : 'channels'
@@ -106,7 +111,17 @@ export function teamChatPanelSections(
   { meetings = false }: { meetings?: boolean } = {},
 ): TeamChatPanelSection[] {
   const byId = new Map(conversations.map((c) => [c.channel.id, c]))
-  const starred = favorites.map((id) => byId.get(id)).filter((c): c is TeamChatPanelConversation => !!c)
+  // The person's own support conversation (715): pinned first in Favorites, whatever was starred.
+  const pinned = conversations.filter(isPinnedSupport)
+  const pinnedIds = new Set(pinned.map((c) => c.channel.id))
+  // Our staff's view of customers' conversations is the Support section's, never a favorite.
+  const starred = [
+    ...pinned,
+    ...favorites
+      .filter((id) => !pinnedIds.has(id))
+      .map((id) => byId.get(id))
+      .filter((c): c is TeamChatPanelConversation => !!c && c.channel.kind !== 'support'),
+  ]
   const starredIds = new Set(starred.map((c) => c.channel.id))
   const rest = conversations.filter((c) => !starredIds.has(c.channel.id))
   const of = (key: ReturnType<typeof sectionOf>) => rest.filter((c) => sectionOf(c) === key)
@@ -115,6 +130,7 @@ export function teamChatPanelSections(
   const rows = (list: readonly TeamChatPanelConversation[]): TeamChatPanelRow[] =>
     list.map((c) => ({ conversation: c, hint: hints.get(c.channel.id) ?? null }))
   const sections: TeamChatPanelSection[] = [
+    { key: 'support', heading: SECTION_HEADINGS.support, sort: null, rows: rows(sortConversations(of('support'), 'recent')) },
     { key: 'favorites', heading: SECTION_HEADINGS.favorites, sort: null, rows: rows(starred) },
     { key: 'team', heading: SECTION_HEADINGS.team, sort: 'team', rows: rows(sortConversations(of('team'), sorts.team)) },
     { key: 'channels', heading: SECTION_HEADINGS.channels, sort: 'channels', rows: rows(sortConversations(of('channels'), sorts.channels)) },
@@ -122,6 +138,11 @@ export function teamChatPanelSections(
     { key: 'meetings', heading: SECTION_HEADINGS.meetings, sort: null, rows: rows(sortConversations(of('meetings'), 'recent')) },
   ]
   return sections.filter((s) => s.rows.length > 0 || s.key === 'channels' || s.key === 'dms' || (s.key === 'meetings' && meetings))
+}
+
+/** The person's own support conversation (715: theirs, not our staff's view of a customer's): pinned, never unstarred. */
+export function isPinnedSupport(c: TeamChatPanelConversation): boolean {
+  return c.channel.kind === 'support' && !c.channel.support
 }
 
 /** The Recent view: every conversation, latest activity first. */

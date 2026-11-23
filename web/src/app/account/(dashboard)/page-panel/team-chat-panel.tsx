@@ -54,7 +54,7 @@
  */
 import { EntityIcon } from '@/components/entities/entity-icon'
 import { useLayoutEffect, useMemo, useRef, type KeyboardEvent, type ReactNode } from 'react'
-import { ArrowUpDown, BellOff, Lock, Plus, Star, Video } from 'lucide-react'
+import { ArrowUpDown, BellOff, LifeBuoy, Lock, Plus, Star, Video } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu'
@@ -340,6 +340,8 @@ function Glyph({ conversation }: { conversation: TeamChatPanelConversation }): R
       </Avatar>
     )
   }
+  // A support conversation (migration 715) wears its buoy.
+  if (channel.kind === 'support') return <LifeBuoy className="size-4" strokeWidth={1.75} />
   // A channel wears the channel kind's identity; a meeting's room and a private team's lock say what they are.
   if (channel.kind !== 'meeting' && !privateTeam) return <EntityIcon kind="team_chat_channel" />
   const Icon = channel.kind === 'meeting' ? Video : Lock
@@ -363,6 +365,8 @@ function ConversationRow({
   const id = conversation.channel.id
   const badge = teamChatRowBadge(conversation, lit)
   const starLabel = starred ? 'Remove from favorites' : 'Add to favorites'
+  // Their own support conversation is pinned (715): no star to take it out; our side's rows have their own section.
+  const starrable = conversation.channel.kind !== 'support'
   return (
     <ContextMenu modal={false}>
       <ContextMenuTrigger asChild>
@@ -415,6 +419,7 @@ function ConversationRow({
               ) : null}
             </span>
           </button>
+          {starrable && (
           <button
             type="button"
             data-team-chat-star={id}
@@ -428,12 +433,19 @@ function ConversationRow({
           >
             <Star className={cn('size-3.5', starred && 'fill-current')} strokeWidth={1.75} />
           </button>
+          )}
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent data-team-chat-menu={id} className="min-w-44">
-        <ContextMenuItem data-team-chat-menu-item="favorite" onSelect={() => onStar(id)}>
-          {starLabel}
-        </ContextMenuItem>
+        {starrable ? (
+          <ContextMenuItem data-team-chat-menu-item="favorite" onSelect={() => onStar(id)}>
+            {starLabel}
+          </ContextMenuItem>
+        ) : (
+          <ContextMenuItem disabled data-team-chat-menu-item="pinned">
+            {conversation.channel.support ? 'Every customer’s support conversation' : 'Pinned: your conversation with our team'}
+          </ContextMenuItem>
+        )}
       </ContextMenuContent>
     </ContextMenu>
   )

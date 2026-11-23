@@ -30,6 +30,15 @@
  * is registered (src/lib/team-chat/on-screen.ts), so a notification about a
  * message on screen raises no toast.
  *
+ * Support conversations (migration 715, src/lib/support-chat): a customer's
+ * own conversation with our support team is pinned first in their list
+ * (Favorites in the sub-nav); our staff (the deployment's admins) also get
+ * a Support section with every customer's, read and answered here. Either
+ * side: no calls, threads, polls, records or agent; our side sends words
+ * only, and a staff message shows the staff member's name and picture with
+ * a Support label. The staff side's live updates come on a second Realtime
+ * channel (RLS gives them support conversations only).
+ *
  * Owns its own fetches against /api/account/team-chat/* and one Supabase
  * Realtime channel for the workspace (team_chat_message, team_chat_channel,
  * team_chat_thread, team_chat_reaction; RLS filters what arrives), resyncing
@@ -38,8 +47,8 @@
  */
 
 import { EntityIcon } from '@/components/entities/entity-icon'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
-import { BarChart3, BellOff, ChevronLeft, ClipboardList, CircleCheck, Lock, MessageSquare, MessageSquareReply, Pencil, Plus, RotateCw, Trash2, Users, Video, X } from 'lucide-react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { BarChart3, Bell, BellOff, ChevronLeft, ClipboardList, CircleCheck, LifeBuoy, Lock, MessageSquare, MessageSquareReply, Pencil, Plus, RotateCw, Trash2, Users, Video, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -186,6 +195,11 @@ function placeOf(m: { channel_id: string; thread_root_id: string | null }): stri
 /** Where the view is asked to open: a channel, or one message (in its channel or its thread, scrolled to it). */
 export type TeamChatFocus = { type: 'channel' | 'message'; id: string }
 
+/** Our support staff's own account (migration 715), when the person is one: their messages in a support conversation are theirs. */
+const SupportViewerContext = createContext<string | null>(null)
+/** The messages drawn are a support conversation's (715): nothing in it becomes a task or a thread. */
+const SupportPaneContext = createContext(false)
+
 /** How long a message opened on stays lit, and how long the view waits for it to show before it gives up. */
 const FOCUS_LIT_MS = 2500
 const FOCUS_GIVE_UP_MS = 8000
@@ -219,6 +233,10 @@ export function TeamChatView({
 
   const [channels, setChannels] = useState<TeamChatChannel[] | null>(null)
   const [meId, setMeId] = useState<string | null>(null)
+  // On our support team (the channels list says so, migration 715): their account, for their own messages.
+  const [supportUserId, setSupportUserId] = useState<string | null>(null)
+  const supportUserIdRef = useRef<string | null>(null)
+  supportUserIdRef.current = supportUserId
   const [members, setMembers] = useState<Member[]>([])
   const [error, setError] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -318,7 +336,7 @@ export function TeamChatView({
     try {
       const res = await fetch('/api/account/team-chat/channels')
       if (!res.ok) throw new Error('Could not load team chat')
-      const json = (await res.json()) as { channels?: TeamChatChannel[]; threads?: TeamChatThreadUnread[]; memberId?: string }
+      const json = (await res.json()) as { channels?: TeamChatChannel[]; threads?: TeamChatThreadUnread[]; memberId?: string; support?: { staff?: boolean; userId?: string } | null }
       // The channel on screen is read (its read mark may still be on its way): never counted unread here. So is the thread open.
       const visible = typeof document !== 'undefined' && document.visibilityState === 'visible'
       const open = visible ? onScreenRef.current : null
@@ -332,6 +350,7 @@ export function TeamChatView({
         return c.id === open ? { ...shown, unread: 0, mentions: 0 } : shown
       })
       setMeId(json.memberId ?? null)
+      setSupportUserId(json.support?.staff && json.support.userId ? json.support.userId : null)
       setChannels(list)
       setUnreadThreads(Object.fromEntries(unreadList.map((t) => [t.root_id, t])))
       setError(null)
@@ -692,6 +711,47 @@ export function TeamChatView({
     }
   }, [workspaceId, loadChannels, loadMessages, markRead, markThreadRead])
 
+  // Our support staff (migration 715): every customer's support conversation, live, on a channel of its
+  // own (no workspace filter: RLS gives them support conversations and nothing else of other workspaces).
+  useEffect(() => {
+    if (!workspaceId || !supportUserId) return
+    const supabase = createClient()
+    let listTimer: ReturnType<typeof setTimeout> | null = null
+    let readTimer: ReturnType<typeof setTimeout> | null = null
+    const refreshList = () => {
+      if (listTimer) clearTimeout(listTimer)
+      listTimer = setTimeout(() => void loadChannels(), 400)
+    }
+    const channel = supabase
+      .channel(`support-chat:${supportUserId}:${Math.random().toString(36).slice(2, 10)}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'team_chat_message' }, (payload) => {
+        const row = payload.new as (TeamChatMessage & { workspace_id?: string }) | undefined
+        // The workspace's own messages come on its channel above.
+        if (!row?.id || !row.channel_id || row.workspace_id === workspaceId || row.thread_root_id) return
+        const shown: Shown = { ...row, attachments: row.attachments ?? [], link_preview: row.link_preview ?? null, thread_root_id: null, client_id: row.client_id ?? null }
+        setMessages((prev) => (prev[row.channel_id] && !windowedRef.current[row.channel_id] ? { ...prev, [row.channel_id]: upsertMessage(prev[row.channel_id], shown) } : prev))
+        if (payload.eventType !== 'INSERT') return
+        if (row.channel_id === onScreenRef.current && document.visibilityState === 'visible') {
+          if (readTimer) clearTimeout(readTimer)
+          readTimer = setTimeout(() => void markRead(row.channel_id), 150)
+        } else if (!(row.author_kind === 'support' && row.support_user_id === supportUserIdRef.current)) {
+          refreshList()
+        }
+        setChannels((prev) => prev?.map((c) => (c.id === row.channel_id ? { ...c, last_message_at: row.created_at } : c)) ?? prev)
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'team_chat_channel' }, (payload) => {
+        // A new account's conversation (a sign-up): into the list.
+        const row = payload.new as { kind?: string; workspace_id?: string } | undefined
+        if (row?.kind === 'support' && row.workspace_id !== workspaceId) refreshList()
+      })
+      .subscribe()
+    return () => {
+      if (listTimer) clearTimeout(listTimer)
+      if (readTimer) clearTimeout(readTimer)
+      void supabase.removeChannel(channel)
+    }
+  }, [workspaceId, supportUserId, loadChannels, markRead])
+
   // Calls (migration 564), live, only where calling is on: their state and who is in them, for their messages.
   useEffect(() => {
     if (!workspaceId || !teamCalls.available) return
@@ -788,7 +848,9 @@ export function TeamChatView({
   )
 
   const selected = channels?.find((c) => c.id === selectedId) ?? null
-  const channelList = (channels ?? []).filter((c) => c.kind === 'channel')
+  // The person's own support conversation first among the channels (pinned); our staff's view of every customer's, a section of its own.
+  const channelList = [...(channels ?? []).filter((c) => c.kind === 'support' && !c.support), ...(channels ?? []).filter((c) => c.kind === 'channel')]
+  const supportList = (channels ?? []).filter((c) => c.kind === 'support' && !!c.support)
   const dmList = (channels ?? []).filter((c) => c.kind === 'dm')
   // Meetings (phase 7): the section reads the person's meetings itself (from the moment they are made); only where calling is on.
   // It asks again when a meeting is made, a meeting's conversation moves (its call's message) or a call starts or ends.
@@ -820,6 +882,7 @@ export function TeamChatView({
     (c: TeamChatChannel): string => {
       if (c.kind === 'channel') return c.name ?? 'channel'
       if (c.kind === 'meeting') return c.name ?? 'Meeting'
+      if (c.kind === 'support') return c.support ? c.support.customer_name : (c.name ?? 'Support')
       if (c.dm_member_id && c.dm_member_id === meId) return `${memberName(membersById.get(c.dm_member_id))} (you)`
       return memberName(c.dm_member_id ? membersById.get(c.dm_member_id) : undefined)
     },
@@ -1057,7 +1120,15 @@ export function TeamChatView({
       <div className={cn('min-h-0 flex-1 overflow-y-auto px-2 pb-4', inCard && 'pt-2')}>
         {/* On a phone the list stands alone: a failed load says so here, not only in the hidden pane. */}
         {narrow && error && <p className="px-3 py-1.5 text-xs text-destructive">{error}</p>}
-        <SectionHeading label="Channels" onAdd={() => startNewChannel()} addLabel="New channel" />
+        {supportList.length > 0 && (
+          <>
+            <SectionHeading label="Support" />
+            {supportList.map((c) => (
+              <ChannelRow key={c.id} channel={c} title={channelTitle(c)} active={c.id === onScreen} onSelect={() => openChannel(c.id)} />
+            ))}
+          </>
+        )}
+        <SectionHeading label="Channels" onAdd={() => startNewChannel()} addLabel="New channel" className={supportList.length > 0 ? 'mt-5' : undefined} />
         {channels === null ? (
           <p className="px-3 py-2 text-sm text-muted-foreground">Loading…</p>
         ) : channelList.length === 0 ? (
@@ -1146,6 +1217,7 @@ export function TeamChatView({
               onList={inCard ? toList : undefined}
               onNotify={(level) => void setNotify(selected.id, level)}
               onSnooze={(until) => void setSnooze(selected.id, until)}
+              onSupportChanged={() => void loadChannels()}
               focusId={focused && !focused.rootId && focused.channelId === selected.id ? focused.id : null}
               onFocusShown={onFocusShown}
               {...common}
@@ -1179,6 +1251,7 @@ export function TeamChatView({
   )
 
   return (
+    <SupportViewerContext.Provider value={supportUserId}>
     <div
       ref={rootRef}
       data-team-chat-panes={listInPanel ? 'channel' : narrow ? (openedNow ? 'channel' : 'list') : 'both'}
@@ -1233,16 +1306,19 @@ export function TeamChatView({
         />
       )}
     </div>
+    </SupportViewerContext.Provider>
   )
 }
 
-function SectionHeading({ label, onAdd, addLabel, className }: { label: string; onAdd: () => void; addLabel: string; className?: string }) {
+function SectionHeading({ label, onAdd, addLabel, className }: { label: string; onAdd?: () => void; addLabel?: string; className?: string }) {
   return (
     <div className={cn('flex h-8 items-center justify-between pl-3 pr-1.5', className)}>
       <span className="text-[13px] font-medium text-muted-foreground">{label}</span>
-      <button type="button" onClick={onAdd} aria-label={addLabel} title={addLabel} className="rounded-lg p-1 text-muted-foreground hover:bg-accent hover:text-foreground">
-        <Plus className="h-4 w-4" />
-      </button>
+      {onAdd && (
+        <button type="button" onClick={onAdd} aria-label={addLabel} title={addLabel} className="rounded-lg p-1 text-muted-foreground hover:bg-accent hover:text-foreground">
+          <Plus className="h-4 w-4" />
+        </button>
+      )}
     </div>
   )
 }
@@ -1283,6 +1359,8 @@ function ChannelRow({
         privateTeam ? <Lock className="h-4 w-4 shrink-0 opacity-70" /> : <EntityIcon kind="team_chat_channel" />
       ) : channel.kind === 'meeting' ? (
         <Video className="h-4 w-4 shrink-0 opacity-70" />
+      ) : channel.kind === 'support' ? (
+        <LifeBuoy className="h-4 w-4 shrink-0 opacity-70" />
       ) : (
         <Avatar name={avatar?.name ?? title} url={avatar?.url} size="sm" />
       )}
@@ -1383,6 +1461,7 @@ function ChannelPane({
   onList,
   onNotify,
   onSnooze,
+  onSupportChanged,
   focusId,
   onFocusShown,
   meId,
@@ -1404,6 +1483,8 @@ function ChannelPane({
   onNotify: (level: TeamChatNotifyLevel) => void
   /** Mute it for a while, or end that (migration 702): the same menu. */
   onSnooze: (until: string | null) => void
+  /** A support conversation was deleted (the customer) or muted (our side): the list again. */
+  onSupportChanged: () => void
   /** It shows a page around an old message alone (nothing newer under it): Jump to newest. */
   windowed: boolean
   onJumpToNewest: () => void
@@ -1465,7 +1546,23 @@ function ChannelPane({
     })
   }
 
-  const labelsFor = useMentionLabels(membersById, meId, assistantName)
+  // A support conversation (715), seen by our staff: the customer is no member of ours, so they are
+  // named from the conversation (their name; no picture), for their messages and the welcome's mention.
+  const support = channel.kind === 'support'
+  const staffView = support && !!channel.support
+  const customer = channel.support
+  const paneMembers = useMemo(() => {
+    if (!customer?.customer_member_id) return membersById
+    const next = new Map(membersById)
+    next.set(customer.customer_member_id, { id: customer.customer_member_id, display_name: customer.customer_name, avatar_url: null })
+    return next
+  }, [membersById, customer])
+  membersById = paneMembers
+  const mentionLabels = useMentionLabels(membersById, meId, assistantName)
+  const labelsFor = useCallback(
+    (m: TeamChatMessage) => (staffView && channel.support ? [...mentionLabels(m), channel.support.customer_name] : mentionLabels(m)),
+    [mentionLabels, staffView, channel.support],
+  )
   const reactorNames = useReactorNames(membersById, meId)
   const placeholder = channel.kind === 'channel' ? `Message #${title}` : `Message ${title}`
   const archived = !!channel.archived_at
@@ -1491,7 +1588,8 @@ function ChannelPane({
   }, [messages])
   const startCallHere = useCallback(() => {
     if (callsHere.active?.channelId === channel.id) callsHere.setMinimized(false)
-    else void callsHere.startCall({ id: channel.id, kind: channel.kind, label: callLabel })
+    // A support conversation has no calls (715).
+    else if (channel.kind !== 'support') void callsHere.startCall({ id: channel.id, kind: channel.kind, label: callLabel })
   }, [callsHere, channel.id, channel.kind, callLabel])
   const createItems = useTeamChatCreateItems({
     channel,
@@ -1505,6 +1603,8 @@ function ChannelPane({
       <EntityIcon kind="team_chat_channel" size={size === 'card' ? 'sm' : 'xl'} />
     ) : channel.kind === 'meeting' ? (
       <Video className={cn('shrink-0 text-muted-foreground', size === 'card' ? 'size-3.5' : 'h-5 w-5')} />
+    ) : channel.kind === 'support' ? (
+      <LifeBuoy className={cn('shrink-0 text-muted-foreground', size === 'card' ? 'size-3.5' : 'h-5 w-5')} />
     ) : (
       <Avatar name={memberName(dmPerson)} url={dmPerson?.avatar_url} size={size === 'card' ? 'xs' : 'sm'} />
     )
@@ -1528,12 +1628,16 @@ function ChannelPane({
               </span>
             )}
             {channel.topic && <span className="hidden min-w-0 truncate text-xs text-muted-foreground sm:inline">{channel.topic}</span>}
+            {channel.support && <SupportWho info={channel.support} className="hidden text-xs sm:inline" />}
           </CardHeaderTrail>
           <CardHeaderSlot side="right">
             <div data-team-chat-header-controls="" className="flex items-center gap-0.5">
               {meetingLink}
-              <CallButton channel={channel} label={callLabel} className="grid size-6 place-items-center rounded-full p-0 hover:bg-foreground/[0.06]" />
-              <TeamChatNotifyMenu kind={channel.kind} level={channel.notify} mutedUntil={channel.muted_until} onChange={onNotify} onSnooze={onSnooze} inHeader headerButtonClass={CARD_HEADER_ICON_BUTTON} />
+              {!support && <CallButton channel={channel} label={callLabel} className="grid size-6 place-items-center rounded-full p-0 hover:bg-foreground/[0.06]" />}
+              {!staffView && (
+                <TeamChatNotifyMenu kind={channel.kind} level={channel.notify} mutedUntil={channel.muted_until} onChange={onNotify} onSnooze={onSnooze} inHeader headerButtonClass={CARD_HEADER_ICON_BUTTON} />
+              )}
+              {support && <SupportControls channel={channel} onChanged={onSupportChanged} buttonClass={CARD_HEADER_ICON_BUTTON} />}
             </div>
           </CardHeaderSlot>
         </>
@@ -1562,10 +1666,12 @@ function ChannelPane({
           </span>
         )}
         {channel.topic && <span className="min-w-0 truncate text-sm text-muted-foreground">{channel.topic}</span>}
+        {channel.support && <SupportWho info={channel.support} className="text-sm" />}
         <span className="ml-auto" aria-hidden />
         {meetingLink}
-        <CallButton channel={channel} label={callLabel} />
-        <TeamChatNotifyMenu kind={channel.kind} level={channel.notify} mutedUntil={channel.muted_until} onChange={onNotify} onSnooze={onSnooze} />
+        {!support && <CallButton channel={channel} label={callLabel} />}
+        {!staffView && <TeamChatNotifyMenu kind={channel.kind} level={channel.notify} mutedUntil={channel.muted_until} onChange={onNotify} onSnooze={onSnooze} />}
+        {support && <SupportControls channel={channel} onChanged={onSupportChanged} />}
       </div>
       )}
 
@@ -1575,9 +1681,9 @@ function ChannelPane({
         ) : messages.length === 0 ? (
           <div className="py-10 text-center">
             <p className="text-[15px] font-semibold text-foreground">
-              {channel.kind === 'channel' ? `This is the start of #${title}` : channel.kind === 'meeting' ? `This is the start of ${title}` : `This is the start of your messages with ${title}`}
+              {channel.kind === 'channel' ? `This is the start of #${title}` : channel.kind === 'meeting' || support ? `This is the start of ${title}` : `This is the start of your messages with ${title}`}
             </p>
-            <p className="mt-1 text-sm text-muted-foreground">Type @{assistantName} to ask your agent; it answers here with what the channel has said.</p>
+            {!support && <p className="mt-1 text-sm text-muted-foreground">Type @{assistantName} to ask your agent; it answers here with what the channel has said.</p>}
           </div>
         ) : (
           <>
@@ -1588,6 +1694,9 @@ function ChannelPane({
                 </Button>
               </div>
             )}
+            {/* A support conversation opens with the line that says when it was made (sign-up). */}
+            {support && !hasMore && <SupportStartLine title={channel.name ?? title} firstAt={messages[0]?.created_at ?? null} />}
+            <SupportPaneContext.Provider value={support}>
             <ul>
               {messages.map((m, i) => (
                 <MessageRow
@@ -1612,10 +1721,10 @@ function ChannelPane({
                   members={members}
                   reactions={reactions[m.id]}
                   reactorNames={reactorNames}
-                  canReact={!archived}
+                  canReact={!archived && !support}
                   onReact={(emoji, on) => onReact(m.id, emoji, on)}
                   onRetry={m.client_id ? () => onRetry(m.client_id!) : undefined}
-                  onReplyInThread={archived && !threads[m.id] ? undefined : () => onOpenThread(m.id)}
+                  onReplyInThread={support || (archived && !threads[m.id]) ? undefined : () => onOpenThread(m.id)}
                   thread={threads[m.id]}
                   threadUnread={unreadThreads[m.id]?.unread ?? 0}
                   threadOpen={openThreadId === m.id}
@@ -1623,6 +1732,7 @@ function ChannelPane({
                 />
               ))}
             </ul>
+            </SupportPaneContext.Provider>
           </>
         )}
         {waitingOnAgent && <AgentWaiting name={assistantName} />}
@@ -1652,8 +1762,117 @@ function ChannelPane({
         onSend={onSend}
         onTyping={onTyping}
         createItems={createItems}
+        support={staffView ? 'staff' : support ? 'customer' : null}
       />
     </>
+  )
+}
+
+/**
+ * A support conversation's own controls (migration 715). The customer:
+ * Delete, after a confirmation (Cancel is where the focus starts): it goes
+ * completely, for our side too. Our side: mute or unmute this customer's
+ * notifications, for themselves.
+ */
+function SupportControls({ channel, onChanged, buttonClass }: { channel: TeamChatChannel; onChanged: () => void; buttonClass?: string }) {
+  const [confirming, setConfirming] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const cls = buttonClass ?? 'rounded-lg p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground'
+  if (channel.support) {
+    const muted = channel.notify === 'muted'
+    const label = muted ? 'Unmute this conversation' : 'Mute this conversation'
+    const Icon = muted ? BellOff : Bell
+    return (
+      <button
+        type="button"
+        data-support-mute={muted ? 'on' : 'off'}
+        aria-label={label}
+        title={label}
+        disabled={busy}
+        className={cls}
+        onClick={async () => {
+          setBusy(true)
+          const res = await fetch(`/api/account/support-chat/${channel.id}/mute`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ muted: !muted }),
+          }).catch(() => null)
+          setBusy(false)
+          if (res?.ok) onChanged()
+          else toast.error('Couldn’t change that. Try again.')
+        }}
+      >
+        <Icon className="h-4 w-4" />
+      </button>
+    )
+  }
+  return (
+    <>
+      <button type="button" data-support-delete="" aria-label="Delete this conversation" title="Delete this conversation" className={cls} onClick={() => setConfirming(true)}>
+        <Trash2 className="h-4 w-4" />
+      </button>
+      <Dialog open={confirming} onOpenChange={(open) => !busy && setConfirming(open)}>
+        <DialogContent className="max-w-sm" onOpenAutoFocus={(e) => {
+          // The focus starts on Cancel, never on the button that deletes.
+          e.preventDefault()
+          ;(e.currentTarget as HTMLElement | null)?.querySelector<HTMLElement>('[data-support-delete-cancel]')?.focus()
+        }}>
+          <DialogHeader>
+            <DialogTitle>Delete this conversation?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Every message in it goes for good, for our team too.
+          </p>
+          <DialogFooter>
+            <Button variant="ghost" data-support-delete-cancel="" onClick={() => setConfirming(false)} disabled={busy}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              data-support-delete-confirm=""
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true)
+                const res = await fetch(`/api/account/support-chat/${channel.id}`, { method: 'DELETE' }).catch(() => null)
+                setBusy(false)
+                if (!res?.ok) {
+                  toast.error('Couldn’t delete it. Try again.')
+                  return
+                }
+                setConfirming(false)
+                onChanged()
+              }}
+            >
+              {busy ? 'Deleting…' : 'Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+}
+
+/** Our staff's view of a support conversation: whose it is (their address, their workspace). */
+function SupportWho({ info, className }: { info: NonNullable<TeamChatChannel['support']>; className?: string }) {
+  const parts = [info.customer_email, info.workspace_name].filter((p): p is string => !!p)
+  if (parts.length === 0) return null
+  return (
+    <span data-support-who="" className={cn('min-w-0 truncate text-muted-foreground', className)}>
+      {parts.join(' · ')}
+    </span>
+  )
+}
+
+/** A support conversation's first line: "Native Intelligence Support x Bo Lind created", with the day (sign-up). */
+function SupportStartLine({ title, firstAt }: { title: string; firstAt: string | null }) {
+  const day = firstAt ? new Date(firstAt).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' }) : null
+  return (
+    <p data-support-start="" className="mb-3 flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
+      <LifeBuoy className="h-3.5 w-3.5" aria-hidden />
+      <span>
+        {title} created{day ? ` · ${day}` : ''}
+      </span>
+    </p>
   )
 }
 
@@ -1966,17 +2185,24 @@ function MessageRow({
   // A meeting guest's message (migration 670): the name they typed and a "Guest" label; no member behind it, so no photo,
   // no profile and no edit. Any member here may take it down (Delete: the route's guest case). Guests read the meeting's own messages only, never a thread.
   const isGuest = message.author_kind === 'guest'
-  const mine = !isAgent && !isGuest && !!meId && message.author_member_id === meId
+  // Our support staff's message (migration 715): their name and picture, a Support label; theirs alone to delete, never to edit.
+  const isSupport = message.author_kind === 'support'
+  const supportViewer = useContext(SupportViewerContext)
+  const mySupport = isSupport && !!supportViewer && message.support_user_id === supportViewer
+  const inSupport = useContext(SupportPaneContext)
+  const mine = !isAgent && !isGuest && !isSupport && !!meId && message.author_member_id === meId
   // Their own agent's reply: theirs to delete (never to edit), if it said something it shouldn't have.
   const myAgent = isAgent && !!meId && message.agent_for_member_id === meId
   const name = isAgent
     ? agentDisplayName(message.agent_name, memberName(membersById.get(message.agent_for_member_id ?? '')), message.agent_for_member_id === meId)
     : isGuest
       ? message.guest_name?.trim() || 'Guest'
-      : `${memberName(membersById.get(message.author_member_id ?? ''))}${mine ? ' (you)' : ''}`
+      : isSupport
+        ? `${message.support_name?.trim() || 'Support'}${mySupport ? ' (you)' : ''}`
+        : `${memberName(membersById.get(message.author_member_id ?? ''))}${mine ? ' (you)' : ''}`
   const deleted = !!message.deleted_at
   const pending = message.pending
-  const author = isAgent || isGuest ? undefined : membersById.get(message.author_member_id ?? '')
+  const author = isAgent || isGuest || isSupport ? undefined : membersById.get(message.author_member_id ?? '')
   const groups = useMemo(() => groupReactions(reactions, meId), [reactions, meId])
   const toolbar = !deleted && !editing && !pending
   // A call's message is the call's: no edit, no delete (the database refuses both too).
@@ -1993,11 +2219,16 @@ function MessageRow({
         lit && 'bg-primary/10 hover:bg-primary/10',
       )}
     >
-      <div className="w-9 shrink-0">{!grouped && <Avatar name={isGuest ? name : memberName(author)} url={author?.avatar_url} agent={isAgent} />}</div>
+      <div className="w-9 shrink-0">{!grouped && <Avatar name={isGuest ? name : isSupport ? message.support_name?.trim() || 'Support' : memberName(author)} url={isSupport ? message.support_avatar_url : author?.avatar_url} agent={isAgent} />}</div>
       <div className="min-w-0 flex-1">
         {!grouped && (
           <div className="flex items-baseline gap-2">
             <span className={cn('truncate text-[15px] font-semibold', isAgent ? 'text-violet-700 dark:text-violet-300' : 'text-foreground')}>{name}</span>
+            {isSupport && (
+              <span data-team-chat-support="" className="shrink-0 self-center rounded-full bg-primary/10 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-primary">
+                Support
+              </span>
+            )}
             {isGuest && (
               <span data-team-chat-guest="" className="shrink-0 self-center rounded-full border border-border px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                 Guest
@@ -2084,7 +2315,7 @@ function MessageRow({
           )}
           {/* A task about this message, anyone's: the action composer, titled "Follow up: <its first line>", linked to it when made; the server checks the person reads its channel.
               Never a meeting guest's: it is no record (670), and its words would become the task's title. */}
-          {!isGuest && (
+          {!isGuest && !inSupport && (
             <button
               type="button"
               onClick={() => openTaskComposer({ type: 'team_chat_message', id: message.id, title: taskTitleFor(messageTaskLabel(message.body)) })}
@@ -2100,7 +2331,7 @@ function MessageRow({
               <Pencil className="h-3.5 w-3.5" />
             </button>
           )}
-          {(mine || myAgent || isGuest) && !isCall && (
+          {(mine || myAgent || isGuest || mySupport) && !isCall && (
             <button type="button" onClick={onDelete} aria-label="Delete message" title="Delete" className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-destructive">
               <Trash2 className="h-3.5 w-3.5" />
             </button>
@@ -2220,6 +2451,7 @@ function Composer({
   onTyping,
   autoFocus = false,
   createItems,
+  support = null,
 }: {
   channelId: string
   /** The thread it replies in (a thread's pane), or null (the channel's). */
@@ -2236,6 +2468,11 @@ function Composer({
   autoFocus?: boolean
   /** The + menu's Create group (team-chat-create-items.ts). */
   createItems?: ReadonlyArray<ComposerCreateItem>
+  /**
+   * A support conversation (migration 715): no @-list, no polls, forms or
+   * creating from it; our side ('staff') sends words only.
+   */
+  support?: 'staff' | 'customer' | null
 }) {
   const [text, setText] = useState('')
   // Dictation into the box, as in the main chat (the desktop app; Liam, 11-09:
@@ -2255,13 +2492,13 @@ function Composer({
   // New form (phase 4): a table and its form, its link put in this box (team-chat-form-dialog.tsx).
   const [formOpen, setFormOpen] = useState(false)
   const items = useMemo<ReadonlyArray<ComposerCreateItem> | undefined>(() => {
-    if (archived) return undefined
+    if (archived || support) return undefined
     const list: ComposerCreateItem[] = [{ id: 'poll', label: 'New poll', icon: BarChart3, onSelect: () => setPollOpen(true) }, ...(createItems ?? [])]
     const form: ComposerCreateItem = { id: 'form', label: 'New form', icon: ClipboardList, onSelect: () => setFormOpen(true) }
     const doc = list.findIndex((i) => i.id === 'document')
     list.splice(doc >= 0 ? doc + 1 : list.length, 0, form)
     return list
-  }, [archived, createItems])
+  }, [archived, createItems, support])
   const onFormLink = useCallback((url: string, name: string) => {
     setText((prev) => `${prev.trim() ? `${prev.trimEnd()}\n` : ''}${name}: ${url}`.slice(0, TEAM_CHAT_MESSAGE_MAX))
   }, [])
@@ -2371,16 +2608,23 @@ function Composer({
         fileAccept={TEAM_CHAT_FILE_ACCEPT}
         placeholder={placeholder}
         mainComposer={false}
-        mentionList={mentionList}
+        mentionList={support ? undefined : mentionList}
         voice={voice}
         layout="inline"
         autoFocus={autoFocus}
         createItems={items}
+        unavailable={support === 'staff' ? STAFF_COMPOSER_UNAVAILABLE : undefined}
       />
       <TeamChatPollDialog open={pollOpen} onOpenChange={setPollOpen} channelId={channelId} threadRootId={threadRootId} />
       <TeamChatFormDialog open={formOpen} onOpenChange={setFormOpen} onLink={onFormLink} />
     </div>
   )
+}
+
+/** Our side of a support conversation sends words only, for now (migration 715). */
+const STAFF_COMPOSER_UNAVAILABLE: ChatInputUnavailable = {
+  files: { reason: 'Files aren’t sent from our side yet' },
+  photos: { reason: 'Photos aren’t sent from our side yet' },
 }
 
 function NewDmDialog({

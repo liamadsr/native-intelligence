@@ -36,7 +36,24 @@ export const TEAM_CHAT_MAX_MENTIONS = 50
 /** How many messages a page of a channel's history holds. */
 export const TEAM_CHAT_PAGE_SIZE = 50
 
-export type TeamChatChannelKind = 'channel' | 'dm' | 'meeting'
+/** 'support' (migration 715): an account's own conversation with our support team (src/lib/support-chat). */
+export type TeamChatChannelKind = 'channel' | 'dm' | 'meeting' | 'support'
+
+/**
+ * A support conversation as our staff see it in their list (migration 715's
+ * support_chat_inbox): it lives in the customer's workspace, not theirs.
+ * Absent on the customer's own list, and on every other kind.
+ */
+export interface TeamChatSupportInfo {
+  /** The customer's workspace (never the viewer's own). */
+  workspace_id: string
+  workspace_name: string | null
+  customer_user_id: string
+  /** The customer's member row there: their @-mention in the welcome. */
+  customer_member_id: string | null
+  customer_name: string
+  customer_email: string | null
+}
 
 /** A channel or DM as the list shows it. */
 export interface TeamChatChannel {
@@ -71,6 +88,8 @@ export interface TeamChatChannel {
    * not snoozed (or the snooze is over). Absent on an older answer: null.
    */
   muted_until?: string | null
+  /** Our staff's view of a customer's support conversation (migration 715). */
+  support?: TeamChatSupportInfo | null
 }
 
 /** A file or image on a message (migration 555), as stored and drawn. */
@@ -129,8 +148,11 @@ export interface TeamChatReaction {
 export interface TeamChatMessage {
   id: string
   channel_id: string
-  /** Who wrote it: a member, a member's agent, or a meeting's guest (migration 670: in a meeting's conversation only). */
-  author_kind: 'member' | 'agent' | 'guest'
+  /**
+   * Who wrote it: a member, a member's agent, a meeting's guest (migration 670: in a meeting's
+   * conversation only), or our support staff (migration 715: in a support conversation only).
+   */
+  author_kind: 'member' | 'agent' | 'guest' | 'support'
   /** The member who wrote it (author_kind 'member'). */
   author_member_id: string | null
   /** Whose agent wrote it (author_kind 'agent'). */
@@ -187,6 +209,14 @@ export interface TeamChatMessage {
    * payload: none.
    */
   poll_id?: string | null
+  /**
+   * A message from our support staff (migration 715, author_kind 'support'):
+   * who (their account, null once it is gone), and the name and picture the
+   * customer sees, kept with the message. Absent on an old realtime payload.
+   */
+  support_user_id?: string | null
+  support_name?: string | null
+  support_avatar_url?: string | null
 }
 
 /** A record a message @-mentions: its kind and id, and the label its `@…` shows. */
@@ -194,10 +224,13 @@ export type TeamChatRecordMention = LabeledMentionRef
 
 /** The columns a message is read with. */
 export const TEAM_CHAT_MESSAGE_COLUMNS =
-  'id, channel_id, author_kind, author_member_id, agent_for_member_id, agent_name, in_reply_to, thread_root_id, client_id, body, mentions, mentions_agent, record_mentions, attachments, link_preview, created_at, edited_at, deleted_at, kind, call_id, email_share_id, guest_id, guest_name, poll_id'
+  'id, channel_id, author_kind, author_member_id, agent_for_member_id, agent_name, in_reply_to, thread_root_id, client_id, body, mentions, mentions_agent, record_mentions, attachments, link_preview, created_at, edited_at, deleted_at, kind, call_id, email_share_id, guest_id, guest_name, support_user_id, support_name, support_avatar_url, poll_id'
 
-/** The same before migration 703 (no poll_id): ./store.ts messageColumns reads with these until it is there. */
-export const TEAM_CHAT_MESSAGE_COLUMNS_BEFORE_703 = TEAM_CHAT_MESSAGE_COLUMNS.replace(', poll_id', '')
+/** The same before migration 715 (no support_* columns): ./store.ts messageColumns reads with these until it is there. */
+export const TEAM_CHAT_MESSAGE_COLUMNS_BEFORE_715 = TEAM_CHAT_MESSAGE_COLUMNS.replace(', support_user_id, support_name, support_avatar_url', '')
+
+/** The same before migration 703 (no poll_id, and so none of 715's either): ./store.ts messageColumns reads with these until it is there. */
+export const TEAM_CHAT_MESSAGE_COLUMNS_BEFORE_703 = TEAM_CHAT_MESSAGE_COLUMNS_BEFORE_715.replace(', poll_id', '')
 
 /** The most replies a thread's pane loads at once. */
 export const TEAM_CHAT_THREAD_MAX = 200
