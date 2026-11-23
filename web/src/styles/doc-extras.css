@@ -1,0 +1,270 @@
+/* The document editor's extras (docs/plans/doc-editor-extras.md):
+   folding, math, find and replace, the block drag handle and highlighted code.
+   Imported once from tailwind.css. */
+
+/* ── Folding (components/editor/doc-extras/heading-fold.ts) ───────────── */
+.ProseMirror .ni-fold-heading {
+  position: relative;
+}
+.ProseMirror .ni-fold-toggle {
+  position: absolute;
+  left: -1.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 0.25rem;
+  color: hsl(var(--muted-foreground));
+  opacity: 0;
+  transition: opacity 120ms, transform 120ms;
+  cursor: pointer;
+  user-select: none;
+}
+.ProseMirror .ni-fold-toggle svg {
+  transition: transform 120ms;
+}
+.ProseMirror .ni-fold-toggle:hover {
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground));
+}
+.ProseMirror .ni-fold-heading:hover > .ni-fold-toggle,
+.ProseMirror .ni-fold-toggle--folded {
+  opacity: 1;
+}
+.ProseMirror .ni-fold-toggle--folded svg {
+  transform: rotate(-90deg);
+}
+.ProseMirror .ni-fold-heading--folded::after {
+  content: '…';
+  margin-left: 0.4rem;
+  color: hsl(var(--muted-foreground));
+  font-weight: 400;
+}
+.ProseMirror .ni-fold-hidden {
+  display: none !important;
+}
+@media (hover: none) {
+  .ProseMirror .ni-fold-toggle {
+    opacity: 0.6;
+  }
+}
+
+/* ── Math (components/editor/doc-extras/math.ts) ───────────────────────── */
+.ProseMirror .ni-math-inline {
+  display: inline-block;
+  padding: 0 0.15rem;
+  border-radius: 0.25rem;
+  cursor: default;
+}
+.ProseMirror[contenteditable='true'] .ni-math-inline,
+.ProseMirror[contenteditable='true'] .ni-math-block {
+  cursor: pointer;
+}
+.ProseMirror[contenteditable='true'] .ni-math-inline:hover,
+.ProseMirror[contenteditable='true'] .ni-math-block:hover,
+.ProseMirror .ni-math-inline.ProseMirror-selectednode,
+.ProseMirror .ni-math-block.ProseMirror-selectednode {
+  background: hsl(var(--muted));
+}
+.ProseMirror .ni-math-block {
+  display: block;
+  margin: 0.75rem 0;
+  padding: 0.5rem;
+  border-radius: 0.375rem;
+  text-align: center;
+  overflow-x: auto;
+}
+.ProseMirror .ni-math-error {
+  color: hsl(var(--destructive));
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8125rem;
+}
+.ProseMirror .ni-math-empty {
+  color: hsl(var(--muted-foreground));
+  font-style: italic;
+}
+.ProseMirror .ni-math-editor {
+  display: block;
+  width: 100%;
+  min-height: 2rem;
+  padding: 0.375rem 0.5rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.375rem;
+  background: hsl(var(--background));
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8125rem;
+  resize: vertical;
+  text-align: left;
+}
+.ProseMirror .ni-math-inline .ni-math-editor {
+  display: inline-block;
+  width: auto;
+  min-width: 6rem;
+  min-height: 0;
+  padding: 0 0.25rem;
+  resize: none;
+}
+
+/* ── Find and replace (components/editor/doc-extras/find-replace.ts) ─────── */
+.ProseMirror .ni-find-match {
+  background: hsl(48 96% 53% / 0.35);
+  border-radius: 2px;
+}
+.ProseMirror .ni-find-match--active {
+  background: hsl(25 95% 53% / 0.55);
+  box-shadow: 0 0 0 1px hsl(25 95% 53% / 0.8);
+}
+
+/* ── Block drag handle (tiptap-extension-global-drag-handle) ─────────────── */
+[data-drag-handle] {
+  position: fixed;
+  z-index: 40;
+  width: 1rem;
+  height: 1.25rem;
+  border-radius: 0.25rem;
+  cursor: grab;
+  opacity: 1;
+  transition: opacity 150ms;
+  background-image: radial-gradient(circle, hsl(var(--muted-foreground)) 1px, transparent 1.2px);
+  background-size: 6px 6px;
+  background-position: center;
+  background-repeat: repeat;
+  -webkit-mask: linear-gradient(#000 0 0) content-box;
+  padding: 2px;
+}
+[data-drag-handle]:hover {
+  background-color: hsl(var(--muted));
+}
+[data-drag-handle]:active {
+  cursor: grabbing;
+}
+[data-drag-handle].hide {
+  opacity: 0;
+  pointer-events: none;
+}
+@media (hover: none) {
+  [data-drag-handle] {
+    display: none;
+  }
+}
+
+/* ── Highlighted code (lowlight / highlight.js class names) ──────────────── */
+.ProseMirror pre {
+  position: relative;
+}
+.ProseMirror .ni-code-language {
+  position: absolute;
+  top: 0.375rem;
+  right: 0.5rem;
+  font-family: inherit;
+  font-size: 0.6875rem;
+  color: hsl(var(--muted-foreground));
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 0.25rem;
+  padding: 0 0.25rem;
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.ProseMirror pre:hover .ni-code-language,
+.ProseMirror .ni-code-language:focus {
+  opacity: 1;
+  border-color: hsl(var(--border));
+}
+.ProseMirror pre .hljs-comment,
+.ProseMirror pre .hljs-quote {
+  color: hsl(220 9% 46%);
+  font-style: italic;
+}
+.ProseMirror pre .hljs-keyword,
+.ProseMirror pre .hljs-selector-tag,
+.ProseMirror pre .hljs-literal,
+.ProseMirror pre .hljs-section,
+.ProseMirror pre .hljs-doctag {
+  color: hsl(282 60% 48%);
+}
+.ProseMirror pre .hljs-string,
+.ProseMirror pre .hljs-regexp,
+.ProseMirror pre .hljs-addition,
+.ProseMirror pre .hljs-attribute,
+.ProseMirror pre .hljs-meta .hljs-string {
+  color: hsl(142 55% 32%);
+}
+.ProseMirror pre .hljs-number,
+.ProseMirror pre .hljs-symbol,
+.ProseMirror pre .hljs-bullet,
+.ProseMirror pre .hljs-variable,
+.ProseMirror pre .hljs-template-variable {
+  color: hsl(25 85% 42%);
+}
+.ProseMirror pre .hljs-title,
+.ProseMirror pre .hljs-title.function_,
+.ProseMirror pre .hljs-name,
+.ProseMirror pre .hljs-selector-id,
+.ProseMirror pre .hljs-selector-class {
+  color: hsl(215 75% 45%);
+}
+.ProseMirror pre .hljs-type,
+.ProseMirror pre .hljs-built_in,
+.ProseMirror pre .hljs-title.class_,
+.ProseMirror pre .hljs-params {
+  color: hsl(190 70% 33%);
+}
+.ProseMirror pre .hljs-deletion {
+  color: hsl(0 70% 45%);
+}
+.ProseMirror pre .hljs-meta,
+.ProseMirror pre .hljs-attr {
+  color: hsl(200 60% 40%);
+}
+.ProseMirror pre .hljs-emphasis {
+  font-style: italic;
+}
+.ProseMirror pre .hljs-strong {
+  font-weight: 700;
+}
+.dark .ProseMirror pre .hljs-comment,
+.dark .ProseMirror pre .hljs-quote {
+  color: hsl(220 9% 60%);
+}
+.dark .ProseMirror pre .hljs-keyword,
+.dark .ProseMirror pre .hljs-selector-tag,
+.dark .ProseMirror pre .hljs-literal,
+.dark .ProseMirror pre .hljs-section,
+.dark .ProseMirror pre .hljs-doctag {
+  color: hsl(282 70% 72%);
+}
+.dark .ProseMirror pre .hljs-string,
+.dark .ProseMirror pre .hljs-regexp,
+.dark .ProseMirror pre .hljs-addition,
+.dark .ProseMirror pre .hljs-attribute,
+.dark .ProseMirror pre .hljs-meta .hljs-string {
+  color: hsl(142 50% 62%);
+}
+.dark .ProseMirror pre .hljs-number,
+.dark .ProseMirror pre .hljs-symbol,
+.dark .ProseMirror pre .hljs-bullet,
+.dark .ProseMirror pre .hljs-variable,
+.dark .ProseMirror pre .hljs-template-variable {
+  color: hsl(30 85% 65%);
+}
+.dark .ProseMirror pre .hljs-title,
+.dark .ProseMirror pre .hljs-title.function_,
+.dark .ProseMirror pre .hljs-name,
+.dark .ProseMirror pre .hljs-selector-id,
+.dark .ProseMirror pre .hljs-selector-class {
+  color: hsl(215 85% 70%);
+}
+.dark .ProseMirror pre .hljs-type,
+.dark .ProseMirror pre .hljs-built_in,
+.dark .ProseMirror pre .hljs-title.class_,
+.dark .ProseMirror pre .hljs-params {
+  color: hsl(190 65% 62%);
+}
+.dark .ProseMirror pre .hljs-meta,
+.dark .ProseMirror pre .hljs-attr {
+  color: hsl(200 60% 68%);
+}
