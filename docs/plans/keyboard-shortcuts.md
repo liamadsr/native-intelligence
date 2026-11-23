@@ -157,6 +157,16 @@ that property, a toast says to show it.
 Mail's list has no focused thread yet, so J/K and Enter in the list (with no thread open) are not
 built. F (forward) is not built: the app has no forward to call.
 
+**Home's Recent panel, while it has the focus** (`page-panel/home-recents.tsx`; `docs/plans/recent-panel.md`)
+| Keys | What |
+|---|---|
+| J / K, ↓ / ↑ | Next / previous item |
+| Enter, ⇧Enter | Open the item (the app has no split view, so ⇧Enter opens as Enter does) |
+| F | Filter: Status, Type, Reset filters |
+
+Only while the focus is in the panel: home's composer has the keyboard most of the time, and a bare
+J, K or F there is typing.
+
 **In a page group** (Drive, Calendar, Contacts, Outreach, SEO, Agents): `[` and `]` open the
 previous and next page in its sub-nav, round from the last to the first. Outside a group page
 they're left alone.

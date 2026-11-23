@@ -30,8 +30,17 @@ import type { FeedEntry } from '@/lib/entities/feed-model'
 
 const opened = vi.hoisted(() => [] as Array<{ target: unknown; from: string }>)
 const composer = vi.hoisted(() => ({ height: 0 }))
-vi.mock('@/lib/workspace-fetch', () => ({ getClientWorkspaceId: () => 'ws-home' }))
+// The window's workspace, as its requests name it: a test may have it learned only while the first reads are out.
+const windowWs = vi.hoisted(() => ({ id: 'ws-home' as string | null }))
+vi.mock('@/lib/workspace-fetch', () => ({ getClientWorkspaceId: () => windowWs.id }))
 vi.mock('@/components/desktop-titlebar', () => ({ useHasTrafficLights: () => false, useIsDesktop: () => false }))
+const filesOpened: string[] = []
+vi.mock('@/components/files/global-file-viewer', () => ({
+  openAttachmentById: async (id: string) => {
+    filesOpened.push(id)
+    return true
+  },
+}))
 vi.mock('@/lib/chat-cards/open-card', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/chat-cards/open-card')>()),
   openTarget: (target: unknown, opts: { from: string }) => {
@@ -57,7 +66,7 @@ import { PAGE_PANEL_ID } from '../page-panel-types'
 import { pagePanelBottom, pagePanelBottomCss } from '../page-panel-frame'
 import { MINIMIZED_TILE_BAND_PX, PAGE_PANEL_HEIGHT_SHARE } from '../../side-panels/space-plan'
 import { SEEN_KEY } from '../use-recents'
-import { RECENT_GROUP_LABEL, recentGroupOf } from '../recents-model'
+import { recentGroupLabel, recentGroupOf } from '../recents-model'
 import * as store from '../../side-panels/side-panel-store'
 import { PAGE_PANEL_W_VAR, holdFrontCard } from '@/components/chat-cards/front-card'
 import { CARD_PAGES } from '@/lib/chat-cards/page-menu'
@@ -93,16 +102,20 @@ let inbox: FeedEntry[] = []
 let recent: FeedEntry[] = []
 let feedOk = true
 let reads = 0
+let sources: unknown[] = []
 let container: HTMLDivElement
 let root: Root
 
 beforeEach(() => {
   opened.length = 0
+  filesOpened.length = 0
+  windowWs.id = 'ws-home'
   composer.height = 0
   inbox = [entry('action', ACTION, 'Send the Fernhill quote', ago(10), false)]
   recent = [entry('document', DOC, 'Q4 renewals plan', ago(3 * 24 * 60), true)]
   feedOk = true
   reads = 0
+  sources = []
   window.localStorage.clear()
   __resetSelectedPlaceForTests()
   __resetSubnavOnScreenForTests()
@@ -110,6 +123,8 @@ beforeEach(() => {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string) => {
+      // Recent's direct reads (GET /api/account/recents): nothing unless a test says.
+      if (String(url) === '/api/account/recents') return { ok: true, json: async () => ({ entries: sources, workspace_id: 'ws-home' }) } as Response
       if (!String(url).startsWith('/api/account/feed')) throw new Error(`unexpected ${url}`)
       reads++
       if (!feedOk) return { ok: false, json: async () => ({}) } as Response
@@ -210,8 +225,9 @@ describe('the page panel', () => {
     expect(aside.getAttribute('data-page-panel-mode')).toBe('room')
     expect(aside.hasAttribute('inert')).toBe(false)
     expect(store.getSidePanelState().pagePanel).toBe(true)
-    // Sections by day (Liam, 11-11): ten minutes ago is today's part of the day (yesterday's just after midnight), 3 days ago the week's.
-    expect([...aside.querySelectorAll('h3')].map((h) => h.textContent)).toEqual([RECENT_GROUP_LABEL[recentGroupOf(ago(10), new Date())], 'Last 7 days'])
+    // Sections by time (docs/plans/recent-panel.md): ten minutes ago is the last hour's, 3 days ago its own day's.
+    const now = new Date()
+    expect([...aside.querySelectorAll('h3')].map((h) => h.textContent)).toEqual(['Last hour', recentGroupLabel(recentGroupOf(ago(3 * 24 * 60), now), now)])
     expect(titles()).toEqual(['Send the Fernhill quote', 'Q4 renewals plan'])
     expect(rows()[0].hasAttribute('data-recent-needs-you')).toBe(true)
     expect(rows()[1].hasAttribute('data-recent-needs-you')).toBe(false)
@@ -236,6 +252,89 @@ describe('the page panel', () => {
     expect(panel()).toBeNull()
     expect(container.innerHTML).toBe('')
     expect(store.getSidePanelState().pagePanel).toBe(false)
+  })
+
+  it('what the person did outside the log joins the list (their Drive upload), and opens in the file viewer', async () => {
+    const FILE = 'b0000000-0000-4000-8000-000000000001'
+    sources = [{ type: 'attachment', id: FILE, label: 'fernhill-quote.pdf', context: null, at: ago(2) }]
+    act(() => root.render(<Row />))
+    await flush()
+    expect(titles()).toEqual(['fernhill-quote.pdf', 'Send the Fernhill quote', 'Q4 renewals plan'])
+    expect([...panel()!.querySelectorAll('h3')][0].textContent).toBe('Last few minutes')
+    act(() => rows()[0].click())
+    expect(filesOpened).toEqual([FILE])
+    expect(opened).toEqual([])
+  })
+
+  it('a first load whose workspace is learned while its reads are out reads again for it, never staying empty', async () => {
+    // Before the window knows its workspace: the reads go out naming none, and it is learned meanwhile.
+    windowWs.id = null
+    const plain = fetch as unknown as ReturnType<typeof vi.fn>
+    const answer = plain.getMockImplementation()!
+    // Learned as the answers come back, after the panel's last render: nothing else would render it again.
+    plain.mockImplementation(async (url: string) => {
+      const res = (await answer(url)) as Response
+      return { ...res, ok: res.ok, json: async () => ((windowWs.id = 'ws-home'), res.json()) } as Response
+    })
+    act(() => root.render(<Row />))
+    await flush()
+    await flush()
+    expect(titles()).toEqual(['Send the Fernhill quote', 'Q4 renewals plan'])
+  })
+
+  it('keys while it has the focus: J/K and the arrows move, Enter and Shift+Enter open, never while typing', async () => {
+    act(() => root.render(<Row />))
+    await flush()
+    const keys = panel()!.querySelector<HTMLElement>('[data-recents-keys]')!
+    const press = (key: string, init: KeyboardEventInit = {}, target: HTMLElement = (document.activeElement as HTMLElement) ?? keys) =>
+      act(() => {
+        target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init }))
+      })
+    press('j', {}, keys)
+    expect(document.activeElement).toBe(rows()[0])
+    press('j')
+    expect(document.activeElement).toBe(rows()[1])
+    press('j')
+    expect(document.activeElement).toBe(rows()[1])
+    press('ArrowUp')
+    expect(document.activeElement).toBe(rows()[0])
+    press('Enter', { shiftKey: true })
+    expect(opened).toEqual([{ target: { type: 'action', id: ACTION, title: 'Send the Fernhill quote' }, from: 'recents' }])
+    // A modifier is never the panel's.
+    press('j', { metaKey: true })
+    expect(document.activeElement).toBe(rows()[0])
+  })
+
+  it('F opens the filter; a Status or Type narrows the list, kept across reloads, and Reset filters brings it all back', async () => {
+    act(() => root.render(<Row />))
+    await flush()
+    const keys = panel()!.querySelector<HTMLElement>('[data-recents-keys]')!
+    act(() => {
+      keys.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', bubbles: true, cancelable: true }))
+    })
+    await flush()
+    const unread = document.querySelector<HTMLElement>('[data-recents-status="unread"]')
+    expect(unread).not.toBeNull()
+    // Only the kinds the list has rows of are offered.
+    expect([...document.querySelectorAll('[data-recents-type]')].map((t) => t.getAttribute('data-recents-type'))).toEqual(['docs', 'actions'])
+    act(() => unread!.click())
+    await flush()
+    expect(titles()).toEqual(['Send the Fernhill quote'])
+    expect(JSON.parse(window.localStorage.getItem('ni:page-panel:recents-filter')!)).toEqual({ status: 'unread', types: [] })
+    expect(panel()!.querySelector('[data-recents-filter]')!.getAttribute('data-recents-filter-on')).toBe('1')
+    // Remembered: a new mount reads it back.
+    act(() => root.unmount())
+    root = createRoot(container)
+    window.localStorage.setItem('ni:page-panel:recents-filter', JSON.stringify({ status: 'read', types: ['actions'] }))
+    act(() => root.render(<Row />))
+    await flush()
+    // Read actions: none. The panel stays, saying so, with its reset.
+    expect(rows()).toEqual([])
+    const none = panel()!.querySelector<HTMLElement>('[data-recents-none]')!
+    expect(none.textContent).toContain('Nothing matches')
+    act(() => none.querySelector('button')!.click())
+    expect(titles()).toEqual(['Send the Fernhill quote', 'Q4 renewals plan'])
+    expect(JSON.parse(window.localStorage.getItem('ni:page-panel:recents-filter')!)).toEqual({ status: 'all', types: [] })
   })
 
   it('a click opens the record the way the palette does, and its dot goes (remembered)', async () => {
@@ -437,8 +536,8 @@ describe('the page panel', () => {
     const classes = card.className.split(' ')
     expect(classes).toContain('rounded-3xl')
     expect(classes).not.toContain('rounded-xl')
-    // Room above the first heading and under the last row, rows rounded 12px.
-    expect(container.querySelector<HTMLElement>('[data-recents-scroller]')!.className.split(' ')).toEqual(expect.arrayContaining(['px-1.5', 'py-2.5']))
+    // Room under the last row (the filter bar holds the room above), rows rounded 12px.
+    expect(container.querySelector<HTMLElement>('[data-recents-scroller]')!.className.split(' ')).toEqual(expect.arrayContaining(['px-1.5', 'pb-2.5']))
     expect(rows()[0].className.split(' ')).toContain('rounded-xl')
   })
 

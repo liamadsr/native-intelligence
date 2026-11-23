@@ -21,11 +21,17 @@
  * Liam, 11-11: the panel persists when you open something, so the record a
  * full-screen card shows has its row lit (frontRecentKey).
  *
- * Liam, 11-11: sections by day, "so you see today, yesterday…": today by
- * part of the day (This morning, This afternoon, This evening), then
- * Yesterday, Last 7 days, Last 30 days, Older (recentGroupOf).
+ * Sections by time (docs/plans/recent-panel.md, as Macro's Home groups its
+ * feed): Last few minutes, Last hour, the part of today it is now (This
+ * morning, This afternoon, This evening), Earlier today, Yesterday, then
+ * each day (recentGroupOf).
+ *
+ * Besides the feed, what the person did to records the log doesn't hold
+ * (their Drive uploads, their coding jobs: GET /api/account/recents) joins
+ * the list as their own (`sources`). The filter (Status on the dot, Type per
+ * kind: filterRecents) narrows what shows.
  */
-import type { ActivityEntityType } from '@/lib/knowledge/entity-registry'
+import { recentTypeOf, type RecentKind, type RecentSourceEntry, type RecentTypeKey } from '@/lib/entities/recents-model'
 import type { CardSpec } from '@/lib/chat-cards/kinds'
 import type { FeedEntry } from '@/lib/entities/feed-model'
 import { entityOpenTarget } from '@/lib/entity-links/open-entity'
@@ -36,7 +42,7 @@ export const RECENTS_PAGE = 30
 export interface RecentItem {
   /** `type:id`, the record's one key. */
   key: string
-  type: ActivityEntityType
+  type: RecentKind
   id: string
   title: string
   /** Where it sits, when that helps (a message's channel). */
@@ -55,7 +61,16 @@ export type SeenMap = Readonly<Record<string, string>>
 /** How many records the seen map keeps (the newest seen). */
 export const SEEN_MAX = 200
 
-const keyOf = (e: Pick<FeedEntry, 'type' | 'id'>) => `${e.type}:${e.id}`
+/** A record as either list holds it: a feed entry or a direct read's. */
+type RecentEntry = Pick<FeedEntry, 'id' | 'label' | 'context'> & { type: RecentKind }
+
+const keyOf = (e: Pick<RecentEntry, 'type' | 'id'>) => `${e.type}:${e.id}`
+
+/** Whether a row of this kind opens: a record's card, or one of the kinds read from their own tables. */
+export function canOpenRecent(type: string, id: string, label?: string | null): boolean {
+  if (type === 'attachment' || type === 'code_job' || type === 'conversation') return !!id
+  return entityOpenTarget(type, id, label) !== null
+}
 const ms = (iso: string | null | undefined): number => {
   const t = iso ? Date.parse(iso) : NaN
   return Number.isNaN(t) ? -Infinity : t
@@ -68,20 +83,27 @@ const ms = (iso: string | null | undefined): number => {
 export function mergeRecents({
   inbox,
   recent,
+  sources = null,
   seen = {},
-  canOpen = (e) => entityOpenTarget(e.type, e.id, e.label) !== null,
+  canOpen = (e) => canOpenRecent(e.type, e.id, e.label),
 }: {
   inbox: readonly FeedEntry[] | null
   recent: readonly FeedEntry[] | null
+  /** What the person did to records the log doesn't hold, from their own tables (GET /api/account/recents). */
+  sources?: readonly RecentSourceEntry[] | null
   seen?: SeenMap
-  canOpen?: (e: FeedEntry) => boolean
+  canOpen?: (e: Pick<RecentEntry, 'type' | 'id' | 'label'>) => boolean
 }): RecentItem[] {
-  const byKey = new Map<string, { entry: FeedEntry; mine: string | null; inboxAt: string | null }>()
-  for (const e of recent ?? []) {
-    if (!e?.id || !e.type || !canOpen(e)) continue
+  const byKey = new Map<string, { entry: RecentEntry; mine: string | null; inboxAt: string | null }>()
+  const addMine = (e: RecentEntry, at: string | null) => {
+    if (!e?.id || !e.type || !canOpen(e)) return
     const key = keyOf(e)
-    if (!byKey.has(key)) byKey.set(key, { entry: e, mine: e.last?.at ?? null, inboxAt: null })
+    const had = byKey.get(key)
+    if (!had) byKey.set(key, { entry: e, mine: at, inboxAt: null })
+    else if (ms(at) > ms(had.mine)) byKey.set(key, { ...had, entry: e, mine: at })
   }
+  for (const e of recent ?? []) addMine(e, e?.last?.at ?? null)
+  for (const e of sources ?? []) addMine(e, e?.at ?? null)
   for (const e of inbox ?? []) {
     if (!e?.id || !e.type || !canOpen(e)) continue
     const key = keyOf(e)
@@ -144,22 +166,26 @@ export function parseSeen(raw: string | null): SeenMap {
   }
 }
 
-export type RecentGroupKey = 'evening' | 'afternoon' | 'morning' | 'yesterday' | 'week' | 'month' | 'older'
+/**
+ * A section: the last few minutes, the last hour, the part of today it is
+ * now, earlier today, yesterday, then one per calendar day (`date:YYYY-MM-DD`,
+ * the viewer's own calendar).
+ */
+export type RecentGroupKey = 'minutes' | 'hour' | 'morning' | 'afternoon' | 'evening' | 'today' | 'yesterday' | `date:${string}`
 
-export const RECENT_GROUP_LABEL: Record<RecentGroupKey, string> = {
-  evening: 'This evening',
-  afternoon: 'This afternoon',
+const FIXED_GROUP_LABEL = {
+  minutes: 'Last few minutes',
+  hour: 'Last hour',
   morning: 'This morning',
+  afternoon: 'This afternoon',
+  evening: 'This evening',
+  today: 'Earlier today',
   yesterday: 'Yesterday',
-  week: 'Last 7 days',
-  month: 'Last 30 days',
-  older: 'Older',
-}
-
-/** Newest first: today's parts of the day latest first, then back in time. */
-const GROUP_ORDER: readonly RecentGroupKey[] = ['evening', 'afternoon', 'morning', 'yesterday', 'week', 'month', 'older']
+} as const
 
 const HOUR_MS = 3_600_000
+/** "The last few minutes": this many. */
+export const FEW_MINUTES_MS = 10 * 60_000
 /** Where the afternoon and the evening start, local hours. */
 const AFTERNOON_HOUR = 12
 const EVENING_HOUR = 18
@@ -170,49 +196,131 @@ function dayStart(now: Date, days = 0): number {
 }
 
 /** The part of the day a local time falls in: before noon, before 6pm, then the evening. */
-function partOfDay(d: Date): RecentGroupKey {
+function partOfDay(d: Date): 'morning' | 'afternoon' | 'evening' {
   const h = d.getHours()
   return h < AFTERNOON_HOUR ? 'morning' : h < EVENING_HOUR ? 'afternoon' : 'evening'
 }
 
+const pad = (n: number) => String(n).padStart(2, '0')
+const dateKey = (d: Date): RecentGroupKey => `date:${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+
 /**
- * Which section a time falls in, by the viewer's calendar (local time):
- * today by its part of the day (This morning before 12:00, This afternoon
- * to 17:59, This evening from 18:00); Yesterday, the calendar day before
- * (not 24 hours ago); Last 7 days, the five days before that (today and the
- * six before it make the 7); Last 30 days, today and the 29 before it; then
- * Older. A time a little ahead of the clock (a skewed clock) is the part of
- * the day it is now.
+ * Which section a time falls in, by the viewer's own clock and calendar:
+ * the last 10 minutes; the last hour; today, older than that, in the part of
+ * the day it is now (This morning before 12:00, This afternoon to 17:59, This
+ * evening from 18:00); today, in an earlier part (Earlier today); Yesterday,
+ * the calendar day before (not 24 hours ago); then the day itself. A time a
+ * little ahead of the clock (a skewed clock) is the last few minutes'.
  */
 export function recentGroupOf(at: string, now: Date): RecentGroupKey {
   const t = ms(at)
-  if (t > now.getTime()) return partOfDay(now)
-  if (t >= dayStart(now)) return partOfDay(new Date(t))
+  if (!Number.isFinite(t)) return 'date:unknown'
+  const ago = now.getTime() - t
+  if (ago < FEW_MINUTES_MS) return 'minutes'
+  if (ago < HOUR_MS) return 'hour'
+  if (t >= dayStart(now)) {
+    const part = partOfDay(new Date(t))
+    return part === partOfDay(now) ? part : 'today'
+  }
   if (t >= dayStart(now, 1)) return 'yesterday'
-  if (t >= dayStart(now, 6)) return 'week'
-  if (t >= dayStart(now, 29)) return 'month'
-  return 'older'
+  return dateKey(new Date(t))
 }
 
-export interface RecentGroup {
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+/** A section's heading: its words, or a day's date ("Mon, Nov 9"; a past year's with its year). */
+export function recentGroupLabel(key: RecentGroupKey, now: Date): string {
+  if (key in FIXED_GROUP_LABEL) return FIXED_GROUP_LABEL[key as keyof typeof FIXED_GROUP_LABEL]
+  const m = /^date:(\d{4})-(\d{2})-(\d{2})$/.exec(key)
+  if (!m) return 'Earlier'
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+  const day = `${WEEKDAYS[d.getDay()]}, ${MONTHS[d.getMonth()]} ${d.getDate()}`
+  return d.getFullYear() === now.getFullYear() ? day : `${day}, ${d.getFullYear()}`
+}
+
+export interface RecentGroup<T extends { at: string } = RecentItem> {
   key: RecentGroupKey
   label: string
-  items: RecentItem[]
+  items: T[]
 }
 
-/** The list under its section headings, newest section first, empty ones left out (the items' own order kept). */
-export function groupRecents(items: readonly RecentItem[], now: Date): RecentGroup[] {
-  const by = new Map<RecentGroupKey, RecentItem[]>()
+/**
+ * The list under its section headings, in the list's own order (newest
+ * first), each section where its first row falls; empty ones aren't there.
+ */
+export function groupRecents<T extends { at: string }>(items: readonly T[], now: Date): RecentGroup<T>[] {
+  const out: RecentGroup<T>[] = []
+  const by = new Map<RecentGroupKey, RecentGroup<T>>()
   for (const item of items) {
     const key = recentGroupOf(item.at, now)
-    const list = by.get(key)
-    if (list) list.push(item)
-    else by.set(key, [item])
+    const group = by.get(key)
+    if (group) group.items.push(item)
+    else {
+      const next = { key, label: recentGroupLabel(key, now), items: [item] }
+      by.set(key, next)
+      out.push(next)
+    }
   }
-  return GROUP_ORDER.flatMap((key) => {
-    const list = by.get(key)
-    return list?.length ? [{ key, label: RECENT_GROUP_LABEL[key], items: list }] : []
+  return out
+}
+
+// ── The filter ─────────────────────────────────────────────
+
+/** Status: the dot (Unread: it needs the person, unopened; Read: everything else), or all. */
+export type RecentStatus = 'all' | 'unread' | 'read'
+
+export interface RecentFilter {
+  status: RecentStatus
+  /** The Types shown; empty is every type. */
+  types: readonly RecentTypeKey[]
+}
+
+export const DEFAULT_RECENT_FILTER: RecentFilter = Object.freeze({ status: 'all', types: Object.freeze([]) as readonly RecentTypeKey[] })
+
+/** Is it the default (nothing filtered)? */
+export const isDefaultRecentFilter = (f: RecentFilter): boolean => f.status === 'all' && f.types.length === 0
+
+/** The rows the filter keeps, their order kept. */
+export function filterRecents(items: readonly RecentItem[], filter: RecentFilter): RecentItem[] {
+  const types = new Set(filter.types)
+  return items.filter((item) => {
+    if (filter.status === 'unread' && !item.needsYou) return false
+    if (filter.status === 'read' && item.needsYou) return false
+    if (types.size) {
+      const t = recentTypeOf(item.type)
+      if (!t || !types.has(t)) return false
+    }
+    return true
   })
+}
+
+/** The Types the list has rows of, in the filter's order (what the filter offers). */
+export function recentTypesPresent(items: readonly RecentItem[]): RecentTypeKey[] {
+  const have = new Set<RecentTypeKey>()
+  for (const item of items) {
+    const t = recentTypeOf(item.type)
+    if (t) have.add(t)
+  }
+  return [...have]
+}
+
+/** A saved filter read back: only known values; anything else is the default. */
+export function parseRecentFilter(raw: string | null, known: readonly RecentTypeKey[]): RecentFilter {
+  if (!raw) return DEFAULT_RECENT_FILTER
+  try {
+    const v = JSON.parse(raw) as { status?: unknown; types?: unknown }
+    const status: RecentStatus = v?.status === 'unread' || v?.status === 'read' ? v.status : 'all'
+    const types = Array.isArray(v?.types) ? [...new Set(v.types.filter((t): t is RecentTypeKey => typeof t === 'string' && known.includes(t as RecentTypeKey)))] : []
+    return { status, types }
+  } catch {
+    return DEFAULT_RECENT_FILTER
+  }
+}
+
+/** One Type on or off. */
+export function toggleRecentType(filter: RecentFilter, type: RecentTypeKey): RecentFilter {
+  const on = filter.types.includes(type)
+  return { ...filter, types: on ? filter.types.filter((t) => t !== type) : [...filter.types, type] }
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
