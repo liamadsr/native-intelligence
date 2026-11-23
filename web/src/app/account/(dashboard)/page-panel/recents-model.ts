@@ -68,7 +68,7 @@ const keyOf = (e: Pick<RecentEntry, 'type' | 'id'>) => `${e.type}:${e.id}`
 
 /** Whether a row of this kind opens: a record's card, or one of the kinds read from their own tables. */
 export function canOpenRecent(type: string, id: string, label?: string | null): boolean {
-  if (type === 'attachment' || type === 'code_job') return !!id
+  if (type === 'attachment' || type === 'code_job' || type === 'conversation') return !!id
   return entityOpenTarget(type, id, label) !== null
 }
 const ms = (iso: string | null | undefined): number => {

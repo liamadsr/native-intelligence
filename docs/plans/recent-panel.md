@@ -73,9 +73,9 @@ Per kind:
   read on the session client.
 - **Actions, projects, initiatives, contacts, companies, deals, tables, flows, captures →
   the log**, as today (`actor = me`).
-- **Agents → the person's Code jobs (`local_agent_session`, own RLS)** and their chats with a
-  bot (`chat_conversations.ai_team_member_id`). **Chats → the person's own conversations other
-  than the home thread** (`is_home = false`, not a meeting's live chat); the home thread is the
+- **Agents → the person's Code jobs (`local_agent_session`, own RLS)**, phase 1. **Chats → the
+  person's own conversations other than the home thread** (phase 2, through 713; a bot's thread is
+  among them) (`is_home = false`, not a meeting's live chat); the home thread is the
   page the panel sits on, so it is never a row. "Latest time" is `max(chat_messages.created_at)`
   of my own messages (`role = 'user'`), since `updated_at` is not bumped.
 - **Email → threads in my own mailboxes with `folder = 'sent'`** (`email_thread_index`, own-only
@@ -102,19 +102,31 @@ tool is ever added) would call the same server function with the same session, s
    This afternoon, This evening, Earlier today, Yesterday, then each date); the filter (F or its
    button: Status Unread / Read / All on the dot model, Type one per kind, Reset filters, kept per
    device in localStorage like the panel's open state); J/K/arrows move, Enter opens. A new
-   `GET /api/account/recents` (`src/lib/entities/recents.ts`) that answers the merged list: the two
-   feed lists, plus the direct reads that need no new index (Drive uploads, Code jobs). Tests.
-2. **Migration 712 (after the managing session's OK).** Indexes:
-   `team_chat_message (author_member_id, created_at desc) where author_kind = 'member' and deleted_at is null`,
-   `team_chat_reaction (member_id, updated_at desc) where active`,
-   `document_revision (author_id, updated_at desc)`,
-   `spreadsheet (workspace_id, last_edited_by, updated_at desc)`,
-   `canvas_item (updated_by, updated_at desc)`;
-   and `my_recent_team_chat_channels(p_workspace uuid, p_since timestamptz, p_limit int)`,
-   `SECURITY INVOKER`, `stable`, returning `(channel_id, at)`. No new table, so no RLS or
-   workspace-merge change; no begin/commit of its own (the runner wraps it). Then team chat,
-   documents, spreadsheets and canvases join the route.
-3. **Chats and mail.** Non-home conversations and bot threads; sent mail with live subjects.
+   `GET /api/account/recents` (`src/lib/entities/recents.ts`) with the direct reads that need no
+   new index (Drive uploads, Code jobs); the panel merges it with the two feed lists. Built.
+2. **Migrations 712 and 713 (OK'd by the managing session).** Built.
+   - **712, indexes only, `CREATE INDEX CONCURRENTLY IF NOT EXISTS`**: messages by author, active
+     reactions by member, document revisions by author, spreadsheets by editor, canvas items by
+     editor, chat messages the person wrote. **No begin/commit: apply WITHOUT
+     `--single-transaction`**, first. A failed build leaves an INVALID index: drop it
+     (`drop index concurrently if exists …`) and run the file again.
+   - **713, `my_recent_work(p_workspace, p_since, p_limit)` → `(kind, id, at)`**, its own
+     transaction, applied after 712 as usual. `SECURITY INVOKER`, pinned `search_path`, no member
+     or user argument ("me" is `auth.uid()` and `current_member_id(ws)`), revoked from anon. Kinds:
+     `team_chat_channel` (one row per channel: messages incl. thread replies, active reactions,
+     poll votes; re-checked with `team_chat_can_read`), `document` (body edits), `spreadsheet`,
+     `canvas`, `conversation` (agent chats other than the home thread, a meeting's and an outside
+     channel's). No new table, so no RLS or workspace-merge change.
+   - The route then fences (`hiddenPrivateRefs`) and labels (`resolveEntityLabels`) every row
+     again; channels are named as team chat names them (`#name`, a DM by its other person, a note
+     to self "… (you)"). An agent chat opens in the read-only viewer (`openConversation`). Until
+     713 is applied the call fails and that source is simply left out, so the code may roll out
+     first.
+   - Rehearsed on a local Postgres 16 with two members (see `migration-712-713.test.ts`'s header).
+     "A channel they left": leaving a channel isn't recorded anywhere (no leave function); what
+     takes a channel away is leaving its team (or the workspace, or a DM's membership), and that
+     case drops out.
+3. **Mail.** Sent mail with live subjects (decision 5).
 
 ## Decisions to review
 
@@ -140,3 +152,7 @@ tool is ever added) would call the same server function with the same session, s
    no filter, an empty list still hides the panel, as today).
 8. **"Read" and "Unread"** are the dot: Unread = something came to me after my own last touch and
    I haven't opened it here; Read = everything else (my own work included).
+9. **"The last few minutes" is 10 minutes**; Macro's docs don't give a number.
+10. **The Type filter offers only the kinds the list has rows of** (and any already chosen), so it
+    never lists sixteen empty choices. Deals share "Tables and deals" with table rows: a deal is a
+    `data_row` since 548, and the feed's rows don't say which table a row is in.

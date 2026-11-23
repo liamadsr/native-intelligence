@@ -8,10 +8,10 @@ import type { ActivityEntityType } from '@/lib/knowledge/entity-registry'
 
 /**
  * What a row can be: a kind of the activity log, or one read from its own
- * table (a Drive file, a coding job; team chat's channel, a spreadsheet, a
- * canvas once migration 712 is in).
+ * table (a Drive file, a coding job; through 713's my_recent_work a team chat
+ * channel, a spreadsheet, a canvas, an agent chat).
  */
-export type RecentKind = ActivityEntityType | 'attachment' | 'code_job' | 'team_chat_channel' | 'spreadsheet' | 'canvas'
+export type RecentKind = ActivityEntityType | 'attachment' | 'code_job' | 'team_chat_channel' | 'spreadsheet' | 'canvas' | 'conversation'
 
 /** One record the person did something to, from its own table: its newest time (ISO). */
 export interface RecentSourceEntry {

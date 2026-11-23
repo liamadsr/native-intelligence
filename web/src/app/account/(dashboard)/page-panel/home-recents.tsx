@@ -10,8 +10,10 @@
  *           what came to the person (assigned, @-mentioned, shared with
  *           them) and what they touched themselves, docs, actions,
  *           projects, captures, contacts, deals, team chat's messages.
- *           Their Drive uploads and coding jobs too (GET
- *           /api/account/recents; docs/plans/recent-panel.md).
+ *           Their Drive uploads, coding jobs, team chat channels (one row
+ *           each), body-edited docs, spreadsheets, canvases and agent
+ *           chats too (GET /api/account/recents, migration 713;
+ *           docs/plans/recent-panel.md).
  *           In sections by time: Last few minutes, Last hour, This
  *           morning/afternoon/evening (the part of today it is now),
  *           Earlier today, Yesterday, then each day, newest first, an
@@ -63,6 +65,7 @@ import { openTarget } from '@/lib/chat-cards/open-card'
 import { entityOpenTarget } from '@/lib/entity-links/open-entity'
 import { RECENT_TYPES } from '@/lib/entities/recents-model'
 import { openAttachmentById } from '@/components/files/global-file-viewer'
+import { openConversation } from '@/lib/chat/open-conversation'
 import { useScrollFades } from '@/components/attention/scroll-fades'
 import { EntityIcon } from '@/components/entities/entity-icon'
 import {
@@ -108,6 +111,11 @@ import type { PagePanelProps } from './page-panel-types'
 export function openRecent(item: Pick<RecentItem, 'type' | 'id' | 'title'>): boolean {
   if (item.type === 'attachment') {
     void openAttachmentById(item.id)
+    return true
+  }
+  if (item.type === 'conversation') {
+    // An agent chat of theirs: the one read-only viewer (the main chat is their home thread).
+    openConversation(item.id, item.title)
     return true
   }
   if (item.type === 'code_job') {

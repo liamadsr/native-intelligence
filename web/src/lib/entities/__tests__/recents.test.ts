@@ -6,7 +6,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { codeJobs, driveUploads, loadRecentSources } from '../recents'
+import { codeJobs, driveUploads, loadRecentSources, myRecentWork, RECENTS_SOURCE_MAX } from '../recents'
 
 const VIEWER = { workspaceId: 'ws-1', userId: 'user-ana', memberId: 'm-ana' }
 
@@ -89,6 +89,82 @@ describe('Recent’s direct reads', () => {
     })
     expect((await loadRecentSources(client, VIEWER)).map((e) => e.id)).toEqual(['j1'])
     expect(err).toHaveBeenCalled()
+    err.mockRestore()
+  })
+})
+
+// ── 713's my_recent_work, fenced and labelled again ────────
+
+const fence = vi.hoisted(() => ({ hidden: new Set<string>(), labels: new Map<string, string>() }))
+vi.mock('@/lib/knowledge/entity-fences', () => ({ hiddenPrivateRefs: async () => fence.hidden }))
+vi.mock('@/lib/knowledge/graph-map/source', () => ({ resolveEntityLabels: async () => fence.labels }))
+
+
+/** A client whose rpc answers my_recent_work, and whose reads answer per table. */
+function workClient(rows: unknown[], tables: Record<string, unknown[]>, rpcError: { message: string } | null = null) {
+  const rpc = vi.fn(async () => ({ data: rpcError ? null : rows, error: rpcError }))
+  const client = {
+    rpc,
+    from(table: string) {
+      const chain = {
+        select: () => chain,
+        eq: () => chain,
+        in: () => Promise.resolve({ data: tables[table] ?? [], error: null }),
+      }
+      return chain
+    },
+  }
+  return { client: client as unknown as SupabaseClient, rpc }
+}
+
+describe('what they did, through my_recent_work', () => {
+  const ME = 'm-ana'
+  it('asks for the caller’s own work only (no member argument), names channels as team chat does, and drops what the fences hide or can’t label', async () => {
+    fence.hidden = new Set(['canvas:cv-hidden'])
+    fence.labels = new Map([['document:doc-1', 'Q4 renewals plan']])
+    const { client, rpc } = workClient(
+      [
+        { kind: 'team_chat_channel', id: 'ch-general', at: '2026-11-20T12:00:00Z' },
+        { kind: 'team_chat_channel', id: 'ch-dm', at: '2026-11-20T11:00:00Z' },
+        { kind: 'team_chat_channel', id: 'ch-self', at: '2026-11-20T10:30:00Z' },
+        { kind: 'team_chat_channel', id: 'ch-gone', at: '2026-11-20T10:00:00Z' },
+        { kind: 'document', id: 'doc-1', at: '2026-11-20T09:00:00Z' },
+        { kind: 'document', id: 'doc-private', at: '2026-11-20T08:00:00Z' },
+        { kind: 'canvas', id: 'cv-hidden', at: '2026-11-20T07:00:00Z' },
+        { kind: 'conversation', id: 'conv-1', at: '2026-11-20T06:00:00Z' },
+        { kind: 'nothing_like_it', id: 'x', at: '2026-11-20T05:00:00Z' },
+      ],
+      {
+        team_chat_channel: [
+          { id: 'ch-general', kind: 'channel', name: 'general', dm_key: null },
+          { id: 'ch-dm', kind: 'dm', name: null, dm_key: `m-ben:${ME}` },
+          { id: 'ch-self', kind: 'dm', name: null, dm_key: ME },
+        ],
+        member: [
+          { id: 'm-ben', display_name: 'Ben Okafor' },
+          { id: ME, display_name: 'Ana Reyes' },
+        ],
+      },
+    )
+    const out = await myRecentWork(client, { ...VIEWER, memberId: ME })
+    expect(rpc).toHaveBeenCalledTimes(1)
+    const [name, args] = rpc.mock.calls[0] as unknown as [string, Record<string, unknown>]
+    expect(name).toBe('my_recent_work')
+    expect(Object.keys(args).sort()).toEqual(['p_limit', 'p_since', 'p_workspace'])
+    expect(args).toMatchObject({ p_workspace: 'ws-1', p_limit: RECENTS_SOURCE_MAX })
+    expect(out.map((e) => [e.type, e.id, e.label])).toEqual([
+      ['team_chat_channel', 'ch-general', '#general'],
+      ['team_chat_channel', 'ch-dm', 'Ben Okafor'],
+      ['team_chat_channel', 'ch-self', 'Ana Reyes (you)'],
+      ['document', 'doc-1', 'Q4 renewals plan'],
+      ['conversation', 'conv-1', 'Untitled chat'],
+    ])
+  })
+
+  it('before 713 is applied the call fails: the source is left out, the others answer', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { client } = workClient([], {}, { message: 'function my_recent_work does not exist' })
+    await expect(myRecentWork(client, VIEWER)).rejects.toThrow('my_recent_work')
     err.mockRestore()
   })
 })
