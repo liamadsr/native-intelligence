@@ -27,6 +27,8 @@ import type {
 } from '@/lib/booking-links/insights'
 import { compactNumber, niceTicks } from '@/lib/spreadsheets/charts'
 import { cn } from '@/lib/utils'
+import { CardHeaderSlot, useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
+import { CARD_HEADER_PILL_BUTTON } from '@/components/chat-cards/card-header-button'
 import { Download } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import type { LinkChoice } from './link-bookings-panel'
@@ -77,13 +79,14 @@ export function shortDay(date: string, locale?: string): string {
 }
 
 export function LinkInsightsPanel() {
+  const inCard = useCardHeaderSlots() !== null
   const [range, setRange] = useState<Range>({ kind: 'days', days: 30 })
   const [draft, setDraft] = useState({ from: '', to: '' })
   const [link, setLink] = useState('')
   const [links, setLinks] = useState<LinkChoice[]>([])
   const [data, setData] = useState<BookingInsights | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const tz = useMemo(browserZone, [])
+  const tz = useMemo(() => browserZone(), [])
   const query = rangeQuery(range, tz, link)
 
   useEffect(() => {
@@ -193,11 +196,20 @@ export function LinkInsightsPanel() {
             ))}
           </select>
         )}
-        <Button size="sm" variant="ghost" className="ml-auto h-8 gap-1" asChild>
-          <a href={`/api/account/link-bookings/export?${query}`} download>
-            <Download className="size-3.5" aria-hidden /> Export CSV
-          </a>
-        </Button>
+        {/* In a card, Export CSV is the page's action in its header (as Files' Upload is); on its own, at the row's end. */}
+        {inCard ? (
+          <CardHeaderSlot side="right">
+            <a href={`/api/account/link-bookings/export?${query}`} download data-insights-export="header" className={CARD_HEADER_PILL_BUTTON}>
+              <Download strokeWidth={1.75} aria-hidden /> Export CSV
+            </a>
+          </CardHeaderSlot>
+        ) : (
+          <Button size="sm" variant="ghost" className="ml-auto h-8 gap-1" asChild>
+            <a href={`/api/account/link-bookings/export?${query}`} download>
+              <Download className="size-3.5" aria-hidden /> Export CSV
+            </a>
+          </Button>
+        )}
       </div>
 
       {error && <p className="text-destructive mt-6 text-sm">{error}</p>}

@@ -8,9 +8,9 @@
  * own header row keeps the buttons it always had.
  */
 import * as React from 'react'
-import { MoreHorizontal } from 'lucide-react'
+import { Loader2, MoreHorizontal } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { CARD_HEADER_ICON_BUTTON, CARD_HEADER_PILL_BUTTON } from '@/components/chat-cards/card-header-button'
+import { CARD_HEADER_CHOICE, CARD_HEADER_FIELD, CARD_HEADER_ICON_BUTTON, CARD_HEADER_PILL_BUTTON } from '@/components/chat-cards/card-header-button'
 import { useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
 import { cn } from '@/lib/utils'
 
@@ -70,5 +70,63 @@ export function SeoPlaceLabel({ name, children, ...data }: { name: string; child
       </span>
       {children}
     </>
+  )
+}
+
+/**
+ * A page's lookup in the card's header (Liam, 11-23: "all the SEO pages"):
+ * the field, its choices and the press, as one real form, so Enter submits.
+ * What goes wrong with it (the field's error) stays at the top of the page.
+ */
+export function SeoHeaderForm({
+  label,
+  onSubmit,
+  children,
+  ...data
+}: { label: string; onSubmit: () => void; children: React.ReactNode } & { [attr: `data-${string}`]: string }) {
+  return (
+    <form
+      {...data}
+      role="search"
+      aria-label={label}
+      noValidate
+      onSubmit={(e) => {
+        e.preventDefault()
+        onSubmit()
+      }}
+      className="flex min-w-0 items-center gap-0.5"
+    >
+      {children}
+    </form>
+  )
+}
+
+/** The header form's field: 24px, round, 9rem in a narrow header, 14rem from 44rem up (the header row is a size container). */
+export const SEO_HEADER_FIELD = cn(CARD_HEADER_FIELD, 'w-36 @[44rem]:w-56')
+
+/** A Select's trigger as the header's choice (Country, Language): words and a chevron. */
+export const SEO_HEADER_CHOICE = cn(CARD_HEADER_CHOICE, 'w-auto min-w-0 max-w-40 justify-start border-0 bg-transparent py-0 shadow-none focus:ring-0')
+
+/**
+ * Where the header row (a size container) is short of room the choices go,
+ * the language first, then the country; their values still apply. The field
+ * and the press always stay.
+ */
+export const SEO_HEADER_HIDE_LANGUAGE = 'hidden @[48rem]:inline-flex'
+export const SEO_HEADER_HIDE_COUNTRY = 'hidden @[40rem]:inline-flex'
+/**
+ * The month's spend beside a header form: only where the header has room
+ * (a review, 11-23: in a 634px card the form, the spend and Keywords' tabs
+ * ran past the frame, which cut off the tabs and Minimize).
+ */
+export const SEO_HEADER_SPEND = 'hidden @[52rem]:inline'
+
+/** The header form's press: a pill with a short verb (Look up, Find keywords). */
+export function SeoHeaderSubmit({ busy, children, ...props }: Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'className' | 'type'> & { busy?: boolean }) {
+  return (
+    <button type="submit" {...props} className={CARD_HEADER_PILL_BUTTON}>
+      {busy && <Loader2 className="animate-spin" aria-hidden />}
+      {children}
+    </button>
   )
 }

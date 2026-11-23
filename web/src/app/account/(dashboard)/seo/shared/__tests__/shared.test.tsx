@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { SeoSpendView } from '@/lib/seo/spend-view'
 import { buyBlockedReason, SeoDataNotice, SeoSpendLine, spendLineText } from '../data-status'
 import { StatTiles } from '../stat-tiles'
-import { TabPills } from '../tab-pills'
+import { FilterChips, TabPills } from '../tab-pills'
 import { Sparkline, TrendChart, trendPath, trendSpansYears } from '../trend-chart'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -173,5 +173,48 @@ describe('tiles and tabs', () => {
     ])
     act(() => tabs[1].click())
     expect(seen).toEqual(['history'])
+  })
+  it('in a card’s header the tabs are a capsule of 24px segments: the same tablist, the same tabs, the one in force lifted', () => {
+    // Liam, 11-23: "all the SEO pages".
+    const seen: string[] = []
+    render(<TabPills header label="Business" value="profile" onChange={(t) => seen.push(t)} tabs={[{ id: 'grid', label: 'Map rankings', count: 3 }, { id: 'profile', label: 'Profile' }]} />)
+    const list = container.querySelector<HTMLElement>('[role="tablist"]')!
+    expect(list.getAttribute('aria-label')).toBe('Business')
+    expect(list.dataset.seoTabs).toBe('header')
+    expect(list.className).toContain('h-6')
+    expect(list.className).toContain('ni-header-spaced')
+    const tabs = [...list.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
+    expect(tabs.map((t) => [t.dataset.seoTab, t.textContent, t.getAttribute('aria-selected')])).toEqual([
+      ['grid', 'Map rankings3', 'false'],
+      ['profile', 'Profile', 'true'],
+    ])
+    expect(tabs[0].className).toContain('aria-selected:bg-foreground/[0.1]')
+    act(() => tabs[0].click())
+    expect(seen).toEqual(['grid'])
+  })
+  it('a filter in a card’s header is a capsule of radios, the short words standing in where the header is narrow', () => {
+    const seen: string[] = []
+    render(
+      <FilterChips
+        header
+        label="Period"
+        value="28"
+        onChange={(v) => seen.push(v)}
+        options={[
+          { value: '7', label: '7 days', short: '7d' },
+          { value: '28', label: '28 days', short: '28d' },
+        ]}
+      />,
+    )
+    const group = container.querySelector<HTMLElement>('[role="radiogroup"]')!
+    expect(group.className).toContain('h-6')
+    const radios = [...group.querySelectorAll<HTMLButtonElement>('[role="radio"]')]
+    expect(radios.map((r) => [r.dataset.seoFilter, r.getAttribute('aria-checked'), r.title])).toEqual([
+      ['7', 'false', '7 days'],
+      ['28', 'true', '28 days'],
+    ])
+    expect(radios[0].querySelector('.\\@\\[56rem\\]\\:hidden')!.textContent).toBe('7d')
+    act(() => radios[0].click())
+    expect(seen).toEqual(['7'])
   })
 })

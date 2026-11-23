@@ -50,7 +50,7 @@ import { folderPath, type DriveFolder } from '@/lib/drive/folders'
 import { emailViewerFile, teamChatFileLink, teamChatViewerFile, uploadFileLink, uploadViewerFile } from '@/lib/files/sources'
 import { cn } from '@/lib/utils'
 import { CardCovered } from '../card-covered'
-import { CARD_HEADER_PILL_BUTTON } from '../card-header-button'
+import { CARD_HEADER_CAPSULE, CARD_HEADER_PILL_BUTTON, CARD_HEADER_SEGMENT } from '../card-header-button'
 import { CardHeaderSlot, useCardHeaderSlots } from '../card-header-slot'
 import { RecordOverlay, usePageRecords } from './record-overlay'
 import type { PageCardProps } from './page-card'
@@ -209,12 +209,38 @@ export default function FilesCard(props: PageCardProps) {
 
   const filtered = view.type !== null || view.creator !== null || !!q || !view.uploads || !view.chat
 
+  // Which files: All, My files, Recent, Shared with me. In a card, a capsule in its header (Liam, 11-23: Files
+  // "still need to be updated", as the inbox's filters went up); on its own, the row over the list.
+  const chooseTab = (tab: DriveTab) => setView((v) => ({ ...v, tab, sort: tab === 'recent' ? 'opened' : v.sort === 'opened' ? 'modified' : v.sort }))
+  const tabs = (inHeader: boolean) => (
+    <div role="radiogroup" aria-label="Which files" data-drive-tabs={inHeader ? 'header' : 'page'} className={inHeader ? CARD_HEADER_CAPSULE : 'flex flex-wrap items-center gap-1'}>
+      {TABS.map((t) => (
+        <button
+          key={t.id}
+          type="button"
+          role="radio"
+          aria-checked={view.tab === t.id}
+          data-drive-tab={t.id}
+          onClick={() => chooseTab(t.id)}
+          className={
+            inHeader
+              ? CARD_HEADER_SEGMENT
+              : cn('h-7 rounded-lg px-2.5 text-xs transition-colors', view.tab === t.id ? 'bg-foreground/[0.08] text-foreground' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground')
+          }
+        >
+          {t.label}
+        </button>
+      ))}
+    </div>
+  )
+
   return (
     <div className="relative h-full min-h-0">
       <CardCovered covered={!!records.current}>
         {inCard && (
           <CardHeaderSlot side="right">
-            <div data-files-search-control="" className="flex items-center gap-1.5">
+            <div data-files-search-control="" className="flex items-center gap-0.5">
+              {!view.email && tabs(true)}
               <ExpandableSearch value={typed} onChange={setTyped} label="Search files" placeholder={view.email ? 'Search your mail' : 'Search files'} />
               <UploadButton inHeader uploading={uploading} onClick={() => picker.current?.click()} />
             </div>
@@ -240,26 +266,7 @@ export default function FilesCard(props: PageCardProps) {
             </div>
           )}
           <div className="flex shrink-0 flex-col gap-2 px-5 pb-2 pt-3">
-            {!view.email && (
-              <div role="radiogroup" aria-label="Which files" className="flex flex-wrap items-center gap-1">
-                {TABS.map((t) => (
-                  <button
-                    key={t.id}
-                    type="button"
-                    role="radio"
-                    aria-checked={view.tab === t.id}
-                    data-drive-tab={t.id}
-                    onClick={() => setView((v) => ({ ...v, tab: t.id, sort: t.id === 'recent' ? 'opened' : v.sort === 'opened' ? 'modified' : v.sort }))}
-                    className={cn(
-                      'h-7 rounded-lg px-2.5 text-xs transition-colors',
-                      view.tab === t.id ? 'bg-foreground/[0.08] text-foreground' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
-                    )}
-                  >
-                    {t.label}
-                  </button>
-                ))}
-              </div>
-            )}
+            {!view.email && !inCard && tabs(false)}
             <div className="flex flex-wrap items-center gap-1.5 text-xs">
               <SourceToggle label={DRIVE_SOURCE_LABELS.upload} on={!view.email && view.uploads} id="upload" onClick={() => setView((v) => toggleSource(v, 'uploads'))} />
               <SourceToggle label={DRIVE_SOURCE_LABELS.team_chat} on={!view.email && view.chat} id="team_chat" onClick={() => setView((v) => toggleSource(v, 'chat'))} />

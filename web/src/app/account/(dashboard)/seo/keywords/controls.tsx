@@ -4,6 +4,8 @@
  * The Keywords page's small controls: the market picker (country, then the
  * language when the country has several; the house Select), a compact select
  * for filters and sort, and the filter field (the Files card's search look).
+ * In a card's header the market's triggers are the header's choices, the
+ * language giving way first where the row is short of room.
  */
 import * as React from 'react'
 import { Search } from 'lucide-react'
@@ -11,6 +13,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import type { SeoMarketOptions } from '@/lib/seo/keywords/view'
 import { cn } from '@/lib/utils'
+import { SEO_HEADER_CHOICE, SEO_HEADER_HIDE_COUNTRY, SEO_HEADER_HIDE_LANGUAGE } from '../shared/header-controls'
 import type { Market } from './keyword-helpers'
 
 export function MarketPicker({
@@ -18,11 +21,14 @@ export function MarketPicker({
   value,
   onChange,
   disabled,
+  header,
 }: {
   options: SeoMarketOptions
   value: Market
   onChange: (next: Market) => void
   disabled?: boolean
+  /** Drawn in the card's header. */
+  header?: boolean
 }) {
   const location = options.locations.find((l) => l.code === value.location_code) ?? null
   const languages = location?.languages ?? []
@@ -36,7 +42,7 @@ export function MarketPicker({
           if (next) onChange({ location_code: next.code, language_code: next.default_language })
         }}
       >
-        <SelectTrigger data-kw-country="" aria-label="Country" title="Where the searches are made" className="h-8 w-auto max-w-44 shrink-0 gap-1.5 text-sm">
+        <SelectTrigger data-kw-country="" aria-label="Country" title="Where the searches are made" className={header ? cn(SEO_HEADER_CHOICE, SEO_HEADER_HIDE_COUNTRY) : 'h-8 w-auto max-w-44 shrink-0 gap-1.5 text-sm'}>
           <SelectValue />
         </SelectTrigger>
         <SelectContent className="max-h-72">
@@ -49,7 +55,7 @@ export function MarketPicker({
       </Select>
       {languages.length > 1 && (
         <Select value={value.language_code} disabled={disabled} onValueChange={(code) => onChange({ ...value, language_code: code })}>
-          <SelectTrigger data-kw-language="" aria-label="Language" title="The language the searches are in" className="h-8 w-auto max-w-36 shrink-0 gap-1.5 text-sm">
+          <SelectTrigger data-kw-language="" aria-label="Language" title="The language the searches are in" className={header ? cn(SEO_HEADER_CHOICE, SEO_HEADER_HIDE_LANGUAGE) : 'h-8 w-auto max-w-36 shrink-0 gap-1.5 text-sm'}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

@@ -7,11 +7,18 @@
  * address names a page, a small choice says how far it reaches (that page
  * alone, or everything under it). An address that can't be used is said
  * beside the field, never in a toast.
+ *
+ * In a card (`header`) the field and the press are the card header's (Liam,
+ * 11-23: "all the SEO pages"): a 24px field named for the old label and
+ * "Look up". The page keeps the reach choice and the field's error at its
+ * top (PageScopeChoice): they come and go with what is typed.
  */
 import * as React from 'react'
 import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { cn } from '@/lib/utils'
+import { SEO_HEADER_FIELD, SeoHeaderForm, SeoHeaderSubmit } from '../shared/header-controls'
 import { FilterChips } from '../shared/tab-pills'
 import { PAGE_SCOPES } from './helpers'
 
@@ -27,6 +34,7 @@ export function StartControl({
   blockedReason,
   error,
   onSubmit,
+  header,
 }: {
   site: string
   onSite: (next: string) => void
@@ -39,10 +47,38 @@ export function StartControl({
   blockedReason: string | null
   error: string | null
   onSubmit: () => void
+  /** Drawn in the card's header: the field and the press alone. */
+  header?: boolean
 }) {
   const disabled = busy || !!blockedReason || !site.trim()
   const submit = () => {
     if (!disabled) onSubmit()
+  }
+  if (header) {
+    return (
+      <SeoHeaderForm label="Look up links" onSubmit={submit} data-seo-start-control="header">
+        <input
+          data-seo-site=""
+          value={site}
+          placeholder="example.com"
+          aria-label="Website or page address"
+          inputMode="url"
+          autoComplete="url"
+          spellCheck={false}
+          aria-invalid={error ? true : undefined}
+          onChange={(e) => onSite(e.target.value)}
+          className={SEO_HEADER_FIELD}
+        />
+        <SeoHeaderSubmit
+          data-seo-look-up=""
+          busy={busy}
+          disabled={disabled}
+          title={blockedReason ?? 'Look up who links here: a small charge, unless it was looked up in the last 12 hours'}
+        >
+          Look up
+        </SeoHeaderSubmit>
+      </SeoHeaderForm>
+    )
   }
   return (
     <div data-seo-start-control="" className="w-full space-y-1.5">
@@ -80,6 +116,28 @@ export function StartControl({
           Look up links
         </Button>
       </div>
+      <PageScopeChoice hasPath={hasPath} pageScope={pageScope} onPageScope={onPageScope} error={error} />
+    </div>
+  )
+}
+
+/** Under the field: how far a page's address reaches (when it names a page), and the field's error. */
+export function PageScopeChoice({
+  hasPath,
+  pageScope,
+  onPageScope,
+  error,
+  className,
+}: {
+  hasPath: boolean
+  pageScope: PageScope
+  onPageScope: (next: PageScope) => void
+  error: string | null
+  className?: string
+}) {
+  if (!hasPath && !error) return null
+  return (
+    <div className={cn('space-y-1.5', className)}>
       {hasPath && (
         <div data-seo-page-scope="" className="flex flex-wrap items-center gap-2">
           <FilterChips

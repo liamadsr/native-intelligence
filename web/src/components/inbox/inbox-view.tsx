@@ -44,6 +44,7 @@ import {
 } from '@/lib/inbox/items'
 import { CARD_RECORD_TYPES, type CardRecordType } from '@/lib/chat-cards/kinds'
 import { CardHeaderSlot, useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
+import { CARD_HEADER_CAPSULE, CARD_HEADER_SEGMENT } from '@/components/chat-cards/card-header-button'
 
 type MailRow = InboxMailRow & { provider: string | null; provider_message_id: string | null; folder: string | null; subject?: string | null; snippet?: string | null; from_name?: string | null }
 
@@ -257,7 +258,7 @@ export function InboxView({
       {/* In a card: the filters in its header, a capsule of segments as Calendar's views are (Liam, 11-23: "Into the header"); the page starts with the list. */}
       {inCard && (
         <CardHeaderSlot side="right">
-          <div role="tablist" aria-label="Show" data-inbox-filters="header" className="flex h-6 shrink-0 items-center overflow-hidden rounded-full bg-foreground/[0.05]">
+          <div role="tablist" aria-label="Show" data-inbox-filters="header" className={CARD_HEADER_CAPSULE}>
             {INBOX_FILTERS.map((f) => (
               <button
                 key={f}
@@ -267,7 +268,7 @@ export function InboxView({
                 data-inbox-filter={f}
                 title={FILTER_LABELS[f]}
                 onClick={() => choose(f)}
-                className="flex h-full items-center whitespace-nowrap px-2.5 text-xs text-muted-foreground transition-colors hover:bg-foreground/[0.05] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring aria-selected:bg-foreground/[0.1] aria-selected:font-medium aria-selected:text-foreground motion-reduce:transition-none"
+                className={CARD_HEADER_SEGMENT}
               >
                 {HEADER_SHORT_LABELS[f] ? (
                   <>

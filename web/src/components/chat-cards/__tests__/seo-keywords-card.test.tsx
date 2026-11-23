@@ -608,13 +608,81 @@ describe('SeoKeywordsCard: in a card’s header', () => {
   })
   afterEach(() => hosts.remove())
 
-  it('no title row of its own: the tabs start the page, the spend line is at the header’s right', async () => {
+  const renderInCard = async () => {
     await mount.render(hosts.wrap(React.createElement(SeoKeywordsCard, { toolCallId: 'kw-1', spec, store, fullScreen: true, onCount })))
     await settle()
     await settle()
+  }
+  const submitHeader = async () => {
+    await act(async () => hosts.right.querySelector<HTMLFormElement>('[data-kw-start-control="header"]')!.requestSubmit())
+    await settle()
+    await settle()
+  }
+
+  it('no title row of its own: the tabs are the header’s capsule, the spend line is at the header’s right', async () => {
+    // Liam, 11-23: "all the SEO pages": the tabs go up into the header.
+    await renderInCard()
     expect(mount.container.querySelector('h1')).toBeNull()
-    expect(mount.container.querySelector('[data-seo-tab="research"]')).not.toBeNull()
+    expect(mount.container.querySelector('[data-seo-tab]')).toBeNull()
+    expect(mount.container.querySelector('[role="tablist"]')).toBeNull()
+    const capsule = hosts.right.querySelector<HTMLElement>('[data-seo-tabs="header"]')!
+    expect(capsule.getAttribute('role')).toBe('tablist')
+    expect(capsule.className).toContain('h-6')
+    expect(Array.from(capsule.querySelectorAll('[role="tab"]')).map((t) => t.getAttribute('data-seo-tab'))).toEqual(['research', 'saved'])
+    expect(capsule.querySelector('[data-seo-tab="research"]')!.getAttribute('aria-selected')).toBe('true')
     expect(mount.container.querySelector('[data-seo-spend]')).toBeNull()
     expect(hosts.right.querySelector('[data-seo-spend]')!.textContent).toBe('$3.40 of $20 this month · resets Dec 1')
+    // A press on Saved is the card's tab, and the research form leaves the header with Research.
+    await click(capsule.querySelector('[data-seo-tab="saved"]'))
+    expect(store.state('kw-1').tab).toBe('saved')
+    expect(hosts.right.querySelector('[data-seo-tab="saved"]')!.getAttribute('aria-selected')).toBe('true')
+    expect(hosts.right.querySelector('[data-kw-seed]')).toBeNull()
+  })
+
+  it('the research form is the header’s: a 24px field named for what it takes, the market, Options and Find keywords; none in the page', async () => {
+    await renderInCard()
+    const form = hosts.right.querySelector<HTMLFormElement>('[data-kw-start-control="header"]')!
+    expect(form.tagName).toBe('FORM')
+    const seed = form.querySelector<HTMLInputElement>('[data-kw-seed]')!
+    expect(seed.getAttribute('aria-label')).toBe('A topic, product or phrase')
+    expect(seed.getAttribute('placeholder')).toBe('A topic, product or phrase')
+    expect(seed.className).toContain('h-6')
+    expect(form.querySelector('[data-kw-country]')!.className).toContain('h-6')
+    expect(form.querySelector('[data-kw-options]')!.className).toContain('size-6')
+    const find = form.querySelector<HTMLButtonElement>('[data-kw-find]')!
+    expect(find.type).toBe('submit')
+    expect(find.className).toContain('h-6')
+    expect(find.disabled).toBe(true)
+    expect(mount.container.querySelector('[data-kw-seed], [data-kw-find], [data-kw-country]')).toBeNull()
+    // The first run still says what research does, in the page.
+    expect(mount.container.querySelector('[data-kw-first-run]')).not.toBeNull()
+  })
+
+  it('submitting it from the header asks the same research as before, and the result shows in the page', async () => {
+    await renderInCard()
+    await type('[data-test-header="right"] [data-kw-seed]', 'linen throw')
+    expect(hosts.right.querySelector<HTMLButtonElement>('[data-kw-find]')!.disabled).toBe(false)
+    await submitHeader()
+    expect(sent).toEqual([{ method: 'POST', path: '/api/account/seo/keywords/research', body: { seed: 'linen throw', location_code: 2840, language_code: 'en' } }])
+    expect(mount.container.querySelector('[data-kw-result]')).not.toBeNull()
+  })
+
+  it('a correctable seed is said at the top of the page, under the header', async () => {
+    answer = () => ({ status: 400, body: { error: 'Keep the keyword under 120 characters.', code: 'VALIDATION_ERROR' } })
+    await renderInCard()
+    await type('[data-test-header="right"] [data-kw-seed]', 'a very long phrase')
+    await submitHeader()
+    expect(mount.container.querySelector('[data-kw-seed-error]')!.textContent).toBe('Keep the keyword under 120 characters.')
+    expect(hosts.right.querySelector('[data-kw-seed-error]')).toBeNull()
+    expect(hosts.right.querySelector('[data-kw-seed]')!.getAttribute('aria-invalid')).toBe('true')
+  })
+
+  it('with lookups off the header’s field and press are disabled, saying why', async () => {
+    routes['/api/account/seo/spend'] = SPEND_OFF
+    await renderInCard()
+    const seed = hosts.right.querySelector<HTMLInputElement>('[data-kw-seed]')!
+    expect(seed.disabled).toBe(true)
+    expect(hosts.right.querySelector<HTMLButtonElement>('[data-kw-find]')!.title).toBe(seed.title)
+    expect(seed.title).not.toBe('')
   })
 })

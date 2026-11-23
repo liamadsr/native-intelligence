@@ -6,7 +6,10 @@
  *   The start control   one field, the market, a small Options popover and
  *                       "Find keywords" (the button IS the request: no
  *                       dialog). Enter submits. Disabled, saying why, when
- *                       lookups are off here.
+ *                       lookups are off here. In a card it is the card
+ *                       header's (Liam, 11-23: "all the SEO pages"): the
+ *                       page hands it a place there (`header`); what is
+ *                       wrong with the field stays at the top of the tab.
  *   First run           nothing looked up yet: what research does, in plain
  *                       words. Once there are past lookups, a quiet Recent
  *                       list instead, each one reopening its stored result
@@ -26,12 +29,14 @@
  * request counter so a slow answer never overwrites a newer one.
  */
 import * as React from 'react'
+import { createPortal } from 'react-dom'
 import { KeyRound, Loader2, SlidersHorizontal } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { CARD_HEADER_ICON_BUTTON, CARD_HEADER_ICON_BUTTON_ACTIVE } from '@/components/chat-cards/card-header-button'
 import type { KeywordResearchResult, SeoMarketOptions } from '@/lib/seo/keywords/view'
 import { normalizeTags } from '@/lib/seo/keywords/view'
 import type { SeoLookupSummary } from '@/lib/seo/lookup-view'
@@ -40,6 +45,7 @@ import { cn } from '@/lib/utils'
 import { errorMessage } from '../api'
 import { CenteredLoader } from '../load-states'
 import { SeoDataNotice, buyBlockedReason } from '../shared/data-status'
+import { SEO_HEADER_FIELD, SeoHeaderForm, SeoHeaderSubmit } from '../shared/header-controls'
 import { PartialNote, partialNoteText } from '../shared/partial-note'
 import { RunRail } from '../shared/run-rail'
 import { FilterChips } from '../shared/tab-pills'
@@ -82,6 +88,7 @@ export function ResearchTab({
   onSpent,
   onCheckResults,
   onSaved,
+  header,
 }: {
   markets: SeoMarketOptions
   market: Market
@@ -93,6 +100,12 @@ export function ResearchTab({
   onCheckResults: (target: SerpTarget) => void
   /** Keywords were saved: the Saved tab reads again. */
   onSaved: () => void
+  /**
+   * In a card: the start control's place in its header (null while the tab
+   * is not in force, or the place is not drawn yet: the control is then not
+   * drawn at all). Undefined outside a card: the control heads the tab.
+   */
+  header?: HTMLElement | null
 }) {
   const blocked = buyBlockedReason(view)
   const [seed, setSeed] = React.useState('')
@@ -195,24 +208,41 @@ export function ResearchTab({
   const loading = recent === null || spendLoading
   if (loading && !result) return <CenteredLoader />
 
+  const inCard = header !== undefined
+  const startControl = (
+    <StartControl
+      seed={seed}
+      onSeed={(next) => {
+        setSeed(next)
+        if (fieldError) setFieldError(null)
+      }}
+      markets={markets}
+      market={market}
+      onMarket={onMarket}
+      options={options}
+      onOptions={setOptions}
+      busy={busy}
+      blocked={blocked}
+      fieldError={fieldError}
+      onSubmit={submit}
+      header={inCard}
+    />
+  )
+
   return (
     <div data-kw-research="">
-      <StartControl
-        seed={seed}
-        onSeed={(next) => {
-          setSeed(next)
-          if (fieldError) setFieldError(null)
-        }}
-        markets={markets}
-        market={market}
-        onMarket={onMarket}
-        options={options}
-        onOptions={setOptions}
-        busy={busy}
-        blocked={blocked}
-        fieldError={fieldError}
-        onSubmit={submit}
-      />
+      {inCard ? (
+        <>
+          {header && createPortal(startControl, header)}
+          {fieldError && (
+            <p data-kw-seed-error="" className="mb-2 text-xs text-destructive">
+              {fieldError}
+            </p>
+          )}
+        </>
+      ) : (
+        startControl
+      )}
 
       {running && (
         <RunRail verb="Finding keywords" clauses={[`“${running.seed}”`, marketLabel(running)]} className="mx-0 mb-0 mt-3" />
@@ -278,6 +308,7 @@ function StartControl({
   blocked,
   fieldError,
   onSubmit,
+  header,
 }: {
   seed: string
   onSeed: (next: string) => void
@@ -290,7 +321,33 @@ function StartControl({
   blocked: string | null
   fieldError: string | null
   onSubmit: () => void
+  /** Drawn in the card's header: without its error line, the press "Find keywords" all the same. */
+  header?: boolean
 }) {
+  const adsOnly = markets.locations.find((l) => l.code === market.location_code)?.keyword_data === 'google_ads'
+  if (header) {
+    return (
+      <SeoHeaderForm label="Find keywords" onSubmit={onSubmit} data-kw-start-control="header">
+        <input
+          data-kw-seed=""
+          value={seed}
+          disabled={!!blocked}
+          title={blocked ?? undefined}
+          placeholder="A topic, product or phrase"
+          aria-label="A topic, product or phrase"
+          aria-invalid={fieldError ? true : undefined}
+          spellCheck={false}
+          onChange={(e) => onSeed(e.target.value)}
+          className={SEO_HEADER_FIELD}
+        />
+        <MarketPicker options={markets} value={market} onChange={onMarket} disabled={!!blocked} header />
+        <OptionsPopover options={options} onChange={onOptions} adsOnly={adsOnly} disabled={!!blocked} header />
+        <SeoHeaderSubmit data-kw-find="" busy={busy} disabled={busy || !seed.trim() || !!blocked} title={blocked ?? 'Look up the searches people make around it'}>
+          Find keywords
+        </SeoHeaderSubmit>
+      </SeoHeaderForm>
+    )
+  }
   return (
     <div className="space-y-1.5">
       <div className="flex flex-wrap items-center gap-2">
@@ -314,12 +371,7 @@ function StartControl({
         />
         <div className="flex items-center gap-2">
           <MarketPicker options={markets} value={market} onChange={onMarket} disabled={!!blocked} />
-          <OptionsPopover
-            options={options}
-            onChange={onOptions}
-            adsOnly={markets.locations.find((l) => l.code === market.location_code)?.keyword_data === 'google_ads'}
-            disabled={!!blocked}
-          />
+          <OptionsPopover options={options} onChange={onOptions} adsOnly={adsOnly} disabled={!!blocked} />
           <Button
             size="sm"
             data-kw-find=""
@@ -348,28 +400,44 @@ function OptionsPopover({
   onChange,
   adsOnly,
   disabled,
+  header,
 }: {
   options: ResearchOptions
   onChange: (next: ResearchOptions) => void
   adsOnly: boolean
   disabled: boolean
+  /** In the card's header: a round icon button, lifted while any option is changed. */
+  header?: boolean
 }) {
   const changed = changedOptions(options)
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button
-          variant="ghost"
-          size="sm"
-          data-kw-options=""
-          disabled={disabled}
-          className={cn('h-8 shrink-0 gap-1.5 px-2 text-xs', changed > 0 ? 'text-foreground' : 'text-muted-foreground hover:text-foreground')}
-          title="How to look"
-        >
-          <SlidersHorizontal className="h-3.5 w-3.5" />
-          Options
-          {changed > 0 && <span className="text-[10px] tabular-nums opacity-70">{changed}</span>}
-        </Button>
+        {header ? (
+          <button
+            type="button"
+            data-kw-options=""
+            disabled={disabled}
+            aria-label={changed > 0 ? `Options, ${changed} changed` : 'Options'}
+            title="How to look"
+            className={cn('grid size-6 shrink-0 place-items-center disabled:pointer-events-none disabled:opacity-50 data-[state=open]:bg-foreground/[0.06] data-[state=open]:text-foreground', CARD_HEADER_ICON_BUTTON, changed > 0 && CARD_HEADER_ICON_BUTTON_ACTIVE)}
+          >
+            <SlidersHorizontal className="size-3.5" strokeWidth={1.75} aria-hidden />
+          </button>
+        ) : (
+          <Button
+            variant="ghost"
+            size="sm"
+            data-kw-options=""
+            disabled={disabled}
+            className={cn('h-8 shrink-0 gap-1.5 px-2 text-xs', changed > 0 ? 'text-foreground' : 'text-muted-foreground hover:text-foreground')}
+            title="How to look"
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5" />
+            Options
+            {changed > 0 && <span className="text-[10px] tabular-nums opacity-70">{changed}</span>}
+          </Button>
+        )}
       </PopoverTrigger>
       <PopoverContent align="end" className="w-72 space-y-3 p-3" data-kw-options-panel="">
         {adsOnly && <p className="text-[11px] leading-relaxed text-muted-foreground">This country has one source of keyword data, so the kind of search does not apply.</p>}
