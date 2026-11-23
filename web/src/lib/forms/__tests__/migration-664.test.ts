@@ -82,7 +82,10 @@ describe('migration 664', () => {
     const restating = migrationsInOrder()
       .filter((m) => /create or replace function public\.entity_visible_to\(/i.test(m.sql))
       .map((m) => m.file)
-    expect(restating.slice(-2)).toEqual(['600_data_tables_visible_to.sql', '664_row_file_visibility.sql'])
+    // 664 follows 600 directly; 709 (Drive uploads) restates 664's text after it.
+    const at = restating.indexOf('600_data_tables_visible_to.sql')
+    expect(restating.slice(at, at + 2)).toEqual(['600_data_tables_visible_to.sql', '664_row_file_visibility.sql'])
+    expect(restating.slice(at + 2)).toEqual(['709_drive_uploads.sql'])
   })
 
   it('the 4-arg form is 600’s with only the attachment arm changed', () => {

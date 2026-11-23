@@ -24,7 +24,8 @@ export function isFileCategory(value: unknown): value is FileCategory {
 }
 
 /** The record a file is attached to: a capture, an action, a table's row (663) or a project (the first of note_id, action_id, data_row_id, project_id). */
-export type FileParentType = 'capture' | 'action' | 'row' | 'project'
+/** 'drive': a Drive upload (709), on no record; its label is its folder's name, or Drive. */
+export type FileParentType = 'capture' | 'action' | 'row' | 'project' | 'drive'
 
 export interface FileParent {
   type: FileParentType
@@ -33,6 +34,8 @@ export interface FileParent {
   label: string
   /** A row's table: its id and name. */
   table?: { id: string; name: string }
+  /** A Drive upload's folder, when it is filed. */
+  folder?: { id: string; name: string }
 }
 
 /** One file as the page lists it. */
@@ -46,6 +49,10 @@ export interface WorkspaceFile {
   storage_path: string | null
   thumbnail_path: string | null
   created_at: string
+  /** When it last changed (a rename); its arrival when unknown. */
+  updated_at?: string | null
+  /** Who uploaded it (a form's file has no one). */
+  user_id?: string | null
   parent: FileParent
   /** Sent by a stranger through a form (663): downloaded, never opened in place, and its name is theirs. */
   from_form?: boolean
@@ -63,6 +70,10 @@ export interface WorkspaceFilesQuery {
   category?: FileCategory
   /** A part of the file's name. */
   q?: string
+  /** Only the files the caller uploaded ('mine'), or only others' ('others'). */
+  owner?: 'mine' | 'others'
+  /** Only these files (Drive's Recent tab; never from a URL). */
+  ids?: readonly string[]
 }
 
 export const FILES_PAGE_SIZE = 50
@@ -87,7 +98,9 @@ export function parseFilesQuery(params: URLSearchParams): { ok: true; query: Wor
   const category = params.get('category') || undefined
   if (category !== undefined && !isFileCategory(category)) return { ok: false, error: `category must be one of ${FILE_CATEGORIES.join(', ')}` }
   const q = (params.get('q') ?? '').replace(/\s+/g, ' ').trim().slice(0, Q_MAX)
-  return { ok: true, query: { limit, offset, ...(category ? { category } : {}), ...(q ? { q } : {}) } }
+  const owner = params.get('owner') || undefined
+  if (owner !== undefined && owner !== 'mine' && owner !== 'others') return { ok: false, error: 'owner must be mine or others' }
+  return { ok: true, query: { limit, offset, ...(category ? { category } : {}), ...(q ? { q } : {}), ...(owner ? { owner } : {}) } }
 }
 
 /** The URL for a page of files. */
@@ -97,6 +110,7 @@ export function filesUrl(query: Partial<WorkspaceFilesQuery>): string {
   if (query.offset) params.set('offset', String(query.offset))
   if (query.category) params.set('category', query.category)
   if (query.q) params.set('q', query.q)
+  if (query.owner) params.set('owner', query.owner)
   const s = params.toString()
   return s ? `/api/account/files?${s}` : '/api/account/files'
 }

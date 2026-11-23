@@ -130,7 +130,10 @@ export interface CreateNotificationParams {
     // A comment on a canvas or a spreadsheet opens that record (migration 687), as
     // does a record shared with the person (record_shared, migration 688).
     | 'canvas' | 'spreadsheet'
+    // A GitHub pull request (migration 695).
     | 'github_pr'
+    // A comment on an uploaded file opens the file (migration 711).
+    | 'attachment'
   targetId?: string
   contextType?: string
   contextId?: string

@@ -163,16 +163,22 @@ describe('GET /api/account/search', () => {
   })
 
   it('finds team chat messages through team_chat_search as the caller (the function fences what they may read), each opening team chat on it', async () => {
-    hoisted.userRpc.mockResolvedValue({
-      data: [{ id: 'm-1', channel_id: 'ch-1', thread_root_id: null, place: '#launch', author_name: 'Ben Ortiz', snippet: 'the  launch\nplan', created_at: '2026-11-10T10:00:00Z' }],
-      error: null,
-    })
+    hoisted.userRpc.mockImplementation(async (name: string) =>
+      name === 'team_chat_search'
+        ? { data: [{ id: 'm-1', channel_id: 'ch-1', thread_root_id: null, place: '#launch', author_name: 'Ben Ortiz', snippet: 'the  launch\nplan', created_at: '2026-11-10T10:00:00Z' }], error: null }
+        : name === 'team_chat_file_search'
+          ? { data: [{ message_id: 'm-2', channel_id: 'ch-1', channel_kind: 'channel', channel_name: 'launch', file_path: 'ch-1/u/a.pdf', file_name: 'plan.pdf', snippet: 'the launch plan, in full', created_at: '2026-11-09T10:00:00Z' }], error: null }
+          : { data: [], error: null },
+    )
     const res = await (await GET(req('q=launch%20plan&types=team_chat_message'))).json()
     expect(hoisted.userRpc).toHaveBeenCalledWith('team_chat_search', { ws: 'ws-1', q: 'launch plan', lim: 8 })
+    // The words inside the files sent there (710), as the caller too.
+    expect(hoisted.userRpc).toHaveBeenCalledWith('team_chat_file_search', { ws: 'ws-1', q: 'launch plan', lim: 8 })
     // Never the service client: the caller's own may only find what they may read.
     expect(hoisted.rpc).not.toHaveBeenCalled()
     expect(res.results.team_chat_message).toEqual([
       { kind: 'team_chat_message', id: 'm-1', title: 'the launch plan', place: '#launch', author: 'Ben Ortiz', channelId: 'ch-1', threadRootId: null, createdAt: '2026-11-10T10:00:00Z', score: 0.3 },
+      { kind: 'team_chat_message', id: 'm-2', title: 'plan.pdf: the launch plan, in full', place: '#launch', author: 'A file', channelId: 'ch-1', threadRootId: null, createdAt: '2026-11-09T10:00:00Z', score: 0.3 },
     ])
     // Nothing typed (or one letter): no search at all.
     hoisted.userRpc.mockClear()

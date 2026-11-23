@@ -59,6 +59,8 @@
  * Reads and the post run as the person, under RLS; only the agent's turn,
  * the link preview and the loop check run with the service role.
  */
+import { inngest } from '@/lib/inngest/client'
+import { hasIndexableChatFiles, TEAM_CHAT_FILES_POSTED } from '@/lib/drive/chat-file-text'
 import { after, NextResponse, type NextRequest } from 'next/server'
 import { requireWorkspaceMember } from '@/lib/api-auth'
 import { badRequest, notFound } from '@/lib/api-errors'
@@ -265,6 +267,17 @@ export async function POST(request: NextRequest, { params }: Params) {
       await requestTeamChatNotify(message.id)
       await requestChatMessageLoops(auth.workspaceId, message)
     })
+    // The words inside its files, for search and agents (migration 710): read
+    // in the background, for the channel's readers only.
+    if (hasIndexableChatFiles(attachments)) {
+      after(async () => {
+        try {
+          await inngest.send({ name: TEAM_CHAT_FILES_POSTED, data: { messageId: message.id }, id: `team-chat-files-${message.id}` })
+        } catch (err) {
+          console.error(`[team-chat] file index request message=${message.id} failed:`, err instanceof Error ? err.message : 'unknown')
+        }
+      })
+    }
     if (replayed) return NextResponse.json({ message, shared, shared_with, ...unboundField, replayed: true })
     return NextResponse.json({ message, shared, shared_with, ...unboundField }, { status: 201 })
   } catch (err) {

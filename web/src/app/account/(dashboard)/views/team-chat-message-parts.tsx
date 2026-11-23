@@ -15,9 +15,10 @@ import { cn } from '@/lib/utils'
 import { ReactionPickerPopover } from '@/app/account/(dashboard)/chat/reaction-picker'
 import { formatFileSize, isInlineImage } from '@/lib/team-chat/files'
 import { cachedTeamChatFileUrl, teamChatFileUrl } from '@/lib/team-chat/upload-client'
+export { teamChatViewerFile }
 import { lastReplyLabel, replyCountLabel, type ReactionGroup } from '@/lib/team-chat/compose'
 import { useFileViewer } from '@/components/files/file-viewer'
-import { downloadFile } from '@/lib/download'
+import { teamChatFileLink, teamChatViewerFile } from '@/lib/files/sources'
 import { isFigmaUrl } from '@/lib/files/viewer-kind'
 import type { ViewerFile } from '@/lib/files/viewer-file'
 import type { TeamChatAttachment, TeamChatLinkPreview, TeamChatThreadSummary } from '@/lib/team-chat/types'
@@ -99,34 +100,13 @@ function useFileUrl(path: string): string | null {
 /** The tallest and widest an inline image is drawn, px. */
 const IMAGE_MAX = { width: 320, height: 240 }
 
-/**
- * A message's file as the in-app viewer takes it: a short signed URL the
- * bucket's read policy (team_chat_can_read, 558) signs only for the channel's
- * readers, signed again for the download if it has run out.
- */
-export function teamChatViewerFile(attachment: TeamChatAttachment, url: string): ViewerFile {
-  return {
-    key: `team-chat:${attachment.path}`,
-    name: attachment.name,
-    mimeType: attachment.type,
-    size: attachment.size,
-    url,
-    sourceLabel: 'Team chat',
-    download: async () => {
-      const fresh = cachedTeamChatFileUrl(attachment.path) ?? (await teamChatFileUrl(attachment.path))
-      if (!fresh) throw new Error('Could not download the file')
-      await downloadFile(fresh, attachment.name)
-    },
-  }
-}
-
 /** Open a message's file in the viewer, signing its link again when the cached one has run out. */
-async function openInViewer(attachment: TeamChatAttachment, open: (file: ViewerFile) => void) {
-  const url = cachedTeamChatFileUrl(attachment.path) ?? (await teamChatFileUrl(attachment.path))
-  if (url) open(teamChatViewerFile(attachment, url))
+async function openInViewer(attachment: TeamChatAttachment, open: (file: ViewerFile) => void, messageId?: string) {
+  const url = await teamChatFileLink(attachment.path)
+  if (url) open(teamChatViewerFile(attachment, url, 'Team chat', messageId))
 }
 
-function InlineImage({ attachment, onOpen }: { attachment: TeamChatAttachment; onOpen: (file: ViewerFile) => void }) {
+function InlineImage({ attachment, onOpen, messageId }: { attachment: TeamChatAttachment; onOpen: (file: ViewerFile) => void; messageId?: string }) {
   const url = useFileUrl(attachment.path)
   const { width = 4, height = 3 } = attachment
   // Its own shape, within the box, so it takes its room before it loads.
@@ -142,7 +122,7 @@ function InlineImage({ attachment, onOpen }: { attachment: TeamChatAttachment; o
       onClick={(e) => {
         if (e.metaKey || e.ctrlKey || e.shiftKey) return // a new tab, as asked
         e.preventDefault()
-        void openInViewer(attachment, onOpen)
+        void openInViewer(attachment, onOpen, messageId)
       }}
       className="block max-w-full overflow-hidden rounded-xl bg-muted"
       style={{ width: shown.width, aspectRatio: `${shown.width} / ${shown.height}` }}
@@ -153,7 +133,7 @@ function InlineImage({ attachment, onOpen }: { attachment: TeamChatAttachment; o
   )
 }
 
-function FileChip({ attachment, onOpen }: { attachment: TeamChatAttachment; onOpen: (file: ViewerFile) => void }) {
+function FileChip({ attachment, onOpen, messageId }: { attachment: TeamChatAttachment; onOpen: (file: ViewerFile) => void; messageId?: string }) {
   const url = useFileUrl(attachment.path)
   return (
     <a
@@ -165,7 +145,7 @@ function FileChip({ attachment, onOpen }: { attachment: TeamChatAttachment; onOp
       onClick={(e) => {
         // Opened in the app's viewer; a link signed over an hour ago is signed again first.
         e.preventDefault()
-        void openInViewer(attachment, onOpen)
+        void openInViewer(attachment, onOpen, messageId)
       }}
       className="flex max-w-xs items-center gap-2.5 rounded-xl bg-muted/60 px-3 py-2 text-left hover:bg-muted"
     >
@@ -181,7 +161,7 @@ function FileChip({ attachment, onOpen }: { attachment: TeamChatAttachment; onOp
 }
 
 /** A message's files: images drawn inline, the rest as chips with their name and size. Nothing without any. */
-export function MessageAttachments({ attachments }: { attachments: readonly TeamChatAttachment[] | undefined }) {
+export function MessageAttachments({ attachments, messageId }: { attachments: readonly TeamChatAttachment[] | undefined; /** Its message: comments on its files (711) are kept there. */ messageId?: string }) {
   const viewer = useFileViewer()
   if (!attachments?.length) return null
   const images = attachments.filter(isInlineImage)
@@ -192,12 +172,12 @@ export function MessageAttachments({ attachments }: { attachments: readonly Team
       {images.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {images.map((a) => (
-            <InlineImage key={a.path} attachment={a} onOpen={viewer.open} />
+            <InlineImage key={a.path} attachment={a} onOpen={viewer.open} messageId={messageId} />
           ))}
         </div>
       )}
       {files.map((a) => (
-        <FileChip key={a.path} attachment={a} onOpen={viewer.open} />
+        <FileChip key={a.path} attachment={a} onOpen={viewer.open} messageId={messageId} />
       ))}
     </div>
   )
