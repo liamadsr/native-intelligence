@@ -113,6 +113,8 @@ export const GO_TO: readonly GoToDef[] = [
   page('i', 'agents', 'Agents & skills', 'the AI: A is Actions'),
   page('w', 'flows', 'Flows', 'Workflows: F is Files'),
   page('z', 'evals', 'Evals', 'a leftover letter: E, V, A, L and S are taken (the owner can swap)'),
+  // Reviews (docs/plans/github-reviews.md): G V was asked for, but it is the Studio's, and G was the last letter free.
+  page('g', 'reviews', 'Reviews', 'GitHub: V (asked for) is the Studio, and G was the one letter left (the owner can swap)'),
 ]
 
 /**

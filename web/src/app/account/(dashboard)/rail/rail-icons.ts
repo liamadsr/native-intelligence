@@ -55,6 +55,7 @@ import {
   TrendingUp,
   Users,
   Workflow,
+  GitPullRequest,
   type LucideIcon,
 } from 'lucide-react'
 import type { OfferedRailPage, RailPageId } from './rail-pages'
@@ -65,6 +66,7 @@ export const RAIL_ICONS: Readonly<Record<RailPageId, LucideIcon>> = {
   mail: Mail,
   'team-chat': MessagesSquare,
   actions: ListChecks,
+  reviews: GitPullRequest,
   calendar: Calendar,
   contacts: Contact,
   outreach: Send,

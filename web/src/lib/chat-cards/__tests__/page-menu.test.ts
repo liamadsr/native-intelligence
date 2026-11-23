@@ -154,13 +154,14 @@ describe('the kinds that came with P2 and P3', () => {
     expect(CARD_PAGES.find((p) => p.kind === 'mail')?.personalTool).toBe(PERSONAL_CARD_TOOLS.mail)
   })
 
-  it('leaves out the members-only pages for a guest of the workspace: the Studio, whose routes refuse a guest', () => {
-    expect(CARD_PAGES.filter((p) => p.membersOnly).map((p) => p.slug)).toEqual(['studio'])
+  it('leaves out the members-only pages for a guest of the workspace: Reviews and the Studio, whose routes refuse a guest', () => {
+    expect(CARD_PAGES.filter((p) => p.membersOnly).map((p) => p.slug)).toEqual(['reviews', 'studio'])
     const member = pagesFor(full, { desktop: false, now: NOW }).map((p) => p.slug)
     const guest = pagesFor(full, { desktop: false, now: NOW, guest: true }).map((p) => p.slug)
     expect(member).toContain('studio')
+    expect(member).toContain('reviews')
     expect(pagesFor(full, { desktop: false, now: NOW, guest: false }).map((p) => p.slug)).toEqual(member)
-    expect(guest).toEqual(member.filter((slug) => slug !== 'studio'))
+    expect(guest).toEqual(member.filter((slug) => slug !== 'studio' && slug !== 'reviews'))
   })
 
   it('leaves out calendar and mail where the chat may not read them', () => {
