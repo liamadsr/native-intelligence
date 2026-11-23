@@ -64,7 +64,7 @@
  */
 import type { CardSpec } from '@/lib/chat-cards/kinds'
 import { canFly, stillCopyOf, type StillCopy } from '@/lib/chat/card-reply-flight'
-import { cancelTileFlight, flightCopyOf, launchIntoTile, launchTileFlight, tileEndOf, type TileSnapshot } from '@/lib/chat/tile-flight'
+import { cancelTileFlight, flightCopyOf, launchIntoTile, launchTileFlight, tileEndOf, withRiders, type TileSnapshot } from '@/lib/chat/tile-flight'
 import { homeArrives, homeLeaves, pagePanelOnScreen, panelLeaves } from './flight-scene'
 
 /** The minimize and restore flights' travel: the ⌘K palette's curve over a time long enough to see (lib/chat/tile-flight.ts). */
@@ -193,7 +193,8 @@ export function minimizeCard(card: MinimizedCard, frame: HTMLElement | null, { f
   // the flight's copy is a clone of it (no second walk over the page).
   const preview = soon ? soon.preview : stillCopyOf(frame)
   // `fly: false`: the frame leaves by its own motion (the capture's notepad slides away), home never left.
-  const snapshot = soon || !fly ? null : flightCopyOf(preview)
+  // Its riders (the header up on the sky, outside the frame) taken with it: the flight leaves after they have gone.
+  const snapshot = soon || !fly ? null : withRiders(flightCopyOf(preview), frame)
   flightIn = snapshot ? { id: card.id, snapshot } : null
   current = { id: card.id, spec: card.spec, store: card.store, preview }
   notify()

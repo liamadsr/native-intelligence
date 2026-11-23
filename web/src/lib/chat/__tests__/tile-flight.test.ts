@@ -27,6 +27,7 @@ import {
   landTileFlight,
   landTileHome,
   launchIntoTile,
+  withRiders,
   launchTileFlight,
   obstacleClip,
   outlineProgress,
@@ -480,9 +481,9 @@ describe('the flights', () => {
     const copy = part('window').querySelector<HTMLElement>('[data-tile-flight-rider-copy]')!
     expect(copy).not.toBeNull()
     expect([copy.style.position, copy.style.left, copy.style.top, copy.style.width, copy.style.height]).toEqual(['absolute', '40px', '-47px', '300px', '42px'])
-    // No second header for a selector to find: its attributes and test ids are off the copy.
+    // No second header for a selector to find: its parts' names and test ids are off the copy; it keeps the header's look (data-card-header).
     expect(copy.hasAttribute(TILE_FLIGHT_RIDER_ATTR)).toBe(false)
-    expect(copy.hasAttribute('data-card-header')).toBe(false)
+    expect(copy.hasAttribute('data-card-header')).toBe(true)
     expect(copy.querySelector('[data-testid], [data-card-header-close], [data-card-header-pill]')).toBeNull()
     expect(document.querySelectorAll('[data-card-header-close]')).toHaveLength(1)
     expect(contextOf(copy)).toEqual([[{ opacity: 1 }, { opacity: 0 }], { duration: TILE_HANDOFF_MS, easing: 'ease-out', fill: 'forwards' }])
@@ -506,7 +507,12 @@ describe('the flights', () => {
     back.append(header)
     const off = landTileFlight('minimized:team', mounted)
     expect(header.style.opacity).toBe('0')
+    // Copied a frame later, once the page's controls have reached the header's slots.
+    expect(part('window').querySelector('[data-tile-flight-rider-copy]')).toBeNull()
+    header.innerHTML = '<button aria-label="Board">b</button>'
+    vi.advanceTimersByTime(20)
     const arriving = part('window').querySelector<HTMLElement>('[data-tile-flight-rider-copy]')!
+    expect(arriving.querySelector('[aria-label="Board"]')).not.toBeNull()
     expect([arriving.style.left, arriving.style.top]).toEqual(['0px', '-47px'])
     expect(contextOf(arriving)).toEqual([[{ opacity: 0 }, { opacity: 1 }], { duration: MINIMIZE_FLIGHT_MS, easing: 'ease-in', fill: 'forwards' }])
     // React's development double mount: taken off (its copy too), then mounted again.
@@ -514,6 +520,7 @@ describe('the flights', () => {
     expect(header.style.opacity).toBe('')
     expect(part('window').querySelectorAll('[data-tile-flight-rider-copy]')).toHaveLength(0)
     landTileFlight('minimized:team', mounted)
+    vi.advanceTimersByTime(20)
     expect(part('window').querySelectorAll('[data-tile-flight-rider-copy]')).toHaveLength(1)
     // Landed: the copy goes and the frame and its header show, in one go.
     finish.get(part('window'))![0]()
@@ -521,6 +528,25 @@ describe('the flights', () => {
     expect(flyer()).toBeNull()
     expect(mounted.style.opacity).toBe('')
     expect(header.style.opacity).toBe('')
+  })
+
+  it('a minimize whose flight leaves after the frame has gone (its card let go first, flyIntoTile): the riders taken with the frame’s copy ride with it', () => {
+    const column = document.createElement('div')
+    document.body.append(column)
+    const frame = frameEl()
+    column.append(frame)
+    const rider = box({ left: FRAME.left, top: FRAME.top - 47, width: 948, height: 42 }, { [TILE_FLIGHT_RIDER_ATTR]: '' })
+    column.append(rider)
+    const snap = withRiders(flightCopyOf(stillCopyOf(frame)), frame)!
+    expect(snap.riders).toHaveLength(1)
+    // The card lets go: its frame and header leave the page before the tile draws.
+    column.remove()
+    expect(flyIntoTile(snap, tileEl())).toBe(true)
+    const copy = part('window').querySelector<HTMLElement>('[data-tile-flight-rider-copy]')!
+    expect([copy.style.left, copy.style.top]).toEqual(['0px', '-47px'])
+    // Nothing to carry: the snapshot as it was.
+    const bare = flightCopyOf(stillCopyOf(frameEl()))
+    expect(withRiders(bare, null)).toBe(bare)
   })
 
   it('passes behind the composer too, and never has a hole where the window stands or lands', () => {

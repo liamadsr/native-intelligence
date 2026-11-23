@@ -361,6 +361,8 @@ function overlaps(o: FlightObstacle, r: FlightRect): boolean {
 export interface TileSnapshot {
   copy: HTMLElement
   rect: FlightRect
+  /** Copies of the frame's riders taken with it (withRiders), for a flight that leaves after the frame has gone. */
+  riders?: HTMLElement[]
 }
 
 /**
@@ -449,7 +451,12 @@ function hideHome(home: HTMLElement): () => void {
  * tile has no header), in on the way back.
  */
 export const TILE_FLIGHT_RIDER_ATTR = 'data-tile-flight-rider'
-/** Off a rider's copy: what a live element's selectors, focus or labels would find twice. */
+/**
+ * Off a rider's copy: what a live element's selectors, focus or labels would
+ * find twice. `data-card-header` itself stays (the copy keeps the header's
+ * look: studio.css sizes Studio's header buttons under it); its parts'
+ * `data-card-header-*` names go.
+ */
 const RIDER_DROPPED_ATTRS = ['id', 'data-testid', 'tabindex', 'autofocus', 'aria-labelledby', 'aria-describedby', 'aria-controls', 'aria-owns', TILE_FLIGHT_RIDER_ATTR]
 
 /** The riders beside `frame` (its parent's children marked TILE_FLIGHT_RIDER_ATTR). */
@@ -466,7 +473,7 @@ function riderCopiesOf(frame: HTMLElement | null, at: { left: number; top: numbe
     const copy = rider.cloneNode(true) as HTMLElement
     for (const node of [copy, ...Array.from(copy.querySelectorAll('*'))]) {
       for (const name of RIDER_DROPPED_ATTRS) node.removeAttribute(name)
-      for (const name of node.getAttributeNames()) if (name.startsWith('data-card-header')) node.removeAttribute(name)
+      for (const name of node.getAttributeNames()) if (name.startsWith('data-card-header-')) node.removeAttribute(name)
     }
     copy.setAttribute('data-tile-flight-rider-copy', '')
     Object.assign(copy.style, {
@@ -484,6 +491,27 @@ function riderCopiesOf(frame: HTMLElement | null, at: { left: number; top: numbe
     })
     return [copy]
   })
+}
+
+/**
+ * `snap` with copies of `frame`'s riders taken now, as the frame's copy was:
+ * for a flight into the tile that sets off after the frame has gone (its card
+ * let go first: minimized-card.ts minimizeCard, the tile's flyIntoTile).
+ */
+export function withRiders(snap: TileSnapshot | null, frame: HTMLElement | null): TileSnapshot | null {
+  if (!snap || !frame) return snap
+  const riders = riderCopiesOf(frame, snap.rect)
+  return riders.length ? { ...snap, riders } : snap
+}
+
+/** After the next frame is drawn (a frame later than a layout effect); cancelled by the returned function. */
+function nextFrame(run: () => void): () => void {
+  if (typeof requestAnimationFrame === 'function') {
+    const id = requestAnimationFrame(run)
+    return () => cancelAnimationFrame(id)
+  }
+  const id = setTimeout(run, 16)
+  return () => clearTimeout(id)
 }
 
 /** Shows what the flight hid when it ends: a frame (and its riders) put away with its card only if it is still there a moment on. */
@@ -569,7 +597,8 @@ function takeOff(kind: 'into' | 'out', snap: TileSnapshot, end: TileEnd, frame: 
   edge.setAttribute('data-tile-flight-edge', '')
   Object.assign(edge.style, { position: 'absolute', boxSizing: 'border-box', borderStyle: 'solid', borderColor: end.edge, pointerEvents: 'none', willChange: 'opacity' })
   // Into the tile: the frame's riders (its header up on the sky) on the window, moving and scaling with it.
-  const riders = kind === 'into' ? riderCopiesOf(frame, rect) : []
+  // Taken with the frame's copy when the frame has gone by now (withRiders).
+  const riders = kind === 'into' ? (snap.riders ?? riderCopiesOf(frame, rect)) : []
   mover.append(shade, copy, edge, ...riders)
   flyer.append(mover)
   document.body.append(flyer)
@@ -802,21 +831,29 @@ export function landTileFlight(key: string, frame: HTMLElement | null): () => vo
   }
   f.target = frame
   frame.style.opacity = '0'
-  // Its riders (its header up on the sky) arrive with it: copies on the window for the rest of the way, fading in.
+  // Its riders (its header up on the sky) arrive with it: hidden from now,
+  // their copies on the window for the rest of the way, fading in. Copied a
+  // frame later: the page's controls reach the header's slots in the render
+  // after this mount (show-tool-card.tsx sets the slots from their refs).
   const riders = ridersOf(frame)
-  const mover = f.flyer.querySelector<HTMLElement>('[data-tile-flight-window]')
-  const copies = mover ? riderCopiesOf(frame, frame.getBoundingClientRect()) : []
-  if (mover && copies.length) {
+  for (const rider of riders) rider.style.opacity = '0'
+  f.riders = riders
+  let copies: HTMLElement[] = []
+  const cancelCopies = nextFrame(() => {
+    if (tileFlight !== f || f.target !== frame || f.done) return
+    const mover = f.flyer.querySelector<HTMLElement>('[data-tile-flight-window]')
+    if (!mover) return
+    copies = riderCopiesOf(frame, frame.getBoundingClientRect())
+    if (!copies.length) return
     mover.append(...copies)
     const left = Math.max(1, MINIMIZE_FLIGHT_MS - (Number(f.move.currentTime) || 0))
     for (const copy of copies) {
       copy.style.opacity = '0'
       f.animations.push(copy.animate([{ opacity: 0 }, { opacity: 1 }], { duration: left, easing: 'ease-in', fill: 'forwards' }))
     }
-  }
-  for (const rider of riders) rider.style.opacity = '0'
-  f.riders = riders
+  })
   return () => {
+    cancelCopies()
     if (tileFlight !== f || f.target !== frame) return
     frame.style.opacity = ''
     for (const rider of riders) rider.style.opacity = ''

@@ -79,7 +79,7 @@ import { CARD_HEADER_ICON_BUTTON } from './card-header-button'
 import { useLiveCaptureDockSlot } from './card-dock-slot'
 import { CARD_GLASS_FRAME, CardGlass } from './card-glass'
 import { COLUMN_CARD_SKIN } from '@/components/attention/card-skin'
-import { SKY_PILL, SkyHeaderRow } from './sky-header-row'
+import { FULL_SCREEN_INTERACTIVE_ATTR, SKY_PILL, SkyHeaderRow } from './sky-header-row'
 import { frontCard, holdFrontCard } from './front-card'
 import { besideAppRail, minimizeCard, minimizeSoon, minimizedCard, minimizedFlightKey, recheckMinimized, subscribeBesideAppRail, subscribeMinimized } from './minimized-card'
 import { landTileFlight } from '@/lib/chat/tile-flight'
@@ -331,11 +331,13 @@ const PARKED_SIZE = { width: 1200, height: 690 }
  * row) and TOP_BAR_RIGHT_INSET_PX from the right. Nothing to read here: the
  * toggle draws nothing and the capsule goes with it (`empty:hidden`). Below
  * `md` it stays in the layer's corner, above the card, in the same capsule.
+ * The page's header pills share its row since 11-23 and keep clear of it
+ * (sky-header-row.tsx measures it).
  */
 function FullScreenInteractive() {
   return (
     <div
-      {...{ [FULL_SCREEN_CONTROL_ATTR]: '' }}
+      {...{ [FULL_SCREEN_CONTROL_ATTR]: '', [FULL_SCREEN_INTERACTIVE_ATTR]: '' }}
       className={cn(
         'absolute right-4 top-3 z-10 flex items-center rounded-full border border-border/60 p-1 empty:hidden',
         COLUMN_CARD_SKIN,
@@ -716,12 +718,11 @@ export function ShowToolCard({
   const rightSlotRef = React.useCallback((right: HTMLElement | null) => setSlots((s) => (s.right === right ? s : { ...s, right })), [])
   const trailSlotRef = React.useCallback((trail: HTMLElement | null) => setSlots((s) => (s.trail === trail ? s : { ...s, trail })), [])
 
-  // Full screen beside the rail, the header is a row of its own at the top of
-  // the page, as the side panel's rows are at the top of the panel beside it
-  // (Liam, 11-22: "could we somehow make these two feel like one thing?",
-  // then "make it match the side panel"): the page level with the panel, the
-  // header inset like a panel row, in a lit row's tint and corners. It was an
-  // island in the top bar's row before (11-21).
+  // Full screen beside the rail, the header is up on the sky above the page:
+  // two glass pills in the window's top row, level with the rail's header
+  // (sky-header-row.tsx; Liam, 11-23: "Lets try G"). It was a row inside the
+  // page, inset like a side panel row (11-22), and an island in the top bar's
+  // row before that (11-21).
   const besideRail = React.useSyncExternalStore(subscribeBesideAppRail, besideAppRail, () => false)
   const headerIsland = shownFullScreen && besideRail
 
