@@ -13,9 +13,8 @@
  * shown. Hiding is the page's own: the Capture button's calendar, a chat's
  * calendar card and the assistant still read every calendar.
  *
- * Pure but for the two storage functions; the behaviour follows Macro's
- * calendar sidebar (github.com/macro-inc/macro, AGPL-3.0). None of its code
- * is here.
+ * Pure but for the two storage functions; the behaviour follows the
+ * reference product's calendar sidebar (AGPL-3.0). None of its code is here.
  */
 import type { IEvent } from '@/calendar/interfaces'
 import type { TEventColor } from '@/calendar/types'

@@ -2,9 +2,10 @@
 
 /**
  * Drive's files as a card (Liam, 11-11: "a new page that shows all available
- * files that were uploaded anywhere in the app"; owner, 11-23: Macro's Drive,
- * docs/plans/drive-files.md, phase 2): every file the person may see, from
- * where it lives, each read through its own rule (drive-files-data.ts).
+ * files that were uploaded anywhere in the app"; owner, 11-23: the
+ * reference product's Drive, docs/plans/drive-files.md, phase 2): every file
+ * the person may see, from where it lives, each read through its own rule
+ * (drive-files-data.ts).
  *
  *   Tabs      All; My files (uploaded or sent by them); Recent (what they
  *             opened last); Shared with me (others' files they can read).

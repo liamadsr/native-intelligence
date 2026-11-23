@@ -3,8 +3,8 @@
  * date the grid is at. An event stays while it hasn't ended (one in progress
  * reads "Now"); declined events and tasks are left out; all-day events count.
  *
- * Pure. The behaviour follows Macro's calendar sidebar (AGPL-3.0); none of
- * its code is here.
+ * Pure. The behaviour follows the reference product's calendar sidebar
+ * (AGPL-3.0); none of its code is here.
  */
 import type { IEvent } from '@/calendar/interfaces'
 

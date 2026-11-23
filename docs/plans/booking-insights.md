@@ -4,9 +4,10 @@ Branch `claude/booking-insights`. Reserved migration: **705**.
 
 The goal: a list of bookings (attended and no-show), insights over a range, the
 link settings that are still missing, and a form in front of a link that
-qualifies guests before they book. The behaviour follows Macro's public
-booking-link docs (product pages only, read for behaviour). It is built from
-scratch on what we already have. No Macro code, CSS, wording or assets.
+qualifies guests before they book. The behaviour follows the reference product's
+public booking-link docs (product pages only, read for behaviour). It is built
+from scratch on what we already have. None of the reference product's code, CSS,
+wording or assets.
 
 ## What already exists (and is extended, not rebuilt)
 

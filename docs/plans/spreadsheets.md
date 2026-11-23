@@ -2,41 +2,42 @@
 
 A spreadsheet is a new kind of record in the app: a workbook of sheets with a formula
 engine, formatting, import and export, and tools so agents can read and edit it. The target
-is parity with the spreadsheets in Macro (`github.com/macro-inc/macro`), in this app's own
-design.
+is parity with the spreadsheets in the reference product (its public source repository), in
+this app's own design.
 
 Status of this file: the inventory and the plan. Each phase's report says what is done
 against it.
 
 ## Licensing: how this was made
 
-Macro is AGPL-3.0. None of its code, CSS, SVGs or assets is in this repository.
+The reference product is AGPL-3.0. None of its code, CSS, SVGs or assets is in this repository.
 
-- **Clean room.** One reader read Macro's source and its guide for the spreadsheet block and
-  wrote a description in plain prose: features, interactions, menus, shortcuts, layout,
-  states, limits. No code, no CSS, no identifiers beyond public function names, key
-  shortcuts and labels a person sees. Everything here is built from that description. The
-  description was made from reading, not from running Macro.
+- **Clean room.** One reader read the reference product's source and its guide for the
+  spreadsheet block and wrote a description in plain prose: features, interactions, menus,
+  shortcuts, layout, states, limits. No code, no CSS, no identifiers beyond public function
+  names, key shortcuts and labels a person sees. Everything here is built from that
+  description. The description was made from reading, not from running the reference product.
 - **Dependencies** are permissive only. Each one added is named with its license in
   "Dependencies" below.
-- **Macro's own engine patches are not used.** Macro runs a patched copy of IronCalc. We use
-  the upstream package from npm, unpatched. Two functions Macro added on top (AGGREGATE,
-  GETPIVOTDATA) are therefore ours to write or to leave out; see "Formulas".
+- **The reference product's own engine patches are not used.** It runs a patched copy of
+  IronCalc. We use the upstream package from npm, unpatched. Two functions the reference
+  product added on top (AGGREGATE, GETPIVOTDATA) are therefore ours to write or to leave out;
+  see "Formulas".
 
-## What Macro has
+## What the reference product has
 
-How Macro does it, in one paragraph: a real editor, not a viewer and not an embedded grid
-product. The grid is Macro's own. The formula engine is IronCalc (Rust compiled to
-WebAssembly, MIT or Apache-2.0). Live editing is on Loro CRDTs (MIT). Number formats use
-`ssf` (Apache-2.0). Calculated values are never stored: every reader recalculates. Limits:
-100,000 rows by 16,384 columns a sheet, 300 sheets, 10,000 characters a cell; a new sheet
-starts at 200 rows by 26 columns and grows.
+How the reference product does it, in one paragraph: a real editor, not a viewer and not an
+embedded grid product. The grid is the reference product's own. The formula engine is IronCalc
+(Rust compiled to WebAssembly, MIT or Apache-2.0). Live editing is on Loro CRDTs (MIT). Number
+formats use `ssf` (Apache-2.0). Calculated values are never stored: every reader recalculates.
+Limits: 100,000 rows by 16,384 columns a sheet, 300 sheets, 10,000 characters a cell; a new
+sheet starts at 200 rows by 26 columns and grows.
 
 Legend: **Has**, **Part** (limited, as described), **No**.
 
 ### The grid
 
-| Item | Macro | Detail |
+| Item | Reference product | Detail |
 | --- | --- | --- |
 | Cells and editing | Has | Click selects. Typing replaces. Double-click, Enter or F2 edits in place. The cell editor and the formula bar edit one draft. The editor takes the cell's fill, font and color. Enter commits and moves down, Tab commits and moves right, Escape cancels. A cell formatted as plain text keeps `=…` as text. |
 | Selection | Has | One active cell and one rectangle. Arrows move, Shift extends, Home and Ctrl/Cmd jump, Ctrl/Cmd+A selects all. Drag selects. Header clicks select a row or column. The range tint leaves the active cell clear. |
@@ -55,7 +56,7 @@ Legend: **Has**, **Part** (limited, as described), **No**.
 
 ### Formulas
 
-| Item | Macro | Detail |
+| Item | Reference product | Detail |
 | --- | --- | --- |
 | Engine | Has | IronCalc in a web worker; only changed cells cross over. A time budget per calculation. |
 | References | Has | `A1`, `$A$1`, mixed, `A1:B9`, `A:A`, `1:2`. |
@@ -71,7 +72,7 @@ Legend: **Has**, **Part** (limited, as described), **No**.
 
 ### Formatting
 
-| Item | Macro | Detail |
+| Item | Reference product | Detail |
 | --- | --- | --- |
 | Font and size | Has | Family menu; size box with smaller and larger. |
 | Bold, italic, underline, strikethrough | Has | |
@@ -85,7 +86,7 @@ Legend: **Has**, **Part** (limited, as described), **No**.
 
 ### Data
 
-| Item | Macro | Detail |
+| Item | Reference product | Detail |
 | --- | --- | --- |
 | Sort | Has | A range; the whole sheet by a column from the column menu; a table column. |
 | Filter | Part | Inside tables only: a condition and a searchable list of values per column. |
@@ -97,7 +98,7 @@ Legend: **Has**, **Part** (limited, as described), **No**.
 
 ### Structure
 
-| Item | Macro | Detail |
+| Item | Reference product | Detail |
 | --- | --- | --- |
 | Sheets | Has | Add, rename, delete, duplicate, move left and right, drag to reorder, an overview of all sheets. Names unique without regard to case, 31 characters at most. The last visible sheet cannot be deleted. A sheet other formulas point at cannot be renamed or deleted. Tab colors come from imported files. |
 | Named ranges | Part | As above. |
@@ -107,7 +108,7 @@ Legend: **Has**, **Part** (limited, as described), **No**.
 
 ### Collaboration
 
-| Item | Macro | Detail |
+| Item | Reference product | Detail |
 | --- | --- | --- |
 | Live editing by several people | Has | Changes merge as they are made; you see where others are, per sheet. |
 | Comments | Has | Threads on the selected cells (Ctrl/Cmd+Alt+M) with a reply count. They follow their cells. |
@@ -116,7 +117,7 @@ Legend: **Has**, **Part** (limited, as described), **No**.
 
 ### Files
 
-| Item | Macro | Detail |
+| Item | Reference product | Detail |
 | --- | --- | --- |
 | Saving | Has | Continuous. No save button. |
 | Import .xlsx | Has | Formulas, formats, widths and heights, hidden rows and columns, merges, tables, conditional formats, validation, notes, charts, images, pivot tables. What it cannot read becomes a warning in a preview, not a failure. About 50 MB. |
@@ -126,7 +127,7 @@ Legend: **Has**, **Part** (limited, as described), **No**.
 
 ### The surroundings
 
-| Item | Macro | Detail |
+| Item | Reference product | Detail |
 | --- | --- | --- |
 | Layout, top to bottom | Has | Title bar with Share; one row of formatting controls; the formula bar with a Go to cell box at its left (can be hidden); column letters; the grid with row numbers (about four fifths of the height); a footer with the sheet tabs and an Import and export button pinned beside them. |
 | Toolbar, left to right | Has | Font size smaller, size, larger. Bold, italic, strikethrough, underline. Undo, redo, currency, percent, fewer decimals, more decimals, indent out, indent in, wrap. Find and replace. Comment. Then menus: Number format, Font, Text color, Fill, Borders, Horizontal alignment, Vertical alignment, Functions (SUM, AVERAGE, COUNT, MIN, MAX), Paste special, Insert (chart, more charts, image, checkbox), View options (Gridlines, Formula bar, Formulas), Format and data (Sort range A to Z and Z to A, Trim whitespace, Dropdown…, Convert to table, Goal Seek…, Fill down, Fill right, Clear formatting, Clear values). |
@@ -142,7 +143,7 @@ Legend: **Has**, **Part** (limited, as described), **No**.
 | Read-only | Has | |
 | Loading and errors | Has | A grid skeleton while loading. A failed calculation leaves editing and undo working and can be retried. |
 
-### Agents in Macro
+### Agents in the reference product
 
 Three tools beside "create a document":
 
@@ -158,7 +159,7 @@ Three tools beside "create a document":
 
 ### The function list
 
-Names by category (492 in Macro's catalog).
+Names by category (492 in the reference product's catalog).
 
 - **Math:** ABS, ACOS, ACOSH, ACOT, ACOTH, AGGREGATE, ARABIC, ASIN, ASINH, ATAN, ATAN2,
   ATANH, BASE, CEILING, CEILING.MATH, CEILING.PRECISE, COMBIN, COMBINA, COS, COSH, COT, COTH,
@@ -221,22 +222,23 @@ Names by category (492 in Macro's catalog).
 ### The engine: decided
 
 IronCalc, the upstream package `@ironcalc/wasm` 0.9.1 from npm (MIT or Apache-2.0), not
-Macro's patched copy. It is the engine Macro's function list comes from, so parity on
-functions is close to exact, and it carries far more than formulas: undo and redo, insert
-and delete with reference rewriting, fill, copy and paste with shifted references, styles
-and borders, number formats, merges, frozen panes, named ranges, conditional formatting,
-sheets, a compact save format, and change sets one copy can send another.
+the reference product's patched copy. It is the engine the reference product's function list
+comes from, so parity on functions is close to exact, and it carries far more than formulas:
+undo and redo, insert and delete with reference rewriting, fill, copy and paste with shifted
+references, styles and borders, number formats, merges, frozen panes, named ranges, conditional
+formatting, sheets, a compact save format, and change sets one copy can send another.
 
 Measured in this container on Node 24, before any app code: 20,000 rows with a formula each
 filled and calculated in well under a second; the workbook saved as 373 KB and loaded in
 5 ms; a formula on another sheet summing all 20,000 gave the right total.
 
-Where upstream differs from Macro's copy (checked by running each):
+Where upstream differs from the reference product's copy (checked by running each):
 
-- **AGGREGATE and GETPIVOTDATA are missing** (`#NAME?`): they are Macro's additions.
-  AGGREGATE is to be covered; GETPIVOTDATA only means something with imported pivot tables.
-- **NOW, TODAY and RAND calculate.** Macro blanks them to `#N/A`. To decide with live
-  editing (phase 5); until then they work as in Excel.
+- **AGGREGATE and GETPIVOTDATA are missing** (`#NAME?`): they are the reference product's
+  additions. AGGREGATE is to be covered; GETPIVOTDATA only means something with imported
+  pivot tables.
+- **NOW, TODAY and RAND calculate.** The reference product blanks them to `#N/A`. To decide
+  with live editing (phase 5); until then they work as in Excel.
 - **A spill that has no room gives `#SPILL!`**, as in Excel.
 - **Two answers that differ from Excel**, found while testing a sample of every category:
   XLOOKUP over an inline array (`{"a","b"}`) gives `#N/A` (over cells it is right), and
@@ -291,8 +293,8 @@ Two places where "like a document" meets a rule of this work, for the owner to k
 - **Comments.** The app's comments name their kinds in a Postgres enum and in policies on
   `comment`; a test (`migration-674.test.ts`) refuses any later migration that adds a
   policy there, and a new enum value cannot be used in the transaction that adds it, which
-  one migration number cannot do. Macro's comments are threads on cells anyway. So
-  spreadsheet comments get their own table (thread, cell anchor, replies), beside the
+  one migration number cannot do. The reference product's comments are threads on cells anyway.
+  So spreadsheet comments get their own table (thread, cell anchor, replies), beside the
   existing ones, with the same mention handling.
 - **Sharing with one person.** Workspace or private works as for documents from phase 1.
   Granting one member, team or channel access to a private one (`entity_access`) means
@@ -300,15 +302,15 @@ Two places where "like a document" meets a rule of this work, for the owner to k
   That is "redefine", which this work was told not to do; it waits for the owner's word.
   Public share links exist only for captures and documents and are not planned.
 
-### Where we go past Macro, and where we stop short
+### Where we go past the reference product, and where we stop short
 
 Past it, because the engine gives it and people expect it: freeze panes, merge cells, a
 series from the fill handle, named ranges with an editor, conditional formatting with an
 editor, the sum, average and count of the selection.
 
-Not planned, said plainly: building pivot tables (Macro cannot either), SmartArt, shapes and
-EMF/WMF pictures from imported files, the more exotic chart kinds until the common ones are
-right.
+Not planned, said plainly: building pivot tables (the reference product cannot either),
+SmartArt, shapes and EMF/WMF pictures from imported files, the more exotic chart kinds until
+the common ones are right.
 
 ## Phases
 
@@ -338,13 +340,13 @@ Against the inventory:
 | --- | --- |
 | Cells and editing | Done. Type to replace; double-click, Enter or F2 to edit in place; one draft shared by the cell and the formula bar; Enter, Shift+Enter, Tab, Shift+Tab, Escape; Alt+Enter for a line break; F4 cycles a reference through `$`. The editor wears the cell's font, color and fill. |
 | Selection | Done. Arrows, Shift, Ctrl/Cmd (edge of a block), Home, End, Page Up and Down, Ctrl/Cmd+A, drag, Shift+click, row and column headers (click, drag, Shift+click), the corner. The range tint leaves the active cell clear. |
-| Fill handle | Done, and past Macro: it continues a series (1, 2 gives 3, 4). Ctrl/Cmd+D and Ctrl/Cmd+R. |
+| Fill handle | Done, and past the reference product: it continues a series (1, 2 gives 3, 4). Ctrl/Cmd+D and Ctrl/Cmd+R. |
 | Copy and paste | Done. Inside the app formats are kept and formulas shifted; a cut moves. To other apps: tab-separated text and an HTML table. From other apps: either. One cell pasted over a range fills it. A paste is one undo step. Tried in a browser with the real clipboard; not yet tried against Excel or Google Sheets themselves. |
 | Undo and redo | Done. One action, one step (a 60,000-cell paste too). |
-| Resize | Done. Drag a header's edge (all selected columns or rows together), double-click to fit, Resize… box, Fit to data. Rows too, which Macro has no control for. |
+| Resize | Done. Drag a header's edge (all selected columns or rows together), double-click to fit, Resize… box, Fit to data. Rows too, which the reference product has no control for. |
 | Hide and unhide | Done, with a marker in the header where something is hidden. |
 | Insert and delete rows and columns | Done. Formulas follow. |
-| Sort a range, sort the sheet | Done from the menus. Formulas move as typed; their references are not rewritten (Macro shifts relative ones). |
+| Sort a range, sort the sheet | Done from the menus. Formulas move as typed; their references are not rewritten (the reference product shifts relative ones). |
 | Formulas, references, other sheets, errors | Done (the engine). |
 | Autocomplete | Done: matching functions with arrows, Tab or Enter; inside a function's brackets, its arguments with the current one in bold. Arguments and a line of help are written for 100 functions; the other 390 complete by name only. |
 | Pointing | Done, on other sheets too. |
@@ -357,10 +359,11 @@ Against the inventory:
 
 Decided along the way:
 
-- **The engine runs on the page's own thread, not in a worker.** Macro uses a worker. Measured
-  on a sheet of 10,000 rows with 20,000 formulas: a recalculation takes 12 ms and pasting
-  60,000 cells 474 ms in a browser. A worker would make every read of a cell asynchronous for
-  no gain at this size; it is the thing to revisit if recalculations reach a frame's length.
+- **The engine runs on the page's own thread, not in a worker.** The reference product uses a
+  worker. Measured on a sheet of 10,000 rows with 20,000 formulas: a recalculation takes 12 ms
+  and pasting 60,000 cells 474 ms in a browser. A worker would make every read of a cell
+  asynchronous for no gain at this size; it is the thing to revisit if recalculations reach a
+  frame's length.
 - **The headers are panes the size of the view**, with their letters and numbers moved under
   them, not strips as long as the sheet: a blurred strip 250,000 pixels tall cost about
   40 ms of every scrolled frame in a browser without a GPU.
@@ -384,7 +387,7 @@ Not done in phase 1, and where it goes:
 
 | Item | State |
 | --- | --- |
-| The toolbar | Done, in Macro's order: font size (smaller, the size, larger); bold, italic, strikethrough, underline; undo, redo, currency, percent, fewer and more decimal places, wrap; find and replace; then the menus Number format, Font, Text color, Fill color, Borders, Horizontal alignment, Vertical alignment, Functions, Paste special, View options, Format and data. It fits a card 946 px wide and scrolls sideways on a narrower one. |
+| The toolbar | Done, in the reference product's order: font size (smaller, the size, larger); bold, italic, strikethrough, underline; undo, redo, currency, percent, fewer and more decimal places, wrap; find and replace; then the menus Number format, Font, Text color, Fill color, Borders, Horizontal alignment, Vertical alignment, Functions, Paste special, View options, Format and data. It fits a card 946 px wide and scrolls sideways on a narrower one. |
 | Number formats | Done: Automatic, Number, Currency, Accounting, Percent, Scientific, Time, Plain text, with what each looks like beside its name. A plain-text cell keeps a formula and leading zeros as typed. |
 | Date formats | Done: the seven presets, and "Custom date and time…" with any Excel code and a live preview drawn by the engine itself. |
 | Font and size | Done. Eight fonts every machine has, so two readers see the same sheet. |
@@ -402,7 +405,7 @@ Not in phase 2, said plainly:
 - **Indent in and out.** The engine's cell style has no indent, so there is nothing to store it in. It would be this app's own addition (in `extras`), drawn by the grid and lost on export.
 - **Move a range by dragging its border.** Cut and paste does the same job; the drag is not built. (Built in phase 6.)
 - **A layout of its own for phones.** The editor works at any width (the toolbar scrolls sideways), and touch scrolls and taps select, but there are no drag handles on the selection and the footer does not follow the on-screen keyboard. Not tried on a phone. (Phase 6 added the selection's touch drag handles and made the panels full-width on a phone; the footer still does not follow the keyboard.)
-- **The Insert and Comment controls** of Macro's toolbar come with what they insert: phases 4 and 5.
+- **The Insert and Comment controls** of the reference product's toolbar come with what they insert: phases 4 and 5.
 
 ### Phase 3: done
 
@@ -411,7 +414,7 @@ Not in phase 2, said plainly:
 | Export .xlsx | Done, from the footer's Import and export button (in the browser, on the open workbook) and from `GET /api/account/spreadsheets/[id]/export?format=xlsx`. Every sheet with its name, hidden state and tab color; numbers, text, booleans, errors; formulas with their last calculated value beside them; fonts, fills, borders, alignment, wrap, number formats; column widths, row heights, hidden rows and columns, merges, frozen panes, gridlines, defined names. A file it wrote was opened with openpyxl and with LibreOffice: both read the values, formulas, formats and layout. Not opened in Excel itself. |
 | Import .xlsx | Done: a new spreadsheet from a file (`POST /api/account/spreadsheets/import`). Reads all of the above back, shared formulas (expanded to each cell), the 1904 date system and theme colors. What it cannot carry is listed as warnings after the import, never a failure: charts, images, pivot tables, conditional formatting, data validation, notes, tables (a formula using `Table[Column]` shows `#NAME?`), external links, macros. Limits: 50 MB a file, 400 MB unpacked, 300 sheets, 100,000 rows, 16,384 columns (more is cut, with a warning). |
 | Export .csv | Done: the sheet in view, the values it shows, quoted by RFC 4180. |
-| Import .csv | Done: pasted at the active cell as one undo step, as Macro does; commas, semicolons or tabs; quoted fields with line breaks. |
+| Import .csv | Done: pasted at the active cell as one undo step, as the reference product does; commas, semicolons or tabs; quoted fields with line breaks. |
 | Agents | Done, five tools in a Spreadsheets category (so also `ni_*` over MCP): `find_spreadsheets`, `read_spreadsheet` (a summary, or exact ranges up to 500 cells, with the revision), `calculate_spreadsheet` (up to 20 formulas with what-if inputs on a throwaway copy; nothing is written), `create_spreadsheet`, `edit_spreadsheet` (one batch, all or nothing, refused when the revision is stale; 25 operations and 2,000 cells at most; cells it wrote that show an error come back as warnings). A private spreadsheet of someone else is "not found" to a tool. Writes are kept out of team chat, as Tables' are. A mention of a spreadsheet now tells the agent to read it. No model call was added: the tools run through the existing registry and eve's tool proxy. Not yet tried with a live agent turn. |
 | Version history | Done: a History button in the title bar lists who changed it and when (an agent's change is marked), and restores a version as an ordinary save, so nothing is lost. One person's run of saves within ten minutes is one entry. |
 | Entity links | A spreadsheet is linkable in the entity registry since phase 1, and private ones are fenced. The side panel that shows a record's links is not on the spreadsheet's card yet. (Built in phase 6: a Links panel on the card.) |
@@ -441,7 +444,7 @@ in this part.
 | Paste and fill | Done. Both go through the same rejecting-rule check: a paste or a fill that would put a forbidden value in a rejecting cell is refused whole, naming the first bad cell, and nothing is written. |
 | Checkboxes | Done. Insert checkbox / Remove checkbox from the cell menu and a new "Insert" toolbar menu (between Paste special and View options, "Checkbox" for now). A blank becomes FALSE; a checkbox cell draws a centered box (checked for TRUE) instead of its text; a click or Space on the active cell toggles TRUE/FALSE as one undo step; the value is a real boolean in formulas. Which cells are checkboxes is stored in extras (ranges per sheet) and follows the same shift rules. |
 | Conditional formatting — drawing | Done. The grid draws what the engine computes: the winning rule's `style` (verified by a test), the `data_bar` (a bar behind the value, positive/negative colors, respecting show_value) and the `icon` (the 20 kinds as small lucide/CSS glyphs — our own drawings) in `cell-view.ts` and `sheet-grid.tsx`. |
-| Conditional formatting — editor | Done, and past Macro (which only keeps imported rules; the plan allows this). A side panel (Format and data → "Conditional formatting…") lists the sheet's rules in priority order with their range and a plain description, and adds, edits, deletes and reorders them, for: cell value (greater than, less than, between, equal, not equal), text contains / starts with / ends with, is blank / not blank, is an error, duplicate / unique values, above / below average, a custom formula, and a 2- or 3-color scale. The format is fill color, text color, bold and italic. All through the engine's own calls, each one undo step. |
+| Conditional formatting — editor | Done, and past the reference product (which only keeps imported rules; the plan allows this). A side panel (Format and data → "Conditional formatting…") lists the sheet's rules in priority order with their range and a plain description, and adds, edits, deletes and reorders them, for: cell value (greater than, less than, between, equal, not equal), text contains / starts with / ends with, is blank / not blank, is an error, duplicate / unique values, above / below average, a custom formula, and a 2- or 3-color scale. The format is fill color, text color, bold and italic. All through the engine's own calls, each one undo step. |
 | Goal Seek | Done. Format and data → "Goal Seek…": Set cell (prefilled with the active cell), To value, By changing cell. The search (`lib/spreadsheets/goal-seek.ts`, a pure function) is a secant step then a bracketing bisection, run on a throwaway copy of the model read through a scratch cell, never on the open workbook. It shows the result ("B2 = 1,250 makes D9 = 5,000") or says plainly it found none; Apply writes the found value as one undo step. A quadratic with two roots finds whichever it brackets first; a non-numeric set cell is refused. |
 
 Not in this part, said plainly: tables (typed columns, filter, group by, totals), charts and
@@ -472,9 +475,9 @@ Not built in this part, said plainly:
 
 - **Bold first/last column** is stored and offered, but drawn only as a faint banded tint, not as
   actual bold text (the overlay does not re-draw cell text). Convert to range does not bake it either.
-- **The other chart kinds** Macro lists — radar, bubble, stock, contour, histogram, waterfall,
-  funnel, box and whisker, treemap, sunburst, pareto, pie of pie, bar of pie — are **not** here;
-  only the seven common ones are.
+- **The other chart kinds** the reference product lists — radar, bubble, stock, contour,
+  histogram, waterfall, funnel, box and whisker, treemap, sunburst, pareto, pie of pie, bar of
+  pie — are **not** here; only the seven common ones are.
 - **Import of tables, charts and images from .xlsx is unchanged**: the reader still only warns about
   them (phase 3). Export does not write them either.
 - **An agent edit that inserts or deletes rows/columns, or deletes a sheet, now shifts the stored
@@ -525,7 +528,7 @@ dependency, no in-process model call.
 | Links side panel | Done. A Links button in the title bar (beside Comments and Version history) toggles a panel at the grid's right that lists the records which reference this workbook — the same data and rows as every kind's "Referenced in" (`components/entity-links/referenced-in.tsx`, read through `useEntityReferences('spreadsheet', id)`): a document, task or chat that @-mentions it, newest first, each opening its own card. Private spreadsheets stay fenced by the viewer's RLS (675's restrictive `entity_link` policies); no policy changed. |
 | Move a range by dragging its border | Done. A grab zone on each edge of the selection (cursor `move`) drags the range; a dashed rectangle previews where it lands, Escape cancels, and dropping onto occupied cells asks first. The move is cut-and-paste under the hood (the engine has no rectangle-move call, only whole rows/columns), so values, formats, notes and the references inside the range follow, references that point AT the moved cells are rewritten, and the vacated cells clear — one undo step (`controller.moveSelection`). Not in read-only. **Extras do not move with it** (see below). |
 | Phone layout | Done, in part. At a narrow grid width (< 480px) the selection grows two large touch handles at its top-left and bottom-right corners that extend it by a drag; a mouse still uses Shift+click and the small fill handle. The comment thread card and composer become a bottom sheet, and the comments, conditional-formatting, version-history and links panels become full-width, on a phone-width screen (a `max-[480px]` breakpoint; desktop unchanged). **The footer still does not follow the on-screen keyboard**, and none of this was tried on a real phone. |
-| Selection summary (sum, average, count) | Not built, by the plan: the inventory marks it **No** for Macro, so it is skipped here too. |
+| Selection summary (sum, average, count) | Not built, by the plan: the inventory marks it **No** for the reference product, so it is skipped here too. |
 | Stale plan lines | Fixed. The `entity-identity` registry is on `main` and carries the spreadsheet entry (the "Where it shows up" table and the phase-1 note said it was not); copy link, the links panel, the border move and the phone handles are no longer listed as missing where a later phase made them real. |
 
 ### Phase 7: who is here (presence and live selection)
@@ -585,9 +588,9 @@ nobody has assigned), and nothing here is faked.
   which a spreadsheet does not have (decisions 5, 25). A mention is recorded but silent.
 - **Indent in and out.** The engine's cell style has no indent to store it in; it would be
   this app's own addition in `extras`, drawn by the grid and lost on export. Not built.
-- **AGGREGATE and GETPIVOTDATA.** Macro's two added functions are missing from upstream
-  IronCalc (decision 2); GETPIVOTDATA only means something with imported pivot tables, which
-  are not built either.
+- **AGGREGATE and GETPIVOTDATA.** The reference product's two added functions are missing from
+  upstream IronCalc (decision 2); GETPIVOTDATA only means something with imported pivot tables,
+  which are not built either.
 - **The .xlsx round trip of tables, charts and images.** Import still only warns about them
   and export does not write them (phases 3, 4); the reader and writer carry cells, formats,
   layout and formulas, not these objects.
@@ -610,12 +613,13 @@ Made without asking, while the owner was away. Each can be changed.
    Spreadsheets page had no letter left. G D now opens the Drive group on its page last used
    (Docs the first time), the way G S opens SEO, and Spreadsheets is reached through it.
    The other choice is to give Spreadsheets a letter another page has now.
-2. **The engine is upstream IronCalc, on the page's own thread.** Not Macro's patched copy
-   (it is AGPL like the rest of Macro), and not in a worker (see "Where it stands").
-   AGGREGATE and GETPIVOTDATA, which Macro added to its copy, are therefore missing.
-3. **NOW, TODAY and RAND calculate**, as in Excel. Macro blanks them to `#N/A` so two readers
-   never differ; here a workbook is recalculated by whoever opens it, so two people can see
-   different values of these until one saves.
+2. **The engine is upstream IronCalc, on the page's own thread.** Not the reference product's
+   patched copy (it is AGPL like the rest of the reference product), and not in a worker (see
+   "Where it stands"). AGGREGATE and GETPIVOTDATA, which the reference product added to its
+   copy, are therefore missing.
+3. **NOW, TODAY and RAND calculate**, as in Excel. The reference product blanks them to `#N/A`
+   so two readers never differ; here a workbook is recalculated by whoever opens it, so two
+   people can see different values of these until one saves.
 4. **Comments on a spreadsheet are their own table** (`spreadsheet_comment`), not rows of the
    app's `comment` table, because that table's kinds are pinned by a test and an enum value
    cannot be added and used in one migration. They are anchored to cells.
@@ -635,8 +639,9 @@ Made without asking, while the owner was away. Each can be changed.
 9. **Text typed into a plain-text cell is stored with the engine's quote prefix**, so
    `=1+1` and `007` stay as typed. Copying such a cell to another app gives the text
    without the prefix.
-10. **Sorting moves formulas as typed.** Macro shifts their relative references; here a
-    formula that points at its own row keeps pointing at the row it was written for.
+10. **Sorting moves formulas as typed.** The reference product shifts their relative
+    references; here a formula that points at its own row keeps pointing at the row it was
+    written for.
 11. **Fonts are the eight every machine has.** A font from an imported file that is not
     among them is kept in the workbook and drawn with the reader's fallback.
 12. **Pushes went out before the full test run finished**, several times: the session's
@@ -646,8 +651,8 @@ Made without asking, while the owner was away. Each can be changed.
     record's jsonb column, not in the engine (the engine evaluates conditional formatting
     but has no data-validation or checkbox model). A change to them is one undo step with
     the engine, and the ranges are keyed by `sheet_id` so they follow reorders, renames,
-    inserts and deletes. The conditional-formatting editor goes past Macro, which the plan
-    allows.
+    inserts and deletes. The conditional-formatting editor goes past the reference product,
+    which the plan allows.
 14. **A rejecting validation rule pre-checks only a typed, non-formula value.** A formula
     is allowed through (its result is not known until it calculates); a paste or fill is
     re-checked after the write and rolled back whole if a rejecting cell ends up forbidden.
@@ -681,9 +686,9 @@ Made without asking, while the owner was away. Each can be changed.
     which is `COUNTA(UNIQUE(range))` and counts across hidden rows too (the engine has no
     hidden-aware unique count). The other aggregates are exact.
 22. **Charts are our own SVG with a fixed seven types and a fixed palette.** No chart library was
-    added (the app has none and the plan promised none); the more exotic kinds Macro lists wait
-    until the common ones are right. A chart reads its range's calculated values on every data
-    change, so it always reflects the latest numbers.
+    added (the app has none and the plan promised none); the more exotic kinds the reference
+    product lists wait until the common ones are right. A chart reads its range's calculated
+    values on every data change, so it always reflects the latest numbers.
 23. **"Bold first/last column" is drawn as a faint tint, not real bold text**, because the table
     look is an overlay that does not re-draw cell text. The toggle is stored and offered; making it
     real bold would mean writing cell styles (as Convert to range does) or re-drawing the text.

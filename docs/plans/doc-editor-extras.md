@@ -1,9 +1,9 @@
 # Document editor extras
 
 Branch `claude/doc-editor-extras`. The owner's "lets build all of it": what a
-document editor of Macro's kind does that ours did not. Behaviour was read from
-Macro's public product pages only; nothing was read from its source, and no code,
-style, icon or wording of theirs is used.
+document editor of the reference product's kind does that ours did not. Behaviour was read
+from the reference product's public product pages only; nothing was read from its source,
+and no code, style, icon or wording of theirs is used.
 
 ## What is there already (research, 2026-11-23)
 
