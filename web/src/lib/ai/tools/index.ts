@@ -90,6 +90,7 @@ import { createSeoRankTools } from './seo-rank'
 import { createSeoKeywordTools } from './seo-keywords'
 import { createSeoGoogleTools } from './seo-google'
 import { createContactImportTools } from './contact-import'
+import { createImportTools } from './imports'
 import { createShowTools, type PersonalCardKind } from './show'
 import type { CardContextEntry } from '@/lib/chat-cards/context'
 import type { SearchDefaultWindow } from './search-scope'
@@ -672,6 +673,9 @@ export function createTools(
     // Bringing existing customers in (roadmap track G, docs/plans/customer-import.md): read_contact_file,
     // import_contact_file, import_stripe_customers, list_contact_imports, undo_contact_import. Each write refuses an unattended turn.
     ...createContactImportTools(userId, supabase, workspaceId, { unattended: options?.unattended === true }),
+    // Work from other tools (docs/plans/imports.md): stage_import_from_file, stage_linear_import, list_imports.
+    // They only stage: the person presses Import (and Undo) on the preview page. Staging refuses an unattended turn.
+    ...createImportTools(userId, supabase, workspaceId, { unattended: options?.unattended === true }),
     // Pages in the chat: show puts a filtered page or a record in the chat;
     // read_card reads what a card shows the person now. See ./show.ts.
     ...createShowTools(userId, supabase, workspaceId, options?.cards, options?.personalCardKinds, options?.timeZone, omitGrants),

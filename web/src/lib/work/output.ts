@@ -673,6 +673,7 @@ const MIRRORED_KINDS = new Set([
   'crm_enrichment',
   'crm_import',
   'email_import',
+  'work_import',
 ])
 
 function count(n: number, one: string, many: string): string {
