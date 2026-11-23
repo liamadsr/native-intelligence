@@ -242,7 +242,7 @@ function CardCalendarHeader({
   onFilterChange?: (accountIds: string[] | null) => void;
   onOpenSidebar?: () => void;
 }) {
-  const iconButton = cn("grid size-7 shrink-0 place-items-center", CARD_HEADER_ICON_BUTTON);
+  const iconButton = cn("grid size-6 shrink-0 place-items-center", CARD_HEADER_ICON_BUTTON);
   return (
     <>
       {onOpenSidebar && (
@@ -274,18 +274,18 @@ function CardCalendarHeader({
                 capability="calendar"
                 selectedAccountIds={filterAccountIds ?? null}
                 onSelectionChange={onFilterChange}
-                triggerClassName="border-transparent bg-foreground/[0.05] shadow-none hover:bg-foreground/[0.1]"
+                triggerClassName="h-6 border-transparent bg-foreground/[0.05] shadow-none hover:bg-foreground/[0.1]"
               />
             </span>
           )}
-          <CopyAvailabilityButton compact className={cn(CARD_HEADER_ICON_BUTTON, FROM_40)} />
+          <CopyAvailabilityButton compact className={cn("size-6 shadow-none", CARD_HEADER_ICON_BUTTON, FROM_40)} />
           <AddEventDialog>
             <button type="button" className={iconButton} aria-label="New event" title="New event">
               <Plus className="size-3.5" strokeWidth={1.75} />
             </button>
           </AddEventDialog>
           {/* The views: a capsule of segments, the one in use lifted, as the layout switcher's in every list's header. */}
-          <div role="group" aria-label="View" className="flex h-7 shrink-0 items-center overflow-hidden rounded-full bg-foreground/[0.05]">
+          <div role="group" aria-label="View" className="flex h-6 shrink-0 items-center overflow-hidden rounded-full bg-foreground/[0.05]">
             {viewButtons.map((btn) => {
               const Icon = btn.icon;
               return (
@@ -296,7 +296,7 @@ function CardCalendarHeader({
                   aria-label={btn.label}
                   title={btn.label}
                   aria-pressed={view === btn.view}
-                  className="flex h-full w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-foreground/[0.05] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring aria-pressed:bg-foreground/[0.1] aria-pressed:text-foreground motion-reduce:transition-none"
+                  className="flex h-full w-7 items-center justify-center text-muted-foreground transition-colors hover:bg-foreground/[0.05] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring aria-pressed:bg-foreground/[0.1] aria-pressed:text-foreground motion-reduce:transition-none"
                 >
                   <Icon className="size-3.5" strokeWidth={1.75} aria-hidden />
                 </button>

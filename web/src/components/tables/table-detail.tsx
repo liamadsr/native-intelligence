@@ -389,7 +389,7 @@ function TableAction({ inCard, icon: Icon, label, title, onClick }: { inCard: bo
         onClick={onClick}
         aria-label={label}
         title={title ? `${label}: ${title.charAt(0).toLowerCase()}${title.slice(1)}` : label}
-        className={cn('grid size-7 shrink-0 place-items-center', CARD_HEADER_ICON_BUTTON)}
+        className={cn('grid size-6 shrink-0 place-items-center', CARD_HEADER_ICON_BUTTON)}
       >
         <Icon className="size-3.5" strokeWidth={1.75} aria-hidden />
       </button>

@@ -803,7 +803,7 @@ function TitleField({ title, rename, disabled, card = false }: { title: string; 
   const commit = () => { const next = draft?.trim(); setDraft(null); if (next && next !== title) rename(next); };
   if (draft !== null) return <input className={card ? 'h-6 w-[min(340px,40vw)] min-w-0 rounded bg-foreground/[0.06] px-1 font-medium text-foreground outline-none' : 'hdr-title-input'} aria-label="Video name" autoFocus value={draft} maxLength={250} onFocus={e => e.currentTarget.select()} onChange={e => setDraft(e.target.value)} onBlur={commit}
     onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commit(); } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setDraft(null); } }} />;
-  return <button className={card ? 'hdr-title min-w-0 rounded px-1 text-left font-medium text-foreground hover:bg-foreground/[0.06] disabled:opacity-100' : 'hdr-title'} title={`${title} · click to rename`} aria-label={`Video name: ${title}. Rename`} disabled={disabled} onClick={() => setDraft(title)}><span className={card ? 'block truncate' : undefined}>{title}</span></button>;
+  return <button className={card ? 'hdr-title h-6 min-w-0 rounded px-1 text-left font-medium leading-6 text-foreground hover:bg-foreground/[0.06] disabled:opacity-100' : 'hdr-title'} title={`${title} · click to rename`} aria-label={`Video name: ${title}. Rename`} disabled={disabled} onClick={() => setDraft(title)}><span className={card ? 'block truncate' : undefined}>{title}</span></button>;
 }
 
 /** The Studio's stylesheet reaches what it scopes (`.ni-studio .with-rail .app-header …`) in a card's header: three layers with no box. */

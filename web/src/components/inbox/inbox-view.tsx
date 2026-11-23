@@ -252,7 +252,8 @@ export function InboxView({
                 setFilter(f)
                 setCursor(0)
               }}
-              className={cn('rounded-full px-3 py-1 text-xs', filter === f ? 'bg-foreground text-background' : 'bg-muted text-muted-foreground hover:text-foreground')}
+              // As every page's pills (Reviews, Drive): the chosen one tinted, the rest clear (Liam, 11-20: unselected pills are transparent).
+              className={cn('h-7 rounded-full px-3 text-xs transition-colors', filter === f ? 'bg-foreground/[0.08] font-medium text-foreground' : 'text-muted-foreground hover:bg-foreground/[0.05] hover:text-foreground')}
             >
               {FILTER_LABELS[f]}
               {counts[f] > 0 && <span className="ml-1 tabular-nums opacity-70">{counts[f]}</span>}
