@@ -1,5 +1,6 @@
 'use client'
 
+import { isTagKind, type TagKind } from '@/lib/tags/kinds'
 import { companyCrmCell } from '@/components/crm/company-crm-fields'
 import { ENTITY_IDENTITIES } from '@/lib/entities/entity-identity'
 import { EntityIcon } from '@/components/entities/entity-icon'
@@ -2465,13 +2466,13 @@ function renderEditableCell({
           return null
         })
         .filter(Boolean) as AttachedLabel[]
-      const toggle = (labelId: string, isAttached: boolean) => {
-        // Label toggle is non-trivial — we PATCH the labels array; the API
-        // accepts label ids to add/remove. Use a special-cased patch shape.
-        const nextIds = isAttached
-          ? attached.filter(l => l.id !== labelId).map(l => l.id)
-          : [...attached.map(l => l.id), labelId]
-        onPatch(id, { label_ids: nextIds })
+      const toggle = (labelId: string, isAttached: boolean, picked?: AttachedLabel) => {
+        // The next set of tags: the ids go to the tags route, the labels are
+        // drawn at once (the view's patch handler special-cases label_ids).
+        const next = isAttached
+          ? attached.filter(l => l.id !== labelId)
+          : picked ? [...attached, picked] : attached
+        onPatch(id, { label_ids: isAttached ? next.map(l => l.id) : [...attached.map(l => l.id), labelId], labels: next.map(l => ({ label: l })) })
       }
       return (
         <LabelCellTrigger
@@ -2568,14 +2569,9 @@ export function resolveEnumOptions(property: string): {
   }
 }
 
-/** Label scope derives from the entity type that owns the row. */
-function entityScopeForLabels(entityType: ViewEntityType): 'action' | 'project' | 'initiative' | 'email_thread' {
-  switch (entityType) {
-    case 'project': return 'project'
-    case 'initiative': return 'initiative'
-    case 'email_thread': return 'email_thread'
-    default: return 'action'
-  }
+/** Label scope derives from the entity type that owns the row (every taggable kind is its own scope). */
+function entityScopeForLabels(entityType: ViewEntityType): TagKind {
+  return isTagKind(entityType) ? entityType : 'action'
 }
 
 interface PropertyCellProps {
