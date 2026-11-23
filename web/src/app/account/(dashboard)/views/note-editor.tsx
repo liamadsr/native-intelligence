@@ -37,6 +37,8 @@ import { cx } from 'class-variance-authority'
 import { LinkPreviewNode } from '@/components/editor/link-preview-extension'
 import { TableEmbedNode } from '@/components/editor/table-embed-extension'
 import { RecordMention, RecordMentionSuggestion, createMentionSuggestionStore } from '@/components/editor/record-mention'
+import { SnippetSuggestion, createSnippetSuggestionStore } from '@/components/editor/snippet-suggestion'
+import { SnippetSuggestionMenu } from '@/components/editor/snippet-suggestion-menu'
 import { RecordMentionMenu } from '@/components/editor/record-mention-menu'
 import { EDITOR_LINK_CLASS, UrlLinkDecorations } from '@/components/editor/url-link-decorations'
 import { pasteUrlTransaction } from '@/components/editor/paste-url'
@@ -422,6 +424,12 @@ export interface NoteEditorProps {
    * notes editors). Read once, when the editor is created.
    */
   recordMentions?: boolean
+  /**
+   * `;` in the body: the person's snippets (docs/plans/snippets.md), opened
+   * under the `;…` being typed, inserting the snippet's body. On by default;
+   * read once, when the editor is created.
+   */
+  snippets?: boolean
 }
 
 export function NoteEditor({
@@ -442,6 +450,7 @@ export function NoteEditor({
   proposalRefs,
   readAloudSections = true,
   recordMentions = false,
+  snippets = true,
 }: NoteEditorProps) {
   const [openNode, setOpenNode] = useState(false)
   const [openLink, setOpenLink] = useState(false)
@@ -954,6 +963,15 @@ export function NoteEditor({
     [],
   )
 
+  // `;` in the body: the snippet menu (SnippetSuggestionMenu, below).
+  const [snippetStore] = useState(createSnippetSuggestionStore)
+  const snippetExtension = useMemo(
+    () => (snippets ? [SnippetSuggestion.configure({ store: snippetStore })] : []),
+    // Read at creation, like the rest of the extension list.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  )
+
   const extensions = useMemo(
     () => {
       if (placeholderText) {
@@ -976,12 +994,13 @@ export function NoteEditor({
           slashCommand,
           ...readAloudSectionsExtension,
           ...mentionExtension,
+          ...snippetExtension,
           ...(extraExtensions || []),
         ]
       }
-      return [...defaultExtensions, slashCommand, ...readAloudSectionsExtension, ...mentionExtension, ...(extraExtensions || [])]
+      return [...defaultExtensions, slashCommand, ...readAloudSectionsExtension, ...mentionExtension, ...snippetExtension, ...(extraExtensions || [])]
     },
-    [slashCommand, readAloudSectionsExtension, mentionExtension, extraExtensions, placeholderText],
+    [slashCommand, readAloudSectionsExtension, mentionExtension, snippetExtension, extraExtensions, placeholderText],
   )
 
   return (
@@ -1196,6 +1215,7 @@ export function NoteEditor({
       {/* The `@` picker (drawn only while an `@…` is open; it portals and
           positions itself under the caret). */}
       {recordMentions && <RecordMentionMenu store={mentionStore} />}
+      {snippets && <SnippetSuggestionMenu store={snippetStore} />}
     </div>
   )
 }

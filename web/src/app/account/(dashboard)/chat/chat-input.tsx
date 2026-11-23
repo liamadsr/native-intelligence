@@ -17,6 +17,8 @@ import {
 import type { MentionCompany, MentionContact } from './mention-picker'
 import { diffMentionRemovals, mentionLabel, removeMentionOccurrence } from './mention-text'
 import { SlashCommandPicker } from './slash-command-picker'
+import { SnippetMenu } from '@/components/snippets/snippet-menu'
+import { useTextareaSnippets } from '@/components/snippets/use-textarea-snippets'
 import type { CommandMenuHandle } from './command-menu'
 import {
   appendMention,
@@ -638,9 +640,16 @@ export const ChatInput = memo(function ChatInput({
     [doneTriggers],
   )
   const menuToken = useMemo(() => boxTrigger(value, caret), [boxTrigger, value, caret])
+  // `;` in the box: the person's snippets (docs/plans/snippets.md). Its words go
+  // in where `;query` was, as a pick's do (commitPick, below).
+  const snippetsBox = useTextareaSnippets({
+    value,
+    enabled: !codeActive && isActive && !fieldBlurred && !voiceModeOn && !paletteOpen,
+    onCommit: (next) => commitPick(next),
+  })
   // Not in Code: the coding agent gets the words only, so no `/` skill or `@` record is offered there.
   const menuOpen =
-    !codeActive && !!menuToken && isActive && !fieldBlurred && !voiceModeOn && !paletteOpen && menuDismissedAt !== menuToken.start
+    !codeActive && !!menuToken && isActive && !fieldBlurred && !voiceModeOn && !paletteOpen && menuDismissedAt !== menuToken.start && !snippetsBox.open
   const readMenuAt = (next: { value: string; caret: number }) => {
     menuAtRef.current = next
     setMenuAt(next)
@@ -655,6 +664,7 @@ export const ChatInput = memo(function ChatInput({
     const at = menuAtRef.current
     const current = at.value === nextValue ? boxTrigger(nextValue, at.caret) : null
     if (!sameTriggerToken(next, current)) readMenuAt({ value: nextValue, caret: nextCaret })
+    snippetsBox.noteCaret(nextValue, nextCaret)
     // An Esc lasts while its trigger is typed on; leave it and it's forgotten.
     if (menuDismissedAt !== null && next?.start !== menuDismissedAt) {
       setMenuDismissedAt(null)
@@ -670,6 +680,11 @@ export const ChatInput = memo(function ChatInput({
     // While the menu shows, its keys are its own (↑ ↓ Enter Tab Esc): the
     // field neither sends nor moves for them.
     if (menuOpen && menuRef.current?.handleKey(e)) {
+      e.preventDefault()
+      e.stopPropagation()
+      return
+    }
+    if (snippetsBox.handleKey(e)) {
       e.preventDefault()
       e.stopPropagation()
       return
@@ -1697,6 +1712,13 @@ export const ChatInput = memo(function ChatInput({
         onUnclaimedEnter={onSubmit}
         anchorRef={anchorRef}
         menuRef={menuRef}
+      />
+      {/* The `;` snippet menu above the box (the `@` menu's place and look). */}
+      <SnippetMenu
+        {...snippetsBox.menuProps}
+        anchorRef={anchorRef}
+        side="top"
+        fitAnchor
       />
       {/* The same menu, centred: `/` pressed outside any text field. */}
       {paletteOpen && (

@@ -7,6 +7,7 @@ import { createCaptureTools } from './captures'
 import { createNoteTakerTools } from './note-taker'
 import { createMeetingGoalTools } from './meeting-goal'
 import { createVocabularyTools } from './vocabulary'
+import { createSnippetTools } from './snippets'
 import { createDocumentTools } from './documents'
 import { createCanonTools, type CanonToolContext } from './canon'
 import { createContentTools } from './content'
@@ -535,6 +536,14 @@ export function createTools(
     // The person's goal for one of their meetings (the prep card's composer writes the same store).
     ...createMeetingGoalTools(userId, supabase, workspaceId, options?.unattended ?? false),
     ...createVocabularyTools(userId, supabase, workspaceId, { omitPrivate, unattended: options?.unattended ?? false }),
+    // Snippets (migration 699): text typed in with `;`. Shared writes and deletes raise the person's card.
+    ...createSnippetTools(userId, supabase, workspaceId, {
+      omitPrivate,
+      unattended: options?.unattended ?? false,
+      conversationId: options?.suggestionContext?.origin === 'chat' ? (options.suggestionContext.conversationId ?? null) : null,
+      approvedCall: options?.approvedCall,
+      approvalContext: options?.approvalContext,
+    }),
     ...createCrmTools(userId, supabase, workspaceId, omitPrivate, strict, editGrants, omitGrants),
     // enrich_contact: one paid web search for one contact, only on the person's
     // yes (confirmed_with_user), the same run as the contact page's Enrich

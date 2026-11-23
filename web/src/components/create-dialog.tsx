@@ -153,6 +153,10 @@ function openPageType(id: CreateTypeId): void {
     case 'studio_video':
       openPageCreate('studio_video', 'studio')
       return
+    case 'snippet':
+      // Settings › Snippets, with a new one started (docs/plans/snippets.md).
+      if (typeof window !== 'undefined') window.location.assign('/account/settings/snippets?new=1')
+      return
   }
 }
 

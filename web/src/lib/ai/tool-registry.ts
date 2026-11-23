@@ -131,6 +131,11 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       { name: 'add_vocabulary_word', sideEffect: 'internal-write', writeTarget: 'board', label: 'Add Vocabulary Word', description: 'Add a word to the custom vocabulary (a product, person or acronym transcription gets wrong), with how it is misheard' },
       { name: 'update_vocabulary_word', sideEffect: 'internal-write', writeTarget: 'board', label: 'Update Vocabulary Word', description: 'Fix a vocabulary word, turn it off or on, or move it between workspace and personal' },
       { name: 'delete_vocabulary_word', sideEffect: 'delete', label: 'Delete Vocabulary Word', description: 'Remove a word from the custom vocabulary' },
+      // Snippets (migration 699): saved text typed in with `;`. A shared one's save, and any delete, raise the person's card first.
+      { name: 'list_snippets', sideEffect: 'read', label: 'List Snippets', description: "List the person's snippets (saved text typed in with ;), their own and the shared ones, to use their words when drafting" },
+      { name: 'get_snippet', sideEffect: 'read', label: 'Read Snippet', description: "Read one snippet's whole text by id or shortcut, with its fill-ins" },
+      { name: 'save_snippet', sideEffect: 'internal-write', writeTarget: 'board', label: 'Save Snippet', description: 'Create or change a snippet; a shared one asks the person first' },
+      { name: 'delete_snippet', sideEffect: 'delete', label: 'Delete Snippet', description: 'Delete a snippet, after the person accepts its card' },
     ],
   },
   {
@@ -1488,6 +1493,8 @@ const NON_PREFIX_MUTATING_TOOLS: string[] = [
   // field both write. (create_/update_/undo_/set_ deal tools match the prefix.)
   'move_deal',
   'define_custom_field',
+  // Snippets (699): creates or changes one. `save_` is no write verb.
+  'save_snippet',
   // Tables (phase 5): adds and changes a table's rows. `write_` is no write verb.
   // (create_table, update_table_columns, archive_rows and undo_table_change match.)
   'write_rows',
