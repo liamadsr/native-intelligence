@@ -22,6 +22,7 @@ import type { EmailThread } from '@/components/email/email-thread-item'
 import { MAIL_FOLDERS, type MailCardSpec, type MailFolder, type MailQuery } from '@/lib/chat-cards/kinds'
 import type { CardBodyProps } from './card-body'
 import { useCardNav } from './card-history'
+import { useHubSingle } from '@/app/account/(dashboard)/rail/selected-place'
 
 /** What Back and Forward walk in a mail card. */
 interface MailPlace {
@@ -80,11 +81,16 @@ export default function MailCardBody({ toolCallId, spec, store, fullScreen, onCo
   const nav = useCardNav<MailPlace>('mail', () => ({ folder: initial.folder, threadId: initial.threadId }))
   const { set: navigate } = nav
   const place = nav.value
+  // A thread's card, full screen with a hub selected (home, Inbox), from `md`
+  // up: that thread alone (Liam, 11-23). The Mail page (its rail button) is as it was.
+  const hub = useHubSingle()
+  const single = fullScreen && hub && !!spec.mail.thread_id
 
   const card = React.useMemo(
     () => ({
       initial,
       fullScreen,
+      single,
       place,
       onStateChange: (state: MailCardState) => {
         const { mail, open } = cardStateToQuery(spec, state)
@@ -101,7 +107,7 @@ export default function MailCardBody({ toolCallId, spec, store, fullScreen, onCo
         if (store.fullScreen() !== toolCallId) store.enterFullScreen(toolCallId)
       },
     }),
-    [initial, fullScreen, place, navigate, spec, store, toolCallId],
+    [initial, fullScreen, single, place, navigate, spec, store, toolCallId],
   )
 
   // One layout for both modes: it draws the list beside the thread full screen
