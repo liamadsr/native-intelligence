@@ -28,7 +28,7 @@
 // before signs out clean. Most of it is not keyed by user, hence the sign-out
 // wipe. Also this device's copy of the agent's look and name
 // (`ni:agent-look`, `ni:voice:assistant-name`) and of the app rail's
-// bar (`ni:rail-pages`; the account keeps the real ones,
+// bar (`ni:rail-pages`) and of the layout (`ni:layout`; the account keeps the real ones,
 // lib/account-setting.ts), so the next account to sign in starts
 // on the default rather than the last one's, and a desktop HUD still open
 // drops it at once. And what the Studio keeps on a device (`ni:studio:*`): the
@@ -48,6 +48,7 @@ const WIPE_KEY_PREFIXES = [
   'ni:agent-look',
   'ni:voice:assistant-name',
   'ni:rail-pages',
+  'ni:layout',
   'ni:studio:',
   'ni:doc-offline:',
   'ni:doc-folds:',

@@ -14,6 +14,8 @@ import { ForYouToggle, SidePanelToggle } from '../side-panels/side-panel-toggles
 import { ComposerCaptureButton } from '../chat/composer-capture-button'
 import { COLUMN_CARD_SKIN } from '@/components/attention/card-skin'
 import { SearchButton } from './search-button'
+import { useLayoutMode } from '@/lib/layout-mode-store'
+import { TraditionalTopBarLead } from './traditional-top-bar'
 
 /**
  * Where the bar's first control starts: past the traffic lights (or 4px in),
@@ -54,6 +56,8 @@ export function TopBar() {
   const settingsOverlay = useOptionalSettingsOverlay()
   const recording = useRecordingStable()
   const { isRecording, startRecording } = recording
+  // Traditional (docs/plans/traditional-layout.md): Back and Forward lead the bar (search is the sidebar's icon, `/` and ⌘K).
+  const traditional = useLayoutMode() === 'traditional'
 
   // Global hotkeys
   useHotkeys([
@@ -120,6 +124,7 @@ export function TopBar() {
             <div data-tab-bar-phone-only="" className="contents md:hidden">
               <SearchButton />
             </div>
+            {mounted && traditional && <TraditionalTopBarLead />}
             {/* No Inbox bell after it (removed 2026-10-20, Liam): every
                 notice reaches the agent, which tells the person in the chat
                 (docs/plans/retire-notifications-page.md). No Create button

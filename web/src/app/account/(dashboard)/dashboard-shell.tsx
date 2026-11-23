@@ -71,6 +71,8 @@ import { TalkAnywhereHost } from '@/components/read-aloud/talk-anywhere-host'
 import { SilentMicNotice } from '@/components/desktop/silent-mic-notice'
 import { FadingBlur } from '@/components/ui/fading-blur'
 import { APP_RAIL_ATTR, AppRail } from './rail/app-rail'
+import { TraditionalSidebar } from './rail/traditional-sidebar'
+import { LayoutModeSync, useLayoutMode } from '@/lib/layout-mode-store'
 import { EmptyPressMinimizes, MinimizedCardTile } from './minimized-card-tile'
 import { isWithinAppDomain } from '@/lib/app-url'
 
@@ -163,7 +165,10 @@ const SkyCanvas = lazyComponent(() => import('@/components/sky/sky-canvas').then
  */
 function BackdropMotion() {
   const kind = useBackdropMotionKind()
+  // Traditional draws no backdrop (tailwind.css): nothing to animate behind it.
+  const traditional = useLayoutMode() === 'traditional'
   useEffect(() => startSkyFeed(), [])
+  if (traditional) return null
   if (kind === 'sky') return <SkyCanvas />
   if (kind === 'dots') return <PixelCanvas opacity={0.4} />
   return null
@@ -184,6 +189,10 @@ function ChatRow({ avatarUrl, initials }: { avatarUrl: string | null; initials: 
   // (STRIP_STYLE).
   const rowRef = useRef<HTMLDivElement>(null)
   const plan = useSidePanelPlan(rowRef)
+  // Traditional (docs/plans/traditional-layout.md): the page panel's sub-navs
+  // are drawn in the sidebar (rail/traditional-sidebar.tsx), always beside it,
+  // never asking the row for room.
+  const traditional = useLayoutMode() === 'traditional'
   return (
     // `relative z-10` so the whole row sits above the shell-level photo.
     // While one of the chat composer's rising cards (Capture, Transcripts,
@@ -239,7 +248,7 @@ function ChatRow({ avatarUrl, initials }: { avatarUrl: string | null; initials: 
             panel (z-25): it starts just under the bar, sharp (Liam, 10-16:
             never "under the blurry section"; 11-09: close under its buttons). */}
         <FadingBlur direction="down" className="pointer-events-none absolute inset-x-0 top-0 z-[22]" style={TOP_BAR_BLUR_STYLE} />
-        <PagePanelHost mode={plan.left} />
+        <PagePanelHost mode={traditional ? 'room' : plan.left} />
         <RightSidePanel mode={plan.right} />
 
       {/* Voice enrollment nudge, above the chat, in the top right corner:
@@ -583,6 +592,8 @@ export function DashboardShell({
         {/* window.__niAutomation, only in the desktop app launched with the
             automation bridge (src/lib/automation): nothing, and no code, otherwise. */}
         <AutomationMount />
+        {/* The person's layout on <html> (lib/layout-mode-store.ts): the CSS keys Traditional on it. */}
+        <LayoutModeSync />
         {/* Glass: this desktop window see-through (window-backdrop.ts). */}
         <WindowBackdropSync />
         <div
@@ -633,6 +644,8 @@ export function DashboardShell({
 
           {/* The app rail down the left: the pages, a click away (rail/app-rail.tsx). */}
           <AppRail />
+          {/* Traditional's sidebar in its place, when that layout is on (docs/plans/traditional-layout.md). */}
+          <TraditionalSidebar />
           {/* Top bar (from the rail to the right edge) — always visible (see TopBar). */}
           <DashboardTopBar />
           {/* Below the top bar: the full-bleed main chat. */}

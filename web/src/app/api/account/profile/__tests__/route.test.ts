@@ -213,3 +213,26 @@ describe('the app rail’s bar on the account (rail_pages)', () => {
     expect(hoisted.updateUserById).not.toHaveBeenCalled()
   })
 })
+
+describe('the app’s layout on the account (layout; docs/plans/traditional-layout.md)', () => {
+  it('the GET reports it checked, and null for an account with none, or junk', async () => {
+    expect((await body(await GET())).layout).toBeNull()
+    signedIn({ layout: 'traditional' })
+    expect((await body(await GET())).layout).toBe('traditional')
+    signedIn({ layout: 'sidebar' })
+    expect((await body(await GET())).layout).toBeNull()
+  })
+
+  it('the PATCH saves it through the admin API, that key alone', async () => {
+    const res = await PATCH(patchReq({ layout: 'traditional' }))
+    expect(res.status).toBe(200)
+    expect(hoisted.updateUserById).toHaveBeenCalledWith('user-1', { user_metadata: { layout: 'traditional' } })
+  })
+
+  it('refuses anything but default or traditional with 400, and writes nothing', async () => {
+    for (const bad of [null, '', 'Traditional', 'macro', 1, { mode: 'traditional' }]) {
+      expect((await PATCH(patchReq({ layout: bad }))).status, JSON.stringify(bad)).toBe(400)
+    }
+    expect(hoisted.updateUserById).not.toHaveBeenCalled()
+  })
+})

@@ -4,6 +4,7 @@ import { badRequest, serverError } from '@/lib/api-errors'
 import { AGENT_LOOK_PROFILE_FIELD, parseAgentLook } from '@/lib/bots/agent-look'
 import { ASSISTANT_NAME_PROFILE_FIELD, checkAssistantName, sanitizeAssistantName } from '@/lib/voice/assistant-name'
 import { RAIL_PAGES_PROFILE_FIELD, RAIL_PREFS_MAX_IDS, parseRailPrefs } from '@/lib/rail-prefs'
+import { LAYOUT_PROFILE_FIELD, parseLayoutMode } from '@/lib/layout-mode'
 import { NextResponse, type NextRequest } from 'next/server'
 
 /**
@@ -19,7 +20,9 @@ import { NextResponse, type NextRequest } from 'next/server'
  *    on the way in and on the way out against the same rules the device uses.
  *    `null` from the GET means the account has none (the default stands in);
  *  • the app rail's bar (lib/rail-prefs.ts): `{ order, hidden }`, two lists
- *    of short page ids, capped; `null` from the GET is the default bar.
+ *    of short page ids, capped; `null` from the GET is the default bar;
+ *  • the app's layout (lib/layout-mode.ts): `default` or `traditional`;
+ *    `null` from the GET is an account that never chose (the default).
  */
 const SHOW_ALL_WORKSPACES_KEY = 'show_all_workspaces'
 
@@ -48,6 +51,7 @@ export async function GET() {
     [AGENT_LOOK_PROFILE_FIELD]: parseAgentLook(user.user_metadata?.[AGENT_LOOK_PROFILE_FIELD]),
     [ASSISTANT_NAME_PROFILE_FIELD]: sanitizeAssistantName(user.user_metadata?.[ASSISTANT_NAME_PROFILE_FIELD]),
     [RAIL_PAGES_PROFILE_FIELD]: parseRailPrefs(user.user_metadata?.[RAIL_PAGES_PROFILE_FIELD]),
+    [LAYOUT_PROFILE_FIELD]: parseLayoutMode(user.user_metadata?.[LAYOUT_PROFILE_FIELD]),
   })
 }
 
@@ -66,6 +70,7 @@ export async function PATCH(request: NextRequest) {
   const rawLook = (body as Record<string, unknown>)[AGENT_LOOK_PROFILE_FIELD]
   const rawName = (body as Record<string, unknown>)[ASSISTANT_NAME_PROFILE_FIELD]
   const rawRail = (body as Record<string, unknown>)[RAIL_PAGES_PROFILE_FIELD]
+  const rawLayout = (body as Record<string, unknown>)[LAYOUT_PROFILE_FIELD]
 
   if (show_all_workspaces !== undefined && typeof show_all_workspaces !== 'boolean') {
     return badRequest('show_all_workspaces must be a boolean')
@@ -76,6 +81,8 @@ export async function PATCH(request: NextRequest) {
   if (railPages === null) {
     return badRequest(`${RAIL_PAGES_PROFILE_FIELD} must be { order, hidden }: lists of page ids, at most ${RAIL_PREFS_MAX_IDS} each`)
   }
+  const layout = rawLayout === undefined ? undefined : parseLayoutMode(rawLayout)
+  if (layout === null) return badRequest(`${LAYOUT_PROFILE_FIELD} must be 'default' or 'traditional'`)
   let assistantName: string | undefined
   if (rawName !== undefined) {
     if (typeof rawName !== 'string') return badRequest(`${ASSISTANT_NAME_PROFILE_FIELD} must be a string`)
@@ -106,6 +113,7 @@ export async function PATCH(request: NextRequest) {
   if (look) settings[AGENT_LOOK_PROFILE_FIELD] = look
   if (assistantName !== undefined) settings[ASSISTANT_NAME_PROFILE_FIELD] = assistantName
   if (railPages) settings[RAIL_PAGES_PROFILE_FIELD] = railPages
+  if (layout) settings[LAYOUT_PROFILE_FIELD] = layout
 
   if (Object.keys(settings).length > 0) {
     // Through the admin API, keyed on the user `getUser()` just verified,

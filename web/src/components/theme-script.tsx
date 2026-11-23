@@ -10,6 +10,8 @@ import {
   CUSTOM_BG_LIGHT_VAR,
   CUSTOM_BG_DARK_VAR,
 } from '@/lib/custom-background'
+import { LAYOUT_ATTR, LAYOUT_STORAGE_KEY } from '@/lib/layout-mode'
+import { SIDEBAR_COLLAPSED_ATTR, SIDEBAR_MAX_W, SIDEBAR_MIN_W, SIDEBAR_STORAGE_KEY, SIDEBAR_W_VAR } from '@/app/account/(dashboard)/rail/sidebar-size'
 
 /**
  * Inline script that runs before React hydration to prevent flash.
@@ -67,6 +69,20 @@ export function ThemeScript() {
       var effDark = bgDark || bgLight;
       if (effLight) document.documentElement.style.setProperty('${CUSTOM_BG_LIGHT_VAR}', 'url("' + effLight + '")');
       if (effDark) document.documentElement.style.setProperty('${CUSTOM_BG_DARK_VAR}', 'url("' + effDark + '")');
+      // The person's layout (lib/layout-mode.ts): this device's copy of the
+      // account's choice, JSON like every account setting's copy, so the shell's
+      // first paint is already Traditional when it is on (no flash of the default).
+      try {
+        if (JSON.parse(localStorage.getItem('${LAYOUT_STORAGE_KEY}') || 'null') === 'traditional') {
+          document.documentElement.setAttribute('${LAYOUT_ATTR}', 'traditional');
+        }
+        // Its sidebar's width and fold on this device (rail/sidebar-size.ts).
+        var sidebar = JSON.parse(localStorage.getItem('${SIDEBAR_STORAGE_KEY}') || 'null');
+        if (sidebar && typeof sidebar.w === 'number' && sidebar.w >= ${SIDEBAR_MIN_W} && sidebar.w <= ${SIDEBAR_MAX_W}) {
+          document.documentElement.style.setProperty('${SIDEBAR_W_VAR}', Math.round(sidebar.w) + 'px');
+        }
+        if (sidebar && sidebar.collapsed === true) document.documentElement.setAttribute('${SIDEBAR_COLLAPSED_ATTR}', '');
+      } catch (_) {}
     } catch (_) {}
   `
 

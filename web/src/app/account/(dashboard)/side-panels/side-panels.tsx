@@ -105,6 +105,7 @@ import { AgentEditButton, AgentEditorHost, AgentLookButton } from '@/components/
 import { AgentCallButton } from '@/components/bots/agent-call-button'
 import { useComputer, useComputerPolling } from '@/lib/cloud-browser/computer-client'
 import { useAssistantName } from '@/lib/voice/assistant-name-store'
+import { useLayoutMode } from '@/lib/layout-mode-store'
 import { useChatContext } from '@/lib/chat/context-client'
 import {
   CHAT_THREAD_SELECTOR,
@@ -205,7 +206,12 @@ export function measureChatContent(row: HTMLElement): number {
  * before paint.
  */
 export function useSidePanelPlan(rowRef: RefObject<HTMLElement | null>): SpacePlan {
-  const state = useSidePanelState()
+  const stored = useSidePanelState()
+  // Traditional (docs/plans/traditional-layout.md): the page panel's sub-nav
+  // lives in the sidebar (rail/traditional-sidebar.tsx), never beside the
+  // chat, so the plan gives it no room on the left.
+  const traditional = useLayoutMode() === 'traditional'
+  const state = useMemo(() => (traditional ? { ...stored, pagePanel: false } : stored), [stored, traditional])
   const stateRef = useRef(state)
   stateRef.current = state
   // The row's width and the chat's content in refs: a render only when they change the modes.

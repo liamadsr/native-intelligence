@@ -1089,9 +1089,9 @@ export function ShowToolCard({
                 closes from its header, a card from the chat with Minimize
                 under it, and either with Esc or a press outside it. */}
             <FullScreenInteractive />
-            <div className={FULL_SCREEN_STAGE}>
-            <div className={cn(FULL_SCREEN_COLUMN, 'relative')} style={sizes.column}>
-              <div ref={fullScreenFrameRef} {...{ [CARD_FRAME_ATTR]: '' }} className={cn('relative flex w-full flex-col overflow-hidden shadow-2xl', CARD_GLASS_FRAME)} style={sizes.frame}>
+            <div data-card-fs-stage="" className={FULL_SCREEN_STAGE}>
+            <div data-card-fs-column="" className={cn(FULL_SCREEN_COLUMN, 'relative')} style={sizes.column}>
+              <div ref={fullScreenFrameRef} data-card-fs-frame="" {...{ [CARD_FRAME_ATTR]: '' }} className={cn('relative flex w-full flex-col overflow-hidden shadow-2xl', CARD_GLASS_FRAME)} style={sizes.frame}>
                 <CardGlass />
                 {headerIsland ? renderHeader(true) : header}
                 <BodySlot host={bodyHost} className="relative z-10 min-h-0 flex-1" />
@@ -1101,7 +1101,7 @@ export function ShowToolCard({
                   the capture's notes; a page the person opened has its X in
                   its header instead (Liam, 11-09: the two did the same). */}
               {!pageClose && (
-                <div className={FULL_SCREEN_CONTROLS}>
+                <div data-card-fs-controls="" className={FULL_SCREEN_CONTROLS}>
                   <OverlayButton
                     label={minimizeLabel}
                     onClick={() => {

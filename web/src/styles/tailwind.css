@@ -1068,6 +1068,146 @@ html[data-sky-tone] [data-on-sky] {
 }
 
 
+/* Traditional (docs/plans/traditional-layout.md; Preferences › Layout): a
+   second shell over the same pages. From `md` up only (a phone keeps today's
+   layout in both), keyed on <html data-layout="traditional">, which the
+   pre-paint script sets from this device's copy of the person's choice
+   (components/theme-script.tsx), so the first paint is already in it.
+
+   - The sidebar (rail/traditional-sidebar.tsx) takes the rail's band:
+     `--app-rail-w` is its width, its strip of icons and, while it shows,
+     its details pane.
+     Everything that starts after the rail (the top bar, the chat row, a
+     page's layer) starts after it, unchanged.
+   - Flat, opaque panes on the app's own tokens: no sky, photo or Glass
+     behind the shell (`background`), the top bar a bordered strip that
+     stays on screen over a page, no blur under it.
+   - A page in front fills the main area (from the sidebar to the window's
+     right edge, under the top bar) as a page, not a floating card: no
+     rounded frame, shadow or glass, no gutter. The main chat's composer
+     stops painting under it: the chat is Home's page. */
+@media (min-width: 48rem) {
+  /* The sidebar's two panes (rail/traditional-sidebar.tsx): the strip of
+     icons always; the details pane beside it only while the selected place
+     has a sub-nav drawn in it and it isn't folded. */
+  html[data-layout='traditional'] {
+    --ni-strip-w: 56px;
+    /* The frame's gutter from the window's top, right and bottom edges. */
+    --ni-frame-gap: 8px;
+  }
+  html[data-layout='traditional'] [data-app-rail],
+  html[data-layout='traditional'][data-app-rail] {
+    --app-rail-w: var(--ni-strip-w);
+  }
+  html[data-layout='traditional']:not([data-sidebar-collapsed]):has([data-sidebar-details] [data-page-panel-sidebar]:not([hidden])) [data-app-rail],
+  html[data-layout='traditional']:not([data-sidebar-collapsed]):has([data-sidebar-details] [data-page-panel-sidebar]:not([hidden]))[data-app-rail] {
+    --app-rail-w: calc(var(--ni-strip-w) + var(--ni-sidebar-w, 240px));
+  }
+  html[data-layout='traditional'][data-sidebar-collapsed] [data-sidebar-column],
+  html[data-layout='traditional'] [data-sidebar-column]:not(:has([data-page-panel-sidebar]:not([hidden]))) {
+    display: none;
+  }
+
+  /* The shell's surface: the app's background, nothing moving behind it. */
+  html[data-layout='traditional'] [data-shell-backdrop] {
+    background: hsl(var(--sidebar-background));
+  }
+  html[data-layout='traditional'] [data-shell-backdrop] > * {
+    display: none;
+  }
+
+  /* The top bar: a flat strip with a hairline under it, on screen over a page too. */
+  /* Everything right of the sidebar sits inside the frame (rail/traditional-sidebar.tsx). */
+  html[data-layout='traditional'] [data-shell-top-bar] {
+    top: var(--ni-frame-gap);
+    right: var(--ni-frame-gap);
+    background: transparent;
+    border-bottom: 1px solid hsl(var(--border));
+    padding-top: 0;
+  }
+  html[data-layout='traditional'] [data-windows-row] {
+    margin-top: calc(var(--ni-frame-gap) + var(--top-bar-h, 0px));
+    margin-right: var(--ni-frame-gap);
+    margin-bottom: var(--ni-frame-gap);
+    --chat-top-inset: 0px;
+  }
+  html[data-layout='traditional'][data-card-front] [data-shell-top-bar] {
+    visibility: visible;
+    opacity: 1;
+  }
+  html[data-layout='traditional'] [data-top-bar-right-header] {
+    border-color: transparent;
+    background: transparent;
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  html[data-layout='traditional'] [data-windows-row] > [data-fading-blur] {
+    display: none;
+  }
+
+  /* A page in front: the whole main area, flat. */
+  html[data-layout='traditional'] .card-page-layer {
+    top: calc(var(--ni-frame-gap) + var(--top-bar-h, 0px)) !important;
+    left: var(--app-rail-w, 0px) !important;
+    right: calc(var(--ni-frame-gap) + var(--call-dock-w, 0px)) !important;
+    bottom: calc(var(--ni-frame-gap) + var(--call-dock-b, 0px)) !important;
+    padding: 0 !important;
+    background: transparent;
+  }
+  html[data-layout='traditional'] .card-page-layer [data-card-fs-stage] {
+    align-items: stretch;
+    justify-content: stretch;
+  }
+  html[data-layout='traditional'] .card-page-layer [data-card-fs-column] {
+    width: 100% !important;
+    height: 100%;
+  }
+  html[data-layout='traditional'] .card-page-layer [data-card-fs-frame] {
+    height: auto !important;
+    flex: 1 1 0%;
+    min-height: 0;
+    border-radius: 0;
+    border-width: 0;
+    box-shadow: none;
+  }
+  html[data-layout='traditional'] .card-page-layer [data-card-glass] {
+    border-radius: 0;
+    background: transparent;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  /* The page's own header: a flat bar with a hairline under it, not a pill. */
+  html[data-layout='traditional'] .card-page-layer [data-card-header-island] {
+    margin: 0;
+    height: 40px;
+    border-radius: 0;
+    background: transparent;
+    border-bottom: 1px solid hsl(var(--border));
+    padding-left: 1rem;
+  }
+  html[data-layout='traditional'] .card-page-layer [data-card-fs-controls] {
+    height: auto;
+    align-items: center;
+    padding: 6px 12px;
+    border-top: 1px solid hsl(var(--border));
+  }
+  /* The top bar is on screen: its own Interactive toggle stands in for the layer's. */
+  html[data-layout='traditional'] .card-page-layer > [data-full-screen-control]:not([data-card-header]) {
+    display: none;
+  }
+  html[data-layout='traditional'][data-card-front] #ni-chat-strip-slot [data-chat-composer-dock] {
+    visibility: hidden;
+  }
+
+  /* A sub-nav nested in the sidebar (page-panel/page-panel-frame.tsx): the
+     sidebar scrolls, not the panel; no card of its own. */
+  html[data-layout='traditional'] [data-page-panel-sidebar] [data-page-panel-card] {
+    max-height: none;
+  }
+}
+
+
 /* Chat scroller METRICS. The top fade that used to mask content behind the
    floating HUDs is gone — messages now pass behind the attention deck / widget
    dock and stay readable, with the cards' own heavier shadow providing the

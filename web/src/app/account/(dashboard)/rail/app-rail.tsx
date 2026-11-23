@@ -82,18 +82,16 @@
  * Flat cost: no animation, no polling; it redraws when the selected place
  * changes, or the workspace's edition changes.
  */
-import { useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { House, LayoutList, Plus, Search, Settings2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { getMountedServerSnapshot, getMountedSnapshot, subscribeMounted, useHasTrafficLights, useIsDesktop } from '@/components/desktop-titlebar'
+import { getMountedServerSnapshot, getMountedSnapshot, subscribeMounted, useHasTrafficLights } from '@/components/desktop-titlebar'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '@/components/ui/context-menu'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Switch } from '@/components/ui/switch'
 import { Button } from '@/components/ui/button'
-import { WorkspaceSwitcher, useIsWorkspaceGuest, useWorkspaceEdition } from '@/app/account/workspace-switcher'
-import { pagesFor } from '@/lib/chat-cards/page-menu'
-import { openTarget } from '@/lib/chat-cards/open-card'
+import { WorkspaceSwitcher } from '@/app/account/workspace-switcher'
 import { openSearch } from '@/lib/chat/open-search'
 import { openCreateDialog } from '@/lib/create/open-create'
 import { useModKeyLabel } from '@/lib/hotkeys'
@@ -102,13 +100,11 @@ import { frontCard, minimizeFrontCards, subscribeFrontCard } from '@/components/
 import { CardHistory, CardHistoryButtons } from '@/components/chat-cards/card-history'
 import { COLUMN_CARD_SKIN } from '@/components/attention/card-skin'
 import { isDefaultRailPrefs, type RailPrefs } from '@/lib/rail-prefs'
-import { saveRailPrefs, useRailPrefs } from '@/lib/rail-prefs-store'
+import { saveRailPrefs } from '@/lib/rail-prefs-store'
+import { useLayoutMode } from '@/lib/layout-mode-store'
 import {
-  activeRailItem,
   moveRailPage,
   moveRailPageBy,
-  railLayout,
-  railPagesFor,
   resetRailPrefs,
   setRailPagePinned,
   type OfferedRailPage,
@@ -116,9 +112,9 @@ import {
   type RailPageId,
 } from './rail-pages'
 import { startRailDrag } from './rail-drag'
-import { groupOpenSlug, isPageGroupId } from './page-groups'
+import { isPageGroupId } from './page-groups'
 import { GROUP_PAGE_ICONS, RAIL_ICONS, loneMemberSlug } from './rail-icons'
-import { useSelectedPlace } from './selected-place'
+import { openRailEntry, useRailNav } from './use-rail-nav'
 import { PagePanelToggle } from '../page-panel/page-panel-toggle'
 
 /** On the shell root (server markup) and <html> (for the layer on <body>): defines `--app-rail-w`. */
@@ -154,7 +150,7 @@ const ITEM =
   'relative flex size-8 shrink-0 items-center justify-center rounded-full text-sidebar-foreground/65 transition-colors hover:bg-foreground/[0.05] hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none'
 const ITEM_ACTIVE = 'bg-foreground/[0.08] text-sidebar-foreground hover:bg-foreground/[0.08]'
 const TIP = 'flex items-center gap-1.5 rounded-lg border bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-md'
-const KBD = 'inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-[4px] border bg-muted/60 px-1 text-[10px] font-medium text-muted-foreground'
+export const KBD = 'inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-[4px] border bg-muted/60 px-1 text-[10px] font-medium text-muted-foreground'
 
 /** No page in front: Back and Forward stay in their place, off. */
 const NO_PAGE_HISTORY = new CardHistory()
@@ -167,7 +163,7 @@ const noFrontCard = () => null
  * buttons, tooltips and hops between cards as its header had; off, in their
  * place, while the chat is in front.
  */
-function FrontPageHistory() {
+export function FrontPageHistory() {
   const front = useSyncExternalStore(subscribeFrontCard, frontCard, noFrontCard)
   return (
     <div data-app-rail-history="" className="flex items-center">
@@ -183,7 +179,7 @@ function FrontPageHistory() {
  * A rail item's go-to (lib/shortcuts.ts) in its tooltip: G, then its letter.
  * A group's own (SEO), else the page its icon opens by default.
  */
-function GoToHint({ home, group, slug }: { home?: boolean; group?: string; slug?: string }) {
+export function GoToHint({ home, group, slug }: { home?: boolean; group?: string; slug?: string }) {
   const def = home ? goToFor({ home: true }) : ((group && goToFor({ group })) || goToFor({ slug }))
   if (!def) return null
   const [[first], [second]] = keysChips(goToKeys(def.letter), false)
@@ -196,7 +192,7 @@ function GoToHint({ home, group, slug }: { home?: boolean; group?: string; slug?
 }
 
 /** The page in front takes the keys (its own: mail's j/k, Esc). */
-function focusFrontPage(): void {
+export function focusFrontPage(): void {
   const layer = document.querySelector<HTMLElement>('[data-chat-card-fullscreen]')
   if (layer && !layer.contains(document.activeElement)) layer.focus({ preventScroll: true })
 }
@@ -244,7 +240,7 @@ function RailButton({
 }
 
 /** Save the bar (when it changed): the bar moves at once, then the account takes it. */
-function commit(next: RailPrefs | null): boolean {
+export function commitRailPrefs(next: RailPrefs | null): boolean {
   if (!next) return false
   void saveRailPrefs(next)
   return true
@@ -328,7 +324,7 @@ function PageButton({
 }
 
 /** Customize bar: its icon at the bar's end, and beside the bar a switch per page (on: its icon shows). */
-function CustomizeBar({
+export function CustomizeBar({
   layout,
   prefs,
   open,
@@ -407,12 +403,11 @@ export function AppRail() {
   // is in the server markup so nothing moves.
   const mounted = useSyncExternalStore(subscribeMounted, getMountedSnapshot, getMountedServerSnapshot)
   const trafficLights = useHasTrafficLights()
-  const desktop = useIsDesktop()
-  const edition = useWorkspaceEdition()
-  // A guest of the workspace: no members-only page (the Studio refuses a guest).
-  const guest = useIsWorkspaceGuest()
   const searchRef = useRef<HTMLButtonElement>(null)
   const searchKey = useModKeyLabel('K')
+  // Traditional (docs/plans/traditional-layout.md): its sidebar draws the
+  // navigation instead (./traditional-sidebar.tsx); the rail draws nothing.
+  const traditional = useLayoutMode() === 'traditional'
 
   // <html> carries the rail's width too, for the full-screen layer on <body>.
   useLayoutEffect(() => {
@@ -421,29 +416,8 @@ export function AppRail() {
     return () => html.removeAttribute(APP_RAIL_ATTR)
   }, [])
 
-  // Calendar and Mail always: the main chat opens the person's own pages
-  // whatever drives it (chat-panel.tsx openCardHere), as a chip or a notice
-  // does; only `/` leaves them out where its chat may not read them.
-  const pages = useMemo(() => railPagesFor(pagesFor(edition, { desktop, guest })), [edition, desktop, guest])
-  const offeredIds = useMemo(() => pages.map((p) => p.def.id), [pages])
-  const active = activeRailItem(useSelectedPlace(), pages)
-
-  // The person's bar: their pinned pages in their order (the default: every page, the rail's).
-  const prefs = useRailPrefs()
-  const layout = useMemo(() => railLayout(pages, prefs), [pages, prefs])
-
-  // The bar's groups, a hairline between two (your work, customers, agents;
-  // a section with no page on draws nothing), while the order is the default; the person's own order is one list.
-  const groups = useMemo(() => {
-    if (layout.custom) return layout.shown.length ? [{ group: 'custom', pages: layout.shown }] : []
-    const out: Array<{ group: string; pages: OfferedRailPage[] }> = []
-    for (const p of layout.shown) {
-      const last = out[out.length - 1]
-      if (last && last.group === p.def.group) last.pages.push(p)
-      else out.push({ group: p.def.group, pages: [p] })
-    }
-    return out
-  }, [layout])
+  // The pages, the person's bar and the lit item: the same for the sidebar (./use-rail-nav.ts).
+  const { pages, offeredIds, prefs, layout, groups, active } = useRailNav()
 
   const [customizeOpen, setCustomizeOpen] = useState(false)
   /** Customize bar…, picked from an icon's menu: opened once the menu has closed (so its focus doesn't close it again). */
@@ -456,12 +430,12 @@ export function AppRail() {
   const label = (id: RailPageId) => pages.find((p) => p.def.id === id)?.label ?? id
   const moveTo = (id: RailPageId, to: number) => {
     const count = layout.shown.length
-    if (!commit(moveRailPage(prefs, offeredIds, id, to))) return
+    if (!commitRailPrefs(moveRailPage(prefs, offeredIds, id, to))) return
     refocus.current = id
     setAnnouncement(`${label(id)} moved to ${Math.max(0, Math.min(count - 1, to)) + 1} of ${count}`)
   }
   const setPinned = (id: RailPageId, pinned: boolean) => {
-    if (commit(setRailPagePinned(prefs, id, pinned))) setAnnouncement(pinned ? `${label(id)} pinned to the bar` : `${label(id)} unpinned from the bar`)
+    if (commitRailPrefs(setRailPagePinned(prefs, id, pinned))) setAnnouncement(pinned ? `${label(id)} pinned to the bar` : `${label(id)} unpinned from the bar`)
   }
   useLayoutEffect(() => {
     const id = refocus.current
@@ -507,10 +481,10 @@ export function AppRail() {
       html.style.removeProperty(HEADER_RIGHT_VAR)
       html.style.removeProperty(HEADER_BOTTOM_VAR)
     }
-  }, [mounted])
+  }, [mounted, traditional])
 
   const pageButton = (entry: OfferedRailPage) => {
-    const { def, page, members } = entry
+    const { def } = entry
     return (
       <PageButton
         key={def.id}
@@ -520,8 +494,7 @@ export function AppRail() {
         active={active === def.id}
         onOpen={() => {
           // A group: its member last used here, else its default (Liam, 11-11: page groups).
-          const slug = members && isPageGroupId(def.id) ? (groupOpenSlug(def.id, members.map((m) => m.slug)) ?? page.slug) : page.slug
-          openTarget({ type: 'page', slug }, { from: 'rail' })
+          openRailEntry(entry)
           // Already in front: nothing changes, so the page takes the keys back (a click left them on this button).
           if (active === def.id) focusFrontPage()
         }}
@@ -534,6 +507,8 @@ export function AppRail() {
       />
     )
   }
+
+  if (traditional) return null
 
   return (
     // One host element (display: contents): the header and the pills place
@@ -627,7 +602,7 @@ export function AppRail() {
                     onOpenChange={setCustomizeOpen}
                     onPinned={setPinned}
                     onReset={() => {
-                      if (commit(resetRailPrefs(prefs))) setAnnouncement('The bar is back to its default')
+                      if (commitRailPrefs(resetRailPrefs(prefs))) setAnnouncement('The bar is back to its default')
                     }}
                   />
                   {/* Where a dragged icon would land (rail-drag.ts): hidden at rest. */}

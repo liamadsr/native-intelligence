@@ -44,6 +44,7 @@ import {
   type BackgroundMode,
 } from '@/lib/custom-background'
 import { AssistantSection } from './assistant-section'
+import { LayoutSection } from './layout-section'
 
 type ThemeMode = 'system' | 'light' | 'dark'
 
@@ -544,6 +545,12 @@ export function PreferencesView() {
       <div>
         <h3 className="mb-3 text-sm font-medium text-muted-foreground">Appearance</h3>
         <div className="rounded-xl border border-border bg-card">
+          {/* Layout: Default or Traditional (layout-section.tsx; docs/plans/traditional-layout.md). */}
+          <LayoutSection />
+
+          {/* Dashed divider */}
+          <div className="mx-5 border-t border-dashed border-border" />
+
           {/* Theme mode row */}
           <div className="flex items-center justify-between px-5 py-4">
             <div className="flex items-center gap-3">

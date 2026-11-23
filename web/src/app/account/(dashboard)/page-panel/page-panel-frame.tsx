@@ -61,6 +61,7 @@
  *           starts after it (pagePanelReserve, set on <html> by the host).
  */
 import { createContext, useContext, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { cn } from '@/lib/utils'
 import { useHasTrafficLights } from '@/components/desktop-titlebar'
 import { COLUMN_CARD_SKIN } from '@/components/attention/card-skin'
@@ -69,6 +70,8 @@ import { PANEL_TOP, SLIDE_CLASS, SLIDE_STYLE, useComposerReserve } from '../side
 import { MINIMIZED_TILE_BAND_PX, PAGE_PANEL_HEIGHT_SHARE, PAGE_PANEL_WIDTH_PX, PANEL_GUTTER_PX, type PanelMode } from '../side-panels/space-plan'
 import { topBarLeftInset } from '../top-bar/insets'
 import { PAGE_PANEL_ID } from './page-panel-types'
+import { useLayoutMode } from '@/lib/layout-mode-store'
+import { useSidebarSlot } from '../rail/sidebar-slots'
 
 /**
  * The host says, for the render a page change happens in, that the slot
@@ -176,7 +179,33 @@ export function PagePanelFrame({
     if (shown && !wasShown.current && swapping) playEntrance(cardRef.current)
     wasShown.current = shown
   }, [shown, swapping])
+  // Traditional (docs/plans/traditional-layout.md): the same sub-nav, nested
+  // under its page in the sidebar (rail/traditional-sidebar.tsx), not floating.
+  const traditional = useLayoutMode() === 'traditional'
+  const slot = useSidebarSlot(page)
   if (!mounted) return null
+  if (traditional) {
+    if (!slot) return null
+    return createPortal(
+      <div
+        id={active ? PAGE_PANEL_ID : undefined}
+        role="group"
+        aria-label={label}
+        data-page-panel={page}
+        data-page-panel-mode={mode}
+        data-page-panel-sidebar=""
+        data-page-panel-held={held ? '' : undefined}
+        inert={!shown || held}
+        hidden={!shown}
+        className="flex min-h-0 flex-col"
+      >
+        <div data-page-panel-card="" className="flex min-h-0 flex-col">
+          {children}
+        </div>
+      </div>,
+      slot,
+    )
+  }
   return (
     <aside
       ref={frameRef}
