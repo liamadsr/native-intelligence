@@ -26,6 +26,7 @@
  */
 import {
   AudioLines,
+  GitPullRequest,
   BotMessageSquare,
   Boxes,
   Building2,
@@ -145,7 +146,7 @@ export interface EntityIdentity {
 }
 
 /** What is drawn as a kind and is no registered entity or found kind. */
-type ExtraIdentityKind = 'skill' | 'dm' | 'booking_link' | 'drive_folder' | 'snippet'
+type ExtraIdentityKind = 'skill' | 'dm' | 'booking_link' | 'drive_folder' | 'snippet' | 'github_pr'
 
 /** Every kind with an identity. */
 export type EntityIdentityKind = EntityType | FindableKind | ExtraIdentityKind
@@ -182,6 +183,8 @@ export const ENTITY_IDENTITIES: Record<EntityIdentityKind, EntityIdentity> = {
   booking_link: { icon: CalendarClock, color: 'teal', label: 'Booking link' },
   // A saved piece of text typed in with `;` (docs/plans/snippets.md): no record, a Create entry.
   snippet: { icon: TextQuote, color: 'gray', label: 'Snippet' },
+  // A GitHub pull request on the Reviews page (docs/plans/github-reviews.md): read live, never stored.
+  github_pr: { icon: GitPullRequest, color: 'purple', label: 'Pull request' },
   // ── People ──────────────────────────────────────────────────────────────
   contact: { icon: User, color: 'gray', label: 'Contact' },
   member: { icon: CircleUser, color: 'gray', label: 'Member' },

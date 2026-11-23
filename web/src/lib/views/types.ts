@@ -52,6 +52,11 @@ export type ViewEntityType =
     >
   | 'agent'
   | 'skill'
+  // GitHub pull requests on the Reviews page (docs/plans/github-reviews.md):
+  // read live from GitHub with the person's own sign-in, never a table. The
+  // shared list, board, filters and settings draw them; the page filters,
+  // groups and sorts its own rows (lib/github/reviews-view.ts).
+  | 'github_pr'
 export type LibraryScope = 'all' | 'mine' | 'workspace' | 'discover'
 /**
  * How a view is drawn. `graph` is the knowledge map — a WebGL canvas of claims
@@ -411,7 +416,29 @@ const LIBRARY_FILTER_FIELDS: FilterFieldDefinition[] = [
   { field: 'is_system', label: 'Built-in', type: 'boolean' },
 ]
 
+/**
+ * A pull request's fields (Reviews, docs/plans/github-reviews.md). Every one
+ * is the page's own (no table behind it): the page applies the filters to
+ * the rows GitHub returned, and sends the plain ones (`is` one value) on to
+ * GitHub's search so it returns the right page. Repositories, authors,
+ * assignees and labels offer the values on screen (`local:` sources).
+ */
+export const GITHUB_PR_FILTER_FIELDS: FilterFieldDefinition[] = [
+  { field: 'board_column', label: 'Stage', type: 'enum', options: ['draft', 'in_review', 'checks_failing', 'conflicts', 'ready', 'merged', 'closed'], virtual: true },
+  { field: 'state', label: 'State', type: 'enum', options: ['open', 'closed', 'merged'], virtual: true },
+  { field: 'review', label: 'Review', type: 'enum', options: ['approved', 'changes_requested', 'review_required', 'none'], virtual: true },
+  { field: 'checks', label: 'Checks', type: 'enum', options: ['passing', 'failing', 'pending', 'none'], virtual: true },
+  { field: 'repo', label: 'Repository', type: 'enum', options: 'local:github_pr.repo', virtual: true },
+  { field: 'author', label: 'Author', type: 'enum', options: 'local:github_pr.author', virtual: true },
+  { field: 'assignees', label: 'Assignee', type: 'enum', options: 'local:github_pr.assignees', isArray: true, virtual: true },
+  { field: 'labels', label: 'Labels', type: 'enum', options: 'local:github_pr.labels', isArray: true, virtual: true },
+  { field: 'linked', label: 'Linked work', type: 'enum', options: ['linked', 'unlinked'], virtual: true },
+  { field: 'updated_at', label: 'Updated', type: 'date' },
+  { field: 'created_at', label: 'Created', type: 'date' },
+]
+
 export const FILTERABLE_FIELDS: Record<ViewEntityType, FilterFieldDefinition[]> = {
+  github_pr: GITHUB_PR_FILTER_FIELDS,
   agent: LIBRARY_FILTER_FIELDS,
   skill: LIBRARY_FILTER_FIELDS,
   action: [
@@ -777,6 +804,7 @@ export const FILTERABLE_FIELDS: Record<ViewEntityType, FilterFieldDefinition[]> 
 // ============================================================
 
 export const DEFAULT_DISPLAY_PROPERTIES: Record<ViewEntityType, string[]> = {
+  github_pr: ['repo', 'author', 'review', 'checks', 'size', 'linked', 'updated_at'],
   agent: [],
   skill: [],
   // Ordered left (rare) → right (always present)
@@ -895,6 +923,19 @@ export interface DisplayPropertyDefinition {
 }
 
 export const DISPLAY_PROPERTIES: Record<ViewEntityType, DisplayPropertyDefinition[]> = {
+  // Read-only: GitHub's (reviews-view.ts builds each row; entity-row.tsx draws the checks, size and links).
+  github_pr: [
+    { field: 'repo', label: 'Repository' },
+    { field: 'author', label: 'Author' },
+    { field: 'review', label: 'Review' },
+    { field: 'checks', label: 'Checks' },
+    { field: 'size', label: 'Size' },
+    { field: 'labels', label: 'Labels' },
+    { field: 'assignees', label: 'Assignees' },
+    { field: 'linked', label: 'Linked actions' },
+    { field: 'updated_at', label: 'Updated' },
+    { field: 'created_at', label: 'Created' },
+  ],
   agent: [],
   skill: [],
   action: [
@@ -1170,6 +1211,7 @@ export const DISPLAY_PROPERTIES: Record<ViewEntityType, DisplayPropertyDefinitio
  * wants the fallback simply stays out of the map.
  */
 export const DEFAULT_ORDERING: Partial<Record<ViewEntityType, SortConfig[]>> = {
+  github_pr: [{ field: 'updated_at', direction: 'desc' }],
   // Preserve the library endpoints' ordering until the user chooses a sort.
   agent: [],
   skill: [],
@@ -1233,6 +1275,8 @@ export function defaultLayout(entityType: ViewEntityType): ViewLayout {
 }
 
 export const DEFAULT_BOARD_GROUP_BY: Record<ViewEntityType, string> = {
+  // The board's columns: Draft, In review, Checks failing, Conflicts, Ready to merge, Merged.
+  github_pr: 'board_column',
   agent: 'visibility',
   skill: 'visibility',
   action: 'status_id',
@@ -1289,6 +1333,12 @@ export const DEFAULT_BOARD_GROUP_BY: Record<ViewEntityType, string> = {
 // ============================================================
 
 export const FIELD_CATEGORIES: Record<ViewEntityType, { label: string; fields: string[] }[]> = {
+  github_pr: [
+    { label: '', fields: ['board_column', 'state', 'review', 'checks', 'linked'] },
+    { label: 'People', fields: ['author', 'assignees'] },
+    { label: 'Where', fields: ['repo', 'labels'] },
+    { label: 'Activity', fields: ['updated_at', 'created_at'] },
+  ],
   agent: [{ label: '', fields: LIBRARY_FILTER_FIELDS.map(f => f.field) }],
   skill: [{ label: '', fields: LIBRARY_FILTER_FIELDS.map(f => f.field) }],
   action: [

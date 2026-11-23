@@ -25,6 +25,7 @@ type ContextKey = 'members' | 'projects' | 'initiatives' | 'companies' | 'labels
 const ENTITY_CONTEXT_REQUIREMENTS: Record<ViewEntityType, ContextKey[]> = {
   agent: [],
   skill: [],
+  github_pr: [],
   action: ['members', 'projects', 'labels', 'workflowStates'],
   project: ['members', 'initiatives', 'labels', 'workflowStates'],
   initiative: ['members', 'labels'],

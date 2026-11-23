@@ -23,7 +23,7 @@ import { useCustomFieldDefinitions } from './hooks/use-custom-field-definitions'
 /** What a collection of these is CALLED, in the user's words. Drives the
  *  built-in "All …" tab and the search box's placeholder. */
 export const ENTITY_PLURAL: Record<ViewEntityType, string> = {
-  agent: 'agents', skill: 'skills',
+  agent: 'agents', skill: 'skills', github_pr: 'pull requests',
   action: 'issues', capture: 'captures', contact: 'contacts',
   company: 'companies', email_thread: 'threads', document: 'documents',
   initiative: 'initiatives',

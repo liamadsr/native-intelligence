@@ -228,6 +228,40 @@ author_github_id, head_sha; RLS on, no policies: service role only), filled from
 `notification-open.ts`, `open-card.ts`, the Reviews card's place). 695 is rehearsed the same
 way: `supabase/tests/695_github_notifications.sql`, 5 checks, all passed.
 
+## Reviews on the app's own list (UX rebuild, no migration)
+
+The owner's feedback on the first release: the page "did its own thing instead of following the
+same UX as our app". It is now built on the shared parts, restyling none of them:
+
+- **Rows and board:** a view-only kind `github_pr` (`lib/views/types.ts`, like agents and
+  skills) drawn by the shared `ViewList` / `ViewBoard` and `EntityRow`
+  (`components/views/list/github-pr-cell.tsx` draws its cells). J/K, the arrows, Enter and O as
+  in every list (`list-keyboard.tsx`). The query engine refuses the kind: its rows are GitHub's,
+  read by `/api/account/github/reviews`, so the view's filters, sort and grouping are applied to
+  them in `lib/github/reviews-view.ts`, and each filter that is one plain value (a repository,
+  an author, an assignee, a label, a review state, created-date sort) also narrows GitHub's
+  search.
+- **Toolbar:** the shared `ViewToolbar` (filters, display settings with grouping by stage,
+  repository, author and the rest, ordering, properties), with no saved views (that would need
+  a table): a new `canSaveViews={false}` drops "Save as new view" from its ribbon. Filter
+  pickers for repository, author, assignee and label offer the values on screen (`local:`
+  sources, `lib/views/local-enum-options.ts`). Layouts, search and Refresh stay in the card's
+  header.
+- **Sections:** Review requests / Authored / Assigned / Involves and Open / Closed / All are
+  the page's **sub-nav beside the rail** (`page-panel/reviews-panel.tsx`), as My Actions'
+  views are, not view tabs: they choose which search GitHub runs (a different query, not a
+  filter over one list), and every page with its own places has them there. Below `md`, or
+  when the sub-nav is not on screen, the card shows them as pills.
+- **Detail:** a pull request opens over the list as a record does
+  (`pages/reviews/pull-detail.tsx`): the shared breadcrumb header (in a card, its header, with
+  previous and next), the pill tabs Description / Files changed / Checks, its properties in the
+  shared properties panel (state, checks, review, repository, author, assignees, labels, size,
+  branch, linked actions), and Merge with Review on GitHub where a record's actions go. Merge
+  keeps its confirm and its head-sha pin.
+
+Unchanged: the person's own token, guests refused, linked actions read through the person's own
+client, merge only when the server finds nothing blocking it.
+
 ## What the owner must change on GitHub
 
 No change to the OAuth App's scopes: `repo` already covers search, reading pull requests,
