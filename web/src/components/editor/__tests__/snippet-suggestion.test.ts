@@ -7,7 +7,7 @@
  *  - a body is fitted to the editor: a heading in an editor with none (mail)
  *    becomes a paragraph; a one-paragraph body goes in inline.
  */
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { Editor, getSchema } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import Link from '@tiptap/extension-link'
@@ -23,6 +23,19 @@ import { SnippetSuggestion, createSnippetSuggestionStore, snippetContent, type S
 
 let editor: Editor
 let store: SnippetSuggestionStore
+
+// jsdom has no Range#getClientRects or Range#getBoundingClientRect. TipTap's
+// focus() puts the DOM selection in the editor a frame later; once it has,
+// ProseMirror measures the caret to scroll it into view after a pick, and the
+// pick threw "getClientRects is not a function" depending on that frame's timing.
+// A layout-free browser answers with empty rects, so these do the same.
+beforeAll(() => {
+  const noRect = () => ({ x: 0, y: 0, top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0, toJSON: () => ({}) }) as DOMRect
+  if (typeof Range.prototype.getClientRects !== 'function') {
+    Range.prototype.getClientRects = () => ({ length: 0, item: () => null, [Symbol.iterator]: [][Symbol.iterator] }) as unknown as DOMRectList
+  }
+  if (typeof Range.prototype.getBoundingClientRect !== 'function') Range.prototype.getBoundingClientRect = noRect
+})
 
 function make(markdown: string, extensions: unknown[] = [StarterKit]) {
   store = createSnippetSuggestionStore()
