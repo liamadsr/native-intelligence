@@ -28,7 +28,7 @@ import { getServiceClient } from '@/lib/admin'
 import { createNotification } from '@/lib/notifications'
 
 /**
- * 'attachment' and 'team_chat_file' are comments on a file (migration 706): an
+ * 'attachment' and 'team_chat_file' are comments on a file (migration 711): an
  * uploaded file (its record is the attachment), or one sent in team chat (its
  * record is the message that carries it; the notice names the file).
  */
@@ -69,7 +69,7 @@ export async function memberCanOpenRecord(service: SupabaseClient, kind: Comment
         ? await service.rpc('canvas_visible_to', { p_canvas_id: recordId, p_user_id: userId })
         : kind === 'spreadsheet'
           ? await service.rpc('spreadsheet_entity_visible_to', { p_id: recordId, p_workspace: workspaceId, p_user: userId })
-          : // A file: its own read rule (entity_visible_to's attachment arm, with 696's Drive
+          : // A file: its own read rule (entity_visible_to's attachment arm, with 709's Drive
             // rule), or, for a chat file, its message's (the channel's readers).
             await service.rpc('entity_visible_to', { p_type: kind === 'attachment' ? 'attachment' : 'team_chat_message', p_id: recordId, p_workspace: workspaceId, p_user: userId })
     return !error && data === true

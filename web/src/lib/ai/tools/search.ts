@@ -853,7 +853,7 @@ export function createSearchTools(
 
         // ── Files by the words inside them (docs/plans/drive-files.md, phase 3):
         //    uploads (their extracted text, fenced by the attachments' own rule)
-        //    and team chat files (697: the channels the person may read). Keyword
+        //    and team chat files (710: the channels the person may read). Keyword
         //    rows, appended as supplementary hits. A guest's or linked agent's
         //    turn reads no upload text (the fence would count the person's grants). ──
         const fileTextRunner = (async () => {

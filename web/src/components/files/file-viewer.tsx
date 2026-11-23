@@ -140,7 +140,7 @@ function ViewerBody({ file, pdfOverlay, headerExtra, aside }: { file: ViewerFile
     }
   }, [file, loaded])
 
-  // Comments (706): on an upload or a chat file, never a mail attachment; pins on a PDF's pages.
+  // Comments (711): on an upload or a chat file, never a mail attachment; pins on a PDF's pages.
   const commentable = !!file.commentTarget && shows && kind !== 'figma'
   const comments = useFileComments(commentable ? file.commentTarget : null, file.name)
   const [commentsOpen, setCommentsOpen] = React.useState(false)

@@ -2,7 +2,7 @@
 
 Owner, 11-23 ("lets build all of it", matching Macro's Drive): files open inside the app;
 attachments from mail and team chat show in Drive and can be searched. Branch
-`claude/drive-files`. Migrations 696 and 697, and 706 (phase 4), approved by the managing
+`claude/drive-files`. Migrations 709 and 710, and 711 (phase 4), approved by the managing
 session on 11-23; each is written, tested, and rehearsed on a local Postgres only. None is
 applied anywhere.
 
@@ -66,7 +66,7 @@ A file is never sent to an outside service.
 | Figma link | Figma's own embed (`embed.figma.com`), for a Figma link only |
 | Anything else, or too big | Download |
 
-## Phase 2: attachments in Drive (migration 696)
+## Phase 2: attachments in Drive (migration 709)
 
 - **Mail attachments in Drive come from the person's own mailboxes, live.** They are never
   copied (see decision 1).
@@ -89,7 +89,7 @@ A file is never sent to an outside service.
 - **Upload by dragging files onto a folder.** The file becomes a Drive upload filed in that
   folder. **M** moves the selected item to a folder.
 
-### 696: the rules
+### 709: the rules
 
 - **`attachments.drive_upload`.** A file uploaded to Drive itself, on no record.
   - It is set when the file is made and never changed (a guard trigger).
@@ -113,7 +113,7 @@ A file is never sent to an outside service.
   - both `entity_visible_to` overloads, restated from 664;
   - `attachment_readable_by`, restated from 708 with one AND. 708 (the file-search fence,
     released before this) makes `hybrid_search_attachments` and `attachment_rag_search` ask
-    it, so `find` and `deep_search` follow the Drive rule without 696 restating either one.
+    it, so `find` and `deep_search` follow the Drive rule without 709 restating either one.
 
   A test holds each restated body equal to its source with only the Drive lines added.
 - **Filing shares it, so only its uploader files, moves or unfiles it.** This is three
@@ -145,11 +145,11 @@ then 40 checks, all passing:
 | `hybrid_search_attachments` / `attachment_rag_search` for another member, or with no person | the unfiled upload never comes back |
 | An open recorded for someone else, in another workspace, or for a mail attachment | refused |
 
-## Phase 3: search inside files (migration 697)
+## Phase 3: search inside files (migration 710)
 
 - **Uploaded files** are already extracted and indexed (`attachment_chunks`). Drive uploads
-  join them: the same job indexes them, and 696's arms fence the searches.
-- **Team chat files:** 697 adds `team_chat_file_chunk`, the passages of a file on a message.
+  join them: the same job indexes them, and 709's arms fence the searches.
+- **Team chat files:** 710 adds `team_chat_file_chunk`, the passages of a file on a message.
   - **Reading:** a passage is read exactly as its message is. The policy asks for the
     message under the reader's own RLS, so a reader taken off a channel stops finding its
     files' text at once.
@@ -169,7 +169,7 @@ then 40 checks, all passing:
 - **Mail attachments are not indexed** (decision 1). Drive's search box, with the Email
   filter on, passes the words to the provider's own search.
 
-**Rehearsal:** 697 was applied twice after 696, with 474's `team_chat_can_read` and 556's
+**Rehearsal:** 710 was applied twice after 709, with 474's `team_chat_can_read` and 556's
 `team_chat_member_can_read` as written. 17 checks, all passing:
 - a member on the channel's team finds the files by their words, and so does an agent
   naming them;
@@ -181,25 +181,25 @@ then 40 checks, all passing:
 - a deleted message, a dropped file and a removed message leave no passage, and an edit of
   the words keeps them.
 
-## Phase 4: comments on a PDF (migration 706)
+## Phase 4: comments on a PDF (migration 711)
 
 `file_comment`: a comment pinned to a place on a page (page from 1; x and y as fractions of
 the page, 0 to 1), with threads, mentions, `via_agent` (692) and resolve.
 - **The file** is an uploaded one (`attachment_id`) or one sent in team chat (the message
   and the file's path). It is never a mail attachment.
 - **Who:** whoever reads the file at that moment reads, starts, answers and resolves. The
-  file is read under the caller's own RLS, so 696's rule and team chat's rule decide.
+  file is read under the caller's own RLS, so 709's rule and team chat's rule decide.
   Nothing is restated.
 - **Words:** a comment is written and deleted as its author.
 - **The guard** (682's and 681's rule): a comment keeps its file, author, thread, place and
   time. Only its author changes its words, and a resolver is recorded as themself. 692's
   `record_comment_agent_mark_guard` keeps `via_agent` as it was made.
 - **Notices** go through `record-comments/notify.ts`, only to a member who can open the
-  file then (`entity_visible_to`, which 696 made Drive-aware). The notification target list
+  file then (`entity_visible_to`, which 709 made Drive-aware). The notification target list
   is 688's with `attachment` added.
 - **The agent tool** `comment_on_file` follows `comment_on_canvas`'s policy.
 
-**Rehearsal:** 706 was applied twice after 696 and 697. 25 checks, all passing:
+**Rehearsal:** 711 was applied twice after 709 and 710. 25 checks, all passing:
 - comments on an upload and on a chat file;
 - a comment signed as someone else, on a file one can't read, marked as the assistant's by a
   client, off the page, or on a path the message doesn't carry: refused;
@@ -216,11 +216,11 @@ the page, 0 to 1), with threads, mentions, `via_agent` (692) and resolve.
 | Phase | Built | Checked |
 |---|---|---|
 | 1. The viewer | All of it. | Pushed at `057ebcd2`. In a browser as the test account: every kind, find, thumbnails, search opens it. |
-| 2. Attachments in Drive | The Files card's tabs, sources, type, creator and sort. Mail attachments live behind their filter. Team chat files. Drive uploads (drop on the card or a folder, or Upload). M moves a focused row. Folders hold files. Opens recorded. | Unit and route tests. 696 rehearsed with 40 checks. In a browser: the card, the tabs, the filters, the email filter (no mailbox linked: says so), the viewer. |
-| 3. Search inside files | `find` and `search` (ni_search) and the palette find uploads (their extracted text, fenced) and team chat files (697) by their words. Posting a message with files queues its text job. | Unit tests. 697 rehearsed with 17 checks. |
-| 4. PDF comments | The viewer's Comments panel: pins on a page, threads on the whole file, replies, resolve, @-mentions. Notices to those who can open the file; a notice opens the file. The `comment_on_file` agent tool. | Unit tests. 706 rehearsed with 25 checks. |
+| 2. Attachments in Drive | The Files card's tabs, sources, type, creator and sort. Mail attachments live behind their filter. Team chat files. Drive uploads (drop on the card or a folder, or Upload). M moves a focused row. Folders hold files. Opens recorded. | Unit and route tests. 709 rehearsed with 40 checks. In a browser: the card, the tabs, the filters, the email filter (no mailbox linked: says so), the viewer. |
+| 3. Search inside files | `find` and `search` (ni_search) and the palette find uploads (their extracted text, fenced) and team chat files (710) by their words. Posting a message with files queues its text job. | Unit tests. 710 rehearsed with 17 checks. |
+| 4. PDF comments | The viewer's Comments panel: pins on a page, threads on the whole file, replies, resolve, @-mentions. Notices to those who can open the file; a notice opens the file. The `comment_on_file` agent tool. | Unit tests. 711 rehearsed with 25 checks. |
 
-**Before 696, 697 and 706 are applied, the code reads as it would without them:**
+**Before 709, 710 and 711 are applied, the code reads as it would without them:**
 - Files list as before.
 - No Drive uploads: an upload fails and says why.
 - Recent is empty and opens are not recorded.
@@ -254,7 +254,7 @@ refused in this session, so pdf.js runs on the page's thread (see decision 6).
 3. **A Drive upload is its uploader's until it is filed.** Filed, every non-guest member
    reads it: exactly the folder's readers, since folders are the workspace's (690). The
    upload says so. Only its uploader files, moves or unfiles it. The managing session set
-   this rule on 11-23 (696).
+   this rule on 11-23 (709).
 4. **Team chat and mail files are not filed in folders.** They live in their channel or
    mailbox. M and drag-to-folder apply to uploaded files and Drive records.
 5. **No outside viewer services.** Nothing is sent to Google Docs Viewer, Office Online or
@@ -269,8 +269,9 @@ refused in this session, so pdf.js runs on the page's thread (see decision 6).
    tree.
 9. **Found while restating 275's and 223's searches:** neither fenced a table row's file
    (663) by its table. 708 (a separate session, released first) fixes it with
-   `attachment_readable_by`. 696 now extends that helper instead of restating the searches.
-10. **Migration numbers.** 696, 697 and 706 are applied after 708 and the 700s batch. The
-    managing session is asked for numbers after that batch, so the repo's
+   `attachment_readable_by`. 709 now extends that helper instead of restating the searches.
+10. **Migration numbers.** First reserved as 696, 697 and 706; renumbered 709, 710 and 711
+    by the managing session (696, 697 and 706 released unused), so they come after 708, the
+    700s batch and GitHub Reviews' 694/695 in both number and apply order, and the repo's
     "newest definition" tests agree with the order they are applied in.
 11. **Chat file text is full text only**, no vectors, as 561's message search.

@@ -17,7 +17,7 @@
  * visible as that capture), and calendar events are the caller's own. A file
  * is found by its name and by the words inside it (docs/plans/drive-files.md,
  * phase 3): an upload's extracted text read on the service client and fenced
- * by the same rule; a team chat file's through team_chat_file_search (697) on
+ * by the same rule; a team chat file's through team_chat_file_search (710) on
  * the caller's client, shown with the messages (it opens where it was sent).
  *
  * Studio videos and Studio projects (migration 620) are read on the service
@@ -586,7 +586,7 @@ async function searchTeamChatMessages(ctx: MenuQueryContext): Promise<MenuSearch
   if (normalizeQuery(query).length < 2) return []
   const [rows, files] = await Promise.all([
     rowsOf<TeamChatHitRow>('team_chat_message', supabase.rpc('team_chat_search', { ws: workspaceId, q: query.slice(0, 200), lim: limit })),
-    // The words inside the files sent there (697): the caller's own channels, as the messages.
+    // The words inside the files sent there (710): the caller's own channels, as the messages.
     searchChatFileText(supabase, { workspaceId }, query, limit),
   ])
   const fileRows = files.hits.map((h) => ({

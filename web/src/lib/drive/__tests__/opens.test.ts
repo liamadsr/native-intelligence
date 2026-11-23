@@ -33,7 +33,7 @@ describe('recording and reading opens', () => {
     expect(up[2]).toEqual({ onConflict: 'user_id,workspace_id,file_key' })
   })
 
-  it('before 696 keeps nothing and lists nothing, quietly; any other failure says so', async () => {
+  it('before 709 keeps nothing and lists nothing, quietly; any other failure says so', async () => {
     const missing = { code: '42P01', message: 'relation "drive_file_open" does not exist' }
     await expect(recordOpen(client({ error: missing }), { workspaceId: 'ws', userId: 'u1' }, `upload:${ID}`)).resolves.toBeUndefined()
     await expect(recentFiles(client({ error: missing }), { workspaceId: 'ws', userId: 'u1' })).resolves.toEqual([])

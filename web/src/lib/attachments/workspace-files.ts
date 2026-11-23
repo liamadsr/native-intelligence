@@ -36,10 +36,10 @@ import type { FileParentType, WorkspaceFile, WorkspaceFilesPage, WorkspaceFilesQ
 
 const BASE_FIELDS =
   'id, workspace_id, user_id, file_name, file_size_bytes, mime_type, file_extension, file_category, storage_path, thumbnail_path, note_id, action_id, project_id, data_row_id, from_form, created_at, updated_at'
-/** With 696's Drive upload mark. A database before 696 is read without it (it has no Drive uploads). */
+/** With 709's Drive upload mark. A database before 709 is read without it (it has no Drive uploads). */
 const FILE_FIELDS = `${BASE_FIELDS}, drive_upload`
 
-/** The column is not there: 696 has not been applied to this database yet. */
+/** The column is not there: 709 has not been applied to this database yet. */
 export const driveColumnMissing = (e: { code?: string; message?: string } | null | undefined) => !!e && (e.code === '42703' || e.code === 'PGRST204') && /drive_upload/.test(e.message ?? '')
 
 interface AttachmentRow {
@@ -65,7 +65,7 @@ interface AttachmentRow {
 
 /** The record a file is attached to: its capture, else its action, else its table row, else its project (an action's or capture's file carries its project too). */
 export function fileParentOf(row: Pick<AttachmentRow, 'note_id' | 'action_id' | 'project_id' | 'data_row_id'> & { id?: string; drive_upload?: boolean | null }): { type: FileParentType; id: string } | null {
-  // A Drive upload (696) hangs off no record: it names itself.
+  // A Drive upload (709) hangs off no record: it names itself.
   if (row.drive_upload && row.id) return { type: 'drive', id: row.id }
   if (row.note_id) return { type: 'capture', id: row.note_id }
   if (row.action_id) return { type: 'action', id: row.action_id }
@@ -125,7 +125,7 @@ export async function listWorkspaceFiles(
     const parent = fileParentOf(row)
     const onRow = parent?.type === 'row' ? onRows.get(parent.id) : undefined
     const folder = parent?.type === 'drive' ? folders.get(parent.id) : undefined
-    // A Drive upload reached here through its own read rule (696): its label is its folder's, or Drive.
+    // A Drive upload reached here through its own read rule (709): its label is its folder's, or Drive.
     const label = parent ? (parent.type === 'row' ? onRow?.label : parent.type === 'drive' ? (folder?.name ?? 'Drive') : labels.get(`${parent.type}:${parent.id}`)) : undefined
     if (!parent || !label) continue
     files.push({

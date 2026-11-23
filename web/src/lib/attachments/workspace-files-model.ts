@@ -24,7 +24,7 @@ export function isFileCategory(value: unknown): value is FileCategory {
 }
 
 /** The record a file is attached to: a capture, an action, a table's row (663) or a project (the first of note_id, action_id, data_row_id, project_id). */
-/** 'drive': a Drive upload (696), on no record; its label is its folder's name, or Drive. */
+/** 'drive': a Drive upload (709), on no record; its label is its folder's name, or Drive. */
 export type FileParentType = 'capture' | 'action' | 'row' | 'project' | 'drive'
 
 export interface FileParent {

@@ -12,7 +12,7 @@
  * when they may read the row's table (data_table_visible_to, as the
  * restrictive attachments_row_select says), whoever uploaded it.
  *
- * A Drive upload (migration 696: a file on no record) is its uploader's, and
+ * A Drive upload (migration 709: a file on no record) is its uploader's, and
  * every non-guest member's while it is filed in a folder; no one's with no
  * person (drive_upload_visible_to, restated by driveFence below).
  *
@@ -79,8 +79,8 @@ export async function filterVisibleAttachments<T extends AttachmentFenceRow>(
 
 /**
  * The ids among `rows` (those on no capture) that are Drive uploads the
- * person may NOT read: drive_upload_visible_to (696), restated for a
- * service-role client. A database before 696 has no Drive uploads (its
+ * person may NOT read: drive_upload_visible_to (709), restated for a
+ * service-role client. A database before 709 has no Drive uploads (its
  * missing column reads as none); any other failed read hides every file it
  * was about.
  */

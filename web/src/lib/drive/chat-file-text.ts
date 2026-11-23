@@ -1,13 +1,13 @@
 /**
- * The text inside a team chat message's files (migration 697;
+ * The text inside a team chat message's files (migration 710;
  * docs/plans/drive-files.md, phase 3): each file's text extracted (the
  * attachments' own extractor: lib/attachments/extract-text.ts), chunked and
  * written to team_chat_file_chunk, so search and agents find a file by what
- * it says, for the channel's readers only (697's policy and search).
+ * it says, for the channel's readers only (710's policy and search).
  *
  * SERVICE ROLE: the job runs unattended; the rows it writes are read only
- * through 697's rules. It reads the message as it is now: a message deleted,
- * or a file no longer on it, is not indexed (697's trigger removes what was).
+ * through 710's rules. It reads the message as it is now: a message deleted,
+ * or a file no longer on it, is not indexed (710's trigger removes what was).
  * A message's passages are replaced whole, so indexing again never doubles.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -21,7 +21,7 @@ export const TEAM_CHAT_FILES_POSTED = 'team-chat/files.posted'
 /** The bucket team chat files live in (558). */
 export const TEAM_CHAT_FILES_BUCKET = 'team-chat-files'
 
-/** Passages a file keeps at most (697 allows 200). */
+/** Passages a file keeps at most (710 allows 200). */
 export const MAX_CHAT_FILE_CHUNKS = 40
 
 export interface ChatFileIndexResult {

@@ -1,9 +1,9 @@
 /**
- * Migration 696: Drive uploads, a file's place in a folder, and when a file
+ * Migration 709: Drive uploads, a file's place in a folder, and when a file
  * was opened (docs/plans/drive-files.md, phase 2). Pins the file:
  *   - the three functions it restates are their newest sources (664's two
  *     entity_visible_to overloads, 708's attachment_readable_by, which both
- *     attachment searches ask) character for character once 696's Drive
+ *     attachment searches ask) character for character once 709's Drive
  *     lines are taken out, so nothing else in them moved;
  *   - drive_folder_item_readable is 690's with one arm added;
  *   - the read rule is restrictive, and a Drive upload is filed only by its
@@ -22,7 +22,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const read = (file: string) => readFileSync(join(process.cwd(), 'supabase/migrations', file), 'utf8')
-const SQL = read('696_drive_uploads.sql')
+const SQL = read('709_drive_uploads.sql')
 
 function block(text: string, head: string, end = '\n$$;\n'): string {
   const i = text.indexOf(head)
@@ -32,7 +32,7 @@ function block(text: string, head: string, end = '\n$$;\n'): string {
   return text.slice(i, j + end.length)
 }
 
-/** Take 696's added lines back out. */
+/** Take 709's added lines back out. */
 function without(text: string, pairs: Array<[string, string]>): string {
   let out = text
   for (const [added, original] of pairs) {
@@ -49,16 +49,16 @@ const EV_ADDED: Array<[string, string]> = [
     '    select a.workspace_id, a.user_id, a.note_id, r.table_id into v_ws, v_owner, v_note, v_table\n',
   ],
   [
-    "      -- A Drive upload (696) is its uploader's, or its folder's readers': no one's on such a run.\n      if v_drive then return false; end if;\n",
+    "      -- A Drive upload (709) is its uploader's, or its folder's readers': no one's on such a run.\n      if v_drive then return false; end if;\n",
     '',
   ],
   [
-    "  -- A Drive upload (696): its uploader, or a non-guest member while it is filed in a folder.\n  if v_type = 'attachment' and v_drive then return public.drive_upload_visible_to(p_id, p_user); end if;\n",
+    "  -- A Drive upload (709): its uploader, or a non-guest member while it is filed in a folder.\n  if v_type = 'attachment' and v_drive then return public.drive_upload_visible_to(p_id, p_user); end if;\n",
     '',
   ],
 ]
 
-describe('migration 696', () => {
+describe('migration 709', () => {
   it('restates both entity_visible_to overloads from 664 with only the Drive upload arm', () => {
     const src = read('664_row_file_visibility.sql')
     for (const head of [
@@ -73,7 +73,7 @@ describe('migration 696', () => {
     const head = 'create or replace function public.attachment_readable_by(p_attachment_id uuid, p_user_id uuid)'
     expect(
       without(block(SQL, head), [
-        ["        -- A Drive upload (696): its uploader, or a non-guest member while it is filed in a folder.\n        and (not a.drive_upload or public.drive_upload_visible_to(a.id, p_user_id))\n", ''],
+        ["        -- A Drive upload (709): its uploader, or a non-guest member while it is filed in a folder.\n        and (not a.drive_upload or public.drive_upload_visible_to(a.id, p_user_id))\n", ''],
       ]),
     ).toBe(block(read('708_attachment_search_fence.sql'), head))
     expect(SQL).not.toContain('FUNCTION public.hybrid_search_attachments(')

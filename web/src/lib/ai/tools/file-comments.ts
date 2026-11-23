@@ -9,14 +9,14 @@ import { workspaceEcho } from './_shared'
 const MENTION_HELP = 'Teammates to @-mention: their member ids (from list_workspace_members). Write each as @Name in the body too. Only those who can open the file are told.'
 
 /**
- * Comments on a file for the person (migration 706; docs/plans/drive-files.md,
+ * Comments on a file for the person (migration 711; docs/plans/drive-files.md,
  * phase 4): an uploaded file (attachment_id, from list_attachments or find) or
  * a file sent in team chat (message_id and file_path, from find). Never a mail
  * attachment: its comments are not kept.
  *
  * The tool runs on the service client, so it asks the file's own read rule
  * for the person first: an upload's (filterVisibleAttachments: a capture's, a
- * table row's and a Drive upload's, 696), a chat file's (its message's,
+ * table row's and a Drive upload's, 709), a chat file's (its message's,
  * entity_visible_to, the channel's readers). A guest's or a linked agent's
  * turn writes no comment as the person. The comment is the person's own,
  * marked as written by their assistant (via_agent, 692's rule), and its

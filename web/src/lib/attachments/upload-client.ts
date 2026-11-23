@@ -16,7 +16,7 @@ interface UploadAttachmentOptions {
   actionId?: string
   projectId?: string
   /**
-   * A Drive upload (migration 696): on no record, its uploader's until it is
+   * A Drive upload (migration 709): on no record, its uploader's until it is
    * filed; `folderId` files it there at once (every non-guest member reads it then).
    */
   drive?: { folderId?: string | null }

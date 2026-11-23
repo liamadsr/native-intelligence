@@ -1,5 +1,5 @@
 /**
- * One comment on a file (migration 706).
+ * One comment on a file (migration 711).
  *
  *   PATCH  { body?, mentions?, records?, resolved? } new words (its author
  *          only: the database refuses anyone else), or resolve / reopen

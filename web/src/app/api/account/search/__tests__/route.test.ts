@@ -172,7 +172,7 @@ describe('GET /api/account/search', () => {
     )
     const res = await (await GET(req('q=launch%20plan&types=team_chat_message'))).json()
     expect(hoisted.userRpc).toHaveBeenCalledWith('team_chat_search', { ws: 'ws-1', q: 'launch plan', lim: 8 })
-    // The words inside the files sent there (697), as the caller too.
+    // The words inside the files sent there (710), as the caller too.
     expect(hoisted.userRpc).toHaveBeenCalledWith('team_chat_file_search', { ws: 'ws-1', q: 'launch plan', lim: 8 })
     // Never the service client: the caller's own may only find what they may read.
     expect(hoisted.rpc).not.toHaveBeenCalled()

@@ -1,5 +1,5 @@
 -- ============================================================
--- 696: Drive uploads, a file's place in a folder, and when a file was opened.
+-- 709: Drive uploads, a file's place in a folder, and when a file was opened.
 -- ============================================================
 -- Why: Drive files (docs/plans/drive-files.md, phase 2). A file can now be
 -- dropped on a Drive folder, filed and moved there like a doc, and Drive's
@@ -61,7 +61,7 @@
 --                              an agent's search finds a Drive upload's
 --                              text only for those who may read it; the two
 --                              searches are not restated.
---                              src/lib/drive/__tests__/migration-696.test.ts
+--                              src/lib/drive/__tests__/migration-709.test.ts
 --                              holds each restated body equal to its source
 --                              with only these lines added.
 --   drive_file_open            when a person last opened a file in Drive: one
@@ -95,7 +95,7 @@ SET LOCAL lock_timeout = '5s';
 alter table public.attachments add column if not exists drive_upload boolean not null default false;
 
 comment on column public.attachments.drive_upload is
-  'A file uploaded to Drive itself, on no record (696). Read by its uploader, and by the workspace''s non-guest members while it is filed in a folder: drive_upload_visible_to.';
+  'A file uploaded to Drive itself, on no record (709). Read by its uploader, and by the workspace''s non-guest members while it is filed in a folder: drive_upload_visible_to.';
 
 -- 663's rule, with a Drive upload as the one file that needs no other parent.
 alter table public.attachments drop constraint if exists attachments_has_parent;
@@ -172,7 +172,7 @@ end;
 $$;
 
 comment on function public.drive_upload_visible_to(uuid, uuid) is
-  'May this person read this Drive upload (696)? Its uploader, or a non-guest member while it is filed in a folder; no one else, and no one with no person.';
+  'May this person read this Drive upload (709)? Its uploader, or a non-guest member while it is filed in a folder; no one else, and no one with no person.';
 
 revoke all on function public.drive_upload_visible_to(uuid, uuid) from public, anon;
 grant execute on function public.drive_upload_visible_to(uuid, uuid) to authenticated, service_role;
@@ -364,7 +364,7 @@ begin
     elsif v_type = 'company' then return public.company_visible_to(p_id, null);
     elsif v_type = 'claim' then return public.claim_visible_to(p_id, null);
     elsif v_type = 'attachment' then
-      -- A Drive upload (696) is its uploader's, or its folder's readers': no one's on such a run.
+      -- A Drive upload (709) is its uploader's, or its folder's readers': no one's on such a run.
       if v_drive then return false; end if;
       -- A row's file is its table's: no one's on such a run, as the row is.
       if v_table is not null then return false; end if;
@@ -381,7 +381,7 @@ begin
   -- A row's file (663) is read as its row's table is, whoever uploaded it
   -- (the restrictive attachments_row_select's rule).
   if v_type = 'attachment' and v_table is not null and public.data_table_visible_to(v_table, p_user) is not true then return false; end if;
-  -- A Drive upload (696): its uploader, or a non-guest member while it is filed in a folder.
+  -- A Drive upload (709): its uploader, or a non-guest member while it is filed in a folder.
   if v_type = 'attachment' and v_drive then return public.drive_upload_visible_to(p_id, p_user); end if;
   if v_type = 'attachment' and v_owner = p_user then return true; end if;
 
@@ -506,7 +506,7 @@ begin
     elsif v_type = 'company' then return public.company_visible_to(p_id, null);
     elsif v_type = 'claim' then return public.claim_visible_to(p_id, null);
     elsif v_type = 'attachment' then
-      -- A Drive upload (696) is its uploader's, or its folder's readers': no one's on such a run.
+      -- A Drive upload (709) is its uploader's, or its folder's readers': no one's on such a run.
       if v_drive then return false; end if;
       -- A row's file is its table's: no one's on such a run, as the row is.
       if v_table is not null then return false; end if;
@@ -530,7 +530,7 @@ begin
   if v_type = 'attachment' and v_table is not null
      and (case when p_grants is true then public.data_table_visible_to(v_table, p_user)
                else public.data_table_visible_ungranted(v_table, p_user) end) is not true then return false; end if;
-  -- A Drive upload (696): its uploader, or a non-guest member while it is filed in a folder.
+  -- A Drive upload (709): its uploader, or a non-guest member while it is filed in a folder.
   if v_type = 'attachment' and v_drive then return public.drive_upload_visible_to(p_id, p_user); end if;
   if v_type = 'attachment' and v_owner = p_user then return true; end if;
 
@@ -612,7 +612,7 @@ as $$
             )
           )
         )
-        -- A Drive upload (696): its uploader, or a non-guest member while it is filed in a folder.
+        -- A Drive upload (709): its uploader, or a non-guest member while it is filed in a folder.
         and (not a.drive_upload or public.drive_upload_visible_to(a.id, p_user_id))
         from public.attachments a
        where a.id = p_attachment_id

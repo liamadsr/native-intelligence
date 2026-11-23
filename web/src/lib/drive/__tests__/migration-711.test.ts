@@ -1,14 +1,14 @@
 /**
- * Migration 706: comments on a file, pinned to a place on a page
+ * Migration 711: comments on a file, pinned to a place on a page
  * (docs/plans/drive-files.md, phase 4). Pins the file: a comment is read and
  * written by whoever reads its file, under the caller's own row security (so
- * 696's Drive upload rule and team chat's rule decide, restated nowhere);
+ * 709's Drive upload rule and team chat's rule decide, restated nowhere);
  * only its author changes its words (681's rule) and 692's via_agent guard
  * holds; never a mail attachment's; the notification list is 688's with
  * 'attachment' added; its own transaction, bounded, no backslash.
  *
  * TEXT CHECKS here. By hand, outside this suite, the file was applied twice on
- * a local Postgres 16 after 696 and 697 (stand-ins as theirs, 692's guard as
+ * a local Postgres 16 after 709 and 710 (stand-ins as theirs, 692's guard as
  * written) and asked 25 questions as an uploader, a member, a guest and a
  * member off the channel's team: the plan lists them.
  */
@@ -17,9 +17,9 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const read = (f: string) => readFileSync(join(process.cwd(), 'supabase/migrations', f), 'utf8')
-const SQL = read('706_file_comments.sql')
+const SQL = read('711_file_comments.sql')
 
-describe('migration 706', () => {
+describe('migration 711', () => {
   it('reads a comment exactly as its file is read, under the caller’s own row security', () => {
     const fn = SQL.slice(SQL.indexOf('create or replace function public.file_comment_file_readable'), SQL.indexOf('revoke all on function public.file_comment_file_readable'))
     expect(fn).not.toContain('security definer')

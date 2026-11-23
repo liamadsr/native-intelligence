@@ -6,7 +6,7 @@
 
 /**
  * The records a folder holds, by the kind drive_folder_item names them with.
- * 'attachment' is a Drive upload (696): a file dropped on Drive, filed only by
+ * 'attachment' is a Drive upload (709): a file dropped on Drive, filed only by
  * its uploader.
  */
 export const FOLDER_ITEM_TYPES = ['document', 'data_table', 'spreadsheet', 'canvas', 'attachment'] as const

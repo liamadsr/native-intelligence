@@ -1,5 +1,5 @@
 -- ============================================================
--- 706: comments on a file, pinned to a place on a page.
+-- 711: comments on a file, pinned to a place on a page.
 -- ============================================================
 -- Why: Drive files (docs/plans/drive-files.md, phase 4): people comment on a
 -- place on a PDF's page, @-mention teammates and are told, as they do on a
@@ -21,7 +21,7 @@
 --   who does what         a comment is read, and a thread is started or
 --                         answered or resolved, by whoever can read the file
 --                         at that moment: the file, read under the caller's
---                         own row security (attachments' policies, with 696's
+--                         own row security (attachments' policies, with 709's
 --                         Drive upload rule; team_chat_message's for a chat
 --                         file), so nothing here restates who reads a file.
 --                         A comment is written and deleted as its author.
@@ -41,7 +41,7 @@
 --
 -- No realtime publication. Re-runnable. Its own transaction (begin ...
 -- commit), so it is all or nothing however it is applied. No backslashes
--- anywhere in this file. After 696, 692 and 688. Each statement waits at most
+-- anywhere in this file. After 709, 692 and 688. Each statement waits at most
 -- 5 s for a lock; one that waits longer rolls the file back, to be applied
 -- again.
 -- ============================================================
@@ -81,9 +81,9 @@ create table if not exists public.file_comment (
 );
 
 comment on table public.file_comment is
-  'A comment on a file, pinned to a place on a page (706): read and written by whoever can read the file; a comment''s words are its author''s.';
+  'A comment on a file, pinned to a place on a page (711): read and written by whoever can read the file; a comment''s words are its author''s.';
 comment on column public.file_comment.via_agent is
-  'True when the assistant wrote this comment for its author (706, as 692). Set on insert, never changed by a client.';
+  'True when the assistant wrote this comment for its author (711, as 692). Set on insert, never changed by a client.';
 
 create index if not exists file_comment_attachment_idx
   on public.file_comment (attachment_id, created_at) where attachment_id is not null;
@@ -181,7 +181,7 @@ end;
 $$;
 
 comment on function public.file_comment_guard() is
-  'What a client update may change in a file comment (706): never its file, author, thread, place or time; its words only by its author; a resolver is recorded as themself.';
+  'What a client update may change in a file comment (711): never its file, author, thread, place or time; its words only by its author; a resolver is recorded as themself.';
 
 drop trigger if exists file_comment_guard on public.file_comment;
 create trigger file_comment_guard

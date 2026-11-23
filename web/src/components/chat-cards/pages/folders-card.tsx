@@ -11,7 +11,7 @@
  *
  * Opening a folder, and the path back up, move the CARD the way a tab moves,
  * through usePagePlace: nothing navigates. A record opens as the app opens it;
- * a file (a Drive upload, migration 696) in the in-app viewer.
+ * a file (a Drive upload, migration 709) in the in-app viewer.
  *
  * Files dropped on a folder's row, or on the open folder, are uploaded to
  * Drive and filed there (docs/plans/drive-files.md, phase 2): every non-guest

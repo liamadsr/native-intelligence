@@ -1,13 +1,13 @@
 'use client'
 
 /**
- * Comments on a file in the viewer (migration 706; docs/plans/drive-files.md,
+ * Comments on a file in the viewer (migration 711; docs/plans/drive-files.md,
  * phase 4): a panel of threads beside the file, a pin on the PDF page where
  * each thread was placed, and "Comment" mode, in which a click on a page
  * pins a new thread there. A thread may also be about the whole file.
  * @-mentions name teammates, who are told when they can open the file
  * (record-comments/notify.ts). Anyone who can read the file writes and
- * resolves; only its author changes or deletes a comment (706's rules; this
+ * resolves; only its author changes or deletes a comment (711's rules; this
  * only hides the buttons that would be refused).
  */
 import * as React from 'react'

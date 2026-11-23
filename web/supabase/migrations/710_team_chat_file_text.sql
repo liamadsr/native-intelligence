@@ -1,5 +1,5 @@
 -- ============================================================
--- 697: the text inside team chat files, searchable by the channel's readers.
+-- 710: the text inside team chat files, searchable by the channel's readers.
 -- ============================================================
 -- Why: Drive files (docs/plans/drive-files.md, phase 3): search and agents
 -- find a file by what it says. An uploaded file's text is already extracted
@@ -207,7 +207,7 @@ end;
 $$;
 
 comment on function public.team_chat_file_search(uuid, text, integer, uuid) is
-  'Team chat files whose text matches every word typed, in the channels the person may read (697). The caller, or the person a service-role call names.';
+  'Team chat files whose text matches every word typed, in the channels the person may read (710). The caller, or the person a service-role call names.';
 
 revoke all on function public.team_chat_file_search(uuid, text, integer, uuid) from public, anon;
 grant execute on function public.team_chat_file_search(uuid, text, integer, uuid) to authenticated, service_role;

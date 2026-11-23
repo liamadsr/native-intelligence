@@ -57,7 +57,7 @@ export function notificationCardTarget(target: NotificationTarget): OpenTarget |
  * False when the target is nothing a card draws.
  */
 export function openNotificationTarget(target: NotificationTarget, opts: { foreignWorkspaceId: string | null }): boolean {
-  // A file (a comment on it, 706) opens in the viewer, read as the person reads it. Not across workspaces.
+  // A file (a comment on it, 711) opens in the viewer, read as the person reads it. Not across workspaces.
   if (target.type === 'attachment') {
     if (opts.foreignWorkspaceId) return false
     void openAttachmentById(target.id)

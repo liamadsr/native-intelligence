@@ -28,7 +28,7 @@ export interface ViewerFile {
   download?: () => Promise<void>
   /** A file that came from outside the workspace (a form's upload): download only, never rendered. */
   downloadOnly?: boolean
-  /** The file comments are kept on (migration 706): an upload, or a chat file. A mail attachment has none. */
+  /** The file comments are kept on (migration 711): an upload, or a chat file. A mail attachment has none. */
   commentTarget?: FileTarget | null
 }
 

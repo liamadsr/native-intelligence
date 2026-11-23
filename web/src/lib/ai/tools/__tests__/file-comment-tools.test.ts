@@ -1,5 +1,5 @@
 /**
- * comment_on_file (migration 706): the file's own read rule asked for the
+ * comment_on_file (migration 711): the file's own read rule asked for the
  * person first; written as them, marked as their assistant's; never on a
  * guest's or a linked agent's turn; never a mail attachment's (no target
  * names one). Made-up ids.

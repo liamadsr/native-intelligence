@@ -1,5 +1,5 @@
 /**
- * Comments on a file, pinned to a place on a page (migration 706;
+ * Comments on a file, pinned to a place on a page (migration 711;
  * lib/drive/file-comments.ts).
  *
  *   GET  ?attachment=<id> | ?message=<id>&path=<object path>
@@ -7,7 +7,7 @@
  *   POST { attachment | message + path, body, parent_id?, page?, x?, y?, mentions?, records? }
  *        a new thread or a reply. The teammates it names who can open the file are told.
  *
- * On the caller's own client: 706's rules decide (whoever reads the file).
+ * On the caller's own client: 711's rules decide (whoever reads the file).
  * A mail attachment has no comments: its route never names one.
  */
 import { NextResponse, type NextRequest } from 'next/server'

@@ -161,7 +161,7 @@ function FileChip({ attachment, onOpen, messageId }: { attachment: TeamChatAttac
 }
 
 /** A message's files: images drawn inline, the rest as chips with their name and size. Nothing without any. */
-export function MessageAttachments({ attachments, messageId }: { attachments: readonly TeamChatAttachment[] | undefined; /** Its message: comments on its files (706) are kept there. */ messageId?: string }) {
+export function MessageAttachments({ attachments, messageId }: { attachments: readonly TeamChatAttachment[] | undefined; /** Its message: comments on its files (711) are kept there. */ messageId?: string }) {
   const viewer = useFileViewer()
   if (!attachments?.length) return null
   const images = attachments.filter(isInlineImage)

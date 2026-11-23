@@ -67,7 +67,7 @@ describe('searchUploadText', () => {
 })
 
 describe('searchChatFileText', () => {
-  it('asks 697’s search for the person, and shapes its rows', async () => {
+  it('asks 710’s search for the person, and shapes its rows', async () => {
     const log: Array<[string, ...unknown[]]> = []
     const { hits } = await searchChatFileText(service([], [], log), { workspaceId: 'ws', requestingUserId: 'u1' }, 'spring launch', 50)
     expect(log).toContainEqual(['rpc', 'team_chat_file_search', { ws: 'ws', q: 'spring launch', lim: 25, p_requesting_user_id: 'u1' }])

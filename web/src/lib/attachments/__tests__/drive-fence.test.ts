@@ -1,8 +1,8 @@
 /**
- * The Drive upload rule for a service-role reader (migration 696,
+ * The Drive upload rule for a service-role reader (migration 709,
  * drive_upload_visible_to): its uploader always; another non-guest member
  * only while it is filed in a folder; a guest never; no person never. Before
- * 696 (no column) there are no Drive uploads; any other failed read hides.
+ * 709 (no column) there are no Drive uploads; any other failed read hides.
  */
 import { describe, expect, it } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -52,7 +52,7 @@ describe('driveFence', () => {
     expect([...(await driveFence(client({ rows, filed: ['filed'] }), { workspaceId: 'ws', userId: null }, asked))].sort()).toEqual(['filed', 'unfiled'])
   })
 
-  it('before 696 there are no Drive uploads; any other failed read hides what it was about', async () => {
+  it('before 709 there are no Drive uploads; any other failed read hides what it was about', async () => {
     expect((await driveFence(client({ rowsError: { code: '42703', message: 'no column' } }), { workspaceId: 'ws', userId: B }, asked)).size).toBe(0)
     expect((await driveFence(client({ rowsError: { code: '500', message: 'down' } }), { workspaceId: 'ws', userId: B }, asked)).size).toBe(3)
   })

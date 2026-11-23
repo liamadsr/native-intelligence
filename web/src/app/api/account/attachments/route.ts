@@ -109,7 +109,7 @@ interface RegisterBody {
   note_id?: unknown
   action_id?: unknown
   project_id?: unknown
-  /** A Drive upload (696): on no record; `folder_id` files it at once. */
+  /** A Drive upload (709): on no record; `folder_id` files it at once. */
   drive_upload?: unknown
   folder_id?: unknown
 }
@@ -124,7 +124,7 @@ const UUID_FILENAME = /^[0-9a-f-]+\.[0-9a-z]+$/i
  *   { storage_path, file_name, file_size_bytes, mime_type,
  *     note_id?, action_id?, project_id? }
  * At least one parent (note_id, action_id, project_id) is required, unless
- * it is a Drive upload ({ drive_upload: true, folder_id? }, migration 696):
+ * it is a Drive upload ({ drive_upload: true, folder_id? }, migration 709):
  * a file on no record, its uploader's alone until it is filed in a folder
  * (then every non-guest member's). Its path's middle segment is `drive`.
  * Filing goes through drive_folder_item as the caller, so the database's own

@@ -1,5 +1,5 @@
 /**
- * Drive's Recent tab (migration 696; lib/drive/opens.ts).
+ * Drive's Recent tab (migration 709; lib/drive/opens.ts).
  *
  *   GET            → { files: RecentFile[] } the files the person opened last,
  *                    newest first, each still one they may read

@@ -16,7 +16,7 @@ const SOURCES: Record<FolderItemType, { table: string; title: string; live: (q: 
   data_table: { table: 'data_table', title: 'name', live: (q) => q.is('archived_at', null) },
   spreadsheet: { table: 'spreadsheet', title: 'title', live: (q) => q.neq('status', 'archived') },
   canvas: { table: 'canvas', title: 'title', live: (q) => q.is('archived_at', null) },
-  // A Drive upload (696); its own read rule decides who sees it.
+  // A Drive upload (709); its own read rule decides who sees it.
   attachment: { table: 'attachments', title: 'file_name', live: (q) => q.eq('drive_upload', true), more: 'storage_path, mime_type, file_size_bytes, user_id' },
 }
 
@@ -51,7 +51,7 @@ async function readRecords(
       if (opts.search) q = q.ilike(src.title, `%${toIlikeSearchTerm(opts.search)}%`)
       q = q.order('updated_at', { ascending: false }).limit(opts.limit ?? 500)
       const { data, error } = await q
-      // Before 696 there are no Drive uploads to file: that kind reads as none.
+      // Before 709 there are no Drive uploads to file: that kind reads as none.
       if (error && type === 'attachment' && (error.code === '42703' || error.code === 'PGRST204')) return
       if (error) throw new Error(error.message)
       for (const row of (data ?? []) as unknown as Array<Record<string, unknown>>) {

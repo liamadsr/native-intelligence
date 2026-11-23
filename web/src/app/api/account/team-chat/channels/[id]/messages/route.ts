@@ -267,7 +267,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       await requestTeamChatNotify(message.id)
       await requestChatMessageLoops(auth.workspaceId, message)
     })
-    // The words inside its files, for search and agents (migration 697): read
+    // The words inside its files, for search and agents (migration 710): read
     // in the background, for the channel's readers only.
     if (hasIndexableChatFiles(attachments)) {
       after(async () => {

@@ -1,5 +1,5 @@
 /**
- * Index the text of a team chat message's files (migration 697;
+ * Index the text of a team chat message's files (migration 710;
  * lib/drive/chat-file-text.ts), when the message is posted with files the
  * extractor reads. Event `team-chat/files.posted` { messageId }, sent by the
  * messages route. One step: the passages never leave it (Inngest's step

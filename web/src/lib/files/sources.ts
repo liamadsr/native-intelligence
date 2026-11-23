@@ -7,7 +7,7 @@
  *                       (team_chat_can_read, 558) signs only for the
  *                       channel's readers, signed again when it has run out;
  *   an uploaded file    through a short signed link from the attachments
- *                       bucket (its own read policy, 663 and 696, fences it).
+ *                       bucket (its own read policy, 663 and 709, fences it).
  */
 import { downloadFile } from '@/lib/download'
 import { createClient } from '@/lib/supabase/client'

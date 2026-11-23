@@ -18,7 +18,7 @@
  *             (components/files); an upload's record opens over the page,
  *             inside the card, as before.
  *   Upload    drop files on the card (or Upload): a Drive upload, the
- *             uploader's alone until they file it in a folder (696).
+ *             uploader's alone until they file it in a folder (709).
  *   M         on a focused row of their own Drive upload: move it to a
  *             folder, or take it out of one.
  */

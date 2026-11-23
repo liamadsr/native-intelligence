@@ -3,7 +3,7 @@
 /**
  * The reads behind Drive's Files card (docs/plans/drive-files.md, phase 2),
  * each through its own route and so its own rule:
- *   uploads      GET /api/account/files (the attachments' fences; 696's Drive rule)
+ *   uploads      GET /api/account/files (the attachments' fences; 709's Drive rule)
  *   team chat    GET /api/account/drive/chat-files (the message's row security)
  *   recent       GET /api/account/drive/opens (the person's own opens)
  *   mail         GET /api/account/drive/mail-files (the person's own mailboxes, live)

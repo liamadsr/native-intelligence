@@ -1,11 +1,11 @@
 /**
- * Comments on a file, pinned to a place on a page (migration 706;
+ * Comments on a file, pinned to a place on a page (migration 711;
  * docs/plans/drive-files.md, phase 4). The file is an uploaded one (its
  * attachment id) or one sent in team chat (the message that carries it and
  * its object path); never a mail attachment.
  *
  * Reads and writes go through the CALLER's client (the agent's tool passes
- * the service client and checks the person first), so 706's rules decide:
+ * the service client and checks the person first), so 711's rules decide:
  * whoever can read the file reads its comments, starts and answers a thread,
  * and resolves one; only its author changes or deletes a comment.
  */
@@ -71,7 +71,7 @@ export type FileCommentResult<T> = { ok: true; value: T } | { ok: false; status:
 
 type DbError = { code?: string; message: string }
 
-/** The table is not there: 706 has not been applied to this database yet. */
+/** The table is not there: 711 has not been applied to this database yet. */
 export const commentsMissing = (e: DbError | null | undefined) =>
   !!e && (e.code === '42P01' || e.code === 'PGRST205' || (/file_comment/.test(e.message) && /does not exist|schema cache/.test(e.message)))
 

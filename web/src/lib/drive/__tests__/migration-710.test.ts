@@ -1,5 +1,5 @@
 /**
- * Migration 697: the text inside team chat files, read by the channel's
+ * Migration 710: the text inside team chat files, read by the channel's
  * readers (docs/plans/drive-files.md, phase 3). Pins the file: its passages
  * are read as their message is (the message, under the reader's own row
  * security), never written by a client, gone with their message (cascade)
@@ -17,9 +17,9 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-const SQL = readFileSync(join(process.cwd(), 'supabase/migrations/697_team_chat_file_text.sql'), 'utf8')
+const SQL = readFileSync(join(process.cwd(), 'supabase/migrations/710_team_chat_file_text.sql'), 'utf8')
 
-describe('migration 697', () => {
+describe('migration 710', () => {
   it('goes with its message and its channel', () => {
     expect(SQL).toContain('channel_id uuid not null references public.team_chat_channel(id) on delete cascade')
     expect(SQL).toContain('message_id uuid not null references public.team_chat_message(id) on delete cascade')

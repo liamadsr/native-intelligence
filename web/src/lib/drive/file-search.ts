@@ -7,9 +7,9 @@
  *                    read on the SERVICE client (chunks are their uploader's
  *                    alone under row security), then fenced for the person
  *                    with the attachments' own rule (filterVisibleAttachments:
- *                    a capture's, a table row's and a Drive upload's, 696).
+ *                    a capture's, a table row's and a Drive upload's, 709).
  *                    No person: the fence answers only what every member reads.
- *   team chat files  their extracted text (team_chat_file_chunk, 697), through
+ *   team chat files  their extracted text (team_chat_file_chunk, 710), through
  *                    team_chat_file_search: the channels the person may read,
  *                    the caller or the person a service call names; no person,
  *                    nothing.
@@ -108,7 +108,7 @@ export async function searchUploadText(
 
 /**
  * Team chat files whose text matches, in the channels the person may read
- * (697's team_chat_file_search). On a session client the caller is the
+ * (710's team_chat_file_search). On a session client the caller is the
  * person; a service client names them with `requestingUserId`.
  */
 export async function searchChatFileText(

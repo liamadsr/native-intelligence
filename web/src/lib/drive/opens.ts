@@ -1,5 +1,5 @@
 /**
- * When the person last opened a file in Drive (migration 696's
+ * When the person last opened a file in Drive (migration 709's
  * drive_file_open): what Drive's Recent tab lists and "sort by opened" reads.
  * An upload is `upload:<attachment id>`, a team chat file
  * `team_chat:<object path>`. A mail attachment is never recorded: that would
@@ -35,7 +35,7 @@ export async function recordOpen(supabase: SupabaseClient, scope: { workspaceId:
   const { error } = await supabase
     .from('drive_file_open')
     .upsert({ user_id: scope.userId, workspace_id: scope.workspaceId, file_key: key, opened_at: new Date().toISOString() }, { onConflict: 'user_id,workspace_id,file_key' })
-  // Before 696 there is nowhere to record it: nothing is kept.
+  // Before 709 there is nowhere to record it: nothing is kept.
   if (error && (error.code === '42P01' || error.code === 'PGRST205')) return
   if (error) throw new Error(`open: ${error.message}`)
 }
@@ -59,7 +59,7 @@ export async function recentFiles(supabase: SupabaseClient, scope: { workspaceId
     .eq('workspace_id', scope.workspaceId)
     .order('opened_at', { ascending: false })
     .limit(RECENT_MAX)
-  // Before 696 nothing has been recorded: no recent files.
+  // Before 709 nothing has been recorded: no recent files.
   if (error && (error.code === '42P01' || error.code === 'PGRST205')) return []
   if (error) throw new Error(`recent: ${error.message}`)
   const opens = (data ?? []) as Array<{ file_key: string; opened_at: string }>
