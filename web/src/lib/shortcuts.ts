@@ -24,10 +24,10 @@ import { CREATE_TYPES, type CreateTypeId } from './create/create-types'
 import { CREATE_LETTERS } from './create/create-keys'
 
 /** Where a shortcut can fire: anywhere in the app, or only on one page or panel. */
-export type ShortcutScope = 'global' | 'mail' | 'inbox' | 'list' | 'task' | 'page-card' | 'palette' | 'create-menu' | 'composer' | 'editor'
+export type ShortcutScope = 'global' | 'mail' | 'inbox' | 'recents' | 'list' | 'task' | 'page-card' | 'palette' | 'create-menu' | 'composer' | 'editor'
 
 /** The sheet's sections, in its order. */
-export type ShortcutSection = 'General' | 'Go to' | 'Create' | 'Lists' | 'Tasks' | 'Mail' | 'Inbox' | 'Documents'
+export type ShortcutSection = 'General' | 'Go to' | 'Create' | 'Lists' | 'Tasks' | 'Mail' | 'Inbox' | 'Recent' | 'Documents'
 
 /**
  * One shortcut's keys, as the sheet writes them: `mod+k` (⌘K on a Mac, Ctrl+K
@@ -182,6 +182,12 @@ export const SHORTCUTS_BESIDES_GO_TO: readonly ShortcutDef[] = [
   { id: 'inbox-done', keys: ['e'], label: 'Done', section: 'Inbox', scope: 'inbox' },
   { id: 'inbox-hold', keys: ['h'], label: 'Hold for later', section: 'Inbox', scope: 'inbox' },
   { id: 'inbox-close', keys: ['escape'], label: 'Close the item', section: 'Inbox', scope: 'inbox', overrides: 'close-page' },
+  // Home's Recent panel, while it has the focus (page-panel/home-recents.tsx; docs/plans/recent-panel.md).
+  // The app has no split view, so Shift+Enter opens as Enter does.
+  { id: 'recents-next', keys: ['j', 'arrowdown'], label: 'Next item', section: 'Recent', scope: 'recents' },
+  { id: 'recents-previous', keys: ['k', 'arrowup'], label: 'Previous item', section: 'Recent', scope: 'recents' },
+  { id: 'recents-open', keys: ['enter', 'shift+enter'], label: 'Open the item', section: 'Recent', scope: 'recents' },
+  { id: 'recents-filter', keys: ['f'], label: 'Filter', section: 'Recent', scope: 'recents' },
   // A document, with the caret in it (components/editor/doc-extras; docs/plans/doc-editor-extras.md).
   // ⌘F stays the browser's (RESERVED_KEYS): find and replace is ⌘⇧F.
   { id: 'doc-find', keys: ['mod+shift+f'], label: 'Find and replace', section: 'Documents', scope: 'editor' },

@@ -8,7 +8,14 @@
 import { describe, expect, it } from 'vitest'
 import type { FeedEntry } from '@/lib/entities/feed-model'
 import {
+  DEFAULT_RECENT_FILTER,
+  filterRecents,
   frontRecentKey,
+  isDefaultRecentFilter,
+  parseRecentFilter,
+  recentGroupLabel,
+  recentTypesPresent,
+  toggleRecentType,
   SEEN_MAX,
   groupRecents,
   markSeen,
@@ -47,62 +54,62 @@ const ACTION = 'a0000000-0000-4000-8000-000000000001'
 const DEAL = 'e0000000-0000-4000-8000-000000000001'
 const MSG = 'f0000000-0000-4000-8000-000000000001'
 
-describe('sections by day', () => {
+describe('sections by time', () => {
   const doc = (when: string, i: number): RecentItem => ({ key: `document:${i}`, type: 'document', id: String(i), title: `Doc ${i}`, context: null, at: when, needsYou: false, inboxAt: null })
+  const mins = (n: number, now = NOW) => new Date(now.getTime() - n * 60_000).toISOString()
 
-  it('splits today by part of the day: before noon the morning, to 17:59 the afternoon, from 18:00 the evening', () => {
-    const evening = new Date(2026, 10, 11, 21, 0)
-    expect(recentGroupOf(at(10, 11, 0, 0), evening)).toBe('morning')
-    expect(recentGroupOf(at(10, 11, 11, 59), evening)).toBe('morning')
-    expect(recentGroupOf(at(10, 11, 12, 0), evening)).toBe('afternoon')
-    expect(recentGroupOf(at(10, 11, 17, 59), evening)).toBe('afternoon')
-    expect(recentGroupOf(at(10, 11, 18, 0), evening)).toBe('evening')
-    expect(recentGroupOf(at(10, 11, 20, 59), evening)).toBe('evening')
-    // At 3pm: this morning's is still the morning's, and a minute ago is the afternoon's.
-    expect(recentGroupOf(at(10, 11, 9, 30), NOW)).toBe('morning')
-    expect(recentGroupOf(at(10, 11, 14, 59), NOW)).toBe('afternoon')
-    // A clock a little behind the server's: the part of the day it is now.
-    expect(recentGroupOf(at(10, 11, 15, 2), NOW)).toBe('afternoon')
-    expect(recentGroupOf(new Date(2026, 10, 12, 0, 1).toISOString(), new Date(2026, 10, 11, 23, 59))).toBe('evening')
+  it('the last few minutes (10), then the last hour', () => {
+    expect(recentGroupOf(mins(0), NOW)).toBe('minutes')
+    expect(recentGroupOf(mins(9), NOW)).toBe('minutes')
+    expect(recentGroupOf(mins(10), NOW)).toBe('hour')
+    expect(recentGroupOf(mins(59), NOW)).toBe('hour')
+    // A clock a little behind the server's: the last few minutes.
+    expect(recentGroupOf(at(10, 11, 15, 2), NOW)).toBe('minutes')
   })
 
-  it('yesterday is the calendar day before, not 24 hours ago (midnight is the line)', () => {
-    const late = new Date(2026, 10, 11, 0, 20)
-    // Ten minutes ago, but before midnight: yesterday. Just after midnight: this morning.
+  it('today, older than an hour: the part of the day it is now, else Earlier today', () => {
+    // At 3pm: 1pm is this afternoon; this morning is Earlier today.
+    expect(recentGroupOf(at(10, 11, 13, 0), NOW)).toBe('afternoon')
+    expect(recentGroupOf(at(10, 11, 12, 0), NOW)).toBe('afternoon')
+    expect(recentGroupOf(at(10, 11, 11, 59), NOW)).toBe('today')
+    expect(recentGroupOf(at(10, 11, 0, 0), NOW)).toBe('today')
+    const evening = new Date(2026, 10, 11, 21, 0)
+    expect(recentGroupOf(at(10, 11, 18, 0), evening)).toBe('evening')
+    expect(recentGroupOf(at(10, 11, 17, 59), evening)).toBe('today')
+    const morning = new Date(2026, 10, 11, 10, 0)
+    expect(recentGroupOf(at(10, 11, 7, 0), morning)).toBe('morning')
+  })
+
+  it('yesterday is the calendar day before, not 24 hours ago; then each day', () => {
+    const late = new Date(2026, 10, 11, 1, 20)
     expect(recentGroupOf(at(10, 10, 23, 50), late)).toBe('yesterday')
-    expect(recentGroupOf(at(10, 11, 0, 0), late)).toBe('morning')
-    expect(recentGroupOf(at(10, 11, 0, 10), late)).toBe('morning')
-    // At 3pm, 26 hours ago is still yesterday; the day before is not.
     expect(recentGroupOf(at(10, 10, 13, 0), NOW)).toBe('yesterday')
     expect(recentGroupOf(at(10, 10, 0, 0), NOW)).toBe('yesterday')
-    expect(recentGroupOf(at(10, 9, 23, 59), NOW)).toBe('week')
+    expect(recentGroupOf(at(10, 9, 23, 59), NOW)).toBe('date:2026-11-09')
+    expect(recentGroupOf(new Date(2025, 10, 11).toISOString(), NOW)).toBe('date:2025-11-11')
+    expect(recentGroupOf('not a date', NOW)).toBe('date:unknown')
   })
 
-  it('the last 7 days are today and the six before it; the last 30, today and the 29 before it; then older', () => {
-    expect(recentGroupOf(at(10, 5, 0, 0), NOW)).toBe('week')
-    expect(recentGroupOf(at(10, 4, 23, 59), NOW)).toBe('month')
-    expect(recentGroupOf(at(10, 4, 12, 0), NOW)).toBe('month')
-    // Oct 13 is 29 days before Nov 11.
-    expect(recentGroupOf(at(9, 13, 0, 0), NOW)).toBe('month')
-    expect(recentGroupOf(at(9, 12, 23, 59), NOW)).toBe('older')
-    expect(recentGroupOf(new Date(2025, 10, 11).toISOString(), NOW)).toBe('older')
-    expect(recentGroupOf('not a date', NOW)).toBe('older')
+  it('heads each section: its words, or the day (a past year’s with its year)', () => {
+    expect(recentGroupLabel('minutes', NOW)).toBe('Last few minutes')
+    expect(recentGroupLabel('hour', NOW)).toBe('Last hour')
+    expect(recentGroupLabel('today', NOW)).toBe('Earlier today')
+    expect(recentGroupLabel('date:2026-11-09', NOW)).toBe('Mon, Nov 9')
+    expect(recentGroupLabel('date:2025-11-11', NOW)).toBe('Tue, Nov 11, 2025')
+    expect(recentGroupLabel('date:unknown', NOW)).toBe('Earlier')
   })
 
-  it('orders the sections newest first, drops empty ones, and keeps the list’s own order inside each', () => {
-    const evening = new Date(2026, 10, 11, 19, 30)
-    const items = [at(10, 11, 19, 10), at(10, 11, 18, 5), at(10, 11, 13), at(10, 11, 8), at(10, 11, 7), at(10, 10, 22), at(10, 8), at(9, 20), at(8, 1)].map(doc)
-    expect(groupRecents(items, evening).map((g) => [g.label, g.items.map((x) => x.title)])).toEqual([
-      ['This evening', ['Doc 0', 'Doc 1']],
+  it('orders the sections as the list (newest first), drops empty ones, keeps the order inside each', () => {
+    const items = [mins(2), mins(30), at(10, 11, 13), at(10, 11, 8), at(10, 11, 7), at(10, 10, 22), at(10, 8), at(10, 8, 9), at(9, 20)].map(doc)
+    expect(groupRecents(items, NOW).map((g) => [g.label, g.items.map((x) => x.title)])).toEqual([
+      ['Last few minutes', ['Doc 0']],
+      ['Last hour', ['Doc 1']],
       ['This afternoon', ['Doc 2']],
-      ['This morning', ['Doc 3', 'Doc 4']],
+      ['Earlier today', ['Doc 3', 'Doc 4']],
       ['Yesterday', ['Doc 5']],
-      ['Last 7 days', ['Doc 6']],
-      ['Last 30 days', ['Doc 7']],
-      ['Older', ['Doc 8']],
+      ['Sun, Nov 8', ['Doc 6', 'Doc 7']],
+      ['Tue, Oct 20', ['Doc 8']],
     ])
-    // At 3pm with nothing this afternoon: the morning's section, then the week's.
-    expect(groupRecents([at(10, 11, 10), at(10, 9)].map(doc), NOW).map((g) => g.label)).toEqual(['This morning', 'Last 7 days'])
     expect(groupRecents([], NOW)).toEqual([])
   })
 
@@ -197,5 +204,58 @@ describe('the row a card in front lights', () => {
     expect(frontRecentKey({ kind: 'sequences', title: 'Sequences' } as never)).toBeNull()
     expect(frontRecentKey({ kind: 'team_chat', title: 'Team chat' } as never)).toBeNull()
     expect(frontRecentKey({ kind: 'calendar', title: 'Calendar', calendar: { start: '2026-11-09', end: '2026-11-16', view: 'week' } } as never)).toBeNull()
+  })
+})
+
+describe('what the person did to records the log doesn’t hold', () => {
+  const FILE = 'b0000000-0000-4000-8000-000000000001'
+  const JOB = 'c0000000-0000-4000-8000-000000000001'
+  it('joins the list from their own tables, once per record, at its newest time', () => {
+    const items = mergeRecents({
+      inbox: null,
+      recent: [entry('document', DOC, 'Q4 renewals plan', at(10, 11, 9), true)],
+      sources: [
+        { type: 'attachment', id: FILE, label: 'fernhill-quote.pdf', context: null, at: at(10, 11, 14) },
+        { type: 'code_job', id: JOB, label: 'Fix the export', context: 'Code', at: at(10, 11, 10) },
+        // The same doc, later, from another source: one row, at the later time.
+        { type: 'document', id: DOC, label: 'Q4 renewals plan', context: null, at: at(10, 11, 11) },
+        { type: 'attachment', id: '', label: 'broken', context: null, at: at(10, 11, 12) },
+      ],
+    })
+    expect(items.map((i) => [i.key, i.at, i.needsYou])).toEqual([
+      [`attachment:${FILE}`, at(10, 11, 14), false],
+      [`document:${DOC}`, at(10, 11, 11), false],
+      [`code_job:${JOB}`, at(10, 11, 10), false],
+    ])
+  })
+})
+
+describe('the filter', () => {
+  const item = (type: RecentItem['type'], id: string, needsYou: boolean): RecentItem => ({ key: `${type}:${id}`, type, id, title: id, context: null, at: at(10, 11), needsYou, inboxAt: needsYou ? at(10, 11) : null })
+  const list = [item('team_chat_message', 'm', true), item('document', 'd', false), item('data_row', 'r', false), item('attachment', 'f', true), item('code_job', 'j', false)]
+
+  it('Status: Unread is the dot, Read everything else, All both', () => {
+    expect(filterRecents(list, { status: 'unread', types: [] }).map((i) => i.id)).toEqual(['m', 'f'])
+    expect(filterRecents(list, { status: 'read', types: [] }).map((i) => i.id)).toEqual(['d', 'r', 'j'])
+    expect(filterRecents(list, DEFAULT_RECENT_FILTER)).toHaveLength(5)
+  })
+
+  it('Type: only the kinds chosen, with Status on top; a Type per kind the list has', () => {
+    expect(filterRecents(list, { status: 'all', types: ['channels', 'agents'] }).map((i) => i.id)).toEqual(['m', 'j'])
+    expect(filterRecents(list, { status: 'unread', types: ['docs', 'files'] }).map((i) => i.id)).toEqual(['f'])
+    expect(recentTypesPresent(list)).toEqual(['channels', 'docs', 'tables', 'files', 'agents'])
+  })
+
+  it('toggles a Type, resets, and reads a saved filter back (junk is the default)', () => {
+    const one = toggleRecentType(DEFAULT_RECENT_FILTER, 'docs')
+    expect(one.types).toEqual(['docs'])
+    expect(toggleRecentType(one, 'docs').types).toEqual([])
+    expect(isDefaultRecentFilter(DEFAULT_RECENT_FILTER)).toBe(true)
+    expect(isDefaultRecentFilter(one)).toBe(false)
+    const known = ['docs', 'channels'] as const
+    expect(parseRecentFilter(JSON.stringify({ status: 'unread', types: ['docs', 'docs', 'nope', 3] }), known)).toEqual({ status: 'unread', types: ['docs'] })
+    expect(parseRecentFilter('{oops', known)).toBe(DEFAULT_RECENT_FILTER)
+    expect(parseRecentFilter(JSON.stringify({ status: 'weird' }), known)).toEqual({ status: 'all', types: [] })
+    expect(parseRecentFilter(null, known)).toBe(DEFAULT_RECENT_FILTER)
   })
 })
