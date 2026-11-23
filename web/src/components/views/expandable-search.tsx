@@ -77,9 +77,10 @@ export const ExpandableSearch = forwardRef<ExpandableSearchHandle, ExpandableSea
   return (
     <div
       ref={rootRef}
-      className={cn('relative h-8 shrink-0', inHeader ? 'transition-[width] duration-150 ease-out motion-reduce:transition-none' : 'w-8')}
+      // In a header 24px, as its other controls are (card-header-button.ts).
+      className={cn('relative shrink-0', inHeader ? 'h-6 transition-[width] duration-150 ease-out motion-reduce:transition-none' : 'size-8')}
       // In a header the field's width is its own: the header makes room for it.
-      style={inHeader ? { width: expanded ? width : 32 } : undefined}
+      style={inHeader ? { width: expanded ? width : 24 } : undefined}
       onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget) && !value) setOpen(false)
       }}
@@ -94,7 +95,11 @@ export const ExpandableSearch = forwardRef<ExpandableSearchHandle, ExpandableSea
         aria-controls={inputId}
         tabIndex={expanded ? -1 : 0}
         onClick={focus}
-        className={cn('flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring', expanded && 'pointer-events-none opacity-0')}
+        className={cn(
+          'flex items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+          inHeader ? 'size-6 rounded-full text-muted-foreground/70 hover:bg-foreground/[0.06] hover:text-foreground' : 'size-8 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground',
+          expanded && 'pointer-events-none opacity-0',
+        )}
       >
         <Search className="size-3.5" aria-hidden />
       </button>
@@ -102,15 +107,16 @@ export const ExpandableSearch = forwardRef<ExpandableSearchHandle, ExpandableSea
         id={inputId}
         aria-hidden={!expanded}
         className={cn(
-          'absolute right-0 top-0 z-20 flex h-8 items-center overflow-hidden rounded-full border transition-[width,opacity] duration-150 ease-out focus-within:ring-1 focus-within:ring-ring/30 motion-reduce:transition-none',
+          'absolute right-0 top-0 z-20 flex items-center overflow-hidden rounded-full border transition-[width,opacity] duration-150 ease-out focus-within:ring-1 focus-within:ring-ring/30 motion-reduce:transition-none',
+          inHeader ? 'h-6' : 'h-8',
           // In a header, on its glass like the layout switcher's capsule; elsewhere a field over what it covers.
           inHeader ? 'border-transparent bg-foreground/[0.05]' : 'border-border bg-background shadow-sm',
           expanded ? 'opacity-100' : 'pointer-events-none opacity-0',
         )}
-        style={{ width: expanded ? width : 32 }}
+        style={{ width: expanded ? width : inHeader ? 24 : 32 }}
       >
         {expanded && <>
-          <Search className="pointer-events-none absolute left-2.5 size-3.5 text-muted-foreground" aria-hidden />
+          <Search className={cn('pointer-events-none absolute size-3.5 text-muted-foreground', inHeader ? 'left-2' : 'left-2.5')} aria-hidden />
           <input
             ref={inputRef}
             type="text"
@@ -118,7 +124,7 @@ export const ExpandableSearch = forwardRef<ExpandableSearchHandle, ExpandableSea
             onChange={(event) => onChange(event.target.value)}
             aria-label={label}
             placeholder={placeholder}
-            className="h-full w-full min-w-0 bg-transparent pl-8 pr-8 text-sm outline-none placeholder:text-muted-foreground/60"
+            className={cn('h-full w-full min-w-0 bg-transparent outline-none placeholder:text-muted-foreground/60', inHeader ? 'pl-7 pr-7 text-[13px]' : 'pl-8 pr-8 text-sm')}
             onKeyDown={(event) => {
               if (event.key !== 'Escape' || event.nativeEvent.isComposing) return
               event.preventDefault()
@@ -130,14 +136,14 @@ export const ExpandableSearch = forwardRef<ExpandableSearchHandle, ExpandableSea
             type="button"
             aria-label={value ? 'Clear search' : 'Close search'}
             title={value ? 'Clear search' : 'Close search'}
-            className="absolute right-1 flex size-6 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            className={cn('absolute flex items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring', inHeader ? 'right-0.5 size-5' : 'right-1 size-6')}
             onClick={() => {
               if (!value) return close()
               onChange('')
               inputRef.current?.focus()
             }}
           >
-            <X className="size-3.5" aria-hidden />
+            <X className={inHeader ? 'size-3' : 'size-3.5'} aria-hidden />
           </button>
         </>}
       </div>

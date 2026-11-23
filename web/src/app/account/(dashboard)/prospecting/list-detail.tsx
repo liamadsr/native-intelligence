@@ -242,7 +242,7 @@ function ProspectingContactBanner({
 }
 
 /** A round icon control in a card's header (the list's settings, Find decision makers). */
-const HEADER_ICON_BUTTON = cn('grid size-7 shrink-0 place-items-center disabled:pointer-events-none disabled:opacity-50', CARD_HEADER_ICON_BUTTON)
+const HEADER_ICON_BUTTON = cn('grid size-6 shrink-0 place-items-center disabled:pointer-events-none disabled:opacity-50', CARD_HEADER_ICON_BUTTON)
 
 /**
  * One of the list's header controls: the page's Button on its own, a plain

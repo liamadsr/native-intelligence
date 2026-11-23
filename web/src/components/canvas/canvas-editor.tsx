@@ -219,7 +219,7 @@ function Header({
         <button
           type="button"
           aria-label="Canvas menu"
-          className={inCard ? cn('grid size-7 shrink-0 place-items-center', CARD_HEADER_ICON_BUTTON) : 'flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground'}
+          className={inCard ? cn('grid size-6 shrink-0 place-items-center', CARD_HEADER_ICON_BUTTON) : 'flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground'}
         >
           <MoreHorizontal className={inCard ? 'size-4' : 'h-4 w-4'} strokeWidth={inCard ? 1.75 : undefined} />
         </button>

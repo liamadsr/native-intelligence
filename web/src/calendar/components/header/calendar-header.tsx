@@ -242,7 +242,7 @@ function CardCalendarHeader({
   onFilterChange?: (accountIds: string[] | null) => void;
   onOpenSidebar?: () => void;
 }) {
-  const iconButton = cn("grid size-7 shrink-0 place-items-center", CARD_HEADER_ICON_BUTTON);
+  const iconButton = cn("grid size-6 shrink-0 place-items-center", CARD_HEADER_ICON_BUTTON);
   return (
     <>
       {onOpenSidebar && (

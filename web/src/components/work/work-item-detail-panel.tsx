@@ -836,7 +836,7 @@ export function WorkItemDetailPanel({ itemId, embedded = false, shown = true, on
           {canOpenRun && (
             <button
               type="button"
-              className={cn('grid size-7 shrink-0 place-items-center', CARD_HEADER_ICON_BUTTON)}
+              className={cn('grid size-6 shrink-0 place-items-center', CARD_HEADER_ICON_BUTTON)}
               onClick={openRun}
               aria-label={item.agent_run_id ? 'Open run' : 'Run history'}
               title={item.agent_run_id ? 'Open run' : 'Run history'}

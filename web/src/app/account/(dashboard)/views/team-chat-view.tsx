@@ -1477,7 +1477,7 @@ function ChannelPane({
           </CardHeaderTrail>
           <CardHeaderSlot side="right">
             <div data-team-chat-header-controls="" className="flex items-center gap-0.5">
-              <CallButton channel={channel} label={callLabel} className="grid size-7 place-items-center rounded-full p-0 hover:bg-foreground/[0.06]" />
+              <CallButton channel={channel} label={callLabel} className="grid size-6 place-items-center rounded-full p-0 hover:bg-foreground/[0.06]" />
               <NotifyMenu kind={channel.kind} level={channel.notify} onChange={onNotify} inHeader />
             </div>
           </CardHeaderSlot>
@@ -1642,7 +1642,7 @@ function NotifyMenu({ kind, level, onChange, inHeader = false }: { kind: TeamCha
           title={`Notifications: ${label}`}
           className={
             inHeader
-              ? cn('grid size-7 shrink-0 place-items-center data-[state=open]:bg-foreground/[0.06] data-[state=open]:text-foreground', CARD_HEADER_ICON_BUTTON)
+              ? cn('grid size-6 shrink-0 place-items-center data-[state=open]:bg-foreground/[0.06] data-[state=open]:text-foreground', CARD_HEADER_ICON_BUTTON)
               : 'shrink-0 rounded-lg p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground data-[state=open]:bg-accent'
           }
         >

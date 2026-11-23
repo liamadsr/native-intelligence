@@ -22,4 +22,4 @@ export const CARD_HEADER_ICON_BUTTON_ACTIVE = 'bg-foreground/[0.06] text-foregro
  * capsule beside it.
  */
 export const CARD_HEADER_PILL_BUTTON =
-  'inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full bg-foreground/[0.05] px-3 text-xs font-medium text-foreground transition-colors hover:bg-foreground/[0.1] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none'
+  'inline-flex h-6 shrink-0 items-center gap-1 rounded-full bg-foreground/[0.06] px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-foreground/[0.1] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none'

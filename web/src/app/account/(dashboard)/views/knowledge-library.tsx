@@ -572,7 +572,7 @@ function RefreshBriefsButton({ inHeader = false }: { inHeader?: boolean }) {
         title={label}
         onClick={() => void refresh()}
         disabled={state !== 'idle'}
-        className={cn('grid size-7 shrink-0 place-items-center disabled:opacity-50', CARD_HEADER_ICON_BUTTON)}
+        className={cn('grid size-6 shrink-0 place-items-center disabled:opacity-50', CARD_HEADER_ICON_BUTTON)}
       >
         {state === 'busy' ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <RefreshCw className="size-3.5" strokeWidth={1.75} aria-hidden />}
       </button>
