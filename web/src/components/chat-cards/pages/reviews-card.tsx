@@ -1,57 +1,68 @@
 'use client'
 
 /**
- * Reviews as a card (docs/plans/github-reviews.md, phase 1): the person's
- * GitHub pull requests, read live from GitHub with their own sign-in
- * (GET /api/account/github/reviews).
+ * Reviews as a card (docs/plans/github-reviews.md, "Reviews on the app's own
+ * list"): the person's GitHub pull requests, read live with their own sign-in
+ * (GET /api/account/github/reviews), drawn with the app's own list parts.
  *
- *   Sections  Review requests, Authored by me, Assigned to me, Involves me.
- *   Filters   Open / Closed / All; repo, author, assignee, label, review
- *             state, linked work; sorted by recently updated or newest.
- *   Layouts   List, and Board (Draft, In review, Checks failing, Conflicts,
- *             Ready to merge, Merged: lib/github/reviews.ts boardColumn).
- *   A row     opens the pull request's panel (./reviews/pull-panel.tsx): its
- *             description, checks, linked actions, the files changed with a
- *             read-only diff, and Merge (only when ready, confirmed first).
- *             Approving and commenting stay on GitHub: the panel links out.
- *   A linked  action opens over the page, inside the card, as Files opens a
- *             record.
+ *   Sections  Review requests, Authored by me, Assigned to me, Involves me,
+ *             and Open / Closed / All: the page's sub-nav beside the rail
+ *             (page-panel/reviews-panel.tsx), as My Actions' views are; pills
+ *             in the card only while that sub-nav isn't on screen.
+ *   Toolbar   the shared ViewToolbar: filter chips (Stage, State, Review,
+ *             Checks, Repository, Author, Assignee, Labels, Linked work,
+ *             dates) and the display settings (grouping, sort, properties).
+ *             Kept with the card, as every page card's list is.
+ *   Rows      the shared ViewList and ViewBoard over the view kind
+ *             `github_pr` (lib/views/types.ts); the board's columns are
+ *             Draft, In review, Checks failing, Conflicts, Ready to merge,
+ *             Merged. J/K, Enter and O as in every list.
+ *   A row     opens the pull request over the list, as a record opens
+ *             (reviews/pull-detail.tsx): the card's place `owner/name#12`,
+ *             so a GitHub notice opens it too and Back walks it.
  *
- * The section, filters and layout are remembered on this device.
+ * GitHub's search narrows by the section, the state, the sort and each plain
+ * filter; every filter, the grouping and the sort are then applied to the
+ * rows on the page (lib/github/reviews-view.ts).
  */
 import * as React from 'react'
 import Link from 'next/link'
-import { formatDistanceToNowStrict } from 'date-fns'
-import { GitPullRequest, LayoutGrid, List, Loader2, RefreshCw } from 'lucide-react'
+import { LayoutGrid, List, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useHotkeys, type HotkeyDefinition } from '@/lib/hotkeys'
 import {
-  BOARD_COLUMNS,
-  BOARD_COLUMN_LABEL,
-  LINKED_FILTERS,
-  REVIEW_DECISIONS,
   REVIEW_SECTIONS,
   REVIEW_STATES,
   SECTION_LABEL,
-  boardColumn,
-  prKey,
   reviewFiltersQuery,
-  type BoardColumn,
-  type ReviewFilters,
   type ReviewPr,
+  type ReviewSection,
+  type ReviewStateFilter,
 } from '@/lib/github/reviews'
+import { localValuesOf, searchFiltersOf, selectPrRows, toPrRow, type ReviewPrRow } from '@/lib/github/reviews-view'
+import { setLocalEnumOptions } from '@/lib/views/local-enum-options'
+import type { GroupedResults } from '@/lib/views/types'
+import { EntityIcon } from '@/components/entities/entity-icon'
+import { ViewToolbar } from '@/components/views/view-toolbar'
+import { ViewList } from '@/components/views/view-list'
+import { ViewBoard } from '@/components/views/view-board'
 import { ViewLayoutSwitcher } from '@/components/views/view-layout-switcher'
 import type { LayoutOption } from '@/components/views/view-layouts'
-import { CardCovered } from '../card-covered'
+import { ExpandableSearch } from '@/components/views/expandable-search'
+import { useViewConfig, type CardConfigSource, type ViewConfig } from '@/components/views/hooks/use-view'
+import { ListFocusProvider, listOwnsKeys, scrollListRowIntoView, stepListFocus } from '@/components/views/list-keyboard'
+import { useOwnSubnavShown } from '@/app/account/(dashboard)/page-panel/subnav-on-screen'
+import { CardCovered, CardOverlay } from '../card-covered'
 import { CARD_HEADER_ICON_BUTTON } from '../card-header-button'
 import { CardHeaderSlot, useCardHeaderSlots } from '../card-header-slot'
+import { publishReviewsCard, unpublishReviewsCard } from '../reviews-card-controls'
 import { RecordOverlay, usePageRecords } from './record-overlay'
 import { usePagePlace, type PageCardProps } from './page-card'
-import { PullPanel } from './reviews/pull-panel'
-import { ChecksIcon, PrStateIcon } from './reviews/icons'
+import { PullDetail } from './reviews/pull-detail'
 
 const PREFS_KEY = 'ni:reviews:prefs'
-
-type Layout = 'list' | 'board'
+/** The card keeps its list's changes here, as every page card's list (page-card.tsx). */
+const LIST_KEY = 'github_pr'
 
 /** List and Board, in the card's header as every views page's layouts are. */
 const LAYOUTS: LayoutOption[] = [
@@ -60,23 +71,21 @@ const LAYOUTS: LayoutOption[] = [
 ]
 
 interface Prefs {
-  filters: ReviewFilters
-  layout: Layout
+  section: ReviewSection
+  state: ReviewStateFilter
 }
 
-const DEFAULT_PREFS: Prefs = {
-  filters: { section: 'review_requests', state: 'open', sort: 'updated', linked: 'any' },
-  layout: 'list',
-}
+const DEFAULT_PREFS: Prefs = { section: 'review_requests', state: 'open' }
 
 function readPrefs(): Prefs {
   try {
-    const raw = window.localStorage.getItem(PREFS_KEY)
-    if (!raw) return DEFAULT_PREFS
-    const p = JSON.parse(raw) as Partial<Prefs>
+    const p = JSON.parse(window.localStorage.getItem(PREFS_KEY) ?? 'null') as Partial<Prefs & { filters: Partial<Prefs> }> | null
+    // An older page kept them inside `filters`.
+    const section = p?.section ?? p?.filters?.section
+    const state = p?.state ?? p?.filters?.state
     return {
-      layout: p.layout === 'board' ? 'board' : 'list',
-      filters: { ...DEFAULT_PREFS.filters, ...(p.filters ?? {}) },
+      section: (REVIEW_SECTIONS as readonly string[]).includes(section ?? '') ? (section as ReviewSection) : DEFAULT_PREFS.section,
+      state: (REVIEW_STATES as readonly string[]).includes(state ?? '') ? (state as ReviewStateFilter) : DEFAULT_PREFS.state,
     }
   } catch {
     return DEFAULT_PREFS
@@ -92,7 +101,6 @@ function writePrefs(p: Prefs) {
 }
 
 interface ReviewsAnswer {
-  viewer?: { login: string | null }
   total?: number
   cursor?: string | null
   prs?: ReviewPr[]
@@ -100,20 +108,24 @@ interface ReviewsAnswer {
   code?: string
 }
 
-function useReviews(filters: ReviewFilters) {
+/** One section's pull requests from GitHub, page by page. */
+function useReviews(query: string) {
   const [prs, setPrs] = React.useState<ReviewPr[]>([])
   const [cursor, setCursor] = React.useState<string | null>(null)
   const [total, setTotal] = React.useState<number | null>(null)
   const [loading, setLoading] = React.useState(true)
+  const [loadingMore, setLoadingMore] = React.useState(false)
   const [error, setError] = React.useState<{ message: string; code?: string } | null>(null)
-  const query = reviewFiltersQuery(filters)
   const seq = React.useRef(0)
 
   const load = React.useCallback(
     async (after: string | null) => {
       const n = ++seq.current
-      setLoading(true)
-      if (!after) setError(null)
+      if (after) setLoadingMore(true)
+      else {
+        setLoading(true)
+        setError(null)
+      }
       try {
         const res = await fetch(`/api/account/github/reviews?${query}${after ? `&after=${encodeURIComponent(after)}` : ''}`)
         const json = (await res.json().catch(() => ({}))) as ReviewsAnswer
@@ -131,7 +143,10 @@ function useReviews(filters: ReviewFilters) {
       } catch {
         if (n === seq.current) setError({ message: 'Could not reach the server.' })
       } finally {
-        if (n === seq.current) setLoading(false)
+        if (n === seq.current) {
+          setLoading(false)
+          setLoadingMore(false)
+        }
       }
     },
     [query],
@@ -141,73 +156,159 @@ function useReviews(filters: ReviewFilters) {
     void load(null)
   }, [load])
 
-  return { prs, cursor, total, loading, error, reload: () => load(null), more: () => cursor && load(cursor) }
+  return { prs, cursor, total, loading, loadingMore, error, reload: () => load(null), more: () => (cursor ? load(cursor) : undefined) }
 }
+
+const NOOP = () => {}
+const NO_VIEW = async () => null
 
 export default function ReviewsCard(props: PageCardProps) {
   const { toolCallId, store, onCount } = props
   const records = usePageRecords(toolCallId, store)
   const inCard = useCardHeaderSlots() !== null
-  const [prefs, setPrefs] = React.useState<Prefs>(DEFAULT_PREFS)
-  const [ready, setReady] = React.useState(false)
-  React.useEffect(() => {
-    setPrefs(readPrefs())
-    setReady(true)
-  }, [])
-  const update = React.useCallback((patch: Partial<ReviewFilters> | null, layout?: Layout) => {
-    setPrefs((p) => {
-      const next = { layout: layout ?? p.layout, filters: patch ? { ...p.filters, ...patch } : p.filters }
-      writePrefs(next)
-      return next
-    })
-  }, [])
+  const subnavShown = useOwnSubnavShown('reviews')
 
-  const { prs, cursor, total, loading, error, reload, more } = useReviews(prefs.filters)
-  // The panel open is the card's place (`owner/name#12`): a GitHub notice opens the card on it, and Back walks it.
+  // The section and state: the sub-nav's, remembered on this device.
+  const [prefs, setPrefs] = React.useState<Prefs>(DEFAULT_PREFS)
+  React.useEffect(() => setPrefs(readPrefs()), [])
+  const setSection = React.useCallback((section: ReviewSection) => setPrefs((p) => (writePrefs({ ...p, section }), { ...p, section })), [])
+  const setState = React.useCallback((state: ReviewStateFilter) => setPrefs((p) => (writePrefs({ ...p, state }), { ...p, state })), [])
+
+  // The view (filters, grouping, sort, layout, properties): the shared config, kept with the card.
+  const cardSource = React.useMemo<CardConfigSource>(
+    () => ({
+      baseline: {},
+      overrides: store.state(toolCallId).lists?.[LIST_KEY] as Partial<ViewConfig> | undefined,
+      onOverridesChange: (overrides) => {
+        const lists = { ...(store.state(toolCallId).lists ?? {}), [LIST_KEY]: overrides as Record<string, unknown> }
+        store.update(toolCallId, { lists }, { touch: true })
+      },
+    }),
+    // Read once, at mount (CardConfigSource).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [toolCallId],
+  )
+  const { config, updateConfig, isDirty, overrides, saveOverrides, discardOverrides } = useViewConfig(null, 'github_pr', undefined, false, undefined, 'workspace', cardSource, 'memory')
+
+  const [search, setSearch] = React.useState('')
+  const query = reviewFiltersQuery(searchFiltersOf(prefs.section, prefs.state, config.filters, config.ordering))
+  const { prs, cursor, total, loading, loadingMore, error, reload, more } = useReviews(query)
+
+  const rows = React.useMemo(() => prs.map(toPrRow), [prs])
+  React.useEffect(() => {
+    for (const [key, values] of Object.entries(localValuesOf(rows))) setLocalEnumOptions(key, values)
+  }, [rows])
+  const searched = React.useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return rows
+    return rows.filter((r) => r.title.toLowerCase().includes(q) || r.id.toLowerCase().includes(q) || (r.author ?? '').toLowerCase().includes(q))
+  }, [rows, search])
+  const layout = config.layout === 'board' ? 'board' : 'list'
+  const { data, flat, closedOffBoard } = React.useMemo(
+    () => selectPrRows(searched, { filters: config.filters, ordering: config.ordering, grouping: config.grouping, layout }),
+    [searched, config.filters, config.ordering, config.grouping, layout],
+  )
+
+  React.useEffect(() => {
+    onCount?.(loading ? null : (total ?? prs.length))
+  }, [onCount, loading, total, prs.length])
+
+  // The pull request open over the list: the card's place, `owner/name#12`.
   const place = usePagePlace(props)
   const openKey = place.at?.type === 'github_pr' ? place.at.id : null
-  const setOpenKey = React.useCallback(
-    (key: string | null) => {
-      if (!key) return place.go(null)
-      const pr = prs.find((p) => prKey(p.repo, p.number) === key)
-      place.go({ type: 'github_pr', id: key, ...(pr ? { label: pr.title } : {}) })
-    },
-    [place, prs],
+  const openRow = openKey ? (rows.find((r) => r.id === openKey) ?? null) : null
+  const openPr = React.useCallback(
+    (id: string, title?: string) => place.go({ type: 'github_pr', id, ...(title ? { label: title } : {}) }),
+    [place],
   )
-  const open = openKey ? (prs.find((p) => prKey(p.repo, p.number) === openKey) ?? stubPr(openKey, place.at?.label)) : null
-  const [focus, setFocus] = React.useState(0)
 
+  // The sub-nav moves this card (reviews-card-controls.ts).
   React.useEffect(() => {
-    onCount?.(loading || !ready ? null : (total ?? prs.length))
-  }, [onCount, loading, ready, total, prs.length])
+    publishReviewsCard({
+      cardId: toolCallId,
+      section: prefs.section,
+      state: prefs.state,
+      setSection: (s) => {
+        if (place.at) place.go(null)
+        setSection(s)
+      },
+      setState: (s) => {
+        if (place.at) place.go(null)
+        setState(s)
+      },
+      show: () => {
+        if (store.fullScreen() !== toolCallId) store.enterFullScreen(toolCallId)
+      },
+    })
+  }, [toolCallId, prefs.section, prefs.state, place, setSection, setState, store])
+  React.useEffect(() => () => unpublishReviewsCard(toolCallId), [toolCallId])
 
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    if (prefs.layout !== 'list' || e.metaKey || e.ctrlKey || e.altKey) return
-    const t = e.target as HTMLElement
-    if (t.closest('input, textarea, select, [contenteditable="true"]')) return
-    if (e.key === 'j' || e.key === 'ArrowDown') {
-      e.preventDefault()
-      setFocus((i) => Math.min(prs.length - 1, i + 1))
-    } else if (e.key === 'k' || e.key === 'ArrowUp') {
-      e.preventDefault()
-      setFocus((i) => Math.max(0, i - 1))
-    } else if ((e.key === 'Enter' || e.key === 'o') && prs[focus] && t.tagName !== 'BUTTON' && t.tagName !== 'A') {
-      e.preventDefault()
-      setOpenKey(prKey(prs[focus].repo, prs[focus].number))
-    }
+  // ── The keyboard, as in every list (list-keyboard.tsx): J/K and the arrows move, Enter or O opens. ──
+  const listRootRef = React.useRef<HTMLDivElement>(null)
+  // The rows in the order they stand on screen: group by group when grouped.
+  const ids = React.useMemo(() => {
+    const grouped = data.length > 0 && 'items' in (data[0] as object)
+    if (!grouped) return flat.map((r) => r.id)
+    const seen = new Set<string>()
+    for (const g of data as GroupedResults[]) for (const item of g.items) seen.add(item.id as string)
+    return [...seen]
+  }, [data, flat])
+  const [focusedId, setFocusedId] = React.useState<string | null>(null)
+  const liveFocusedId = focusedId && ids.includes(focusedId) ? focusedId : null
+  const keysOn = !openKey && !records.current
+  const ownsKeys = React.useCallback((e: KeyboardEvent) => listOwnsKeys(listRootRef.current, e), [])
+  const moveFocus = React.useCallback(
+    (step: number) => {
+      const next = stepListFocus(ids, liveFocusedId, step)
+      if (!next) return
+      setFocusedId(next)
+      requestAnimationFrame(() => scrollListRowIntoView(listRootRef.current, next))
+    },
+    [ids, liveFocusedId],
+  )
+  const openFocused = React.useCallback(() => {
+    const row = flat.find((r) => r.id === liveFocusedId)
+    if (row) openPr(row.id, row.title)
+  }, [flat, liveFocusedId, openPr])
+  const listKeys = React.useMemo<HotkeyDefinition[]>(() => {
+    const base = { globalGuard: true, when: ownsKeys, disabled: !keysOn }
+    return [
+      { ...base, key: 'j', handler: () => moveFocus(1) },
+      { ...base, key: 'ArrowDown', handler: () => moveFocus(1) },
+      { ...base, key: 'k', handler: () => moveFocus(-1) },
+      { ...base, key: 'ArrowUp', handler: () => moveFocus(-1) },
+      { ...base, key: 'Enter', disabled: !keysOn || !liveFocusedId, handler: openFocused },
+      { ...base, key: 'o', disabled: !keysOn || !liveFocusedId, handler: openFocused },
+    ]
+  }, [ownsKeys, keysOn, moveFocus, openFocused, liveFocusedId])
+  useHotkeys(listKeys)
+
+  const onItemSelect = React.useCallback(
+    (id: string, title: string) => {
+      setFocusedId(id)
+      openPr(id, title)
+    },
+    [openPr],
+  )
+
+  // Prev / next in the open pull request's header: the rows as listed.
+  const step = (dir: 1 | -1) => {
+    const i = openKey ? ids.indexOf(openKey) : -1
+    const next = i >= 0 ? ids[i + dir] : undefined
+    return next ? () => openPr(next, flat.find((r) => r.id === next)?.title) : undefined
   }
 
   const notConnected = error?.code === 'github_not_connected' || error?.code === 'github_unauthorized'
-  const f = prefs.filters
 
   return (
     <div className="relative h-full min-h-0">
-      <CardCovered covered={!!records.current}>
+      <CardCovered covered={!!openKey || !!records.current}>
         {inCard && (
-          // The page's own controls in its header (Liam, 11-22): the layouts and Refresh, 24px like every header control.
+          // The page's own controls in its header (Liam, 11-22): the layouts, search and Refresh, 24px like every header control.
           <CardHeaderSlot side="right">
-            <div className="flex items-center gap-1">
-              <ViewLayoutSwitcher options={LAYOUTS} value={prefs.layout} onChange={(layout) => update(null, layout === 'board' ? 'board' : 'list')} />
+            <div className="flex items-center gap-1.5">
+              <ViewLayoutSwitcher options={LAYOUTS} value={layout} onChange={(next) => updateConfig({ layout: next === 'board' ? 'board' : 'list' })} />
+              <ExpandableSearch value={search} onChange={setSearch} label="Search pull requests" placeholder="Search pull requests…" />
               <button
                 type="button"
                 aria-label="Refresh"
@@ -221,326 +322,142 @@ export default function ReviewsCard(props: PageCardProps) {
             </div>
           </CardHeaderSlot>
         )}
-        <div className="flex h-full min-h-0">
-          <div className="flex min-w-0 flex-1 flex-col" onKeyDown={onKeyDown}>
-            <div className="flex shrink-0 flex-wrap items-center gap-1 px-5 pt-3">
-              <div role="tablist" aria-label="Section" className="flex flex-wrap items-center gap-1">
-                {REVIEW_SECTIONS.map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    role="tab"
-                    aria-selected={f.section === s}
-                    data-reviews-section={s}
-                    onClick={() => update({ section: s })}
-                    className={chip(f.section === s)}
-                  >
-                    {SECTION_LABEL[s]}
-                  </button>
-                ))}
-              </div>
-              <div className="ml-auto flex items-center gap-1">
-                <div role="radiogroup" aria-label="State" className="flex items-center gap-1">
-                  {REVIEW_STATES.map((s) => (
-                    <button key={s} type="button" role="radio" aria-checked={f.state === s} data-reviews-state={s} onClick={() => update({ state: s })} className={chip(f.state === s)}>
-                      {s === 'open' ? 'Open' : s === 'closed' ? 'Closed' : 'All'}
-                    </button>
-                  ))}
-                </div>
-                {!inCard && (
-                <div role="radiogroup" aria-label="Layout" className="ml-1 flex items-center gap-0.5 rounded-lg border border-border p-0.5">
-                  <button type="button" role="radio" aria-checked={prefs.layout === 'list'} aria-label="List" title="List" data-reviews-layout="list" onClick={() => update(null, 'list')} className={iconChip(prefs.layout === 'list')}>
-                    <List className="size-3.5" />
-                  </button>
-                  <button type="button" role="radio" aria-checked={prefs.layout === 'board'} aria-label="Board" title="Board" data-reviews-layout="board" onClick={() => update(null, 'board')} className={iconChip(prefs.layout === 'board')}>
-                    <LayoutGrid className="size-3.5" />
-                  </button>
-                </div>
-                )}
-              </div>
+        <div ref={listRootRef} data-list-keyboard-root="" className="relative isolate flex h-full flex-col">
+          {/* The sections and state as pills where the sub-nav beside the rail isn't: below `md`, or when it isn't on screen. */}
+          {(
+            <div data-reviews-sections="" className={cn('flex shrink-0 flex-wrap items-center gap-1 px-[18px] pt-2', subnavShown && 'md:hidden')}>
+              {REVIEW_SECTIONS.map((s) => (
+                <Pill key={s} on={prefs.section === s} onClick={() => setSection(s)} data={{ 'data-reviews-section': s }}>
+                  {SECTION_LABEL[s]}
+                </Pill>
+              ))}
+              <span className="mx-1 h-4 w-px bg-border" aria-hidden />
+              {REVIEW_STATES.map((s) => (
+                <Pill key={s} on={prefs.state === s} onClick={() => setState(s)} data={{ 'data-reviews-state': s }}>
+                  {s === 'open' ? 'Open' : s === 'closed' ? 'Closed' : 'All'}
+                </Pill>
+              ))}
             </div>
-            <FilterRow filters={f} onChange={(patch) => update(patch)} />
-            <div className="min-h-0 flex-1 overflow-auto px-5 pb-6">
-              {error ? (
-                <div data-reviews-error={error.code ?? ''} className="flex flex-col items-center gap-2 py-16 text-center">
-                  <GitPullRequest className="h-7 w-7 text-muted-foreground/60" aria-hidden />
-                  <p className="max-w-sm text-sm text-muted-foreground">{error.message}</p>
-                  {notConnected && (
-                    <Link href="/account/settings/connectors" className="text-sm font-medium text-foreground underline underline-offset-2">
-                      Open Connectors
-                    </Link>
-                  )}
-                </div>
-              ) : prs.length === 0 && loading ? (
-                <p className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
-                  <Loader2 className="size-4 animate-spin" /> Loading pull requests…
-                </p>
-              ) : prs.length === 0 ? (
-                <div data-reviews-empty="" className="flex flex-col items-center gap-2 py-16 text-center">
-                  <GitPullRequest className="h-7 w-7 text-muted-foreground/60" aria-hidden />
-                  <p className="text-sm text-muted-foreground">No pull requests here.</p>
-                </div>
-              ) : prefs.layout === 'board' ? (
-                <Board prs={prs} onOpen={(p) => setOpenKey(prKey(p.repo, p.number))} openKey={openKey} />
-              ) : (
-                <ul role="listbox" aria-label="Pull requests" tabIndex={0} className="divide-y divide-border outline-none">
-                  {prs.map((p, i) => (
-                    <PrRow
-                      key={p.id}
-                      pr={p}
-                      focused={i === focus}
-                      selected={openKey === prKey(p.repo, p.number)}
-                      onOpen={() => {
-                        setFocus(i)
-                        setOpenKey(prKey(p.repo, p.number))
-                      }}
-                      onOpenAction={(id) => records.open({ type: 'action', id })}
-                    />
-                  ))}
-                </ul>
-              )}
-              {!error && cursor && (
-                <div className="flex justify-center pt-3">
-                  <button type="button" data-reviews-more="" disabled={loading} onClick={() => void more()} className="h-7 rounded-lg px-3 text-xs text-muted-foreground hover:bg-muted/60 hover:text-foreground disabled:opacity-50">
-                    {loading ? 'Loading…' : 'Show more'}
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-          {open && (
-            <PullPanel
-              key={openKey!}
-              summary={open}
-              onClose={() => setOpenKey(null)}
-              onMerged={() => void reload()}
-              onOpenAction={(id) => records.open({ type: 'action', id })}
-            />
           )}
+          <ViewToolbar
+            embedded
+            hideTabs
+            canSaveViews={false}
+            alignToContent
+            layoutInHeader={inCard}
+            entityType="github_pr"
+            views={[]}
+            activeViewId={null}
+            onViewChange={NOOP}
+            onCreateView={NO_VIEW}
+            onUpdateView={NOOP}
+            onDuplicateView={NOOP}
+            onDeleteView={NOOP}
+            config={config}
+            onConfigChange={updateConfig}
+            isDirty={isDirty}
+            overrides={overrides}
+            onSaveDraft={saveOverrides}
+            onDiscardDraft={discardOverrides}
+            actions={!inCard ? <ExpandableSearch value={search} onChange={setSearch} label="Search pull requests" placeholder="Search pull requests…" /> : undefined}
+          />
+          <div data-view-body="" className="relative min-h-0 flex-1 overflow-hidden">
+            {error ? (
+              <StateMessage data={{ 'data-reviews-error': error.code ?? '' }}>
+                <p className="max-w-sm text-sm text-muted-foreground">
+                  {error.message}
+                </p>
+                {notConnected && (
+                  <Link href="/account/settings/connectors" className="text-sm font-medium text-foreground underline underline-offset-2">
+                    Open Connectors
+                  </Link>
+                )}
+              </StateMessage>
+            ) : !loading && rows.length === 0 ? (
+              <StateMessage>
+                <p className="text-sm text-muted-foreground" data-reviews-empty="">
+                  No pull requests here.
+                </p>
+              </StateMessage>
+            ) : (
+              <ListFocusProvider value={liveFocusedId}>
+                {layout === 'board' ? (
+                  <ViewBoard
+                    entityType="github_pr"
+                    data={data as GroupedResults[]}
+                    loading={loading}
+                    config={config}
+                    selectedItemId={openKey}
+                    onItemSelect={onItemSelect}
+                  />
+                ) : (
+                  <ViewList
+                    entityType="github_pr"
+                    data={data}
+                    loading={loading}
+                    loadingMore={loadingMore}
+                    hasMore={!!cursor}
+                    onLoadMore={() => void more()}
+                    config={config}
+                    selectedItemId={openKey}
+                    onItemSelect={onItemSelect}
+                  />
+                )}
+              </ListFocusProvider>
+            )}
+            {layout === 'board' && closedOffBoard > 0 && (
+              <p data-reviews-closed-note="" className="absolute bottom-3 left-[18px] text-xs text-muted-foreground">
+                {closedOffBoard} closed without merging {closedOffBoard === 1 ? 'is' : 'are'} not on the board: see them in List.
+              </p>
+            )}
+          </div>
         </div>
       </CardCovered>
+      {openKey && (
+        <CardOverlay>
+          <PullDetail
+            key={openKey}
+            prKey={openKey}
+            summary={openRow?.pr ?? null}
+            fallbackTitle={place.at?.label}
+            onClose={() => place.go(null)}
+            onPrev={step(-1)}
+            onNext={step(1)}
+            onMerged={() => void reload()}
+            onOpenAction={(id) => records.open({ type: 'action', id })}
+          />
+        </CardOverlay>
+      )}
       <RecordOverlay records={records} page={props} />
     </div>
   )
 }
 
-/** A pull request not in the list (a notice opened it): its panel reads the rest. */
-function stubPr(key: string, title?: string): ReviewPr | null {
-  const m = /^([^#\s]+\/[^#\s]+)#(\d+)$/.exec(key)
-  if (!m) return null
-  const [, repo, n] = m
-  return {
-    id: key, repo, number: Number(n), title: title ?? key, url: `https://github.com/${repo}/pull/${n}`, state: 'open', draft: false,
-    mergeable: null, mergeState: null, reviewDecision: null, checks: null, createdAt: '', updatedAt: '', additions: 0, deletions: 0,
-    changedFiles: 0, headRef: null, headSha: null, baseRef: null, author: null, labels: [], assignees: [], permission: null, mergeMethods: [], linked: [],
-  }
-}
-
-function chip(on: boolean) {
-  return cn('h-7 rounded-lg px-2.5 text-xs transition-colors', on ? 'bg-foreground/[0.08] text-foreground' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground')
-}
-
-function iconChip(on: boolean) {
-  return cn('flex size-6 items-center justify-center rounded-md', on ? 'bg-foreground/[0.08] text-foreground' : 'text-muted-foreground hover:text-foreground')
-}
-
-/** A text filter applied on Enter or when the field is left. */
-function TextFilter({ label, value, placeholder, onApply, name }: { label: string; value: string | null | undefined; placeholder: string; onApply: (v: string | null) => void; name: string }) {
-  const [typed, setTyped] = React.useState(value ?? '')
-  React.useEffect(() => setTyped(value ?? ''), [value])
-  const apply = () => {
-    const v = typed.trim()
-    if ((v || null) !== (value ?? null)) onApply(v || null)
-  }
+function Pill({ on, onClick, data, children }: { on: boolean; onClick: () => void; data: Record<string, string>; children: React.ReactNode }) {
   return (
-    <input
-      aria-label={label}
-      data-reviews-filter={name}
-      value={typed}
-      placeholder={placeholder}
-      onChange={(e) => setTyped(e.target.value)}
-      onBlur={apply}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') apply()
-      }}
-      className="h-7 w-32 min-w-0 rounded-lg border border-border bg-transparent px-2 text-xs placeholder:text-muted-foreground/70 focus:outline-none focus:ring-1 focus:ring-ring"
-    />
-  )
-}
-
-const REVIEW_LABEL: Record<(typeof REVIEW_DECISIONS)[number], string> = {
-  none: 'No reviews',
-  required: 'Review required',
-  approved: 'Approved',
-  changes_requested: 'Changes requested',
-}
-
-function FilterRow({ filters, onChange }: { filters: ReviewFilters; onChange: (patch: Partial<ReviewFilters>) => void }) {
-  const select = 'h-7 rounded-lg border border-border bg-transparent px-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring'
-  return (
-    <div className="flex shrink-0 flex-wrap items-center gap-1.5 px-5 pb-2 pt-2">
-      <TextFilter name="repo" label="Repository" placeholder="owner/repo" value={filters.repo} onApply={(v) => onChange({ repo: v })} />
-      <TextFilter name="author" label="Author" placeholder="author" value={filters.author} onApply={(v) => onChange({ author: v })} />
-      <TextFilter name="assignee" label="Assignee" placeholder="assignee" value={filters.assignee} onApply={(v) => onChange({ assignee: v })} />
-      <TextFilter name="label" label="Label" placeholder="label" value={filters.label} onApply={(v) => onChange({ label: v })} />
-      <select aria-label="Review state" data-reviews-filter="review" value={filters.review ?? ''} onChange={(e) => onChange({ review: (e.target.value || null) as ReviewFilters['review'] })} className={select}>
-        <option value="">Any review</option>
-        {REVIEW_DECISIONS.map((r) => (
-          <option key={r} value={r}>
-            {REVIEW_LABEL[r]}
-          </option>
-        ))}
-      </select>
-      <select aria-label="Linked work" data-reviews-filter="linked" value={filters.linked ?? 'any'} onChange={(e) => onChange({ linked: e.target.value as ReviewFilters['linked'] })} className={select}>
-        {LINKED_FILTERS.map((l) => (
-          <option key={l} value={l}>
-            {l === 'any' ? 'Any work' : l === 'linked' ? 'Linked to an action' : 'Not linked'}
-          </option>
-        ))}
-      </select>
-      <select aria-label="Sort" data-reviews-filter="sort" value={filters.sort} onChange={(e) => onChange({ sort: e.target.value as ReviewFilters['sort'] })} className={select}>
-        <option value="updated">Recently updated</option>
-        <option value="created">Newest</option>
-      </select>
-    </div>
-  )
-}
-
-function reviewWord(pr: ReviewPr): string | null {
-  if (pr.reviewDecision === 'APPROVED') return 'Approved'
-  if (pr.reviewDecision === 'CHANGES_REQUESTED') return 'Changes requested'
-  if (pr.reviewDecision === 'REVIEW_REQUIRED') return 'Review required'
-  return null
-}
-
-function ago(iso: string): string {
-  const t = Date.parse(iso)
-  return Number.isFinite(t) ? formatDistanceToNowStrict(t, { addSuffix: true }) : ''
-}
-
-function LinkedChips({ pr, onOpenAction }: { pr: ReviewPr; onOpenAction: (id: string) => void }) {
-  if (pr.linked.length === 0) return null
-  return (
-    <>
-      {pr.linked.slice(0, 3).map((a) => (
-        <button
-          key={a.id}
-          type="button"
-          data-reviews-linked={a.id}
-          title={a.title ?? undefined}
-          onClick={(e) => {
-            e.stopPropagation()
-            onOpenAction(a.id)
-          }}
-          className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground hover:text-foreground"
-        >
-          {a.identifier ?? 'Action'}
-        </button>
-      ))}
-    </>
-  )
-}
-
-function PrRow({ pr, focused, selected, onOpen, onOpenAction }: { pr: ReviewPr; focused: boolean; selected: boolean; onOpen: () => void; onOpenAction: (id: string) => void }) {
-  const review = reviewWord(pr)
-  const ref = React.useRef<HTMLLIElement>(null)
-  React.useEffect(() => {
-    if (focused) ref.current?.scrollIntoView?.({ block: 'nearest' })
-  }, [focused])
-  return (
-    <li
-      ref={ref}
-      role="option"
-      aria-selected={selected}
-      data-reviews-row={prKey(pr.repo, pr.number)}
-      onClick={onOpen}
-      className={cn('flex cursor-pointer items-start gap-3 rounded-md px-2 py-2.5 hover:bg-muted/40', selected && 'bg-muted/60', focused && 'ring-1 ring-inset ring-ring/40')}
-    >
-      <PrStateIcon pr={pr} className="mt-0.5" />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="truncate text-sm font-medium text-foreground">{pr.title}</span>
-          <ChecksIcon checks={pr.checks} />
-        </div>
-        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-          <span>
-            {pr.repo}#{pr.number}
-          </span>
-          {pr.author && <span>by {pr.author.login}</span>}
-          {review && <span className={cn(pr.reviewDecision === 'APPROVED' && 'text-green-600', pr.reviewDecision === 'CHANGES_REQUESTED' && 'text-red-600')}>{review}</span>}
-          <span className="tabular-nums">
-            <span className="text-green-600">+{pr.additions}</span> <span className="text-red-600">−{pr.deletions}</span>
-          </span>
-          {pr.labels.slice(0, 3).map((l) => (
-            <span key={l.name} className="rounded-full border border-border px-1.5 text-[11px]">
-              {l.name}
-            </span>
-          ))}
-          <LinkedChips pr={pr} onOpenAction={onOpenAction} />
-        </div>
-      </div>
-      <span className="shrink-0 text-xs text-muted-foreground">{ago(pr.updatedAt)}</span>
-    </li>
-  )
-}
-
-function Board({ prs, onOpen, openKey }: { prs: ReviewPr[]; onOpen: (pr: ReviewPr) => void; openKey: string | null }) {
-  const columns = React.useMemo(() => {
-    const by = new Map<BoardColumn, ReviewPr[]>(BOARD_COLUMNS.map((c) => [c, []]))
-    let closed = 0
-    for (const p of prs) {
-      const c = boardColumn(p)
-      if (c) by.get(c)!.push(p)
-      else closed++
-    }
-    return { by, closed }
-  }, [prs])
-  return (
-    <div className="pt-1">
-      {/* Six columns that share the width, scrolling sideways only when it is narrow. */}
-      <div className="grid min-w-[840px] grid-cols-6 gap-3">
-        {BOARD_COLUMNS.map((c) => {
-          const list = columns.by.get(c)!
-          return (
-            <section key={c} data-reviews-column={c} aria-label={BOARD_COLUMN_LABEL[c]} className="flex min-w-0 flex-col rounded-xl bg-muted/30 p-2">
-              <h3 className="flex items-center justify-between px-1 pb-2 text-xs font-medium text-muted-foreground">
-                <span>{BOARD_COLUMN_LABEL[c]}</span>
-                <span className="tabular-nums">{list.length}</span>
-              </h3>
-              <div className="flex flex-col gap-2">
-                {list.map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    data-reviews-card={prKey(p.repo, p.number)}
-                    onClick={() => onOpen(p)}
-                    className={cn('rounded-lg border border-border bg-background p-2 text-left hover:border-foreground/20', openKey === prKey(p.repo, p.number) && 'border-foreground/30')}
-                  >
-                    <div className="flex items-start gap-1.5">
-                      <PrStateIcon pr={p} className="mt-0.5 size-3.5" />
-                      <span className="line-clamp-2 text-xs font-medium text-foreground">{p.title}</span>
-                    </div>
-                    <div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                      <span className="truncate">
-                        {p.repo.split('/')[1]}#{p.number}
-                      </span>
-                      <ChecksIcon checks={p.checks} />
-                      <span className="ml-auto tabular-nums">
-                        <span className="text-green-600">+{p.additions}</span> <span className="text-red-600">−{p.deletions}</span>
-                      </span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </section>
-          )
-        })}
-      </div>
-      {columns.closed > 0 && (
-        <p data-reviews-closed-note="" className="pt-3 text-xs text-muted-foreground">
-          {columns.closed} closed without merging {columns.closed === 1 ? 'is' : 'are'} not on the board: see them in List.
-        </p>
+    <button
+      type="button"
+      {...data}
+      aria-pressed={on}
+      onClick={onClick}
+      className={cn(
+        'inline-flex shrink-0 items-center whitespace-nowrap rounded-full border px-3 py-1 text-xs transition-colors',
+        on ? 'border-foreground bg-foreground font-medium text-background' : 'border-border bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground',
       )}
+    >
+      {children}
+    </button>
+  )
+}
+
+/** The page's empty and error states: the kind's own icon over a line, centred in the list's place. */
+function StateMessage({ children, data }: { children: React.ReactNode; data?: Record<string, string> }) {
+  return (
+    <div {...data} className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+      <EntityIcon kind="github_pr" size="lg" muted />
+      {children}
     </div>
   )
 }
+
+export type { ReviewPrRow }

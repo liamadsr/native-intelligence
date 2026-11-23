@@ -1,5 +1,6 @@
 'use client'
 
+import { LOCAL_ENUM_PREFIX, localEnumOptions } from '@/lib/views/local-enum-options'
 import * as React from 'react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
@@ -361,6 +362,11 @@ function DynamicEnumPicker({
           setLoaded(true)
         })
         .catch(() => { if (!cancelled) setLoaded(true) })
+    } else if (source.startsWith(LOCAL_ENUM_PREFIX)) {
+      // Values the page supplies (lib/views/local-enum-options.ts): the Reviews
+      // page's repositories, authors and labels, from the rows on screen.
+      setOptions(localEnumOptions(source.slice(LOCAL_ENUM_PREFIX.length)).map(v => ({ id: v, name: v, ids: [v] })))
+      setLoaded(true)
     } else {
       setLoaded(true)
     }
