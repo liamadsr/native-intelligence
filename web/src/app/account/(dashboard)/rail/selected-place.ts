@@ -16,6 +16,13 @@
  * selects the page; a record opened from inside the page keeps it; anything
  * else coming in front selects home, and so does nothing in front.
  *
+ * From a hub (Liam, 11-23; rail-pages.ts HUB_PLACES): a press in home's
+ * Recent or Inbox's list (they wear HUB_PLACE_ATTR) keeps that hub selected
+ * for the card it opens, whatever card that is. A team chat channel opened
+ * from Recent is Team chat's own card on that channel (open-card.ts
+ * cardForTarget: one team chat card), which selected Team chat and put its
+ * sub-nav beside it: the bug the owner reported.
+ *
  * "From inside" is the person's last press (a pointer down or a key) before
  * the card came in front: in the full-screen card's layer, or in a page's
  * own panel (it wears KEEP_PLACE_ATTR), within a moment. A press in a menu
@@ -42,16 +49,28 @@
  */
 import { useSyncExternalStore } from 'react'
 import { frontCard, subscribeFrontCard } from '@/components/chat-cards/front-card'
-import { nextSelectedPlace, ownPageOfCard, type SelectedPlace } from './rail-pages'
+import { isHubPlace, nextSelectedPlace, ownPageOfCard, type SelectedPlace } from './rail-pages'
 import { GROUP_OF_PAGE, rememberGroupPage } from './page-groups'
+import { useRailShown } from './rail-media'
 
 export type { SelectedPlace } from './rail-pages'
+export { HUB_PLACES, isHubPlace } from './rail-pages'
+
+/**
+ * On a hub's panel (home's Recent, Inbox's list: rail-pages.ts HUB_PLACES),
+ * its value the hub: a press in it keeps that hub selected for whatever it
+ * opens, a page's own card included (Liam, 11-23: "nothing from the home page
+ * should open the full page"). page-panel-frame.tsx puts it on.
+ */
+export const HUB_PLACE_ATTR = 'data-hub-place'
 
 /** On a page's own panel (My Actions' sub-nav, page-panel/tasks-panel.tsx): a press in it keeps the page selected, as one in the page's card does. */
 export const KEEP_PLACE_ATTR = 'data-keep-place'
 
 /** Where a press counts as inside the place on screen: the full-screen card's layer, or a page's own panel. */
 const INSIDE_SELECTOR = `[data-chat-card-fullscreen], [${KEEP_PLACE_ATTR}]`
+/** Where a press opens from a hub (HUB_PLACE_ATTR). */
+const HUB_SELECTOR = `[${HUB_PLACE_ATTR}]`
 /** A menu: a press in it is the one that opened it. */
 const MENU_SELECTOR = '[role="menu"]'
 /** How long a press counts toward the card it opens (a click's open is at once; a slow read is no longer the press). */
@@ -59,7 +78,7 @@ export const PRESS_COUNTS_MS = 1500
 
 let place: SelectedPlace = 'home'
 let frontId: string | null = null
-let lastPress: { inside: boolean; at: number } = { inside: false, at: Number.NEGATIVE_INFINITY }
+let lastPress: { inside: boolean; hub: SelectedPlace | null; at: number } = { inside: false, hub: null, at: Number.NEGATIVE_INFINITY }
 let scheduled = false
 let stopFollowing: (() => void) | null = null
 const listeners = new Set<() => void>()
@@ -69,18 +88,21 @@ const now = () => (typeof performance !== 'undefined' ? performance.now() : Date
 function notePress(e: Event): void {
   const target = e.target
   if (!(target instanceof Element)) {
-    lastPress = { inside: false, at: now() }
+    lastPress = { inside: false, hub: null, at: now() }
     return
   }
   if (target.closest(MENU_SELECTOR)) return
-  lastPress = { inside: !!target.closest(INSIDE_SELECTOR), at: now() }
+  const hub = target.closest(HUB_SELECTOR)?.getAttribute(HUB_PLACE_ATTR) ?? null
+  lastPress = { inside: !!target.closest(INSIDE_SELECTOR), hub: isHubPlace(hub) ? hub : null, at: now() }
 }
 
 function settle(): void {
   scheduled = false
   const front = frontCard()
-  const fromInside = lastPress.inside && now() - lastPress.at <= PRESS_COUNTS_MS
-  const next = nextSelectedPlace({ place, frontId }, front ? { id: front.id, spec: front.spec } : null, fromInside)
+  const recent = now() - lastPress.at <= PRESS_COUNTS_MS
+  const fromInside = lastPress.inside && recent
+  const fromHub = recent ? lastPress.hub : null
+  const next = nextSelectedPlace({ place, frontId }, front ? { id: front.id, spec: front.spec } : null, fromInside, undefined, fromHub)
   // A group member page's own card come in front: the group's last used member here.
   if (front && front.id !== frontId) {
     const own = ownPageOfCard(front.spec)
@@ -134,10 +156,23 @@ export function useSelectedPlace(): SelectedPlace {
   return useSyncExternalStore(subscribeSelectedPlace, selectedPlace, () => 'home')
 }
 
+/**
+ * Whether a card in front shows as just its one item (Liam, 11-23): a hub
+ * (home, Inbox) is selected, from `md` up (where its panel is). A team chat
+ * card on a channel is then that conversation alone, a mail card on a thread
+ * that thread alone (no channel list, no folders, no thread list). Below `md`
+ * (no panel, the phone's layout) never: cards there are as they were.
+ */
+export function useHubSingle(): boolean {
+  const selected = useSelectedPlace()
+  const railShown = useRailShown()
+  return railShown && isHubPlace(selected)
+}
+
 /** Tests: home, no card judged, no press noted. */
 export function __resetSelectedPlaceForTests(): void {
   place = 'home'
   frontId = null
-  lastPress = { inside: false, at: Number.NEGATIVE_INFINITY }
+  lastPress = { inside: false, hub: null, at: Number.NEGATIVE_INFINITY }
   scheduled = false
 }

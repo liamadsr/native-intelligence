@@ -115,6 +115,13 @@ export interface MailCardOptions {
   id?: string
   /** Put the card full screen (the sub-nav's rows, with another card in front). */
   show?: () => void
+  /**
+   * Just its thread, alone (Liam, 11-23: from home or Inbox "a mail thread
+   * opens as that thread alone, not the Mail page's list and reader"): no
+   * folders, no list, no search; the thread fills the card. Only with a
+   * thread to open (`initial.threadId`).
+   */
+  single?: boolean
 }
 
 interface EmailLayoutProps {
@@ -1020,6 +1027,15 @@ export function EmailLayout({ onReplyRequest, card }: EmailLayoutProps) {
     // beside it), they are the card's own again. Inline in the chat (no
     // sub-nav beside it) they are the card's own, as always.
     const ownNavHidden = !!card?.fullScreen && mailSubnavShown
+    if (card?.single && cardInit?.threadId) {
+      return (
+        <div ref={rootRef} className="ph-no-capture flex h-full flex-col" data-mail-card="" data-mail-single="">
+          <div className="min-h-0 flex-1 overflow-hidden">
+            {threadDetail ?? <div className="flex h-full items-center justify-center text-xs text-muted-foreground">This email is closed</div>}
+          </div>
+        </div>
+      )
+    }
     return (
       <div ref={rootRef} className="ph-no-capture flex h-full flex-col" data-mail-card="">
         {/* Unread, search and New email are the header's, as every page's
