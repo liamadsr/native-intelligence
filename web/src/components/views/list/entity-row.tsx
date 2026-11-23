@@ -53,6 +53,7 @@ import { cn } from '@/lib/utils'
 import { DISPLAY_PROPERTIES } from '@/lib/views/types'
 import { isCustomFieldPath } from '@/lib/views/custom-field-columns'
 import { CustomFieldCell } from './custom-field-cell'
+import { GithubPrLeading, githubPrCell } from './github-pr-cell'
 import type { ViewEntityType, EditableDescriptor } from '@/lib/views/types'
 import {
   RELATIONSHIP_TYPE_OPTIONS, RELATIONSHIP_STRENGTH_OPTIONS,
@@ -640,6 +641,7 @@ export function getTitle(entityType: ViewEntityType, item: Record<string, unknow
     case 'agent':
     case 'skill':
       return (item.name as string) || 'Untitled'
+    case 'github_pr': return (item.title as string) || 'Untitled pull request'
     case 'action': return (item.title as string) || 'Untitled'
     case 'capture': return (item.title as string) || 'Untitled Capture'
     case 'contact': return (item.full_name as string) || 'Unknown'
@@ -767,6 +769,14 @@ function EntityLeading({
     }
     case 'email_thread':
       return item.is_unread ? <span className="h-2 w-2 rounded-full bg-blue-500 shrink-0" /> : <span className="w-2 shrink-0" />
+    // A pull request (Reviews): its state's glyph, then its number in the identifier's slot.
+    case 'github_pr':
+      return (
+        <>
+          <GithubPrLeading item={item} />
+          <span className="text-[11px] text-muted-foreground font-mono w-14 truncate shrink-0">{item.identifier as string}</span>
+        </>
+      )
     case 'contact':
       return (
         <Avatar className="h-6 w-6 shrink-0">
@@ -2754,6 +2764,11 @@ function PropertyCell({ item, property, entityType, onPatch, pickerContext, canE
   if (entityType === 'eval_run') {
     const runCell = EvalRunCell({ item, property })
     if (runCell !== undefined) return runCell
+  }
+  // A pull request's cells (Reviews): GitHub's, read-only.
+  if (entityType === 'github_pr') {
+    const prCell = githubPrCell(property, item, chipClass)
+    if (prCell !== undefined) return prCell
   }
   // A company's own stage and revenue (migration 679).
   if (entityType === 'company') {

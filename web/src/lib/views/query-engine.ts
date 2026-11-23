@@ -436,6 +436,8 @@ function buildUnfencedEntityQuery(
     case 'agent':
     case 'skill':
       throw new Error('Library views use the agents and skills endpoints')
+    case 'github_pr':
+      throw new Error('Pull requests are read from GitHub by the Reviews page (/api/account/github/reviews)')
     case 'action': {
       // Personal scope (all of the user's workspaces) or the active one. The
       // ids come from the `member` table, never from the caller — see
@@ -706,6 +708,7 @@ function scopedWorkflowStates(supabase: SupabaseClient, scope: WorkspaceScopeIds
 const JUNCTION_FIELDS: Record<ViewEntityType, string[]> = {
   agent: [],
   skill: [],
+  github_pr: [],
   action: ['labels'],
   capture: ['labels'],
   contact: [],
@@ -757,6 +760,7 @@ export function isDroppedField(entityType: ViewEntityType | undefined, field: st
 const ARRAY_FIELDS: Record<ViewEntityType, string[]> = {
   agent: [],
   skill: [],
+  github_pr: [],
   action: [],
   capture: [],
   contact: ['tags', 'prospect_list_ids'],

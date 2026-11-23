@@ -69,6 +69,7 @@ export const BULK_ACTIONS: Record<ViewEntityType, BulkActionDefinition[]> = {
   // Library actions stay in the existing item dialogs and rows.
   agent: [],
   skill: [],
+  github_pr: [],
   action: [
     { id: 'change_status', label: 'Change status...', icon: 'Circle', requiresValue: true, valueType: 'status', shortcut: 'S' },
     { id: 'assign_to', label: 'Assign to...', icon: 'User', requiresValue: true, valueType: 'member', shortcut: 'A' },

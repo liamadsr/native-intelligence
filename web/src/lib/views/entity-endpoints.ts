@@ -12,6 +12,8 @@ import type { ViewEntityType } from './types'
 export const ENTITY_ENDPOINTS: Record<ViewEntityType, (id: string) => string | null> = {
   agent: id => `/api/account/agents/${id}`,
   skill: id => `/api/account/skills/${id}`,
+  // A pull request's detail is the Reviews page's own (GitHub's), never prefetched here.
+  github_pr: () => null,
   action: id => `/api/account/actions/${id}`,
   project: id => `/api/account/projects/${id}`,
   initiative: id => `/api/account/initiatives/${id}`,
