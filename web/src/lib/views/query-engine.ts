@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { TAGGABLE, type TagKind } from '@/lib/tags/kinds'
 import {
   startOfDay,
   endOfDay,
@@ -724,23 +725,16 @@ const JUNCTION_FIELDS: Record<ViewEntityType, string[]> = {
   data_row: [],
 }
 
-// Label junction table name per entity type
-const LABEL_JUNCTION_TABLE: Partial<Record<ViewEntityType, string>> = {
-  action: 'action_label',
-  capture: 'capture_label',
-  email_thread: 'email_thread_label',
-  initiative: 'initiative_label',
-  project: 'project_label',
-}
-
-// Entity ID column in each label junction table
-const LABEL_JUNCTION_ENTITY_ID: Partial<Record<ViewEntityType, string>> = {
-  action: 'action_id',
-  capture: 'capture_id',
-  email_thread: 'email_thread_id',
-  initiative: 'initiative_id',
-  project: 'project_id',
-}
+// Label (tag) junction table per entity type, and the column naming the
+// record there: from the one list of taggable kinds (lib/tags/kinds.ts).
+// Mail's column is `thread_id` (038).
+const LABEL_JUNCTION_KINDS = ['action', 'capture', 'email_thread', 'initiative', 'project'] as const satisfies readonly (ViewEntityType & TagKind)[]
+const LABEL_JUNCTION_TABLE: Partial<Record<ViewEntityType, string>> = Object.fromEntries(
+  LABEL_JUNCTION_KINDS.map((k) => [k, TAGGABLE[k].join]),
+)
+const LABEL_JUNCTION_ENTITY_ID: Partial<Record<ViewEntityType, string>> = Object.fromEntries(
+  LABEL_JUNCTION_KINDS.map((k) => [k, TAGGABLE[k].column]),
+)
 
 // Fields that are virtual/computed and need special handling
 const SKIP_FIELDS = new Set(['has_sub_actions', 'relations'])

@@ -120,7 +120,7 @@ describe('registerTools name collisions', () => {
       // unsubscribe_thread (GEN-1166): only on the person's approval card in the app.
       // connect_link: a texted link goes only to the person's phone, from their own text turn.
       // set_working_hours (availability): for now the person sets their hours in the app's chat.
-      if (['undo_extraction_pass', 'update_now', 'finish_getting_started', 'read_card', 'connect', 'disconnect', 'set_tool_access', 'review_post', 'publish_post', 'schedule_post', 'unsubscribe_thread', 'connect_link', 'set_working_hours'].includes(name)) {
+      if (['undo_extraction_pass', 'update_now', 'finish_getting_started', 'read_card', 'connect', 'disconnect', 'set_tool_access', 'review_post', 'publish_post', 'schedule_post', 'unsubscribe_thread', 'connect_link', 'set_working_hours', 'post_team_chat_poll'].includes(name)) {
         expect(tools[`ni_${name}`], `ni_${name} is withheld from MCP`).toBeUndefined()
         continue
       }

@@ -1,5 +1,6 @@
 'use client'
 
+import { openAttachmentById } from '@/components/files/global-file-viewer'
 import { messageMentionsMetadata, turnMessageMentions } from '@/lib/chat/message-mentions'
 import { useChat, type UIMessage } from '@ai-sdk/react'
 import { useStickToBottom, type GetTargetScrollTop } from 'use-stick-to-bottom'
@@ -1936,6 +1937,11 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
       // one shared with the caller by a mention) — docs/plans/mentions-everywhere.md JOB 2.
       if (row.kind === 'conversation') {
         openConversation(row.id, row.title)
+        return
+      }
+      // A file opens in the file viewer (docs/plans/drive-files.md), not its record's card.
+      if (row.kind === 'attachment') {
+        void openAttachmentById(row.id)
         return
       }
       const card = cardForTarget(menuRowTarget(row))

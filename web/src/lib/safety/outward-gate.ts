@@ -91,6 +91,7 @@ import type { QuoteReplyApprovalContext, StudioSpendApprovalContext, TimeOfferAp
 import { mailboxAddresses } from '@/lib/email/reply-policy'
 import { paymentsReady } from '@/lib/payments/ready'
 import { paymentLinkCard, parsePaymentLinkCall, SEND_PAYMENT_LINK } from '@/lib/payments/tool-input'
+import { pollCardCopy, POST_TEAM_CHAT_POLL } from '@/lib/team-chat/poll-tool'
 import { BOOK_QUOTE_TOOL, SEND_QUOTE_TOOL } from '@/lib/customers/quote-reply-input'
 import { bareToolName } from '@/lib/mcp/tool-names'
 import { NUDGE_TIME_OFFER_TOOL, offerTimesSends, OFFER_TIMES_TOOL } from '@/lib/time-offers/input'
@@ -113,7 +114,7 @@ export type ExternalToolPolicy = Pick<ServerToolMeta, 'serverName' | 'requiresAp
 
 export interface OutwardHold {
   /** Why, for the approval row's `reason` and the logs. */
-  reason: 'outside_attendees' | 'teammate_attendees' | 'mcp_write' | 'public_post' | 'unsubscribe' | 'payment_link' | 'customer_quote' | 'time_offer' | 'studio_spend'
+  reason: 'outside_attendees' | 'teammate_attendees' | 'mcp_write' | 'public_post' | 'unsubscribe' | 'payment_link' | 'customer_quote' | 'time_offer' | 'studio_spend' | 'team_chat_poll'
   /** The approval card's words. */
   card: { title: string; why: string }
   /** What the model reads when there is no person to ask (NEEDS_PERSON). */
@@ -415,6 +416,15 @@ export async function outwardHoldOf(check: OutwardCheck): Promise<OutwardHold | 
       refusal:
         `Nothing was posted. ${check.toolName} posts publicly, which only ever happens on the person's own approval card, and nobody is here to give it. ` +
         'Do not retry; leave the draft for them.',
+    }
+  }
+  // A poll in team chat (docs/plans/channels-inbox.md): it reaches teammates, so ALWAYS the person's card,
+  // with the poll as the call gives it; the tool posts only as that card's replay.
+  if (bare === POST_TEAM_CHAT_POLL) {
+    return {
+      reason: 'team_chat_poll',
+      card: pollCardCopy(check.input),
+      refusal: `Nothing was posted. ${check.toolName} posts a poll to teammates, which only happens on the person's own approval card, and nobody is here to give it. Do not retry.`,
     }
   }
   if (bare === 'unsubscribe_thread') return unsubscribeHold(check)

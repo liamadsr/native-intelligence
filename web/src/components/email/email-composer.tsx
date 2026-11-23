@@ -65,6 +65,7 @@ import { scheduleSend } from '@/lib/email/send-later'
 import { queueSend, UNDO_SEND_MS } from '@/lib/email/undo-send'
 import { EmailRecipientInput } from './email-recipient-input'
 import { ComposeEditor, sanitizeComposeHtml, type ComposeEditorHandle } from './compose-editor'
+import { recipientOf } from '@/lib/snippets/fill-ins'
 import { sanitizeEmailHtml } from './email-sanitize'
 import { SendLaterButton } from './send-later-button'
 import { formatFileSize } from './email-attachments'
@@ -460,6 +461,11 @@ export function EmailComposer({
       e.stopPropagation()
       send()
     } else if (e.key === 'Escape') {
+      // The `;` snippet menu took it (closing itself): the composer stays.
+      if (e.defaultPrevented) {
+        e.stopPropagation()
+        return
+      }
       // Esc here closes the composer only, never the thread behind it.
       e.preventDefault()
       e.stopPropagation()
@@ -652,6 +658,9 @@ export function EmailComposer({
           initialHtml={kept?.html ?? ''}
           autoFocus={autoFocus && start.mode !== 'forward' && start.mode !== 'new'}
           onChange={setHtml}
+          snippetFillIns={() => ({
+            recipient: recipientOf(latest.current.to, source ? [source.from, ...source.to, ...source.cc, ...(source.replyTo ?? [])] : []),
+          })}
           placeholder={start.mode === 'forward' ? 'Add a note…' : start.mode === 'new' ? 'Write your email…' : 'Write your reply…'}
         />
       </div>

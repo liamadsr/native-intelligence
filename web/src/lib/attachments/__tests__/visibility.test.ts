@@ -77,6 +77,11 @@ describe('visibleAttachmentIds', () => {
     expect([...ids].sort()).toEqual([ON_TASK, ON_SHARED].sort())
   })
 
+  it('without grants (a guest’s or a linked agent’s turn), a capture shared with the person opens nothing', async () => {
+    const ids = await visibleAttachmentIds(memoryDb(tables), { workspaceId: WS, userId: ANA }, ALL, { grants: false })
+    expect([...ids].sort()).toEqual([ON_TASK, ON_SHARED, ANA_ON_BEN_PRIVATE].sort())
+  })
+
   it('fails closed: a failed read shows nothing', async () => {
     const broken = {
       from: () => {
@@ -160,6 +165,13 @@ describe('a file on a table’s row', () => {
     const { db } = withRows({ rpc: async () => ({ data: null, error: { message: 'down' } }) })
     const ids = await visibleAttachmentIds(db, { workspaceId: WS, userId: ANA }, [ON_TASK, ON_OPEN_ROW])
     expect([...ids]).toEqual([ON_TASK])
+  })
+
+  it('without grants, the table rule is asked without grants', async () => {
+    const { db, calls } = withRows()
+    const ids = await visibleAttachmentIds(db, { workspaceId: WS, userId: ANA }, [ON_TASK, ON_OPEN_ROW], { grants: false })
+    expect([...ids].sort()).toEqual([ON_TASK, ON_OPEN_ROW].sort())
+    expect(calls[0]).toMatchObject({ p_user_id: ANA, p_grants: false })
   })
 
   it('the row rule alone, for a reader that fences captures its own way, without grants when told', async () => {

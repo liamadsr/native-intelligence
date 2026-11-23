@@ -13,6 +13,9 @@
  *
  * For the textareas that store no mention (an event's description, a campaign's
  * notes), inserting the `@label` text is all it does.
+ *
+ * `;` too: the person's snippets (docs/plans/snippets.md), their words put in
+ * place of `;query`.
  */
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { CommandMenu, type CommandMenuHandle } from '@/app/account/(dashboard)/chat/command-menu'
@@ -20,6 +23,8 @@ import type { SkillCommand } from '@/app/account/(dashboard)/chat/chat-panel'
 import { findTriggerToken, replaceToken, type ComposerMentionList, type ComposerMentionOption } from '@/app/account/(dashboard)/chat/command-menu-model'
 import { MENTION_PICKER_KINDS, menuRowMention, type MenuSearchRow } from '@/lib/search/menu-search'
 import type { LabeledMentionRef } from '@/lib/entity-links/mentionable'
+import { SnippetMenu } from '@/components/snippets/snippet-menu'
+import { useTextareaSnippets } from '@/components/snippets/use-textarea-snippets'
 
 const NO_SKILLS: readonly SkillCommand[] = []
 const noop = () => {}
@@ -75,11 +80,29 @@ export function MentionTextarea({ value, onChange, onKeyDown, onSelect, onBlur, 
     const t = findTriggerToken(value, caret, { mentions: pickedLabels })
     return t?.trigger === '@' ? t : null
   }, [value, caret, pickedLabels])
-  const menuOpen = !!token && focused && dismissedAt !== token.start
+  // `;`: the snippet menu (its own state; the `@` menu steps aside for it).
+  const snippetsBox = useTextareaSnippets({
+    value,
+    enabled: focused,
+    onCommit: (next) => {
+      const ta = innerRef.current
+      if (!ta) return
+      nativeSetValue(ta, next.value)
+      requestAnimationFrame(() => {
+        const el = innerRef.current
+        if (!el) return
+        el.focus()
+        if (el.value === next.value) el.setSelectionRange(next.caret, next.caret)
+        setCaret(next.caret)
+      })
+    },
+  })
+  const menuOpen = !!token && focused && dismissedAt !== token.start && !snippetsBox.open
 
   const noteCaret = (ta: HTMLTextAreaElement) => {
     const next = ta.selectionStart === ta.selectionEnd ? ta.selectionStart : -1
     setCaret(next)
+    snippetsBox.noteCaret(ta.value, next)
     // An Esc lasts while its trigger is typed on; leave it and it is forgotten.
     const t = findTriggerToken(ta.value, next)
     if (dismissedAt !== null && t?.start !== dismissedAt) setDismissedAt(null)
@@ -96,6 +119,11 @@ export function MentionTextarea({ value, onChange, onKeyDown, onSelect, onBlur, 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // While the menu shows, its keys are its own (↑ ↓ ↵ tab esc).
     if (menuOpen && menuRef.current?.handleKey(e)) {
+      e.preventDefault()
+      e.stopPropagation()
+      return
+    }
+    if (snippetsBox.handleKey(e)) {
       e.preventDefault()
       e.stopPropagation()
       return
@@ -168,6 +196,7 @@ export function MentionTextarea({ value, onChange, onKeyDown, onSelect, onBlur, 
         menuRef={menuRef}
         placement={{ side: 'bottom', width: Math.min(MENU_WIDTH, (typeof window !== 'undefined' ? window.innerWidth : MENU_WIDTH) - 32), mentionWord: 'mention' }}
       />
+      <SnippetMenu {...snippetsBox.menuProps} anchorRef={innerRef} side="bottom" width={MENU_WIDTH} />
     </>
   )
 }

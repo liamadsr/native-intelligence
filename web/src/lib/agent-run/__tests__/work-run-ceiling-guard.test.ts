@@ -101,6 +101,8 @@ const REVIEWED_IN_CEILING: Record<string, string> = {
   create_email_draft: 'an email DRAFT for the user to review; sending is always a separate user action',
   draft_followup_email: 'saves a follow-up email DRAFT from a capture; "Only creates a draft — does NOT send"',
   create_sequence: 'creates the sequence as a draft that never sends; only the user launches it',
+  stage_linear_import:
+    'only READS the connected Linear (its read scope) and writes a staged import to our own journal; nothing in Linear changes, and the person runs the import from its preview page',
   remove_from_sequence: 'exits an enrollment so further steps do NOT send; it can only reduce outbound mail',
   create_campaign: '"a named push" is marketing language; it writes an internal planning row (and, from a recipe, a draft sequence) and sends nothing',
   update_campaign: 'edits a campaign\'s fields (its audience, sequence, rolling); "sends" describes the campaign, and only launch_campaign (excluded) sends, on the person\'s yes',

@@ -75,6 +75,7 @@ import {
   Users,
   Workflow,
   type LucideIcon,
+  TextQuote,
 } from 'lucide-react'
 import type { EntityType } from '@/lib/knowledge/entity-registry'
 import type { FindableGroup, FindableKind } from '@/lib/search/findable-registry'
@@ -144,7 +145,7 @@ export interface EntityIdentity {
 }
 
 /** What is drawn as a kind and is no registered entity or found kind. */
-type ExtraIdentityKind = 'skill' | 'dm' | 'booking_link' | 'drive_folder'
+type ExtraIdentityKind = 'skill' | 'dm' | 'booking_link' | 'drive_folder' | 'snippet'
 
 /** Every kind with an identity. */
 export type EntityIdentityKind = EntityType | FindableKind | ExtraIdentityKind
@@ -179,6 +180,8 @@ export const ENTITY_IDENTITIES: Record<EntityIdentityKind, EntityIdentity> = {
   capture_participant: { icon: Mic, color: 'pink', label: 'Participant' },
   calendar_event: { icon: CalendarDays, color: 'red', label: 'Event' },
   booking_link: { icon: CalendarClock, color: 'teal', label: 'Booking link' },
+  // A saved piece of text typed in with `;` (docs/plans/snippets.md): no record, a Create entry.
+  snippet: { icon: TextQuote, color: 'gray', label: 'Snippet' },
   // ── People ──────────────────────────────────────────────────────────────
   contact: { icon: User, color: 'gray', label: 'Contact' },
   member: { icon: CircleUser, color: 'gray', label: 'Member' },

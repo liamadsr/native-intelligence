@@ -128,7 +128,7 @@ describe('cardForTarget', () => {
   it('opens a `/` page by its slug, and nothing for one that is not', () => {
     expect(cardForTarget({ type: 'page', slug: 'teams' }, NOW)?.spec).toEqual({ kind: 'teams', title: 'Teams' })
     // The inbox page went with the notifications page.
-    expect(cardForTarget({ type: 'page', slug: 'inbox' }, NOW)).toBeNull()
+    expect(cardForTarget({ type: 'page', slug: 'nowhere' }, NOW)).toBeNull()
     expect(cardForTarget({ type: 'page', slug: 'calendar' }, NOW)?.spec.kind).toBe('calendar')
     expect(cardForTarget({ type: 'page', slug: 'nav' }, NOW)).toBeNull()
   })
@@ -167,7 +167,7 @@ describe('parseOpenCardRequest', () => {
     expect(parseOpenCardRequest({ spec: { kind: 'teams', title: 'Teams' }, from: 'link' })).toEqual({ spec: { kind: 'teams', title: 'Teams' }, from: 'link' })
     expect(parseOpenCardRequest({ spec: { kind: 'nav', title: 'x' }, from: 'link' })).toBeNull()
     // The inbox card is gone.
-    expect(parseOpenCardRequest({ spec: { kind: 'inbox', title: 'Inbox' }, from: 'link' })).toBeNull()
+    expect(parseOpenCardRequest({ spec: { kind: 'nowhere', title: 'Nowhere' }, from: 'link' })).toBeNull()
     expect(parseOpenCardRequest(null)).toBeNull()
     expect(parseOpenCardRequest({ spec: { kind: 'teams', title: 'Teams' } })?.from).toBe('link')
   })
