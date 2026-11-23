@@ -79,7 +79,7 @@ import { CARD_HEADER_ICON_BUTTON } from './card-header-button'
 import { useLiveCaptureDockSlot } from './card-dock-slot'
 import { CARD_GLASS_FRAME, CardGlass } from './card-glass'
 import { COLUMN_CARD_SKIN } from '@/components/attention/card-skin'
-import { FULL_SCREEN_INTERACTIVE_ATTR, SKY_PILL, SkyHeaderRow } from './sky-header-row'
+import { SKY_PILL, SkyHeaderRow } from './sky-header-row'
 import { frontCard, holdFrontCard } from './front-card'
 import { besideAppRail, minimizeCard, minimizeSoon, minimizedCard, minimizedFlightKey, recheckMinimized, subscribeBesideAppRail, subscribeMinimized } from './minimized-card'
 import { landTileFlight } from '@/lib/chat/tile-flight'
@@ -331,13 +331,14 @@ const PARKED_SIZE = { width: 1200, height: 690 }
  * row) and TOP_BAR_RIGHT_INSET_PX from the right. Nothing to read here: the
  * toggle draws nothing and the capsule goes with it (`empty:hidden`). Below
  * `md` it stays in the layer's corner, above the card, in the same capsule.
- * The page's header pills share its row since 11-23 and keep clear of it
- * (sky-header-row.tsx measures it).
+ * Not drawn beside the rail since 11-23: the page's header is up in that
+ * row now (sky-header-row.tsx), and Interactive is in its controls' pill
+ * (ListenModeToggle variant="header"), one row of pills, not two things.
  */
 function FullScreenInteractive() {
   return (
     <div
-      {...{ [FULL_SCREEN_CONTROL_ATTR]: '', [FULL_SCREEN_INTERACTIVE_ATTR]: '' }}
+      {...{ [FULL_SCREEN_CONTROL_ATTR]: '' }}
       className={cn(
         'absolute right-4 top-3 z-10 flex items-center rounded-full border border-border/60 p-1 empty:hidden',
         COLUMN_CARD_SKIN,
@@ -938,8 +939,12 @@ export function ShowToolCard({
           <div data-card-header-pill="title" className={cn(SKY_PILL, 'min-w-0 gap-2 pl-3.5 pr-4')}>
             {title}
           </div>
-          {/* Hidden while it holds no control (a card from the chat with no page controls: its Minimize is under it). */}
-          <div data-card-header-pill="controls" className={cn(SKY_PILL, 'ml-auto shrink-0 gap-0.5 px-2 [&:not(:has(button))]:hidden')}>
+          {/* Hidden while it holds no control (a card from the chat with no page controls: its Minimize is under it).
+              Interactive (listen mode, the desktop app) leads it, the same toggle as the top bar's at the header's
+              32px, 4px in from the round end (Liam, 11-23: "that button also shows in the header so it's not a
+              different thing"); first, so the page's controls and Minimize never move as it comes and goes. */}
+          <div data-card-header-pill="controls" className={cn(SKY_PILL, 'ml-auto shrink-0 gap-0.5 px-2 has-[>[data-listen-header]]:pl-1 [&:not(:has(button))]:hidden')}>
+            <ListenModeToggle variant="header" />
             {controls}
           </div>
         </SkyHeaderRow>
@@ -1100,8 +1105,10 @@ export function ShowToolCard({
           >
             {/* No floating X (Liam, 11-09: "feels so out of place"): a page
                 closes from its header, a card from the chat with Minimize
-                under it, and either with Esc or a press outside it. */}
-            <FullScreenInteractive />
+                under it, and either with Esc or a press outside it.
+                Interactive: in the header's controls pill beside the rail,
+                its own capsule otherwise. */}
+            {!headerIsland && <FullScreenInteractive />}
             <div className={FULL_SCREEN_STAGE}>
             <div className={cn(FULL_SCREEN_COLUMN, 'relative')} style={sizes.column}>
               <div ref={fullScreenFrameRef} {...{ [CARD_FRAME_ATTR]: '' }} className={cn('relative flex w-full flex-col overflow-hidden shadow-2xl', CARD_GLASS_FRAME)} style={sizes.frame}>

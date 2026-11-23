@@ -135,8 +135,8 @@ const metal = () => container.querySelector<HTMLElement>('[data-metal]')
 const ring = () => container.querySelector<HTMLElement>('[data-listen-ring]')
 const nextButton = () => container.querySelector<HTMLButtonElement>('button[data-listen-next]')
 
-async function render(className?: string) {
-  await act(async () => root.render(h(ListenModeToggle, { className })))
+async function render(className?: string, variant?: 'bar' | 'header') {
+  await act(async () => root.render(h(ListenModeToggle, { className, variant })))
 }
 
 /** Waits (inside act) until `check` holds: the metal's first load is a
@@ -493,6 +493,35 @@ describe('ListenModeToggle', () => {
     expect(isListenModeOn()).toBe(false)
     expect(nextButton()).toBeNull()
     expect(toggle()).toBe(button)
+  })
+
+  it('in a full-screen page\'s header (variant "header"): the same metal pill and rainbow ring at the header\'s 32px; Next and the mic as its 24px round buttons, the first 4px further in', async () => {
+    desktop.app = true
+    desktop.voice = { ...desktop.voice, interactive: true }
+    setSectionPlayerSupported(true)
+    __setListenNextForTests({ label: 'Next thread', go: vi.fn() })
+    await render(undefined, 'header')
+    await until(() => metal() !== null)
+    const outer = container.firstElementChild as HTMLElement
+    expect(outer.hasAttribute('data-listen-header')).toBe(true)
+    expect(outer.className).toContain('[&>button:first-child]:ml-1')
+    // The toggle: the header's 32px, its metal and its ring as in the bar.
+    expect(toggle()!.classList.contains('h-8')).toBe(true)
+    expect(toggle()!.classList.contains('h-9')).toBe(false)
+    expect(ring()).not.toBeNull()
+    await act(async () => toggle()!.click())
+    expect(ring()!.getAttribute('data-listen-ring')).toBe('on')
+    // Next and the mic: 24px rounds with no surface of their own, before the toggle, outside the metal.
+    for (const b of [nextButton()!, micButton()!]) {
+      for (const c of ['size-6', 'rounded-full']) expect(b.classList.contains(c)).toBe(true)
+      for (const c of ['h-9', 'bg-white', 'border', 'shadow-sm']) expect(b.classList.contains(c)).toBe(false)
+      expect(toggle()!.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
+      expect(metal()!.parentElement!.contains(b)).toBe(false)
+    }
+    // The bar's own (the default) is unchanged.
+    await act(async () => root.render(h(ListenModeToggle, {})))
+    expect((container.firstElementChild as HTMLElement).hasAttribute('data-listen-header')).toBe(false)
+    expect(toggle()!.classList.contains('h-9')).toBe(true)
   })
 
   describe('the mic button (Interactive mode)', () => {

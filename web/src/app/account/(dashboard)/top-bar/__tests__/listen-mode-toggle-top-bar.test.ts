@@ -44,10 +44,13 @@ describe('the Listen mode toggle: once, in the top bar', () => {
 
   // And over a full-screen card, which covers the bar (Liam, 2026-10-09: the
   // Interactive button and its controls should show in full screen, top
-  // right): the same switch, once, in show-tool-card's FullScreenInteractive.
+  // right): the same switch, once on screen, in show-tool-card: in the page's
+  // header (its controls' pill up on the sky) beside the rail (Liam, 11-23:
+  // "that button also shows in the header so it's not a different thing"),
+  // in FullScreenInteractive's capsule otherwise, never both.
   const FULL_SCREEN_CARD = 'src/components/chat-cards/show-tool-card.tsx'
 
-  it('is rendered in the top bar, once, and over a full-screen card, once', () => {
+  it('is rendered in the top bar, once, and over a full-screen card, once on screen: its header beside the rail, its own capsule otherwise', () => {
     const renderedIn = sourceFiles(join(ROOT, 'src'))
       .filter((file) => strip(readFileSync(file, 'utf8')).includes('<ListenModeToggle'))
       .map((file) => relative(ROOT, file))
@@ -55,8 +58,11 @@ describe('the Listen mode toggle: once, in the top bar', () => {
     expect(renderedIn).toEqual([FULL_SCREEN_CARD, TOP_BAR].sort())
     expect(topBar.match(/<ListenModeToggle\b/g)).toHaveLength(1)
     const card = strip(readFileSync(join(ROOT, FULL_SCREEN_CARD), 'utf8'))
-    expect(card.match(/<ListenModeToggle\b/g)).toHaveLength(1)
-    expect(card.slice(card.indexOf('function FullScreenInteractive'))).toMatch(/^function FullScreenInteractive[\s\S]*?<ListenModeToggle/)
+    expect(card.match(/<ListenModeToggle\b/g)).toHaveLength(2)
+    expect(card.slice(card.indexOf('function FullScreenInteractive'))).toMatch(/^function FullScreenInteractive[\s\S]*?<ListenModeToggle \/>/)
+    expect(card.match(/<ListenModeToggle variant="header" \/>/g)).toHaveLength(1)
+    // The capsule only where the header is not up on the sky.
+    expect(card).toMatch(/\{!headerIsland && <FullScreenInteractive \/>\}/)
   })
 
   it("sits in the bar's trailing cluster: the toggle, then the side panel's toggle, then the workspace pill at the very end", () => {
