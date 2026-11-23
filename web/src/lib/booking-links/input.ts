@@ -7,7 +7,7 @@
  * Pure.
  */
 import { z } from 'zod'
-import { HOST_MODES, LINK_DESCRIPTION_MAX, LINK_HOSTS_MAX, LINK_LIMITS, LINK_LOCATION_MAX, LINK_QUESTIONS_MAX, LINK_SLUG_RE, LINK_TITLE_MAX, QUESTION_KINDS, QUESTION_LABEL_MAX } from './types'
+import { FORM_REFUSAL_MAX, FORM_RULE_CONDITIONS_MAX, FORM_RULE_OPS, HOST_MODES, LINK_DESCRIPTION_MAX, LINK_HOSTS_MAX, LINK_LIMITS, LINK_LOCATION_MAX, LINK_QUESTIONS_MAX, LINK_SLUG_RE, LINK_TITLE_MAX, QUESTION_KINDS, QUESTION_LABEL_MAX } from './types'
 
 const CLOCK = /^(([01]\d|2[0-3]):[0-5]\d|24:00)$/
 const range = z.object({ start: z.string().regex(CLOCK), end: z.string().regex(CLOCK) })
@@ -41,7 +41,29 @@ export const linkFieldsInput = z.object({
   hosts: z.array(z.string().uuid()).min(1).max(LINK_HOSTS_MAX).optional().describe('Members who host it (user ids), in order; default the person'),
   weekly_hours: z.array(z.array(range).max(6)).length(7).nullable().optional().describe("The link's own hours, seven days Sunday first; null: each host's working hours"),
   time_zone: z.string().max(64).nullable().optional().describe("The zone of weekly_hours (default the person's)"),
+  date_overrides: z
+    .record(z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.array(range).max(6))
+    .nullable()
+    .optional()
+    .describe("Dated changes to the link's own weekly_hours: { 'YYYY-MM-DD': ranges }, an empty list a day off (at most 60; past dates are dropped). Only with weekly_hours; null clears them"),
   active: z.boolean().optional().describe('False turns it off: its page stops taking bookings'),
+  form_id: z.string().uuid().nullable().optional().describe('A form (list_forms) the guest answers first: anyone-can-fill, on, taking no files, on a table the person can change. null takes it away'),
+  form_rule: z
+    .object({
+      all: z
+        .array(
+          z.object({
+            field: z.string().min(1).max(80).describe("A form field's key (a column's key, or $title for the row's name)"),
+            op: z.enum(FORM_RULE_OPS).describe('equals, not_equals, contains (text, or one of a multi-select), in (one of a list), gte or lte (a number, an amount or a date), is_true or is_false (a checkbox)'),
+            value: z.union([z.string().max(200), z.number(), z.array(z.string().max(200)).max(20)]).optional(),
+          }),
+        )
+        .max(FORM_RULE_CONDITIONS_MAX),
+    })
+    .nullable()
+    .optional()
+    .describe("Who goes on to book: every condition must hold on the guest's answers (none, or null: everyone who sends the form)"),
+  form_refusal: z.string().trim().max(FORM_REFUSAL_MAX).nullable().optional().describe("What a guest who doesn't qualify reads (default: a polite line of ours)"),
 })
 
 export type LinkFieldsInput = z.infer<typeof linkFieldsInput>

@@ -17,7 +17,9 @@
  * later than `after` before the next), the minimum notice (nothing starts
  * sooner), the window (nothing starts later than that many days out), the
  * grid (starts on multiples of the step from local midnight in the link's
- * zone; the step defaults to the length) and the daily cap (a day that has
+ * zone; the step defaults to the length), a link's own week's dated changes
+ * (a date's own hours or a day off, migration 705; the host's dated days off
+ * still apply over them) and the daily cap (a day that has
  * as many of the link's bookings as the cap offers nothing). At most
  * LINK_TIMES_PER_DAY_MAX times a day are offered: a cap per day, so a busy
  * grid never leaves the later days looking empty.
@@ -230,6 +232,16 @@ function daysOff(overrides: AvailabilitySchedule['overrides']): Record<string, r
   return Object.keys(out).length ? out : undefined
 }
 
+/**
+ * A link's own week's dated changes (migration 705) with the host's dated
+ * days off laid over them: a host's day off wins over the link's hours that
+ * date, and the host's other dated hours never reach the link's week. Pure.
+ */
+export function ownWeekOverrides(link: BookingLink['dateOverrides'], host: AvailabilitySchedule['overrides']): AvailabilitySchedule['overrides'] {
+  const merged = { ...(link ?? {}), ...(daysOff(host) ?? {}) }
+  return Object.keys(merged).length ? merged : undefined
+}
+
 /** A reason a guest may read: what kind of thing went wrong, never a provider's words or whose calendar. */
 const UNKNOWN = "The calendar couldn't be checked just now."
 
@@ -256,8 +268,8 @@ export async function readLinkTimes(link: BookingLink, range: { from: number; to
         const hours = await readHours(userId, ws)
         // A host whose zone is unknown has no hours to offer, unless the link names its own week and zone.
         if (hours.zoneKnown === false && !(link.weeklyHours && link.timeZone)) return null
-        // The link's own week still keeps the host's dated days off.
-        const schedule: AvailabilitySchedule = link.weeklyHours ? { timeZone: link.timeZone ?? hours.timeZone, weekly: link.weeklyHours, overrides: daysOff(hours.overrides) } : hours
+        // The link's own week takes its own dated changes, and still keeps the host's dated days off (a day off wins).
+        const schedule: AvailabilitySchedule = link.weeklyHours ? { timeZone: link.timeZone ?? hours.timeZone, weekly: link.weeklyHours, overrides: ownWeekOverrides(link.dateOverrides, hours.overrides) } : hours
         if (!(await hasCalendar(userId, ws))) return null
         // The day before and after, so an all-day event's UTC midnights are seen.
         const timeMin = new Date(from - DAY_MS).toISOString()

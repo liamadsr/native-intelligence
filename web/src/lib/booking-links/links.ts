@@ -27,12 +27,13 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { bookingCallsAvailable } from '@/lib/meeting-links/bookings'
 import { readSharing } from '@/lib/availability/sharing'
-import { readWeekly, readWorkingHours } from '@/lib/availability/schedule'
+import { readDayRanges, readWeekly, readWorkingHours } from '@/lib/availability/schedule'
+import type { DayRange } from '@/lib/availability/engine'
 import { isStorableTimeZone } from '@/lib/agent-events/member-time-zone'
 import { hostDisplayName } from '@/lib/time-offers/offers'
 import { questionId, slugFromTitle, type CreateLinkInput, type LinkFieldsInput } from './input'
 import { countLinks, deleteLinkRow, getLink, getProfile, insertLink, listLinks, setProfileHandle, updateLink, type LinkColumns, type LinkWrite } from './store'
-import { LINK_DEFAULTS, LINKS_PER_WORKSPACE_MAX, PROFILE_HANDLE_RE, type BookingLink, type BookingProfile, type LinkHost, type LinkQuestion } from './types'
+import { LINK_DATE_OVERRIDES_MAX, LINK_DEFAULTS, LINKS_PER_WORKSPACE_MAX, PROFILE_HANDLE_RE, type BookingLink, type BookingProfile, type FormRule, type LinkHost, type LinkQuestion } from './types'
 
 export type LinkFailure = { ok: false; code: 'BAD_INPUT' | 'NOT_FOUND' | 'NOT_ALLOWED' | 'SLUG_TAKEN' | 'HANDLE_TAKEN' | 'LIMIT' | 'FAILED'; message: string }
 export type LinkResult = { ok: true; link: BookingLink } | LinkFailure
@@ -106,6 +107,14 @@ export function columnsOf(input: LinkFieldsInput): { columns: LinkColumns } | Li
     if (input.time_zone !== null && !isStorableTimeZone(input.time_zone)) return fail('BAD_INPUT', `"${input.time_zone}" is not a time zone. Use an IANA name like America/New_York.`)
     columns.time_zone = input.time_zone
   }
+  if (input.form_id !== undefined) columns.form_id = input.form_id
+  if (input.form_rule !== undefined) columns.form_rule = input.form_rule && input.form_rule.all.length ? input.form_rule : null
+  if (input.form_refusal !== undefined) columns.form_refusal = input.form_refusal?.trim() || null
+  if (input.date_overrides !== undefined) {
+    const read = dateOverridesOf(input.date_overrides)
+    if (typeof read === 'string') return fail('BAD_INPUT', read)
+    columns.date_overrides = read
+  }
   return { columns }
 }
 
@@ -119,6 +128,51 @@ async function zoneForOwnWeek(supabase: SupabaseClient, editor: Editor, columns:
   if (!Array.isArray(columns.weekly_hours) || columns.time_zone || (columns.time_zone === undefined && current?.timeZone)) return
   const hours = await readWorkingHours(supabase, editor)
   if (hours.zoneKnown) columns.time_zone = hours.timeZone
+}
+
+/**
+ * A link's dated changes as stored (migration 705): each date's ranges as
+ * the week's are read (end after start, no overlap, at most six), dates
+ * before yesterday dropped (no zone is a day behind that), at most
+ * LINK_DATE_OVERRIDES_MAX; none left is null. Why not, as words. Pure.
+ */
+export function dateOverridesOf(value: Record<string, Array<{ start: string; end: string }>> | null, now: number = Date.now()): Record<string, DayRange[]> | null | string {
+  if (value === null) return null
+  const yesterday = new Date(now - 24 * 60 * 60_000).toISOString().slice(0, 10)
+  const out: Record<string, DayRange[]> = {}
+  for (const date of Object.keys(value).sort()) {
+    if (Number.isNaN(Date.parse(`${date}T00:00:00Z`)) || new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) !== date) return `${date} is not a date.`
+    if (date < yesterday) continue
+    const ranges = readDayRanges(value[date])
+    if (!ranges) return `${date}: each range is HH:MM to a later HH:MM, at most six, none overlapping.`
+    out[date] = ranges
+  }
+  const dates = Object.keys(out)
+  if (dates.length > LINK_DATE_OVERRIDES_MAX) return `At most ${LINK_DATE_OVERRIDES_MAX} dated changes.`
+  return dates.length ? out : null
+}
+
+/**
+ * A form put in front of a link, or its rule changed (migration 705): the
+ * form must be one the gate takes and the editor can change the table of,
+ * and the rule must fit it (./form-gate.ts formGateRefusal). Taking the form
+ * away clears its rule. Nothing to check when neither changes. Throws on a
+ * failed read.
+ */
+async function formRefusalOf(supabase: SupabaseClient, editor: Editor, columns: LinkColumns, current: Pick<BookingLink, 'formId' | 'formRule'> | null): Promise<LinkFailure | null> {
+  if (columns.form_id === undefined && columns.form_rule === undefined) return null
+  const formId = columns.form_id === undefined ? (current?.formId ?? null) : columns.form_id
+  if (!formId) {
+    if (columns.form_rule) return fail('BAD_INPUT', 'A rule needs a form: set form_id too.')
+    columns.form_rule = null
+    return null
+  }
+  // A different form starts with no rule of the old one's.
+  if (columns.form_id !== undefined && columns.form_id !== (current?.formId ?? null) && columns.form_rule === undefined) columns.form_rule = null
+  const rule = columns.form_rule !== undefined ? (columns.form_rule as FormRule | null) : (current?.formRule ?? null)
+  const { formGateRefusal } = await import('./form-gate')
+  const refused = await formGateRefusal(supabase, editor, formId, rule)
+  return refused ? fail('BAD_INPUT', refused) : null
 }
 
 /** Hosts as stored, in the order given. Pure. */
@@ -215,6 +269,8 @@ export async function createLink(supabase: SupabaseClient, editor: Editor, input
     const made = columnsOf(input)
     if ('code' in made) return made
     const { columns } = made
+    const gate = await formRefusalOf(supabase, editor, columns, null)
+    if (gate) return gate
     await zoneForOwnWeek(supabase, editor, columns, null)
     const hosts = hostsOf(input.hosts ?? [editor.userId])
     const mode = columns.host_mode ?? LINK_DEFAULTS.hostMode
@@ -281,7 +337,11 @@ export async function changeLink(supabase: SupabaseClient, editor: Editor, linkI
     if ('code' in made) return made
     const { columns } = made
     if (link.purpose === 'job' && columns.duration_minutes !== undefined) columns.step_minutes = columns.duration_minutes
-    if (link.purpose === 'meeting') await zoneForOwnWeek(supabase, editor, columns, link)
+    if (link.purpose === 'meeting') {
+      const gate = await formRefusalOf(supabase, editor, columns, link)
+      if (gate) return gate
+      await zoneForOwnWeek(supabase, editor, columns, link)
+    }
     const hosts = input.hosts ? hostsOf(input.hosts) : undefined
     if (hosts || columns.host_mode) {
       const refused = await hostRefusal(supabase, editor, role, hosts ?? link.hosts, columns.host_mode ?? link.hostMode, new Set(link.hosts.map((h) => h.userId)))
@@ -366,6 +426,10 @@ export function linkView(link: BookingLink, origin: string) {
     hosts: link.hosts.map((h) => h.userId),
     owner_user_id: link.ownerUserId,
     weekly_hours: link.weeklyHours,
+    date_overrides: link.dateOverrides,
+    form_id: link.formId,
+    form_rule: link.formRule,
+    form_refusal: link.formRefusal,
     time_zone: link.timeZone,
     active: link.active,
     created_at: link.createdAt,

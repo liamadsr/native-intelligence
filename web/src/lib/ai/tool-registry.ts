@@ -477,6 +477,12 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       { name: 'list_booking_links', sideEffect: 'read', label: 'List Booking Links', description: "The workspace's booking links, each with its address to share" },
       { name: 'create_booking_link', sideEffect: 'internal-write', writeTarget: 'board', label: 'Create Booking Link', description: 'Make a standing page anyone can book time with the person (or their team) from' },
       { name: 'update_booking_link', sideEffect: 'internal-write', writeTarget: 'board', label: 'Update Booking Link', description: 'Change a booking link, or turn it off or on' },
+      // Booking insights (src/lib/booking-links/bookings.ts): the bookings the person hosts, never a teammate's alone.
+      // Guests' answers are fenced (outside-text-tools.ts).
+      { name: 'list_link_bookings', sideEffect: 'read', label: 'List Link Bookings', description: "The bookings the person's booking links made: upcoming, past (with attendance) or cancelled" },
+      { name: 'get_booking_insights', sideEffect: 'read', label: 'Booking Insights', description: "Bookings, meeting hours, no-shows and top links over a range, for the person's booking links" },
+      // internal-write: a mark on the person's own booking, cleared as easily; it tells nobody. Attended only.
+      { name: 'mark_booking_attendance', sideEffect: 'internal-write', writeTarget: 'board', label: 'Mark Attendance', description: 'Mark a past booking-link meeting attended or a no-show' },
       // delete (every delete_ tool is): its page stops taking bookings; the row stays, and update_booking_link turns it back on.
       { name: 'delete_booking_link', sideEffect: 'delete', label: 'Turn Off Booking Link', description: 'Turn a booking link off: its page stops taking bookings' },
       // external-write: provider write: the provider emails every attendee
@@ -1321,6 +1327,8 @@ export const ATTENDED_ONLY_TOOL_NAMES: ReadonlySet<string> = new Set([
   'create_booking_link',
   'update_booking_link',
   'delete_booking_link',
+  // Booking insights: whether a guest came is the person's own word, never a run's guess.
+  'mark_booking_attendance',
   // Forms phase 1: a form's link lets anyone add rows to a table, so it is made and changed only at the person's word.
   'create_form',
   'update_form',
@@ -1585,6 +1593,8 @@ const NON_PREFIX_MUTATING_TOOLS: string[] = [
   'record_time_offer_answer',
   'book_poll_time',
   'nudge_time_offer',
+  // Booking insights: a host's mark on a past booking (attended or a no-show). `mark_` is not a write verb.
+  'mark_booking_attendance',
   // Studio (migration 620): a script written, a copy or a platform's version of a video made, frames
   // rendered and an export queued (the Studio worker's jobs). None of `write_`, `duplicate_`, `make_`,
   // `render_`, `export_` is a write verb. (edit_studio_video and archive_studio_video match the prefix.)

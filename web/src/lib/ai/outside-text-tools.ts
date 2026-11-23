@@ -57,6 +57,12 @@ export const OUTSIDE_TEXT_TOOLS: Readonly<Record<string, OutsideTextTool>> = {
     fence: ['wrapUntrusted'],
     note: "what the customer wrote on the business's website quote form",
   },
+  list_link_bookings: {
+    file: 'src/lib/ai/tools/booking-links.ts',
+    kind: 'WEB',
+    fence: ['bookingForModel', 'wrapUntrusted'],
+    note: "each booking's answers to its link's questions, as the guest typed them",
+  },
   list_bookings: {
     file: 'src/lib/ai/tools/business.ts',
     kind: 'WEB',

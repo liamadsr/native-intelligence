@@ -170,8 +170,12 @@ describe('readLinkTimes: unknown is never free', () => {
     askFirst: false,
     hostMode: 'all',
     weeklyHours: null,
+    dateOverrides: null,
     timeZone: null,
     jobKind: null,
+    formId: null,
+    formRule: null,
+    formRefusal: null,
     active: true,
     hosts: [
       { userId: AVA, position: 0 },
@@ -227,6 +231,22 @@ describe('readLinkTimes: unknown is never free', () => {
     const read = await readLinkTimes(own, { from: TUE.from, to: TUE.from + 2 * 86_400_000 }, d)
     // Tuesday is off; Wednesday keeps the link's own 13:00 (only days off carry over).
     expect(read.known && read.slots.map((s) => iso(s.start))).toEqual(['2031-01-08T18:00:00.000Z', '2031-01-08T18:30:00.000Z'])
+  })
+
+  it('a link with its own hours takes its own dated changes, and the host\u2019s day off still wins', async () => {
+    const own = link({
+      hosts: [{ userId: AVA, position: 0 }],
+      hostMode: 'one',
+      weeklyHours: weekdays([{ start: '13:00', end: '14:00' }]),
+      timeZone: NY,
+      // Tuesday 10:00 to 10:30 only; Wednesday off; Thursday its week again.
+      dateOverrides: { '2031-01-07': [{ start: '10:00', end: '10:30' }], '2031-01-08': [] },
+    })
+    const read = await readLinkTimes(own, { from: TUE.from, to: TUE.from + 3 * 86_400_000 }, deps())
+    expect(read.known && read.slots.map((s) => iso(s.start))).toEqual(['2031-01-07T15:00:00.000Z', '2031-01-09T18:00:00.000Z', '2031-01-09T18:30:00.000Z'])
+    const off = deps({ readHours: vi.fn(async () => ({ ...hours(NY), overrides: { '2031-01-07': [] } })) })
+    const withDayOff = await readLinkTimes(own, { from: TUE.from, to: TUE.from + 86_400_000 }, off)
+    expect(withDayOff.known && withDayOff.slots).toEqual([])
   })
 
   it('a host whose time zone is nowhere known has no times (never their hours in UTC), unless the link names its own week and zone', async () => {

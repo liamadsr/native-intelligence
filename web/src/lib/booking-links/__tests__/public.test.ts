@@ -13,6 +13,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/safety/approvals', () => ({ createToolApproval: vi.fn() }))
 
+import { issuePass } from '../form-gate'
 import { __clearLinkTimesCacheForTests, handleBookLink, handleGetLink, handleLegacySlug, handleLinkTimes, loadLinkPage, resolveLegacySlug, timesRange, type LinkPublicDeps } from '../public'
 import { clientKeyOf } from '../client'
 import { LINK_ATTEMPTS_HOURLY_CAP, LINK_CLIENT_HOURLY_CAP, LINK_TIMES_CLIENT_PER_MINUTE, LINK_TIMES_PER_DAY_MAX } from '../types'
@@ -212,6 +213,27 @@ describe('booking', () => {
     expect(body).toMatchObject({ ok: true, status: 'confirmed', booking: { start: T1, title: 'Intro call', host_name: 'Ava Lin and Ben Ruiz', video: true, conference_url: 'https://meet.example/abc-defg-hij', location: null } })
     expect(body.manage_url).toMatch(/^https:\/\/app\.example\/b\/[A-Za-z0-9_-]{24}$/)
     expect(tables.booking_link_attempt).toHaveLength(1)
+    expect(tables.meeting_booking).toHaveLength(1)
+  })
+
+  it('a link with a form in front takes only a guest with a good pass, writes the form’s row in the booking, and a pass books once', async () => {
+    const ROW = '12345678-1234-4234-8234-123456789012'
+    const { deps, tables } = setup({ links: [linkRow({ form_id: 'form-1', form_rule: { all: [] } })] })
+    const gated = { ...deps, passSecret: 'test-secret', gateForm: vi.fn(async () => ({ kind: 'none' as const })) }
+    const without = await handleBookLink(post({ start: T1, name: 'Dana Reyes', email: 'dana@initech.example' }), 'ava-lin', 'intro', gated)
+    expect(without.status).toBe(403)
+    expect((await without.json()).code).toBe('FORM_NEEDED')
+    const forged = await handleBookLink(post({ start: T1, name: 'Dana Reyes', email: 'dana@initech.example', pass: issuePass(INTRO, ROW, NOW, 'another-secret') }), 'ava-lin', 'intro', gated)
+    expect(forged.status).toBe(403)
+    expect(tables.meeting_booking).toHaveLength(0)
+    const ok = await handleBookLink(post({ start: T1, name: 'Dana Reyes', email: 'dana@initech.example', pass: issuePass(INTRO, ROW, NOW, 'test-secret') }), 'ava-lin', 'intro', gated)
+    expect(ok.status).toBe(201)
+    expect(tables.meeting_booking).toHaveLength(1)
+    expect(tables.meeting_booking[0].form_row_id).toBe(ROW)
+    // The same pass again, for another guest and time: refused, nothing more booked.
+    const again = await handleBookLink(post({ start: T1, name: 'Eli Park', email: 'eli@initech.example', pass: issuePass(INTRO, ROW, NOW, 'test-secret') }), 'ava-lin', 'intro', gated)
+    expect(again.status).toBe(409)
+    expect(await again.json()).toMatchObject({ code: 'PASS_USED', error: 'This pass has already been used; answer the form again.' })
     expect(tables.meeting_booking).toHaveLength(1)
   })
 
