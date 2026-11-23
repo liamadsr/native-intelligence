@@ -14,7 +14,7 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { latestDefinition } from '@/test/migration-sql'
+import { latestDefinition, migrationsInOrder } from '@/test/migration-sql'
 
 const DIR = join(process.cwd(), 'supabase/migrations')
 const FILE = '645_workspace_join.sql'
@@ -93,8 +93,13 @@ describe('migration 645', () => {
   })
 
   it('a merge drops the source’s link, domains and switches: the re-stamp is 473’s plus three deletes, first', () => {
-    const newest = latestDefinition('_wsmerge_generic_restamp')
+    // 645's own definition; 707 restates it later with one more step, and keeps these deletes first
+    const newest = latestDefinition('_wsmerge_generic_restamp', migrationsInOrder().filter((m) => m.num <= 645))
     expect(newest.file).toBe(FILE)
+    const now = latestDefinition('_wsmerge_generic_restamp')
+    expect(['645_workspace_join.sql', '707_fix_workspace_merge.sql']).toContain(now.file)
+    const nowText = now.blocks.join('\n')
+    expect(nowText.indexOf('DELETE FROM public.workspace_join_settings')).toBeLessThan(nowText.indexOf('_wsmerge_deals(p_source, p_dest)'))
     const ours = newest.blocks.join('\n')
     const before = latestDefinition(
       '_wsmerge_generic_restamp',

@@ -210,7 +210,8 @@ describe('549: the deal tables go, and nothing reads them', () => {
 
   it('folds pipelines by name in a workspace merge, keeping 528’s value rewrite', () => {
     const merge = fn('_wsmerge_deals')
-    expect(merge.file.startsWith('549_')).toBe(true)
+    // 707 restates it with one line more (a folded pipeline's forms follow it)
+    expect(['549_retire_deals.sql', '707_fix_workspace_merge.sql']).toContain(merge.file)
     expect(merge.text).toContain("FROM public.data_table WHERE workspace_id = p_source AND table_kind = 'pipeline'")
     expect(merge.text).toContain('lower(d.name) = lower(p.name)')
     expect(merge.text).toContain('UPDATE public.view SET scope_id = v_dst')
