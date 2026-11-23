@@ -333,5 +333,37 @@ None. `@tiptap/suggestion` (MIT) and the TipTap core are already in `web/package
 
 ## Progress
 
-- 2026-11-23: research done; plan sent to the managing session; waiting for its OK before
-  migration 700.
+- 2026-11-23: research done; plan sent; the managing session's OK, with eight points, all met.
+- **Phase 1, built (not merged, not rolled out).** Migration 700 has its own begin/commit and
+  no backslash. It is rehearsed on a local Postgres 16 built from main's baseline, seed and
+  470..693. `supabase/tests/700_tags.sql` runs it as five people (owner, member, guest,
+  view-only grantee, stranger) and passes 66 checks. It passes 69 with a working merge:
+  `merge_workspace` is broken on main for reasons outside tags, fixed separately in 707.
+  - Point 3: the managing session asked for scopes to respect teams. 081's scopes are kinds,
+    not teams. The guard accepts only taggable kinds, and only a tag's creator or an owner or
+    admin changes them.
+  - Point 5 (10k actions, 30k action tags, as a member):
+
+    | Query | Before 700 | After 700 |
+    |---|---|---|
+    | first 50 with tags embedded | 24–35 ms | 14 ms |
+    | all 10k | 4.1–4.7 s | 2.6 s |
+    | tag filter | 72–111 ms | 48–52 ms |
+
+    The read rule hashes the label and record checks. Only captures get the record check
+    among the old tables: their own policies already are the read rule for actions,
+    projects, initiatives and mail.
+  - Backfill size: one workspace tag per distinct case-insensitive name. A 5,000-contact
+    test workspace using 350 names got 350 tags.
+  - Mirror cost: importing 1,000 contacts with 3 tags each took 3.0 s with the mirror on.
+  - Known gap: a merge stands the mirror aside, so a folded company's text column can keep
+    a tag name's old case until its tags next change.
+  - Also built:
+    - the labels routes take and return `personal` and accept every kind as a scope;
+    - `# ` in `NoteEditor` (wired into the action description so far), the pill node and
+      its markdown;
+    - `TagPill` / `TagPills` / `TagsField`;
+    - the one route for a record's tags.
+  - Two fixes, in their own commits:
+    - the mail label filter's join column;
+    - inline tag edits on rows, which never saved for actions or mail.
