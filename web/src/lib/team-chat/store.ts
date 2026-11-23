@@ -31,6 +31,8 @@ import {
 } from './types'
 import { TEAM_CHAT_FILE_MAX_BYTES, TEAM_CHAT_FILES_BUCKET, teamChatFileType } from './files'
 import { notifyLevelOf, type TeamChatNotifyLevel } from './notify'
+import { isSnoozed } from './snooze'
+import { isMissingColumnError } from '@/lib/mcp-client/public-row'
 
 export type TeamChatErrorCode = 'not_found' | 'forbidden' | 'conflict' | 'bad_request' | 'failed'
 
@@ -88,14 +90,17 @@ export async function listChannels(
       .limit(500),
     supabase.rpc('team_chat_unread', { ws: scope.workspaceId }),
     supabase.rpc('team_chat_thread_unread', { ws: scope.workspaceId }),
-    // Their own rows only (474's policy): how loud each channel is for them.
-    supabase.from('team_chat_member').select('channel_id, notify_level').eq('workspace_id', scope.workspaceId).eq('member_id', scope.memberId),
+    // Their own rows only (474's policy): how loud each channel is for them, and any snooze (702).
+    readLevels(supabase, scope),
   ])
   if (channels.error) throw teamChatErrorOf(channels.error, 'channels read')
   if (unread.error) throw teamChatErrorOf(unread.error, 'unread read')
   if (threadUnread.error) throw teamChatErrorOf(threadUnread.error, 'thread unread read')
   if (levels.error) throw teamChatErrorOf(levels.error, 'levels read')
-  const levelOf = new Map(((levels.data ?? []) as Array<{ channel_id: string; notify_level: string | null }>).map((r) => [r.channel_id, r.notify_level]))
+  const levelRows = (levels.data ?? []) as Array<{ channel_id: string; notify_level: string | null; muted_until?: string | null }>
+  const levelOf = new Map(levelRows.map((r) => [r.channel_id, r.notify_level]))
+  const now = new Date()
+  const snoozeOf = new Map(levelRows.filter((r) => isSnoozed(r.muted_until, now)).map((r) => [r.channel_id, r.muted_until as string]))
   const counts = new Map<string, { unread: number; mentions: number }>()
   for (const row of (unread.data ?? []) as Array<{ channel_id: string; unread: number; mentions: number }>) {
     counts.set(row.channel_id, { unread: Number(row.unread) || 0, mentions: Number(row.mentions) || 0 })
@@ -133,9 +138,23 @@ export async function listChannels(
       thread_unread: muted ? 0 : (inThreads.get(row.id)?.unread ?? 0),
       thread_mentions: inThreads.get(row.id)?.mentions ?? 0,
       notify,
+      muted_until: snoozeOf.get(row.id) ?? null,
     }
   })
   return { channels: list, threads }
+}
+
+/**
+ * The person's own team_chat_member rows: level and snooze. Before 702 the
+ * snooze column isn't there: read without it (no channel is snoozed), so a
+ * deploy ahead of the migration still lists channels.
+ */
+async function readLevels(supabase: SupabaseClient, scope: { workspaceId: string; memberId: string }) {
+  const read = (columns: string) =>
+    supabase.from('team_chat_member').select(columns).eq('workspace_id', scope.workspaceId).eq('member_id', scope.memberId)
+  const withSnooze = await read('channel_id, notify_level, muted_until')
+  if (withSnooze.error && isMissingColumnError(withSnooze.error, 'muted_until')) return read('channel_id, notify_level')
+  return withSnooze
 }
 
 /** Of these unused meeting conversations, the ones whose meeting is current (not revoked or run out more than MEETING_RECENT_MS ago). */
@@ -345,6 +364,17 @@ export async function setNotifyLevel(supabase: SupabaseClient, channelId: string
   if (error) throw teamChatErrorOf(error, 'notify level')
   if (data !== 'all' && data !== 'mentions' && data !== 'muted') throw new TeamChatError('failed', 'notify level returned nothing')
   return data
+}
+
+/**
+ * Mute a channel for a while (702's team_chat_snooze, as the person): until
+ * `until`, or null to end a snooze now. Returns the end in effect (null: not
+ * snoozed). The route checks the time first (snooze.ts snoozeUntilError).
+ */
+export async function setSnooze(supabase: SupabaseClient, channelId: string, until: string | null): Promise<string | null> {
+  const { data, error } = await supabase.rpc('team_chat_snooze', { ch: channelId, until })
+  if (error) throw teamChatErrorOf(error, 'snooze')
+  return typeof data === 'string' ? data : null
 }
 
 /** Mark a channel read up to now for the person. */

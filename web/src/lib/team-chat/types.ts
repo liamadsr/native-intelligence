@@ -65,6 +65,12 @@ export interface TeamChatChannel {
    * either, `unread` and `thread_unread` are 0; a mention still counts).
    */
   notify: 'all' | 'mentions' | 'muted'
+  /**
+   * Muted for a while (migration 702, ./snooze.ts): nothing notifies until
+   * then, mentions included, though the unread count keeps counting. Null:
+   * not snoozed (or the snooze is over). Absent on an older answer: null.
+   */
+  muted_until?: string | null
 }
 
 /** A file or image on a message (migration 555), as stored and drawn. */

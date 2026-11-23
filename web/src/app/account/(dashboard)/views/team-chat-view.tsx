@@ -39,7 +39,7 @@
 
 import { EntityIcon } from '@/components/entities/entity-icon'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
-import { Bell, BellOff, Check, ChevronLeft, CircleCheck, Lock, MessageSquare, MessageSquareReply, Pencil, Plus, RotateCw, Trash2, Users, Video, X } from 'lucide-react'
+import { BellOff, ChevronLeft, CircleCheck, Lock, MessageSquare, MessageSquareReply, Pencil, Plus, RotateCw, Trash2, Users, Video, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -94,6 +94,8 @@ import { discardTeamChatFile, uploadTeamChatFile } from '@/lib/team-chat/upload-
 import { joinTyping, TYPING_SHOW_MS, TYPING_THROTTLE_MS } from '@/lib/team-chat/typing'
 import { setTeamChatOnScreen } from '@/lib/team-chat/on-screen'
 import type { TeamChatNotifyLevel } from '@/lib/team-chat/notify'
+import { isSnoozed } from '@/lib/team-chat/snooze'
+import { TeamChatNotifyMenu } from './team-chat-notify-menu'
 import { mentionOpens, openMention } from '@/lib/entity-links/open-mention'
 import { EntityContextMenu } from '@/components/entities/entity-actions-menu'
 import { EmailShareCards } from '@/components/email/email-share-card'
@@ -523,6 +525,24 @@ export function TeamChatView({
       }).catch(() => null)
       if (!res?.ok) {
         if (before) setChannels((prev) => prev?.map((c) => (c.id === channelId ? { ...c, notify: before } : c)) ?? prev)
+        return
+      }
+      void loadChannels()
+    },
+    [loadChannels],
+  )
+  // Mute for a while (migration 702): the same, the snooze's end in place of the level.
+  const setSnooze = useCallback(
+    async (channelId: string, until: string | null) => {
+      const before = channelsRef.current?.find((c) => c.id === channelId)?.muted_until ?? null
+      setChannels((prev) => prev?.map((c) => (c.id === channelId ? { ...c, muted_until: until } : c)) ?? prev)
+      const res = await fetch(`/api/account/team-chat/channels/${channelId}/snooze`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ until }),
+      }).catch(() => null)
+      if (!res?.ok) {
+        setChannels((prev) => prev?.map((c) => (c.id === channelId ? { ...c, muted_until: before } : c)) ?? prev)
         return
       }
       void loadChannels()
@@ -1121,6 +1141,7 @@ export function TeamChatView({
               onBack={narrow && !listInPanel ? backToList : undefined}
               onList={inCard ? toList : undefined}
               onNotify={(level) => void setNotify(selected.id, level)}
+              onSnooze={(until) => void setSnooze(selected.id, until)}
               focusId={focused && !focused.rootId && focused.channelId === selected.id ? focused.id : null}
               onFocusShown={onFocusShown}
               {...common}
@@ -1241,7 +1262,8 @@ function ChannelRow({
   // The channel's own unread, and the replies unread in its threads the person is in (a muted one: its mentions only).
   const { count, mentions } = channelBadge(channel)
   const unread = count > 0 && !active
-  const muted = channel.notify === 'muted'
+  // Muted, or muted for a while (702): the row's quiet icon.
+  const muted = channel.notify === 'muted' || isSnoozed(channel.muted_until)
   return (
     <button
       type="button"
@@ -1356,6 +1378,7 @@ function ChannelPane({
   onBack,
   onList,
   onNotify,
+  onSnooze,
   focusId,
   onFocusShown,
   meId,
@@ -1375,6 +1398,8 @@ function ChannelPane({
   title: string
   /** How loud it is for the person: the header's menu sets it. */
   onNotify: (level: TeamChatNotifyLevel) => void
+  /** Mute it for a while, or end that (migration 702): the same menu. */
+  onSnooze: (until: string | null) => void
   /** It shows a page around an old message alone (nothing newer under it): Jump to newest. */
   windowed: boolean
   onJumpToNewest: () => void
@@ -1478,7 +1503,7 @@ function ChannelPane({
           <CardHeaderSlot side="right">
             <div data-team-chat-header-controls="" className="flex items-center gap-0.5">
               <CallButton channel={channel} label={callLabel} className="grid size-7 place-items-center rounded-full p-0 hover:bg-foreground/[0.06]" />
-              <NotifyMenu kind={channel.kind} level={channel.notify} onChange={onNotify} inHeader />
+              <TeamChatNotifyMenu kind={channel.kind} level={channel.notify} mutedUntil={channel.muted_until} onChange={onNotify} onSnooze={onSnooze} inHeader headerButtonClass={CARD_HEADER_ICON_BUTTON} />
             </div>
           </CardHeaderSlot>
         </>
@@ -1509,7 +1534,7 @@ function ChannelPane({
         {channel.topic && <span className="min-w-0 truncate text-sm text-muted-foreground">{channel.topic}</span>}
         <span className="ml-auto" aria-hidden />
         <CallButton channel={channel} label={callLabel} />
-        <NotifyMenu kind={channel.kind} level={channel.notify} onChange={onNotify} />
+        <TeamChatNotifyMenu kind={channel.kind} level={channel.notify} mutedUntil={channel.muted_until} onChange={onNotify} onSnooze={onSnooze} />
       </div>
       )}
       {channel.kind === 'meeting' && meetingBar && (
@@ -1620,49 +1645,6 @@ function useScrollToFocus(scrollRef: RefObject<HTMLDivElement | null>, focusId: 
     el.scrollIntoView({ block: 'center' })
     onShown?.()
   }, [scrollRef, focusId, rows, onShown])
-}
-
-const NOTIFY_OPTIONS: ReadonlyArray<{ level: TeamChatNotifyLevel; label: string; hint: string }> = [
-  { level: 'all', label: 'All messages', hint: 'Every new message notifies you' },
-  { level: 'mentions', label: 'Mentions only', hint: 'Only @-mentions and your threads' },
-  { level: 'muted', label: 'Muted', hint: 'No notifications, no unread count' },
-]
-
-/** The channel header's menu: how loud it is for the person (migration 560). */
-function NotifyMenu({ kind, level, onChange, inHeader = false }: { kind: TeamChatChannel['kind']; level: TeamChatNotifyLevel; onChange: (level: TeamChatNotifyLevel) => void; inHeader?: boolean }) {
-  const Icon = level === 'muted' ? BellOff : Bell
-  const label = level === 'muted' ? 'Muted' : level === 'all' ? 'All messages' : 'Mentions only'
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          data-team-chat-notify={level}
-          aria-label={`Notifications: ${label}`}
-          title={`Notifications: ${label}`}
-          className={
-            inHeader
-              ? cn('grid size-7 shrink-0 place-items-center data-[state=open]:bg-foreground/[0.06] data-[state=open]:text-foreground', CARD_HEADER_ICON_BUTTON)
-              : 'shrink-0 rounded-lg p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground data-[state=open]:bg-accent'
-          }
-        >
-          <Icon className={inHeader ? 'size-3.5' : 'h-4 w-4'} strokeWidth={inHeader ? 1.75 : undefined} />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-64">
-        <p className="px-2 pb-1 pt-0.5 text-xs font-medium text-muted-foreground">{kind !== 'channel' ? 'Notify me about this conversation' : 'Notify me about this channel'}</p>
-        {NOTIFY_OPTIONS.map((o) => (
-          <DropdownMenuItem key={o.level} data-team-chat-notify-option={o.level} onSelect={() => o.level !== level && onChange(o.level)} className="items-start">
-            {o.level === level ? <Check className="mt-0.5 h-4 w-4" aria-label="Chosen" /> : <span className="h-4 w-4 shrink-0" aria-hidden />}
-            <span className="flex min-w-0 flex-col">
-              <span className="text-sm text-foreground">{o.label}</span>
-              <span className="text-xs text-muted-foreground">{o.hint}</span>
-            </span>
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
 }
 
 function AgentWaiting({ name }: { name: string }) {
