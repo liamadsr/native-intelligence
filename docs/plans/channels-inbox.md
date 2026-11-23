@@ -296,13 +296,13 @@ Start a call.
 17. **Mail opens in Mail's own card** on its thread, not inside the inbox's pane. Team chat
     opens in the pane, and records open over the inbox in its card.
 18. **H holds until tomorrow morning; the row's clock picks another time.**
+19. **Message reads find out whether `poll_id` exists** (one probe per server process). A
+    deploy that lands before 703 still reads team chat, without polls.
 20. **Only a poll's creator closes it** (the member, or the person whose agent posted it).
     There is no admin override.
 21. **A vote cast before someone left the channel still counts.** After they leave they can no
     longer read, vote or receive the poll's live changes.
 22. **No notification types are added or changed** by 702 or 703.
-19. **Message reads find out whether `poll_id` exists** (one probe per server process). A
-    deploy that lands before 703 still reads team chat, without polls.
 
 ## Rehearsal (702 and 703, local Postgres only)
 
