@@ -196,7 +196,7 @@ the page, 0 to 1), with threads, mentions, `via_agent` (692) and resolve.
   `record_comment_agent_mark_guard` keeps `via_agent` as it was made.
 - **Notices** go through `record-comments/notify.ts`, only to a member who can open the
   file then (`entity_visible_to`, which 709 made Drive-aware). The notification target list
-  is 688's with `attachment` added.
+  is 695's (688's with `github_pr`) with `attachment` added.
 - **The agent tool** `comment_on_file` follows `comment_on_canvas`'s policy.
 
 **Rehearsal:** 711 was applied twice after 709 and 710. 25 checks, all passing:
