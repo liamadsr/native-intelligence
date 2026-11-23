@@ -228,8 +228,8 @@ export async function listMessagesAround(
   ])
   if (older.error) throw teamChatErrorOf(older.error, 'messages read')
   if (newer.error) throw teamChatErrorOf(newer.error, 'messages read')
-  const before = (older.data ?? []) as TeamChatMessage[]
-  const after = (newer.data ?? []) as TeamChatMessage[]
+  const before = (older.data ?? []) as unknown as TeamChatMessage[]
+  const after = (newer.data ?? []) as unknown as TeamChatMessage[]
   return {
     messages: [...before.slice(0, TEAM_CHAT_AROUND_BEFORE).reverse(), ...after.slice(0, TEAM_CHAT_AROUND_AFTER)],
     hasOlder: before.length > TEAM_CHAT_AROUND_BEFORE,
@@ -257,7 +257,7 @@ export async function listMessages(
   if (opts.before) query = query.lt('created_at', opts.before)
   const { data, error } = await query
   if (error) throw teamChatErrorOf(error, 'messages read')
-  return ((data ?? []) as TeamChatMessage[]).reverse()
+  return ((data ?? []) as unknown as TeamChatMessage[]).reverse()
 }
 
 /** One message the person may read, or null. */
@@ -276,7 +276,7 @@ export async function listThread(supabase: SupabaseClient, rootId: string): Prom
     .order('created_at', { ascending: false })
     .limit(TEAM_CHAT_THREAD_MAX)
   if (error) throw teamChatErrorOf(error, 'thread read')
-  return ((data ?? []) as TeamChatMessage[]).reverse()
+  return ((data ?? []) as unknown as TeamChatMessage[]).reverse()
 }
 
 /** The summaries of the threads among these roots (the ones with replies). */
