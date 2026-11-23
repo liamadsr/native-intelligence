@@ -87,6 +87,13 @@ export interface OpenCardRequest {
    * into another workspace, where that card isn't.
    */
   origin?: { cardId: string; elsewhere?: boolean }
+  /**
+   * A hub's open (home's Recent, Inbox's list; Liam, 11-23: "so I can flip
+   * through the recent things I've looked at"): the card it opens takes the
+   * place of the card in front when that one was a hub's open too, instead
+   * of the cards stacking up in the chat (chat-panel.tsx openCardHere).
+   */
+  flip?: boolean
 }
 
 /**
@@ -368,7 +375,7 @@ export function cardForTarget(target: OpenTarget, now: Date = new Date()): Targe
 /** Ask the dashboard to open a card. False where there is no window (on the server). */
 export function openCard(
   spec: CardSpec,
-  opts: { from: string; seed?: OpenCardSeed; workspaceId?: string | null; reuse?: boolean; origin?: string | null },
+  opts: { from: string; seed?: OpenCardSeed; workspaceId?: string | null; reuse?: boolean; origin?: string | null; flip?: boolean },
 ): boolean {
   if (typeof window === 'undefined' || !isCardSpec(spec)) return false
   // The card the link is in (from the click being handled, unless the caller
@@ -381,6 +388,7 @@ export function openCard(
     ...(opts.seed ? { seed: opts.seed } : {}),
     ...(opts.workspaceId ? { workspaceId: opts.workspaceId } : {}),
     ...(opts.reuse ? { reuse: true } : {}),
+    ...(opts.flip ? { flip: true } : {}),
   }
   window.dispatchEvent(new CustomEvent(OPEN_CARD_EVENT, { detail }))
   return true
@@ -389,11 +397,11 @@ export function openCard(
 /** Open the card a thing opens. False when it names nothing a card can draw. */
 export function openTarget(
   target: OpenTarget,
-  opts: { from: string; workspaceId?: string | null; now?: Date; reuse?: boolean; origin?: string | null },
+  opts: { from: string; workspaceId?: string | null; now?: Date; reuse?: boolean; origin?: string | null; flip?: boolean },
 ): boolean {
   const card = cardForTarget(target, opts.now)
   if (!card) return false
-  return openCard(card.spec, { from: opts.from, seed: card.seed, workspaceId: opts.workspaceId, reuse: opts.reuse, origin: opts.origin })
+  return openCard(card.spec, { from: opts.from, seed: card.seed, workspaceId: opts.workspaceId, reuse: opts.reuse, origin: opts.origin, flip: opts.flip })
 }
 
 /** An OPEN_CARD_EVENT's detail, checked (it is a window event: anything may send one). */
@@ -416,6 +424,7 @@ export function parseOpenCardRequest(detail: unknown): OpenCardRequest | null {
     ...(seed ? { seed } : {}),
     ...(workspaceId ? { workspaceId } : {}),
     ...(d.reuse === true ? { reuse: true } : {}),
+    ...(d.flip === true ? { flip: true } : {}),
   }
 }
 
