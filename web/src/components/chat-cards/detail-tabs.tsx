@@ -13,6 +13,7 @@
  */
 import * as React from 'react'
 import { CardHeaderSlot, useCardHeaderSlots } from './card-header-slot'
+import { cn } from '@/lib/utils'
 import { CARD_HEADER_CAPSULE, CARD_HEADER_SEGMENT } from './card-header-button'
 
 export interface DetailTab<T extends string> {
@@ -52,7 +53,16 @@ export function DetailTabsInHeader<T extends string>({
   if (!inCard) return null
   return (
     <CardHeaderSlot side="right">
-      <div role="tablist" aria-label={label} data-detail-tabs="header" {...data} className={CARD_HEADER_CAPSULE}>
+      {/* It gives way first in a narrow header (the live capture's notepad, a card in the chat), scrolling
+          sideways as the page's own row did, so the header's other controls (Full screen, Properties,
+          Minimize) always stay in the card (a review, 11-23). */}
+      <div
+        role="tablist"
+        aria-label={label}
+        data-detail-tabs="header"
+        {...data}
+        className={cn(CARD_HEADER_CAPSULE, 'min-w-0 shrink overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden')}
+      >
         {tabs.map((t) => (
           <button
             key={t.id}
@@ -63,7 +73,7 @@ export function DetailTabsInHeader<T extends string>({
             title={t.title}
             {...t.data}
             onClick={() => onChange(t.id)}
-            className={CARD_HEADER_SEGMENT}
+            className={cn(CARD_HEADER_SEGMENT, 'shrink-0')}
           >
             {t.label}
             {!!t.count && <span className="ml-1 tabular-nums opacity-60">{t.count}</span>}

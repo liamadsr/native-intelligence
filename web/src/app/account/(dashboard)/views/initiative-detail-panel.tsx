@@ -683,7 +683,7 @@ export function InitiativeDetailPanel({
 
           {activeTab === 'agents' && (
             <ScrollArea className="h-full">
-              <div className="pl-10 pr-3.5">
+              <div className={cn('pl-10 pr-3.5', tabsInHeader && 'pt-4')}>
                 <EntityActivitySection entityType="initiative" entityId={initiativeId} />
               </div>
             </ScrollArea>

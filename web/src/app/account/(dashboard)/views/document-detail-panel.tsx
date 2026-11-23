@@ -1282,7 +1282,7 @@ export function DocumentDetailPanel({
 
       {activeSection === 'agents' && (
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-[736px] px-8">
+          <div className={cn('mx-auto w-full max-w-[736px] px-8', tabsInHeader && 'pt-4')}>
             <EntityActivitySection entityType="document" entityId={documentId} />
           </div>
         </div>
@@ -1290,7 +1290,7 @@ export function DocumentDetailPanel({
 
       {activeSection === 'history' && (
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-[736px] px-8">
+          <div className={cn('mx-auto w-full max-w-[736px] px-8', tabsInHeader && 'pt-4')}>
             <DocumentHistory
               documentId={documentId}
               currentRevision={doc.revision ?? null}

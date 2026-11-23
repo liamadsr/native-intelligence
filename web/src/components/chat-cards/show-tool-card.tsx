@@ -936,14 +936,15 @@ export function ShowToolCard({
     if (island) {
       return (
         <SkyHeaderRow data-card-header="" data-card-header-island="">
-          <div data-card-header-pill="title" className={cn(SKY_PILL, 'min-w-0 gap-2 pl-3.5 pr-4')}>
+          {/* The title gives way three times as fast as the controls' pill, whose section tabs (DetailTabsInHeader) then scroll. */}
+          <div data-card-header-pill="title" className={cn(SKY_PILL, 'min-w-0 shrink-[3] gap-2 pl-3.5 pr-4')}>
             {title}
           </div>
           {/* Hidden while it holds no control (a card from the chat with no page controls: its Minimize is under it).
               Interactive (listen mode, the desktop app) leads it, the same toggle as the top bar's at the header's
               24px, as its other controls (Liam, 11-23: "that button also shows in the header so it's not a
               different thing"); first, so the page's controls and Minimize never move as it comes and goes. */}
-          <div data-card-header-pill="controls" className={cn(SKY_PILL, '-mr-[var(--sky-reserve,0px)] ml-auto shrink-0 gap-0.5 px-2 [&:not(:has(button))]:hidden')}>
+          <div data-card-header-pill="controls" className={cn(SKY_PILL, '-mr-[var(--sky-reserve,0px)] ml-auto min-w-0 shrink gap-0.5 px-2 [&:not(:has(button))]:hidden')}>
             <ListenModeToggle variant="header" />
             {controls}
           </div>
@@ -956,7 +957,7 @@ export function ShowToolCard({
           <CardHistoryButtons history={history} />
         </div>
         {title}
-        <div className="ml-auto flex items-center gap-0.5">{controls}</div>
+        <div className="ml-auto flex min-w-0 items-center gap-0.5">{controls}</div>
       </div>
     )
   }

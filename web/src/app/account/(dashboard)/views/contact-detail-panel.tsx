@@ -987,7 +987,7 @@ export function ContactDetailPanel({
               )}
 
               {activeTab === 'agents' && (
-                <div className="min-h-0 flex-1 overflow-y-auto pl-10 pr-3.5">
+                <div className={cn('min-h-0 flex-1 overflow-y-auto pl-10 pr-3.5', tabsInHeader && 'pt-4')}>
                   <EntityActivitySection entityType="contact" entityId={contactId} />
                 </div>
               )}

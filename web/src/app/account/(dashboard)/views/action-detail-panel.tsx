@@ -2105,13 +2105,13 @@ export function ActionDetailPanel({
       ) : panelView === 'agents' ? (
         <div className="min-h-0 flex-1 overflow-y-auto">
           {/* The same inset as Details' reading column and the toolbar above. */}
-          <div className="mx-auto w-full max-w-[736px] px-8">
+          <div className={cn('mx-auto w-full max-w-[736px] px-8', tabsInHeader && 'pt-4')}>
             <EntityActivitySection entityType="action" entityId={actionId} />
           </div>
         </div>
       ) : panelView === 'mac' && macJob ? (
         // The same inset as Details' reading column.
-        <div data-action-mac-job={macJob.sessionId} className="mx-auto flex min-h-0 w-full max-w-[736px] flex-1 flex-col px-8 pb-4">
+        <div data-action-mac-job={macJob.sessionId} className={cn('mx-auto flex min-h-0 w-full max-w-[736px] flex-1 flex-col px-8 pb-4', tabsInHeader && 'pt-4')}>
           <LocalAgentPanel key={macJob.sessionId} sessionId={macJob.sessionId} />
         </div>
       ) : panelView === 'cloud' && canShowCloudTab ? (

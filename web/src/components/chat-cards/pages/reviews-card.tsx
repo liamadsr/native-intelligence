@@ -415,6 +415,8 @@ export default function ReviewsCard(props: PageCardProps) {
       </CardCovered>
       {openKey && (
         <CardOverlay>
+          {/* Covered while an action it links is open over it (a review, 11-23: both pages' tabs stood in the header at once). */}
+          <CardCovered covered={!!records.current}>
           <PullDetail
             key={openKey}
             prKey={openKey}
@@ -426,6 +428,7 @@ export default function ReviewsCard(props: PageCardProps) {
             onMerged={() => void reload()}
             onOpenAction={(id) => records.open({ type: 'action', id })}
           />
+          </CardCovered>
         </CardOverlay>
       )}
       <RecordOverlay records={records} page={props} />
