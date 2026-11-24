@@ -1,6 +1,7 @@
 'use client'
 
 import { Component, type ErrorInfo, type ReactNode } from 'react'
+import * as Sentry from '@sentry/nextjs'
 import { Button } from '@/components/ui/button'
 
 /**
@@ -35,6 +36,13 @@ export class DashboardErrorBoundary extends Component<Props, State> {
     // Keep the error in the console so it's discoverable in dev even when
     // we swallow it visually.
     console.error('[DashboardErrorBoundary]', error, info.componentStack)
+    // It used to stop at the console, so a crash that sent someone back to Home
+    // left no trace in Sentry (the spreadsheet report, 11-24). A crash inside a
+    // card is caught nearer, by the card (chat-cards/card-error-boundary.tsx).
+    Sentry.captureException(error, {
+      tags: { boundary: 'dashboard' },
+      contexts: { react: { componentStack: info.componentStack ?? '' } },
+    })
     if (this.state.retries < MAX_AUTO_RETRIES) {
       if (this.retryTimer) clearTimeout(this.retryTimer)
       this.retryTimer = setTimeout(() => {
