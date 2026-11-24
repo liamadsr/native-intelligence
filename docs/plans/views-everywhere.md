@@ -111,8 +111,11 @@ add tabs and filters to lists nobody filters. The owner may want otherwise; see
    - Filters: Owner, Visibility, Created, Updated, Name.
    - Display: Owner and Updated on by default.
    - Layout: List.
-   - It gains the row menu the other two have: Rename, Archive.
-   - Pipelines stay out of it (`table_kind = 'table'`), as today.
+   - It gains the row menu the other two have, the one entity actions menu:
+     Copy ID, Rename, Make a task. A table has no archive route, so Archive is
+     not offered, as the registry already said.
+   - Pipelines are in the list, as they always were, marked "Pipeline" (and
+     "Default"), with their record's glyph. Kind is a filter.
 4. **Folders.** View kind `drive_folder`.
    - The top level is the list of folders, filterable by Creator, Created, Updated and
      Name.
@@ -188,14 +191,23 @@ kind: `canvas`, `spreadsheet`, `data_table`, `drive_folder`, then `file`, `campa
 Ticked as each page lands on the branch. "Merged" is not "live": nothing here is rolled
 out until the owner rolls it out.
 
-- [ ] Canvases
-- [ ] Spreadsheets
-- [ ] Tables
-- [ ] Folders
-- [ ] Migration 717 and its guard test
+- [x] Canvases: view kind `canvas`. A row's menu now archives too (an
+      `archived_at` stamp in the entity actions registry), and the Archived
+      filter shows the archived ones.
+- [x] Spreadsheets: view kind `spreadsheet`.
+- [x] Tables: view kind `data_table`.
+- [x] Folders: the Reviews pattern, over the view-only kind `drive_item`
+      (`lib/drive/folder-view.ts`, `lib/views/local-rows.ts`). Saved views on.
+      Its verbs (Rename, Move to… with M, Delete folder, Take out of folder)
+      sit in the shared row's right-click menu, through
+      `components/views/list/row-menu-items.tsx`. Files dropped on a folder's
+      row still go into that folder.
+- [x] Migration 717 and its guard test
+      (`src/lib/views/__tests__/view-entity-type-enum.test.ts`).
+- [x] Deals' pipelines list: the Tables list, pinned to pipelines (a scope
+      filter, so no tabs of its own).
 - [ ] Files
 - [ ] Campaigns
 - [ ] Teams
 - [ ] Agents & skills
 - [ ] Library
-- [ ] Deals' pipelines list
