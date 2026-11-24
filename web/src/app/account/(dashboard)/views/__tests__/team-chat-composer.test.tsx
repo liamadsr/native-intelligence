@@ -38,8 +38,9 @@ const supa = vi.hoisted(() => ({
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => {
     const channel = {
-      on: (_event: string, filter: { table?: string }, cb: (payload: unknown) => void) => {
-        if (filter?.table) supa.handlers.set(filter.table, cb)
+      on: (_event: string, filter: { table?: string; event?: string }, cb: (payload: unknown) => void) => {
+        // A DELETE-only listener (714's unfiltered one) is kept apart from the table's own.
+        if (filter?.table) supa.handlers.set(filter.event === 'DELETE' ? `${filter.table}:DELETE` : filter.table, cb)
         return channel
       },
       subscribe: () => channel,

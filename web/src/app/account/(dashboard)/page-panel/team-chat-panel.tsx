@@ -25,7 +25,12 @@
  *           that conversation in the card in front, as its own list does. A
  *           star on hover or focus, and the row's right-click menu, add it to
  *           Favorites or take it out (./team-chat-panel-prefs.ts: on this
- *           device for now).
+ *           device for now). The menu also has Edit and Delete channel (a
+ *           channel), Rename and Delete meeting chat (a meeting chat), Delete
+ *           last, in red, after a divider, for whoever
+ *           may manage it (its can_manage, migration 714): they open the
+ *           card's own dialogs (TeamChatCardControls.manage). A Meetings
+ *           row's own menu has Rename and Delete too.
  *   Look    the Tasks and Mail sub-navs' (tasks-panel.tsx): the same floating
  *           card (page-panel-frame.tsx), small muted headings, 32px rows, a
  *           plain muted glyph; no title row, no empty state.
@@ -54,10 +59,10 @@
  */
 import { EntityIcon } from '@/components/entities/entity-icon'
 import { useLayoutEffect, useMemo, useRef, type KeyboardEvent, type ReactNode } from 'react'
-import { ArrowUpDown, BellOff, Lock, Plus, Star, Video } from 'lucide-react'
+import { ArrowUpDown, BellOff, Lock, Pencil, Plus, Star, Trash2, Video } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu'
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '@/components/ui/context-menu'
 import type { FrontCard } from '@/components/chat-cards/front-card'
 import {
   useLastTeamChat,
@@ -154,6 +159,13 @@ function TeamChatPanelRows({
       c.open(id)
     })
   const toggleStar = (id: string) => toggleTeamChatFavorite(workspaceId, id)
+  // Edit, Rename or Delete (migration 714): the card's own dialogs, the card brought back first.
+  const canManage = (id: string) => !!card?.manage && !!conversations.find((x) => x.channel.id === id)?.channel.can_manage
+  const manage = (id: string, what: 'edit' | 'delete') =>
+    run((c) => {
+      bringBack(c)
+      c.manage?.(id, what)
+    })
   const add = (section: TeamChatPanelSection) =>
     run((c) => {
       bringBack(c)
@@ -173,6 +185,7 @@ function TeamChatPanelRows({
         starred={starred.has(r.conversation.channel.id)}
         onPress={press}
         onStar={toggleStar}
+        onManage={canManage(r.conversation.channel.id) ? manage : undefined}
       />
     </li>
   )
@@ -207,6 +220,8 @@ function TeamChatPanelRows({
                   unread={unreadOf}
                   activeChannelId={openId}
                   onOpen={press}
+                  canManage={canManage}
+                  onManage={manage}
                 />
               ) : (
                 <ul className="flex flex-col">{section.rows.map(row)}</ul>
@@ -352,12 +367,15 @@ function ConversationRow({
   starred,
   onPress,
   onStar,
+  onManage,
 }: {
   row: TeamChatPanelRow
   lit: boolean
   starred: boolean
   onPress: (id: string) => void
   onStar: (id: string) => void
+  /** The person may manage it (migration 714): Edit channel, or Rename and Delete meeting chat, in its menu. */
+  onManage?: (id: string, what: 'edit' | 'delete') => void
 }) {
   const { conversation, hint } = row
   const id = conversation.channel.id
@@ -434,6 +452,20 @@ function ConversationRow({
         <ContextMenuItem data-team-chat-menu-item="favorite" onSelect={() => onStar(id)}>
           {starLabel}
         </ContextMenuItem>
+        {onManage && conversation.channel.kind !== 'dm' && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem data-team-chat-menu-item="edit" onSelect={() => onManage(id, 'edit')}>
+              <Pencil className="h-4 w-4" />
+              {conversation.channel.kind === 'channel' ? 'Edit channel…' : 'Rename meeting chat…'}
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem data-team-chat-menu-item="delete" onSelect={() => onManage(id, 'delete')} className="text-destructive focus:text-destructive">
+              <Trash2 className="h-4 w-4" />
+              {conversation.channel.kind === 'channel' ? 'Delete channel…' : 'Delete meeting chat…'}
+            </ContextMenuItem>
+          </>
+        )}
       </ContextMenuContent>
     </ContextMenu>
   )

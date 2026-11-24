@@ -41,7 +41,7 @@ vi.mock('@/lib/supabase/client', () => ({
       rt.topics.push(`${topic}${opts?.config?.private ? ' (private)' : ''}`)
       const channel = {
         on: (kind: string, filter: { table?: string; event?: string }, cb: (payload: unknown) => void) => {
-          rt.handlers.set(kind === 'broadcast' ? `broadcast:${filter.event}` : String(filter.table), cb)
+          rt.handlers.set(kind === 'broadcast' ? `broadcast:${filter.event}` : filter.event === 'DELETE' ? `${String(filter.table)}:DELETE` : String(filter.table), cb)
           return channel
         },
         subscribe: (cb?: (status: string) => void) => {
