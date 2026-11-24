@@ -108,6 +108,10 @@ import {
 import { useRecents } from './use-recents'
 import { useRecentsFilter } from './use-recents-filter'
 import { keepFocusAfterFlip, useOpenedRow } from './hub-open'
+import { setHomeSide, useHomeSide } from './home-side'
+import { PanelSwitch } from './panel-switch'
+import { InboxPanel } from './inbox-panel'
+import { useInbox } from '@/components/inbox/inbox-store'
 import type { PagePanelProps } from './page-panel-types'
 
 /**
@@ -152,26 +156,53 @@ const typing = (t: EventTarget | null): boolean => t instanceof HTMLElement && (
  */
 export function HomeRecentsPanel(props: PagePanelProps) {
   const { codeView } = useSidePanelState()
+  const side = useHomeSide()
   const { active, onContent } = props
   // Both lists stay mounted once shown, each holding what it read: a switch
   // between the agent's tab and Code shows the other at once, never an empty
   // slot while it reads again (page-panel.tsx's rule). Only the one on
-  // screen reads, and only it says what home has to show.
+  // screen reads, and only it says what home has to show. So do Recent and
+  // Inbox, the two sides of Home's switch (home-side.ts; Liam, 11-24).
   const [seenCode, setSeenCode] = useState(codeView)
   if (codeView && !seenCode) setSeenCode(true)
+  const inbox = !codeView && side === 'inbox'
+  const [seenInbox, setSeenInbox] = useState(inbox)
+  if (inbox && !seenInbox) setSeenInbox(true)
   const [content, setContent] = useState<{ recents: boolean | null; code: boolean | null }>({ recents: null, code: null })
   const onRecents = useCallback<PagePanelProps['onContent']>((_page, has) => setContent((c) => (c.recents === has ? c : { ...c, recents: has })), [])
   const onCode = useCallback<PagePanelProps['onContent']>((_page, has) => setContent((c) => (c.code === has ? c : { ...c, code: has })), [])
-  const has = codeView ? content.code : content.recents
+  const noop = useCallback<PagePanelProps['onContent']>(() => {}, [])
+  // Inbox always has something to show (its filter, its rows or "all caught up").
+  const has = codeView ? content.code : inbox ? true : content.recents
   useEffect(() => {
     onContent('home', has)
   }, [has, onContent])
   return (
     <>
-      <RecentsPanel {...props} active={active && !codeView} shown={!codeView} onContent={onRecents} />
+      <RecentsPanel {...props} active={active && !codeView && !inbox} shown={!codeView && !inbox} onContent={onRecents} />
+      {seenInbox && <InboxPanel {...props} active={active && inbox} shown={inbox} page="home" lead={<HomeSideSwitch />} onContent={noop} />}
       {seenCode && <CodeChatsPanel {...props} active={active && codeView} shown={codeView} onContent={onCode} />}
     </>
   )
+}
+
+const HOME_SIDES = [
+  { id: 'recent', label: 'Recent' },
+  // Liam, 11-24: he calls it "incoming" (the alternative, "Inbox", in docs/plans/hub-panels.md).
+  { id: 'inbox', label: 'Incoming' },
+] as const
+
+/**
+ * Home's Recent | Incoming (home-side.ts; Liam, 11-24: "the split between
+ * recent and notification or incoming in the sub-navigation", as Team chat's
+ * All | Recent). Incoming carries a dot while something in it is unread.
+ */
+export function HomeSideSwitch() {
+  const side = useHomeSide()
+  const { data } = useInbox(false)
+  const unread = !!data?.items.some((i) => i.unread)
+  const options = HOME_SIDES.map((o) => ({ ...o, dot: o.id === 'inbox' && unread && side !== 'inbox' }))
+  return <PanelSwitch options={options} value={side} onChange={setHomeSide} label="Show" data="data-home-side" />
 }
 
 function RecentsPanel({ active, mode, front, onContent, shown }: PagePanelProps & { shown: boolean }) {
@@ -182,15 +213,17 @@ function RecentsPanel({ active, mode, front, onContent, shown }: PagePanelProps 
   // record (team chat on a channel): the row opened for it (hub-open.ts).
   const [openedLit, noteOpened] = useOpenedRow(front?.id ?? null)
   const lit = front ? (frontRecentKey(front.spec) ?? openedLit) : null
-  // Whether there is anything at all (the filter aside): no panel when there isn't.
+  // Whether there is anything at all (the filter aside).
   const has = all.length > 0 && readAt !== null
   // Before its first read: not known yet (null), so a page change home holds
   // the last page's panel on screen a moment rather than leave the slot empty
   // (page-panel.tsx; Liam, 11-11: "it goes away completely and reappears").
+  // Once read, Home has its panel even with nothing recent: the switch to
+  // Inbox is on it (Liam, 11-24).
   const known = readAt !== null
   useEffect(() => {
-    onContent('home', known ? has : null)
-  }, [known, has, onContent])
+    onContent('home', known ? true : null)
+  }, [known, onContent])
 
   const items = useMemo(() => filterRecents(all, filter), [all, filter])
   const present = useMemo(() => recentTypesPresent(all), [all])
@@ -202,7 +235,7 @@ function RecentsPanel({ active, mode, front, onContent, shown }: PagePanelProps 
   // The rows the keys walk: the list's own content.
   const listRef = fades.contentRef
 
-  if (!shown || !has || !readAt) return null
+  if (!shown || !readAt) return null
   const open = (item: RecentItem) => {
     // Already in front: it is open (a second card of it would only stack in the chat).
     if (item.key === lit) {
@@ -223,6 +256,12 @@ function RecentsPanel({ active, mode, front, onContent, shown }: PagePanelProps 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || typing(e.target)) return
     const key = e.key.toLowerCase()
+    // S: Home's other side, Inbox (home-side.ts).
+    if (key === 's' && !e.shiftKey) {
+      e.preventDefault()
+      setHomeSide('inbox')
+      return
+    }
     if (key === 'f' && !e.shiftKey) {
       e.preventDefault()
       setFilterOpen(true)
@@ -272,7 +311,12 @@ function RecentsPanel({ active, mode, front, onContent, shown }: PagePanelProps 
             data-recents=""
             className="ph-no-capture flex flex-col gap-3"
           >
-            {groups.length === 0 && (
+            {!has && (
+              <p data-recents-empty="" className="px-2 py-4 text-center text-xs text-muted-foreground">
+                What you open and work on shows here.
+              </p>
+            )}
+            {has && groups.length === 0 && (
               <div data-recents-none="" className="flex flex-col items-center gap-2 px-2 py-4 text-center text-xs text-muted-foreground">
                 <span>Nothing matches these filters.</span>
                 <button
@@ -345,8 +389,9 @@ function RecentsFilterBar({
   const on = (filter.status === 'all' ? 0 : 1) + filter.types.length
   const types = RECENT_TYPES.filter((t) => present.includes(t.key) || filter.types.includes(t.key))
   return (
-    <div className="flex items-center justify-between px-3.5 pb-0.5 pt-2.5">
-      <span className="text-[11px] font-medium text-muted-foreground">Recent</span>
+    <div className="flex items-center gap-1.5 px-2.5 pb-0.5 pt-2.5">
+      {/* Home's Recent | Inbox where "Recent" was (Liam, 11-24), the filter beside it. */}
+      <HomeSideSwitch />
       <DropdownMenu open={open} onOpenChange={onOpenChange}>
         <DropdownMenuTrigger asChild>
           <button

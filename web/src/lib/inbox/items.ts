@@ -276,3 +276,117 @@ const ITEM_KEY = /^(n:[A-Za-z0-9_:.-]{1,200}|mail:[0-9a-f-]{36})$/i
 export function isInboxItemKey(value: unknown): value is string {
   return typeof value === 'string' && ITEM_KEY.test(value)
 }
+
+// ── Incoming's filter (Home's Incoming side; docs/plans/hub-panels.md) ──────
+//
+// Liam, 11-24: "we can do the same type of filter for the incoming view with
+// the different notifications we support with all being the default". The
+// same kind of filter as Recent's (page-panel/recents-model.ts): a Status
+// (All, Unread, Read, and Held: what is put off until later) and a Type per
+// kind of notification, none chosen being every kind. Each kind groups the
+// real notification types (lib/notifications.ts NOTIFICATION_TYPES).
+
+/** A kind of item, as Incoming's Type filter offers them. */
+export type InboxKind = 'messages' | 'mentions' | 'mail' | 'meetings' | 'tasks' | 'comments' | 'reviews' | 'agent' | 'other'
+
+/** The Types, in the menu's order, with their words. */
+export const INBOX_KINDS: ReadonlyArray<{ key: InboxKind; label: string }> = [
+  { key: 'messages', label: 'Messages' },
+  { key: 'mentions', label: 'Mentions & assignments' },
+  { key: 'mail', label: 'Mail' },
+  { key: 'meetings', label: 'Calls & meetings' },
+  { key: 'tasks', label: 'Tasks & projects' },
+  { key: 'comments', label: 'Comments' },
+  { key: 'reviews', label: 'Reviews' },
+  { key: 'agent', label: 'Your agent' },
+  { key: 'other', label: 'Other' },
+]
+
+/** Each notification type's kind; a type not named here is Other. */
+const KIND_OF_TYPE: Readonly<Record<string, InboxKind>> = {
+  team_chat_message: 'messages',
+  mentioned: 'mentions',
+  action_assigned: 'mentions',
+  action_unassigned: 'mentions',
+  record_shared: 'mentions',
+  capture_shared: 'mentions',
+  email_send_failed: 'mail',
+  meeting_starting_soon: 'meetings',
+  meeting_waiting: 'meetings',
+  action_status_changed: 'tasks',
+  project_status_changed: 'tasks',
+  cycle_started: 'tasks',
+  decision_confirmed: 'tasks',
+  reminder: 'tasks',
+  contact_followup_due: 'tasks',
+  comment_added: 'comments',
+  comment_reply: 'comments',
+  github_review_requested: 'reviews',
+  github_pr_comment: 'reviews',
+  github_checks_failed: 'reviews',
+  work_needs_you: 'agent',
+  work_failed: 'agent',
+  flow_run_output: 'agent',
+  agent_digest: 'agent',
+  agent_check_in: 'agent',
+  agent_look_ahead: 'agent',
+  agent_message: 'agent',
+}
+
+/** An item's kind: mail is Mail; a notification by its type. */
+export function inboxKindOf(item: Pick<InboxItem, 'source' | 'type'>): InboxKind {
+  if (item.source === 'mail') return 'mail'
+  return KIND_OF_TYPE[item.type] ?? 'other'
+}
+
+/** Status: everything listed, the unread, the read, or what is held for later. */
+export type InboxStatus = 'all' | 'unread' | 'read' | 'held'
+
+export interface InboxListFilter {
+  status: InboxStatus
+  /** The Types shown; empty is every type. */
+  kinds: readonly InboxKind[]
+}
+
+export const DEFAULT_INBOX_FILTER: InboxListFilter = Object.freeze({ status: 'all', kinds: Object.freeze([]) as readonly InboxKind[] })
+
+export const isDefaultInboxFilter = (f: InboxListFilter): boolean => f.status === 'all' && f.kinds.length === 0
+
+/** The rows a filter shows: Held is the held list; the rest the listed items, by status and kind. */
+export function filterInbox(data: { items: readonly InboxItem[]; held: readonly InboxItem[] } | null, filter: InboxListFilter): InboxItem[] {
+  const kinds = new Set(filter.kinds)
+  const source = filter.status === 'held' ? (data?.held ?? []) : (data?.items ?? [])
+  return source.filter((item) => {
+    if (filter.status === 'unread' && !item.unread) return false
+    if (filter.status === 'read' && item.unread) return false
+    return kinds.size === 0 || kinds.has(inboxKindOf(item))
+  })
+}
+
+/** The kinds the listed items and the held ones have, in the menu's order (what the Type menu offers), with how many listed. */
+export function inboxKindCounts(data: { items: readonly InboxItem[]; held: readonly InboxItem[] } | null): Map<InboxKind, number> {
+  const counts = new Map<InboxKind, number>()
+  for (const item of data?.items ?? []) counts.set(inboxKindOf(item), (counts.get(inboxKindOf(item)) ?? 0) + 1)
+  for (const item of data?.held ?? []) if (!counts.has(inboxKindOf(item))) counts.set(inboxKindOf(item), 0)
+  return counts
+}
+
+/** One Type on or off. */
+export function toggleInboxKind(filter: InboxListFilter, kind: InboxKind): InboxListFilter {
+  const on = filter.kinds.includes(kind)
+  return { ...filter, kinds: on ? filter.kinds.filter((k) => k !== kind) : [...filter.kinds, kind] }
+}
+
+/** A saved filter read back: only known values; anything else is the default. */
+export function parseInboxFilter(raw: string | null): InboxListFilter {
+  if (!raw) return DEFAULT_INBOX_FILTER
+  try {
+    const v = JSON.parse(raw) as { status?: unknown; kinds?: unknown }
+    const status: InboxStatus = v?.status === 'unread' || v?.status === 'read' || v?.status === 'held' ? v.status : 'all'
+    const known = new Set<string>(INBOX_KINDS.map((k) => k.key))
+    const kinds = Array.isArray(v?.kinds) ? [...new Set(v.kinds.filter((k): k is InboxKind => typeof k === 'string' && known.has(k)))] : []
+    return { status, kinds }
+  } catch {
+    return DEFAULT_INBOX_FILTER
+  }
+}
