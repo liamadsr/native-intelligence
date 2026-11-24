@@ -17,7 +17,13 @@ const ScrollArea = React.forwardRef<
     className={cn("relative overflow-hidden", className)}
     {...props}
   >
-    <ScrollAreaPrimitive.Viewport className="h-full w-full rounded-[inherit] [&>div]:!block [&>div]:min-w-0">
+    {/* With no bar, Radix leaves the viewport `overflow-y: hidden` (it scrolls only while a scrollbar is mounted):
+        the page could not scroll at all (Liam, 11-23: "you can't scroll on the page like here on contacts").
+        `auto` lets it; Radix's own style hides the native bar. */}
+    <ScrollAreaPrimitive.Viewport
+      className="h-full w-full rounded-[inherit] [&>div]:!block [&>div]:min-w-0"
+      style={scrollbar ? undefined : { overflowY: "auto" }}
+    >
       {children}
     </ScrollAreaPrimitive.Viewport>
     {scrollbar && <ScrollBar />}

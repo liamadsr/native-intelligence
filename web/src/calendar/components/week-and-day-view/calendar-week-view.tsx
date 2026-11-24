@@ -13,7 +13,7 @@ import { TimeGridDragLayer } from "@/calendar/components/week-and-day-view/time-
 import { EventInteractionLayer } from "@/calendar/components/week-and-day-view/event-interaction-layer";
 
 import { cn } from "@/lib/utils";
-import { positionDayEvents, isWorkingHour, getVisibleHours, compactTime } from "@/calendar/helpers";
+import { positionDayEvents, getVisibleHours, compactTime } from "@/calendar/helpers";
 
 import type { IEvent } from "@/calendar/interfaces";
 
@@ -48,7 +48,7 @@ export function DayHeading({ day }: { day: Date }) {
 }
 
 export function CalendarWeekView({ singleDayEvents, multiDayEvents }: IProps) {
-  const { selectedDate, workingHours, visibleHours } = useCalendar();
+  const { selectedDate, visibleHours } = useCalendar();
 
   const gridRef = useRef<HTMLDivElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
@@ -122,10 +122,9 @@ export function CalendarWeekView({ singleDayEvents, multiDayEvents }: IProps) {
                 {dayColumns.map(({ day, positionedEvents }, dayIndex) => (
                   <div key={dayIndex} data-day-column className="relative">
                     {hours.map((hour, index) => {
-                      const isDisabled = !isWorkingHour(day, hour, workingHours);
-
+                      // Every hour the same square, working hours or not (Liam, 11-23: "why are some of the squares in the calendar darker than others? can you make them all match").
                       return (
-                        <div key={hour} className={cn("relative", isDisabled && "bg-muted/30")} style={{ height: "96px" }}>
+                        <div key={hour} className="relative" style={{ height: "96px" }}>
                           {index !== 0 && <div className="pointer-events-none absolute inset-x-0 top-0 border-b border-border/60"></div>}
 
                           <HourSlots day={day} hour={hour} />

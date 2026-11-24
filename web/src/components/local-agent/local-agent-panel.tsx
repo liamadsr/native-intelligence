@@ -41,6 +41,7 @@
  * events and row, with a catch-up poll). Render cost stays flat: rows are
  * memoized per item and deltas land once per frame.
  */
+import { pageTabClass } from '@/components/views/page-tabs'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { ExternalLink, GitPullRequest, Laptop, Loader2, MessageCircleQuestion, Square } from 'lucide-react'
@@ -362,7 +363,7 @@ export function LocalAgentPanel({
       {header && <LocalAgentHeader session={session} stopping={stopping} onStop={onStop} />}
 
       {hasResults && (
-        <div role="tablist" aria-label="This job" data-local-agent-views="" className="flex shrink-0 items-center gap-1 text-xs">
+        <div role="tablist" aria-label="This job" data-local-agent-views="" className="flex shrink-0 items-center gap-1">
           {(['conversation', 'changes'] as const).map((v) => (
             <button
               key={v}
@@ -371,10 +372,7 @@ export function LocalAgentPanel({
               aria-selected={view === v}
               data-local-agent-view={v}
               onClick={() => setView(v)}
-              className={cn(
-                'rounded-md px-2 py-1 transition-colors',
-                view === v ? 'bg-muted font-medium text-foreground' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
-              )}
+              className={pageTabClass(view === v)}
             >
               {v === 'conversation' ? 'Conversation' : 'Changes'}
             </button>

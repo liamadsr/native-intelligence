@@ -13,8 +13,7 @@ import { DayViewMultiDayEventsRow } from "@/calendar/components/week-and-day-vie
 import { TimeGridDragLayer } from "@/calendar/components/week-and-day-view/time-grid-drag-layer";
 import { EventInteractionLayer } from "@/calendar/components/week-and-day-view/event-interaction-layer";
 
-import { cn } from "@/lib/utils";
-import { positionDayEvents, isWorkingHour, getCurrentEvents, getVisibleHours, compactTime } from "@/calendar/helpers";
+import { positionDayEvents, getCurrentEvents, getVisibleHours, compactTime } from "@/calendar/helpers";
 import { DayHeading, EVENT_SLOT_CLASS } from "@/calendar/components/week-and-day-view/calendar-week-view";
 
 import type { IEvent } from "@/calendar/interfaces";
@@ -27,7 +26,7 @@ interface IProps {
 export function CalendarDayView({ singleDayEvents, multiDayEvents }: IProps) {
   const gridRef = useRef<HTMLDivElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
-  const { selectedDate, visibleHours, workingHours } = useCalendar();
+  const { selectedDate, visibleHours } = useCalendar();
 
   // The day's layout (overlap-layout): once per (events, day), not on every render.
   const { hours, earliestEventHour, latestEventHour, positionedEvents } = useMemo(() => {
@@ -105,10 +104,9 @@ export function CalendarDayView({ singleDayEvents, multiDayEvents }: IProps) {
             <div ref={gridRef} className="relative flex-1 border-l border-border/60">
               <div data-day-column className="relative">
                 {hours.map((hour, index) => {
-                  const isDisabled = !isWorkingHour(selectedDate, hour, workingHours);
-
+                  // Every hour the same square, working hours or not (Liam, 11-23: "why are some of the squares in the calendar darker than others? can you make them all match").
                   return (
-                    <div key={hour} className={cn("relative", isDisabled && "bg-muted/30")} style={{ height: "96px" }}>
+                    <div key={hour} className="relative" style={{ height: "96px" }}>
                       {index !== 0 && <div className="pointer-events-none absolute inset-x-0 top-0 border-b border-border/60"></div>}
 
                       <HourSlots day={selectedDate} hour={hour} />

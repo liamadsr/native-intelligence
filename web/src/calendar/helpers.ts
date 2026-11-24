@@ -65,6 +65,32 @@ export function rangeText(view: TCalendarView, date: Date) {
   return `${format(start, formatString)} - ${format(end, formatString)}`;
 }
 
+/**
+ * The card header's one date (Liam, 11-23: "why is the current date repeated here like three times"): the
+ * month and year once, as the view shows them. Week: "Dec 6 – 12, 2026", "Nov 29 – Dec 5, 2026" across a month,
+ * "Dec 27, 2026 – Jan 2, 2027" across a year; day: "Mon, Dec 7, 2026"; month and agenda: "December 2026";
+ * year: "2026". `short` drops the year (or the weekday) for a narrow header.
+ */
+export function headerDateLabel(view: TCalendarView, date: Date): { short: string; long: string } {
+  switch (view) {
+    case "week": {
+      const start = startOfWeek(date);
+      const end = endOfWeek(date);
+      if (start.getFullYear() !== end.getFullYear()) {
+        return { short: `${format(start, "MMM d")} – ${format(end, "MMM d")}`, long: `${format(start, "MMM d, yyyy")} – ${format(end, "MMM d, yyyy")}` };
+      }
+      const span = start.getMonth() === end.getMonth() ? `${format(start, "MMM d")} – ${format(end, "d")}` : `${format(start, "MMM d")} – ${format(end, "MMM d")}`;
+      return { short: span, long: `${span}, ${format(end, "yyyy")}` };
+    }
+    case "day":
+      return { short: format(date, "MMM d"), long: format(date, "EEE, MMM d, yyyy") };
+    case "year":
+      return { short: format(date, "yyyy"), long: format(date, "yyyy") };
+    default:
+      return { short: format(date, "MMM yyyy"), long: format(date, "MMMM yyyy") };
+  }
+}
+
 export function navigateDate(date: Date, view: TCalendarView, direction: "previous" | "next"): Date {
   const operations = {
     agenda: direction === "next" ? addMonths : subMonths,

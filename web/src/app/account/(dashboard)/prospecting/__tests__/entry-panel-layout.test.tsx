@@ -154,8 +154,7 @@ describe('EntryPanel — the CRM company panel’s plan', () => {
     expect(tabPills()).toEqual(['overview', 'details', 'people'])
     // The active pill is the filled one, exactly as the CRM draws it.
     const overview = toolbar().querySelector('[data-prospect-tab="overview"]')!
-    expect(overview.className).toContain('bg-foreground')
-    expect(overview.getAttribute('aria-pressed')).toBe('true')
+    expect(overview.getAttribute('aria-selected')).toBe('true')
 
     // Every verb lives in the toolbar; nothing sits under the body.
     for (const label of ['Find people', 'Dismiss', 'Save to list']) {
@@ -202,7 +201,7 @@ describe('EntryPanel — the CRM company panel’s plan', () => {
   it('View details in the sidebar opens the Details tab', async () => {
     await render()
     await click(button('View details', sidebar())!)
-    expect(toolbar().querySelector('[data-prospect-tab="details"]')?.getAttribute('aria-pressed')).toBe(
+    expect(toolbar().querySelector('[data-prospect-tab="details"]')?.getAttribute('aria-selected')).toBe(
       'true',
     )
     expect(text()).toContain('Size & revenue')
@@ -463,12 +462,12 @@ describe('EntryPanel — people found, none kept', () => {
   })
 })
 
-// Liam, 11-23: "these details view pages … that show the different pages at
-// the top … feel out of place": in a card, the tabs are a capsule in the
-// card's header, and the toolbar is left empty once the verbs sit in the
-// Properties popover.
-describe('EntryPanel — its tabs in a card’s header', () => {
-  it('a capsule in the right slot, People counted; a press switches the tab; no pills in the page', async () => {
+// Liam, 11-23: "I want to put it back in the header of the pages but make it
+// look really nice and clean like linear does … it should start to the far
+// left": in a card too, the tabs are the toolbar's, from the far left, and the
+// card's header holds none of them.
+describe('EntryPanel — its tabs on the toolbar, in a card too', () => {
+  it('a tablist from the far left, People counted, none in the header; a press switches the tab', async () => {
     const right = document.createElement('div')
     document.body.appendChild(right)
     try {
@@ -481,13 +480,13 @@ describe('EntryPanel — its tabs in a card’s header', () => {
           </CardHeaderSlotsProvider>,
         )
       })
-      const capsule = right.querySelector<HTMLElement>('[data-detail-tabs="header"]')!
-      expect(capsule).not.toBeNull()
-      expect(Array.from(capsule.querySelectorAll('[data-prospect-tab]')).map((b) => b.textContent)).toEqual(['Overview', 'Details', 'People1'])
-      expect(capsule.querySelector('[data-prospect-tab="overview"]')!.getAttribute('aria-selected')).toBe('true')
-      expect(toolbar().childNodes.length).toBe(0)
-      await click(capsule.querySelector('[data-prospect-tab="people"]')!)
-      expect(capsule.querySelector('[data-prospect-tab="people"]')!.getAttribute('aria-selected')).toBe('true')
+      expect(right.querySelector('[role="tablist"]')).toBeNull()
+      expect(toolbar().className).toContain('px-2.5')
+      const tabs = toolbar().querySelector<HTMLElement>('[role="tablist"]')!
+      expect(Array.from(tabs.querySelectorAll('[data-prospect-tab]')).map((b) => b.textContent)).toEqual(['Overview', 'Details', 'People1'])
+      expect(tabs.querySelector('[data-prospect-tab="overview"]')!.getAttribute('aria-selected')).toBe('true')
+      await click(tabs.querySelector('[data-prospect-tab="people"]')!)
+      expect(tabs.querySelector('[data-prospect-tab="people"]')!.getAttribute('aria-selected')).toBe('true')
       expect(text()).toContain('Kurt Ravensby')
     } finally {
       right.remove()

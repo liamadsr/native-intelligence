@@ -494,6 +494,8 @@ export function UnifiedViewLayout({
   // quiet list inside a page card (a record's actions) has neither, or the
   // header would hold two searches; a prospect list keeps its own stage tabs.
   const cardOwnList = !!card && !!card.onStateChange && !card.keepTabs
+  // Where the roadmap puts Today and its zoom in the card's header (a span before the layouts).
+  const [roadmapHeaderHost, setRoadmapHeaderHost] = React.useState<HTMLElement | null>(null)
 
   // View management
   const {
@@ -2003,6 +2005,8 @@ export function UnifiedViewLayout({
       {cardOwnList && !obscured && (search || headerLayouts.length > 1) && (
         <CardHeaderSlot side="right">
           <div className="flex items-center gap-1.5">
+            {/* The roadmap's Today and zoom, before the layouts (view-roadmap.tsx headerHost). */}
+            {effectiveLayout === 'roadmap' && <span ref={setRoadmapHeaderHost} data-roadmap-header-host="" className="contents" />}
             <ViewLayoutSwitcher options={headerLayouts} value={effectiveLayout} onChange={(layout) => updateConfig({ layout })} />
             {search}
           </div>
@@ -2208,6 +2212,7 @@ export function UnifiedViewLayout({
           renderGraph?.({ filters: graphFilters, search: activeSearch ?? '' })
         ) : effectiveLayout === 'roadmap' ? (
           <ViewRoadmap
+            headerHost={cardOwnList && !obscured ? roadmapHeaderHost : null}
             entityType={effectiveEntityType}
             data={data}
             loading={loading}
