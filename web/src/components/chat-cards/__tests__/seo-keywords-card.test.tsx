@@ -18,7 +18,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as React from 'react'
 import { act } from 'react'
 import { makeStore, mountRoot } from './page-card-harness'
-import { seoHeaderHosts } from './seo-header-hosts'
+import { pageTabRow, seoHeaderHosts } from './seo-header-hosts'
+import { DETAIL_TAB_ROW, pageTabClass } from '@/components/views/page-tabs'
 import { stubAppFetch } from '@/test/app-fetch-stub'
 
 const hoisted = vi.hoisted(() => ({ toast: Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn() }) }))
@@ -619,23 +620,24 @@ describe('SeoKeywordsCard: in a card’s header', () => {
     await settle()
   }
 
-  it('no title row of its own: the tabs are the header’s capsule, the spend line is at the header’s right', async () => {
-    // Liam, 11-23: "all the SEO pages": the tabs go up into the header.
+  it('no title row of its own: the tabs are the page’s first row, in the card’s corner; the spend line is at the header’s right', async () => {
+    // Liam, 11-23: "everything looks the same as the projects page".
     await renderInCard()
     expect(mount.container.querySelector('h1')).toBeNull()
-    expect(mount.container.querySelector('[data-seo-tab]')).toBeNull()
-    expect(mount.container.querySelector('[role="tablist"]')).toBeNull()
-    const capsule = hosts.right.querySelector<HTMLElement>('[data-seo-tabs="header"]')!
-    expect(capsule.getAttribute('role')).toBe('tablist')
-    expect(capsule.className).toContain('h-6')
-    expect(Array.from(capsule.querySelectorAll('[role="tab"]')).map((t) => t.getAttribute('data-seo-tab'))).toEqual(['research', 'saved'])
-    expect(capsule.querySelector('[data-seo-tab="research"]')!.getAttribute('aria-selected')).toBe('true')
+    const row = pageTabRow(mount.container.querySelector('[data-kw-page]'))!
+    expect(row.className).toBe(DETAIL_TAB_ROW)
+    const tabs = Array.from(row.querySelectorAll<HTMLElement>('[role="tablist"][aria-label="Keywords"] [role="tab"]'))
+    expect(tabs.map((t) => [t.getAttribute('data-seo-tab'), t.getAttribute('aria-selected'), t.className])).toEqual([
+      ['research', 'true', pageTabClass(true)],
+      ['saved', 'false', pageTabClass(false)],
+    ])
+    expect(hosts.right.querySelector('[data-seo-tab], [role="tablist"]')).toBeNull()
     expect(mount.container.querySelector('[data-seo-spend]')).toBeNull()
     expect(hosts.right.querySelector('[data-seo-spend]')!.textContent).toBe('$3.40 of $20 this month · resets Dec 1')
     // A press on Saved is the card's tab, and the research form leaves the header with Research.
-    await click(capsule.querySelector('[data-seo-tab="saved"]'))
+    await click(row.querySelector('[data-seo-tab="saved"]'))
     expect(store.state('kw-1').tab).toBe('saved')
-    expect(hosts.right.querySelector('[data-seo-tab="saved"]')!.getAttribute('aria-selected')).toBe('true')
+    expect(row.querySelector('[data-seo-tab="saved"]')!.getAttribute('aria-selected')).toBe('true')
     expect(hosts.right.querySelector('[data-kw-seed]')).toBeNull()
   })
 

@@ -15,6 +15,7 @@
  * at a time, picked from a compact row of the areas with background work
  * (Captures, Mail, Prospecting, Evals, CRM).
  */
+import { pageTabClass } from '@/components/views/page-tabs'
 import { useState } from 'react'
 import { WhatNiLearned } from '@/components/memory/what-ni-learned'
 import { useWorkspaceId, useWorkspaces } from '@/app/account/workspace-switcher'
@@ -67,10 +68,7 @@ export function AgentLearned({ name, workspaceId }: { name: string; workspaceId:
                 aria-checked={area === key}
                 data-bot-page-learned-area={key}
                 onClick={() => setArea(key)}
-                className={cn(
-                  'inline-flex h-6 items-center rounded-full border px-2 text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                  area === key ? 'border-primary/50 bg-primary/5 text-foreground' : 'border-border/60 text-muted-foreground hover:bg-muted hover:text-foreground',
-                )}
+                className={pageTabClass(area === key)}
               >
                 {PACKS[key].name}
               </button>

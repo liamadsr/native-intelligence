@@ -187,6 +187,30 @@ describe('ViewRoadmap', () => {
     expect([moved.getFullYear(), moved.getMonth(), moved.getDate(), moved.getHours(), moved.getMinutes()]).toEqual([2026, 10, 22, 9, 30])
   })
 
+  it('in a card, Today and the zoom go to the header spot it is given, the zoom named (Liam, 11-23: "lets move this today and view options into the header section")', () => {
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    try {
+      window.localStorage.setItem('ni:roadmap-zoom', 'day')
+      render({ headerHost: host })
+      expect(host.querySelector('[data-roadmap-today-button]')!.textContent).toBe('Today')
+      expect(host.querySelector('[data-roadmap-settings]')!.textContent).toBe('Day')
+      expect(host.querySelector('[data-roadmap-settings]')!.className).toContain('h-6')
+      // Nothing floats over the axis then.
+      expect(container.querySelector('[data-roadmap-today-button]')).toBeNull()
+      // The day zoom: a day as wide as its weekday needs.
+      expect((container.querySelector('[data-roadmap-bar="p1"]') as HTMLElement).style.width).toBe(`${12 * PX_PER_DAY.day}px`)
+    } finally {
+      host.remove()
+    }
+  })
+
+  it('on its own, Today and the settings float over the axis', () => {
+    render({})
+    expect(container.querySelector('[data-roadmap-today-button]')).not.toBeNull()
+    expect(container.querySelector('[data-roadmap-settings]')!.getAttribute('aria-label')).toBe('Roadmap settings')
+  })
+
   it('switching zoom rescales the bars and is remembered', () => {
     render({})
     const bar = () => container.querySelector('[data-roadmap-bar="p1"]') as HTMLElement

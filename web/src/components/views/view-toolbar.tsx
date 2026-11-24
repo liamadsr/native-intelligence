@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
 import { ViewTabs } from './view-tabs'
+import { PAGE_TAB_INSET } from './page-tabs'
 import { ViewSettingsPopover } from './view-settings-popover'
 import { FilterFieldPicker } from './filters/filter-field-picker'
 import { FilterChip } from './filters/filter-chip'
@@ -547,7 +548,7 @@ export function ViewToolbar({
         className={cn(
           'flex shrink-0 items-center justify-between',
           compact ? 'h-8' : alignToContent ? 'h-12' : 'h-10',
-          alignToContent ? 'pl-[18px] pr-[17px]' : embedded ? 'px-3' : 'px-4',
+          alignToContent ? PAGE_TAB_INSET : embedded ? 'px-3' : 'px-4',
         )}
       >
         {/* In a card the tabs scroll sideways rather than being cut off: an

@@ -2,7 +2,7 @@
 
 /**
  * The Analytics tab: Google Analytics' fixed reports for the workspace's
- * chosen property, for the header's period. Optional: without a property it
+ * chosen property, for the page's period. Optional: without a property it
  * shows its own small setup block (connect, choose, reconnect) and the rest
  * of the page carries on.
  *

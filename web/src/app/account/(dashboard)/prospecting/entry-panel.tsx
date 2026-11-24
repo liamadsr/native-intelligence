@@ -79,7 +79,7 @@ import { CopyValueButton } from '@/components/views/copy-value-button'
 import { PropertyGroup } from '@/components/views/property-group'
 import { usePropertiesVisible } from '@/components/views/use-properties-visible'
 import { WindowProperties, WindowActions } from '@/components/views/window-properties'
-import { DetailTabsInHeader, useDetailTabsInHeader } from '@/components/chat-cards/detail-tabs'
+import { DETAIL_TAB_ROW, DetailTabs } from '@/components/views/page-tabs'
 import { cn } from '@/lib/utils'
 import type { DetailField } from '@/lib/crm/enrichment-details'
 import {
@@ -265,49 +265,18 @@ function PanelFrame<T extends string>({
 }) {
   const panelBodyRef = useRef<HTMLDivElement>(null)
   const propertiesOpen = usePropertiesVisible(panelBodyRef)
-  const tabsInHeader = useDetailTabsInHeader()
 
   return (
     <div className="relative flex h-full min-h-0 flex-col">
-      {/* In a card, the tabs are a capsule in the card's header, and the
-          toolbar keeps only what is left in it (Liam, 11-23: "these details
-          view pages … that show the different pages at the top … feel out of
-          place"); empty (the verbs in the Properties popover), it is gone. */}
-      <DetailTabsInHeader
-        label="Prospect"
-        tabs={tabs.map((tab) => ({ id: tab, label: TAB_LABELS[tab] ?? tab, count: counts?.[tab], data: { 'data-prospect-tab': tab } }))}
-        value={activeTab}
-        onChange={onTab}
-      />
-      {/* Sub-header toolbar — the CRM panel's, pill for pill. */}
-      <div data-prospect-toolbar className="flex h-10 shrink-0 items-center px-3 empty:hidden">
-        {!tabsInHeader && (
-        <div className="flex items-center gap-1">
-          {tabs.map((tab) => {
-            const count = counts?.[tab]
-            return (
-              <button
-                key={tab}
-                type="button"
-                data-prospect-tab={tab}
-                aria-pressed={activeTab === tab}
-                onClick={() => onTab(tab)}
-                className={cn(
-                  'inline-flex shrink-0 items-center whitespace-nowrap rounded-full border px-3 py-1 text-xs transition-colors',
-                  activeTab === tab
-                    ? 'border-foreground bg-foreground font-medium text-background'
-                    : 'border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground',
-                )}
-              >
-                {TAB_LABELS[tab] ?? tab}
-                {typeof count === 'number' && count > 0 && (
-                  <span className="ml-1.5 text-[10px] opacity-70">{count}</span>
-                )}
-              </button>
-            )
-          })}
-        </div>
-        )}
+      {/* Sub-header toolbar, as every detail page's first row: the tabs from the
+          far left (Liam, 11-23; components/views/page-tabs.tsx), the verbs at the end. */}
+      <div data-prospect-toolbar className={DETAIL_TAB_ROW}>
+        <DetailTabs
+          label="Prospect"
+          tabs={tabs.map((tab) => ({ id: tab, label: TAB_LABELS[tab] ?? tab, count: counts?.[tab], data: { 'data-prospect-tab': tab } }))}
+          value={activeTab}
+          onChange={onTab}
+        />
         <WindowActions className="ml-auto flex items-center gap-1">{verbs}</WindowActions>
       </div>
 

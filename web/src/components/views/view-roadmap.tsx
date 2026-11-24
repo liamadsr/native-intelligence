@@ -23,16 +23,18 @@
  */
 
 import * as React from 'react'
+import { createPortal } from 'react-dom'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { toast } from 'sonner'
 import { format } from 'date-fns'
-import { ChevronRight, Circle, CheckCircle2, Flag, PanelLeftClose, PanelLeftOpen, Settings2, Target, XCircle } from 'lucide-react'
+import { ChevronDown, ChevronRight, Circle, CheckCircle2, Flag, PanelLeftClose, PanelLeftOpen, Settings2, Target, XCircle } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { ProjectIcon } from '@/components/ui/emoji-icon-picker'
 import { cn } from '@/lib/utils'
+import { CARD_HEADER_PILL_BUTTON } from '@/components/chat-cards/card-header-button'
 import type { GroupedResults, ViewEntityType } from '@/lib/views/types'
 import { getPriorityOption, PROJECT_STATUS_OPTIONS, STATUS_DOT_COLORS } from '@/lib/views/property-options'
 import type { GroupLoadState } from '@/lib/views/lazy-done-groups'
@@ -52,10 +54,14 @@ const LEFT_COLLAPSED_WIDTH = 44
 /** Past this many pixels a press on a bar is a drag, not a click. */
 const DRAG_THRESHOLD_PX = 3
 /**
- * The sticky surfaces (axis, left list) over the scrolling bars: the window's
- * own glass, frosted enough that a bar sliding under the list reads as behind it.
+ * The sticky surfaces (axis, left list) paint nothing of their own: the page's
+ * glass shows through them, as everywhere else on it (Liam, 11-23: "why is the
+ * background color of the top and side so dark here, can you make it match the
+ * rest of the page"; a glass of their own over the card's doubled it). What
+ * scrolls is cut where they stand instead (`--rm-sl` / `--rm-st`, the scroll
+ * position, written on the scroller as it moves), so nothing shows through.
  */
-const GLASS = 'bg-background/75 backdrop-blur-xl dark:bg-background/70'
+const CUT_UNDER_LIST = 'inset(0 0 0 var(--rm-sl, 0px))'
 const ZOOM_STORAGE_KEY = 'ni:roadmap-zoom'
 const PANEL_STORAGE_KEY = 'ni:roadmap-left-collapsed'
 
@@ -83,6 +89,8 @@ interface ViewRoadmapProps {
   groupLoadState?: Record<string, GroupLoadState>
   /** Fixed "today" for tests and screenshots. */
   today?: Date
+  /** In a card's header, where Today and the zoom go (unified-view-layout.tsx); absent, they float over the axis. */
+  headerHost?: HTMLElement | null
 }
 
 interface DragState {
@@ -96,7 +104,7 @@ interface DragState {
 export function ViewRoadmap({
   entityType, data, loading, loadingMore, hasMore, onLoadMore,
   config, selectedItemId, onItemSelect, onPatch, canEdit,
-  onLoadGroup, groupLoadState, today: todayProp,
+  onLoadGroup, groupLoadState, today: todayProp, headerHost,
 }: ViewRoadmapProps) {
   const scrollRef = React.useRef<HTMLDivElement>(null)
   const today = React.useMemo(() => {
@@ -195,6 +203,20 @@ export function ViewRoadmap({
     return () => el.removeEventListener('scroll', onScroll)
   }, [hasMore, loadingMore, onLoadMore, loading])
 
+  // Where the list and the axis stand, for what scrolls to be cut there (CUT_UNDER_LIST): written straight onto
+  // the scroller as it moves, no render.
+  React.useLayoutEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const write = () => {
+      el.style.setProperty('--rm-sl', `${el.scrollLeft}px`)
+      el.style.setProperty('--rm-st', `${el.scrollTop}px`)
+    }
+    write()
+    el.addEventListener('scroll', write, { passive: true })
+    return () => el.removeEventListener('scroll', write)
+  }, [loading])
+
   // An opened lazy group loads its first page.
   React.useEffect(() => {
     if (!onLoadGroup) return
@@ -273,6 +295,30 @@ export function ViewRoadmap({
   const totalHeight = virtualizer.getTotalSize()
   const contentWidth = leftWidth + timelineWidth
 
+
+  // The zoom and how to move things, in the zoom's popover wherever it is.
+  const zoomOptions = (
+    <>
+      <div className="mb-2 text-xs font-medium text-muted-foreground">Zoom</div>
+      <ToggleGroup
+        type="single" value={zoom}
+        onValueChange={v => { if (isRoadmapZoom(v)) setZoom(v) }}
+        className="w-full"
+      >
+        {ROADMAP_ZOOMS.map(z => (
+          <ToggleGroupItem key={z} value={z} className="h-7 flex-1 text-xs" data-roadmap-zoom={z}>
+            {ROADMAP_ZOOM_LABELS[z]}
+          </ToggleGroupItem>
+        ))}
+      </ToggleGroup>
+      <p className="mt-3 text-[11px] leading-snug text-muted-foreground">
+        {entityType === 'project'
+          ? 'Drag a bar to move it, or its ends to change the start and target dates.'
+          : `Drag a marker to change its ${entityType === 'action' ? 'due' : 'target'} date.`}
+        {' '}Click an empty row’s timeline to schedule it.
+      </p>
+    </>
+  )
   return (
     <div className="relative h-full" data-roadmap="">
       <div ref={scrollRef} className="h-full overflow-auto overscroll-contain" data-roadmap-scroll="">
@@ -283,7 +329,7 @@ export function ViewRoadmap({
             style={{ height: HEADER_HEIGHT, width: contentWidth }}
           >
             <div
-              className={cn('sticky left-0 z-10 flex items-end border-r border-border/60 px-2 pb-1.5', GLASS)}
+              className="sticky left-0 z-10 flex items-end border-r border-border/60 px-2 pb-1.5"
               style={{ width: leftWidth, minWidth: leftWidth }}
             >
               <Button
@@ -296,7 +342,7 @@ export function ViewRoadmap({
                 {leftCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
               </Button>
             </div>
-            <div className={cn('relative', GLASS)} style={{ width: timelineWidth }} aria-hidden>
+            <div className="relative" style={{ width: timelineWidth, clipPath: CUT_UNDER_LIST }} aria-hidden>
               {ticks.major.map(t => (
                 <div key={`M${t.x}`} className="absolute top-1.5 whitespace-nowrap pl-1.5 text-xs font-medium text-foreground" style={{ left: t.x }}>
                   {t.label}
@@ -305,7 +351,7 @@ export function ViewRoadmap({
               {ticks.minor.map(t => (
                 <div
                   key={`m${t.x}`}
-                  className="absolute bottom-0 h-5 border-l border-border/70 pl-1 text-[10px] leading-4 tabular-nums text-muted-foreground"
+                  className="absolute bottom-0 h-5 whitespace-nowrap border-l border-border/70 pl-1 text-[10px] leading-4 tabular-nums text-muted-foreground"
                   style={{ left: t.x }}
                 >
                   {t.label}
@@ -318,7 +364,7 @@ export function ViewRoadmap({
           {/* ── Grid: week lines and the today line, behind the rows ── */}
           <div
             className="pointer-events-none absolute"
-            style={{ left: leftWidth, top: HEADER_HEIGHT, width: timelineWidth, bottom: 0 }}
+            style={{ left: leftWidth, top: HEADER_HEIGHT, width: timelineWidth, bottom: 0, clipPath: 'inset(var(--rm-st, 0px) 0 0 var(--rm-sl, 0px))' }}
             aria-hidden
           >
             {ticks.minor.map(t => (
@@ -334,7 +380,8 @@ export function ViewRoadmap({
               <div
                 key={row.key}
                 className="absolute left-0 flex"
-                style={{ top: 0, height: vi.size, width: contentWidth, transform: `translateY(${vi.start}px)` }}
+                // Cut where the axis stands over it (its top, once scrolled under).
+                style={{ top: 0, height: vi.size, width: contentWidth, transform: `translateY(${vi.start}px)`, clipPath: `inset(max(0px, calc(var(--rm-st, 0px) + ${HEADER_HEIGHT - vi.start}px)) 0 0 0)` }}
               >
                 {row.type === 'group' ? (
                   <GroupBand
@@ -392,43 +439,49 @@ export function ViewRoadmap({
         </div>
       </div>
 
-      {/* ── Today + zoom, over the axis's right end ── */}
-      <div className="absolute right-3 top-2.5 z-40 flex items-center gap-1 rounded-full border border-border/70 bg-background/90 p-0.5 shadow-sm backdrop-blur">
-        <Button
-          variant="ghost" size="sm" className="h-6 rounded-full px-2.5 text-xs"
-          onClick={() => scrollToDay(today, 'smooth')}
-          data-roadmap-today-button=""
-        >
-          Today
-        </Button>
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-6 w-6 rounded-full" aria-label="Roadmap settings" title="Roadmap settings" data-roadmap-settings="">
-              <Settings2 className="h-3.5 w-3.5" />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-60 p-3" align="end">
-            <div className="mb-2 text-xs font-medium text-muted-foreground">Zoom</div>
-            <ToggleGroup
-              type="single" value={zoom}
-              onValueChange={v => { if (isRoadmapZoom(v)) setZoom(v) }}
-              className="w-full"
-            >
-              {ROADMAP_ZOOMS.map(z => (
-                <ToggleGroupItem key={z} value={z} className="h-7 flex-1 text-xs" data-roadmap-zoom={z}>
-                  {ROADMAP_ZOOM_LABELS[z]}
-                </ToggleGroupItem>
-              ))}
-            </ToggleGroup>
-            <p className="mt-3 text-[11px] leading-snug text-muted-foreground">
-              {entityType === 'project'
-                ? 'Drag a bar to move it, or its ends to change the start and target dates.'
-                : `Drag a marker to change its ${entityType === 'action' ? 'due' : 'target'} date.`}
-              {' '}Click an empty row’s timeline to schedule it.
-            </p>
-          </PopoverContent>
-        </Popover>
-      </div>
+      {/* ── Today + zoom: in the card's header beside the layouts (Liam, 11-23: "lets move this today and
+          view options into the header section"), else over the axis's right end ── */}
+      {headerHost ? (
+        createPortal(
+          <>
+            <button type="button" className={CARD_HEADER_PILL_BUTTON} onClick={() => scrollToDay(today, 'smooth')} data-roadmap-today-button="">
+              Today
+            </button>
+            <Popover>
+              <PopoverTrigger asChild>
+                <button type="button" className={CARD_HEADER_PILL_BUTTON} aria-label={`Zoom: ${ROADMAP_ZOOM_LABELS[zoom]}`} title="Zoom" data-roadmap-settings="">
+                  {ROADMAP_ZOOM_LABELS[zoom]}
+                  <ChevronDown aria-hidden strokeWidth={1.75} />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-72 p-3" align="end">
+                {zoomOptions}
+              </PopoverContent>
+            </Popover>
+          </>,
+          headerHost,
+        )
+      ) : (
+        <div className="absolute right-3 top-2.5 z-40 flex items-center gap-1 rounded-full border border-border/70 bg-background/90 p-0.5 shadow-sm backdrop-blur">
+          <Button
+            variant="ghost" size="sm" className="h-6 rounded-full px-2.5 text-xs"
+            onClick={() => scrollToDay(today, 'smooth')}
+            data-roadmap-today-button=""
+          >
+            Today
+          </Button>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-6 w-6 rounded-full" aria-label="Roadmap settings" title="Roadmap settings" data-roadmap-settings="">
+                <Settings2 className="h-3.5 w-3.5" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-72 p-3" align="end">
+              {zoomOptions}
+            </PopoverContent>
+          </Popover>
+        </div>
+      )}
     </div>
   )
 }
@@ -567,7 +620,7 @@ function ItemRow({
     <>
       {/* Left list cell */}
       <div
-        className={cn('sticky left-0 z-20 flex h-full items-center border-r border-border/60 px-1.5', GLASS)}
+        className="sticky left-0 z-20 flex h-full items-center border-r border-border/60 px-1.5"
         style={{ width: leftWidth, minWidth: leftWidth }}
       >
         <button
@@ -595,7 +648,7 @@ function ItemRow({
       {/* Timeline cell */}
       <div
         className="relative h-full"
-        style={{ width: timelineWidth }}
+        style={{ width: timelineWidth, clipPath: CUT_UNDER_LIST }}
         onMouseMove={span.kind === 'none' && editable ? (e => onHover(e.clientX - e.currentTarget.getBoundingClientRect().left)) : undefined}
         onMouseLeave={span.kind === 'none' && editable ? () => onHover(null) : undefined}
         onClick={span.kind === 'none' && editable ? (e => onSchedule(xToDate(e.clientX - e.currentTarget.getBoundingClientRect().left, origin, zoom))) : undefined}

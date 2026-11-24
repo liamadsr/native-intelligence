@@ -216,40 +216,47 @@ afterEach(async () => {
 
 describe('ListenFrame — the pulse', () => {
   // First: border-beam's module, once fetched, stays for the rest of the file.
-  it('border-beam is not fetched, and nothing is drawn, until a window first lights: the focused one holding a Listen target', async () => {
+  it('border-beam is not fetched, and nothing is drawn, until a window first lights: the one Interactive reads', async () => {
     await render({ id: 'a', focused: true })
     expect(pulse('a')).toBeNull()
     expect(beamModule.loads).toBe(0)
 
+    // Holding a Listen target is not enough (Liam, 11-23: only "when interactive is enabled and it's actually
+    // reading the contents of the given page").
     await render({ id: 'a', focused: true, targets: ['email:m1'] })
+    expect(pulse('a')).toBeNull()
+    expect(beamModule.loads).toBe(0)
+
+    await act(async () => setListenMode(true))
+    await settle()
+    expect(playing()).toBe('email:m1')
     await until(() => beam('a') !== null)
     expect(beamModule.loads).toBe(1)
     expect(beam('a')?.dataset.beam).toBe('active')
   })
 
-  it('lights whether listen mode is on or off: the hue marks the window listen mode reads, the toggle says whether it is on', async () => {
+  it('lights only while Interactive is on and reading the window: off, nothing is lit; on, the window it reads; off again, it fades', async () => {
     expect(isListenModeOn()).toBe(false)
     await render({ id: 'a', focused: true, targets: ['email:m1'] }, { id: 'b', targets: ['doc:2'] })
-    // Off: nothing reads, and the focused window is lit all the same.
+    // Off: nothing reads, nothing is lit.
     expect(playing()).toBeNull()
-    expect(beam('a')?.dataset.beam).toBe('active')
-    expect(pulse('a')?.dataset.listenPulse).toBe('on')
+    expect(pulse('a')).toBeNull()
     expect(pulse('b')).toBeNull()
 
     await act(async () => setListenMode(true))
     await settle()
     expect(playing()).toBe('email:m1')
     expect(beam('a')?.dataset.beam).toBe('active')
+    expect(pulse('a')?.dataset.listenPulse).toBe('on')
     expect(pulse('b')).toBeNull()
 
-    // Off again: what played pauses; the window stays lit, nothing fades.
+    // Off again: what played pauses, and the window fades.
     await act(async () => setListenMode(false))
     expect(playing()).toBeNull()
-    expect(beam('a')?.dataset.beam).toBe('active')
-    expect(pulse('a')?.dataset.listenPulse).toBe('on')
+    expect(beam('a')?.dataset.beam).toBe('inactive')
   })
 
-  it('the focused window holding a Listen target pulses; an unfocused one whose target is not reading, and one with no target, stay still', async () => {
+  it('with Interactive on, the window it reads pulses; an unfocused one whose target is not reading, and one with no target, stay still', async () => {
     setListenMode(true)
     await render(
       { id: 'a', focused: true, targets: ['email:m1'] },
@@ -263,11 +270,11 @@ describe('ListenFrame — the pulse', () => {
     expect(pulse('c')).toBeNull()
   })
 
-  it('the focused window pulses though its target has nothing to read', async () => {
+  it('a focused window whose target has nothing to read stays still: nothing is being read', async () => {
     setListenMode(true)
     await render({ id: 'a', focused: true, targets: ['doc:empty'] })
     expect(playing()).toBeNull()
-    expect(beam('a')?.dataset.beam).toBe('active')
+    expect(pulse('a')).toBeNull()
   })
 
   it('a focused window with no Listen target stays still', async () => {
@@ -282,29 +289,29 @@ describe('ListenFrame — the pulse', () => {
     await render({ id: 'a', focused: true, targets: ['email:m1'] }, { id: 'b', targets: ['doc:2'] })
     expect(pulse('b')).toBeNull()
 
+    expect(beam('a')?.dataset.beam).toBe('active')
+
     // b's document reads on (it was the focused window when it started).
     await act(async () => playSection('doc:2', SENTENCES['doc:2']))
     await settle()
     expect(playing()).toBe('doc:2')
     expect(beam('b')?.dataset.beam).toBe('active')
-    // The focused window still holds a target: it stays lit.
-    expect(beam('a')?.dataset.beam).toBe('active')
+    // a holds its target but isn't read any more: it stills at once.
+    expect(beam('a')?.dataset.beam).toBe('inactive')
 
     // Reading moves on to a key no window here holds: b stills.
     await act(async () => playSection('md:elsewhere', ['Elsewhere.']))
     expect(beam('b')?.dataset.beam).toBe('inactive')
-    expect(beam('a')?.dataset.beam).toBe('active')
   })
 
-  it('a window losing what lit it (focus moved away, its reading over): the beams go inactive and fade, then unmount once faded', async () => {
+  it('a window losing what lit it (its reading over): the beams go inactive and fade, then unmount once faded', async () => {
+    setListenMode(true)
     await render({ id: 'a', focused: true, targets: ['email:m1'] }, { id: 'b', targets: ['doc:2'] })
-    await act(async () => playSection('doc:2', SENTENCES['doc:2']))
     expect(beam('a')?.dataset.beam).toBe('active')
+    await act(async () => playSection('doc:2', SENTENCES['doc:2']))
     expect(beam('b')?.dataset.beam).toBe('active')
 
-    // Focus leaves a (for a window with nothing to read), and b's reading
-    // moves on to a key no window here holds.
-    await render({ id: 'a', focused: false, targets: ['email:m1'] }, { id: 'b', targets: ['doc:2'] }, { id: 'c', focused: true })
+    // b's reading moves on to a key no window here holds.
     await act(async () => playSection('md:elsewhere', ['Elsewhere.']))
     expect(beam('a')?.dataset.beam).toBe('inactive')
     expect(beam('b')?.dataset.beam).toBe('inactive')
@@ -321,11 +328,12 @@ describe('ListenFrame — the pulse', () => {
   })
 
   it('a fade that never reports its end (reduced motion, a hidden window) unmounts after LISTEN_PULSE_FADE_OUT_MS', async () => {
+    setListenMode(true)
     await render({ id: 'a', focused: true, targets: ['email:m1'] })
     expect(beam('a')?.dataset.beam).toBe('active')
 
     vi.useFakeTimers()
-    await renderNow({ id: 'a', focused: false, targets: ['email:m1'] })
+    await act(async () => setListenMode(false))
     expect(beam('a')?.dataset.beam).toBe('inactive')
     act(() => vi.advanceTimersByTime(LISTEN_PULSE_FADE_OUT_MS - 1))
     expect(pulse('a')).not.toBeNull()
@@ -333,11 +341,12 @@ describe('ListenFrame — the pulse', () => {
     expect(pulse('a')).toBeNull()
   })
 
-  it('lit again mid-fade (focus back), it stays', async () => {
+  it('lit again mid-fade (read again), it stays', async () => {
+    setListenMode(true)
     await render({ id: 'a', focused: true, targets: ['email:m1'] })
-    await render({ id: 'a', focused: false, targets: ['email:m1'] })
+    await act(async () => playSection('md:elsewhere', ['Elsewhere.']))
     expect(beam('a')?.dataset.beam).toBe('inactive')
-    await render({ id: 'a', focused: true, targets: ['email:m1'] })
+    await act(async () => playSection('email:m1', SENTENCES['email:m1']))
     expect(beam('a')?.dataset.beam).toBe('active')
     // The old fade's end arriving now takes nothing down.
     await fadeEnds('a')
@@ -370,9 +379,12 @@ describe('ListenFrame — the pulse', () => {
   it('stays still while read-aloud cannot play (a capture recording), and in a window not drawn (a background tab, tucked)', async () => {
     setListenMode(true)
     await render({ id: 'a', focused: true, targets: ['email:m1'] }, { id: 'b', drawn: false, focused: false, targets: ['doc:2'] })
-    await act(async () => playSection('doc:2', SENTENCES['doc:2']))
     expect(beam('a')?.dataset.beam).toBe('active')
+    // b reads, but isn't drawn: nothing lit there.
+    await act(async () => playSection('doc:2', SENTENCES['doc:2']))
     expect(pulse('b')).toBeNull()
+    await act(async () => playSection('email:m1', SENTENCES['email:m1']))
+    expect(beam('a')?.dataset.beam).toBe('active')
 
     await act(async () => setSectionPlayerSupported(false))
     expect(beam('a')?.dataset.beam).toBe('inactive')

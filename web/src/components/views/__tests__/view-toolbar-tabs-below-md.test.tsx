@@ -153,8 +153,8 @@ describe('the toolbar over a views layout (alignToContent)', () => {
   it('its view tabs on the content line whatever the layout: one padding, never the layout’s', async () => {
     await renderToolbar(true, { alignToContent: true })
     const row = container.querySelector<HTMLElement>('[data-view-toolbar-row]')!
-    // The tab pills on the leading line, 18px in, where a row's checkbox and the header island's icon stand (Liam, 11-21).
-    expect(row.className).toContain('pl-[18px]')
-    expect(row.className).not.toMatch(/\bpx-/)
+    // The tab pills in the card's corner, 10px in as from the top (page-tabs.tsx PAGE_TAB_INSET; Liam, 11-23).
+    expect(row.className).toContain('px-2.5')
+    expect(row.className).not.toMatch(/\bp[lr]-/)
   })
 })

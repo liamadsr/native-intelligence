@@ -70,7 +70,7 @@ export function ViewBoard({
 }: ViewBoardProps) {
   if (loading) {
     return (
-      <div className="flex gap-4 py-4 pl-10 pr-4">
+      <div className="flex gap-4 py-4 px-2.5">
         {Array.from({ length: 4 }).map((_, i) => (
           <div key={i} className="w-72 space-y-2">
             <Skeleton className="h-8 w-full" />
@@ -238,8 +238,8 @@ function BoardInner({
   return (
     <div
       ref={boardScrollRef}
-      // Its first column starts on the view tabs' line above it (view-toolbar.tsx alignToContent).
-      className="flex gap-4 py-4 pl-10 pr-4 overflow-x-auto flex-1 min-h-0 h-full scrollbar-hide-deep"
+      // Its first column starts on the view tabs' line above it, in the card's corner (page-tabs.tsx PAGE_TAB_INSET; Liam, 11-23: "why is there this weird empty space before the kanban board").
+      className="flex gap-4 py-4 px-2.5 overflow-x-auto flex-1 min-h-0 h-full scrollbar-hide-deep"
     >
       {orderedGroups.map(group => (
         <BoardColumn

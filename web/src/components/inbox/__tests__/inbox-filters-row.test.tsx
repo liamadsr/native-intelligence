@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 /**
- * The inbox's filters (../inbox-view.tsx; Liam, 11-23: "Into the header"): in
- * a card, a capsule of segments in the card's header (its right slot), as
- * Calendar's views are, and the page starts with the list; on their own, the
- * row over the list, as before.
+ * The inbox's filters (../inbox-view.tsx): the page's first row, from the
+ * card's corner, as a project's sections (Liam, 11-23: "can you make sure it's
+ * updated everywhere? and everything looks the same as the projects page";
+ * they had gone up into the header that morning), in a card and on their own;
+ * none in the card's header.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createRoot, type Root } from 'react-dom/client'
@@ -37,30 +38,27 @@ afterEach(() => {
 })
 
 describe('the inbox’s filters', () => {
-  it('in a card: in its header, a capsule of 24px segments, the chosen one lifted; none over the list', async () => {
+  it('in a card: the page’s first row from the card’s corner, the chosen one lighter; none in the header', async () => {
     await act(async () => root.render(<CardHeaderSlotsProvider value={{ left: null, right }}><InboxView /></CardHeaderSlotsProvider>))
-    const capsule = right.querySelector<HTMLElement>('[data-inbox-filters="header"]')!
-    expect(capsule).not.toBeNull()
-    expect(capsule.getAttribute('role')).toBe('tablist')
-    expect(capsule.className).toContain('h-6')
-    expect(Array.from(capsule.querySelectorAll('[data-inbox-filter]')).map((b) => b.getAttribute('data-inbox-filter'))).toEqual(['all', 'messages', 'mentions', 'mail', 'held'])
-    expect(capsule.querySelector('[data-inbox-filter="all"]')!.getAttribute('aria-selected')).toBe('true')
-    // The long one's full name is its tooltip.
-    expect(capsule.querySelector('[data-inbox-filter="mentions"]')!.getAttribute('title')).toBe('Mentions & assignments')
-    // The page starts with the list.
-    expect(container.querySelector('[role="tablist"]')).toBeNull()
+    expect(right.querySelector('[role="tablist"]')).toBeNull()
+    const tabs = container.querySelector<HTMLElement>('[data-inbox-filters="page"]')!
+    expect(tabs.getAttribute('role')).toBe('tablist')
+    expect(tabs.parentElement!.className).toContain('px-2.5')
+    expect(Array.from(tabs.querySelectorAll('[data-inbox-filter]')).map((b) => b.getAttribute('data-inbox-filter'))).toEqual(['all', 'messages', 'mentions', 'mail', 'held'])
+    expect(tabs.querySelector('[data-inbox-filter="all"]')!.getAttribute('aria-selected')).toBe('true')
+    expect(tabs.querySelector('[data-inbox-filter="mentions"]')!.textContent).toBe('Mentions & assignments')
     // A press chooses.
-    await act(async () => capsule.querySelector<HTMLButtonElement>('[data-inbox-filter="held"]')!.click())
-    expect(capsule.querySelector('[data-inbox-filter="held"]')!.getAttribute('aria-selected')).toBe('true')
+    await act(async () => tabs.querySelector<HTMLButtonElement>('[data-inbox-filter="held"]')!.click())
+    expect(tabs.querySelector('[data-inbox-filter="held"]')!.getAttribute('aria-selected')).toBe('true')
   })
 
-  it('on their own (no card): the row over the list, as before', async () => {
+  it('on their own (no card): the same row', async () => {
     await act(async () => root.render(<InboxView />))
-    expect(container.querySelector('[role="tablist"] [data-inbox-filter="all"]')).not.toBeNull()
+    expect(container.querySelector('[data-inbox-filters="page"] [data-inbox-filter="all"]')).not.toBeNull()
     expect(right.childElementCount).toBe(0)
   })
 
-  it('a key on a header control is that control’s, not the list’s (it is portalled out of the page but bubbles through React): Enter presses it, e and h never touch a row', async () => {
+  it('a key on a filter is the filter’s, not the list’s: Enter presses it, e and h never touch a row', async () => {
     const item = { key: 'n1', source: 'notification', category: 'other', at: new Date().toISOString(), title: 'A note', body: null, unread: true, count: 1, notificationIds: ['n1'], actor: null, open: { kind: 'none' }, type: 'other' }
     globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ items: [item], held: [], mail: [] }), { status: 200 })) as typeof fetch
     await act(async () => root.render(<CardHeaderSlotsProvider value={{ left: null, right }}><InboxView /></CardHeaderSlotsProvider>))
@@ -70,7 +68,7 @@ describe('the inbox’s filters', () => {
     const before = calls()
     for (const key of ['Enter', 'e', 'h', 'j']) {
       const ev = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
-      await act(async () => void right.querySelector<HTMLButtonElement>('[data-inbox-filter="messages"]')!.dispatchEvent(ev))
+      await act(async () => void container.querySelector<HTMLButtonElement>('[data-inbox-filter="messages"]')!.dispatchEvent(ev))
       // Not taken by the list: the button's own Enter (its click) still happens.
       expect(ev.defaultPrevented).toBe(false)
     }

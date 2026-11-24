@@ -202,7 +202,7 @@ describe('ReviewsCard', () => {
     expect(q('[data-record-panel="action:act-1"]')).not.toBeNull()
   })
 
-  it('in a card, an action opened from a pull request covers it: only one page\'s section tabs stand in the header (a review, 11-23)', async () => {
+  it('in a card, an action opened from a pull request covers it: the pull request\'s header controls leave the header (a review, 11-23)', async () => {
     const right = document.createElement('div')
     document.body.append(right)
     const { CardHeaderSlotsProvider } = await import('../card-header-slot')
@@ -211,12 +211,13 @@ describe('ReviewsCard', () => {
     )
     await settle()
     await click(row('acme/app#1'))
-    // The pull request's sections in the header.
-    expect(right.querySelectorAll('[data-detail-tabs="header"] [data-reviews-tab]').length).toBe(3)
+    // The pull request's arrows in the header; its sections on its own first row, never there.
+    expect(right.querySelectorAll('.lucide-chevron-up').length).toBe(1)
+    expect(right.querySelector('[role="tablist"]')).toBeNull()
     await click('[data-reviews-linked="act-1"]')
     expect(q('[data-record-panel="action:act-1"]')).not.toBeNull()
-    // Covered: its tabs leave the header while the action is over it.
-    expect(right.querySelector('[data-reviews-tab]')).toBeNull()
+    // Covered: the pull request's arrows leave the header while the action is over it.
+    expect(right.querySelector('.lucide-chevron-up')).toBeNull()
     right.remove()
   })
 

@@ -714,10 +714,11 @@ export function ShowToolCard({
   // and a place inside the page after the title (CardHeaderTrail), whose
   // `back` makes the title the way back to the page.
   const [back, setBack] = React.useState<CardHeaderBack | null>(null)
-  const [slots, setSlots] = React.useState<CardHeaderSlots>(() => ({ left: null, right: null, trail: null, setBack }))
+  const [slots, setSlots] = React.useState<CardHeaderSlots>(() => ({ left: null, right: null, trail: null, title: null, setBack }))
   const leftSlotRef = React.useCallback((left: HTMLElement | null) => setSlots((s) => (s.left === left ? s : { ...s, left })), [])
   const rightSlotRef = React.useCallback((right: HTMLElement | null) => setSlots((s) => (s.right === right ? s : { ...s, right })), [])
   const trailSlotRef = React.useCallback((trail: HTMLElement | null) => setSlots((s) => (s.trail === trail ? s : { ...s, trail })), [])
+  const titleSlotRef = React.useCallback((title: HTMLElement | null) => setSlots((s) => (s.title === title ? s : { ...s, title })), [])
 
   // Full screen beside the rail, the header is up on the sky above the page:
   // two glass pills in the window's top row, level with the rail's header
@@ -936,7 +937,7 @@ export function ShowToolCard({
     if (island) {
       return (
         <SkyHeaderRow data-card-header="" data-card-header-island="">
-          {/* The title gives way three times as fast as the controls' pill, whose section tabs (DetailTabsInHeader) then scroll. */}
+          {/* In a narrow header the title gives way three times as fast as the controls' pill, so the controls stay in the card. */}
           <div data-card-header-pill="title" className={cn(SKY_PILL, 'min-w-0 shrink-[3] gap-2 pl-3.5 pr-4')}>
             {title}
           </div>
@@ -974,7 +975,7 @@ export function ShowToolCard({
       ) : (
         // In the island the title gives way (truncates) before the controls do: they keep the far end.
         // A place inside the page (CardHeaderTrail) follows it, the title then the way back to the page.
-        <div data-card-header-title="" className={cn('flex items-center gap-1.5 text-[13px]', island ? 'min-w-0' : 'min-w-[6rem] flex-1 sm:flex-none')}>
+        <div data-card-header-title="" className={cn('ni-card-title flex items-center gap-1.5 text-[13px]', island ? 'min-w-0' : 'min-w-[6rem] flex-1 sm:flex-none')}>
           {back ? (
             <button
               type="button"
@@ -987,8 +988,10 @@ export function ShowToolCard({
               {spec.title}
             </button>
           ) : (
-            <span className="min-w-0 truncate font-medium">{spec.title}</span>
+            // Hidden while the page names itself in the title slot (CardHeaderTitle: the calendar's dates).
+            <span className="ni-card-title-name min-w-0 truncate font-medium">{spec.title}</span>
           )}
+          {!back && <span ref={titleSlotRef} data-card-header-slot="title" className="ni-card-title-slot flex min-w-0 items-center truncate font-medium empty:hidden" />}
           {back && <ChevronRight aria-hidden className="size-3.5 shrink-0 text-muted-foreground/60" strokeWidth={1.75} />}
           <div ref={trailSlotRef} data-card-header-slot="trail" className="flex min-w-0 items-center gap-1.5 empty:hidden" />
         </div>

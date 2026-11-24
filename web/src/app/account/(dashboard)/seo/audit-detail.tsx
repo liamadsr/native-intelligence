@@ -22,6 +22,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { PAGE_TAB_COUNT, pageTabClass } from '@/components/views/page-tabs'
 import { PageTitle } from '@/components/views/page-title'
 import { ISSUE_SEVERITIES, isLiveAudit, type SiteAuditDetail, type SiteAuditView } from '@/lib/seo/audit/view'
 import { cn } from '@/lib/utils'
@@ -258,7 +259,7 @@ export function AuditDetail({
           </div>
           {total > 0 && <SeverityBar counts={audit.counts} total={total} />}
 
-          <div role="tablist" aria-label="Audit" className="mt-5 flex items-center gap-1.5">
+          <div role="tablist" aria-label="Audit" className="mt-5 flex items-center gap-1">
             <TabPill active={activeTab === 'findings'} count={detail.issues.length} onClick={() => onTab('findings')} tab="findings">
               Findings
             </TabPill>
@@ -314,7 +315,10 @@ function SeverityBar({ counts, total }: { counts: SiteAuditView['counts']; total
   )
 }
 
-/** One pill in the tab strip (evals/suite-detail.tsx's TabPill). */
+/**
+ * One pill in the tab strip: every page's tab pill (components/views/page-tabs.tsx;
+ * Liam, 11-23: "everything looks the same as the projects page").
+ */
 function TabPill({
   active,
   count: n,
@@ -335,15 +339,10 @@ function TabPill({
       onClick={onClick}
       aria-selected={active}
       data-seo-tab={tab}
-      className={cn(
-        'inline-flex shrink-0 items-center rounded-full border px-3 py-1 text-xs whitespace-nowrap transition-colors',
-        active
-          ? 'bg-foreground text-background border-foreground font-medium'
-          : 'bg-background text-muted-foreground border-border hover:bg-muted hover:text-foreground',
-      )}
+      className={pageTabClass(active)}
     >
       {children}
-      {n !== undefined && n > 0 && <span className="ml-1.5 text-[10px] tabular-nums opacity-70">{n.toLocaleString()}</span>}
+      {n !== undefined && n > 0 && <span className={PAGE_TAB_COUNT}>{n.toLocaleString()}</span>}
     </button>
   )
 }

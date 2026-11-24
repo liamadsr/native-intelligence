@@ -16,7 +16,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as React from 'react'
 import { act } from 'react'
 import { makeStore, mountRoot } from './page-card-harness'
-import { seoHeaderHosts } from './seo-header-hosts'
+import { pageTabRow, seoHeaderHosts } from './seo-header-hosts'
+import { DETAIL_TAB_ROW } from '@/components/views/page-tabs'
 import { stubAppFetch } from '@/test/app-fetch-stub'
 
 const hoisted = vi.hoisted(() => ({ toast: Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn() }) }))
@@ -772,6 +773,11 @@ describe('SeoRankingsCard: in a card’s header', () => {
     expect(mount.container.querySelector('[data-seo-check-now]')).toBeNull()
     expect(mount.container.querySelector('[data-seo-tracker-settings]')).not.toBeNull()
     expect(hosts.right.querySelector('[data-seo-check-now]')!.className).toContain('rounded-full')
+    // The tabs are the page's first row, in the card's corner, never the header's (Liam, 11-23).
+    const row = pageTabRow(mount.container.querySelector('[data-seo-tracker]'))!
+    expect(row.className).toBe(DETAIL_TAB_ROW)
+    expect(Array.from(row.querySelectorAll('[data-seo-tab]')).map((t) => t.getAttribute('data-seo-tab'))).toEqual(['positions', 'history'])
+    expect(hosts.right.querySelector('[data-seo-tab], [role="tablist"]')).toBeNull()
     // The menu opens from the header.
     await click(hosts.right.querySelector<HTMLElement>('[data-seo-tracker-menu]')!)
     expect(q('[data-seo-menu-add]')).not.toBeNull()

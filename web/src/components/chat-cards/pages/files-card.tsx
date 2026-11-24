@@ -24,7 +24,7 @@
  *             folder, or take it out of one.
  */
 import * as React from 'react'
-import { File as FileIcon, FileCode, FileImage, FileSpreadsheet, FileText, Film, Music, Paperclip, Presentation, Search, Upload, X } from 'lucide-react'
+import { ChevronDown, File as FileIcon, FileCode, FileImage, FileSpreadsheet, FileText, Film, Music, Paperclip, Presentation, Search, Upload, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Input } from '@/components/ui/input'
 import { ExpandableSearch } from '@/components/views/expandable-search'
@@ -50,7 +50,8 @@ import { folderPath, type DriveFolder } from '@/lib/drive/folders'
 import { emailViewerFile, teamChatFileLink, teamChatViewerFile, uploadFileLink, uploadViewerFile } from '@/lib/files/sources'
 import { cn } from '@/lib/utils'
 import { CardCovered } from '../card-covered'
-import { CARD_HEADER_CAPSULE, CARD_HEADER_PILL_BUTTON, CARD_HEADER_SEGMENT } from '../card-header-button'
+import { CARD_HEADER_PILL_BUTTON } from '../card-header-button'
+import { PAGE_TAB_INSET, pageTabClass } from '@/components/views/page-tabs'
 import { CardHeaderSlot, useCardHeaderSlots } from '../card-header-slot'
 import { RecordOverlay, usePageRecords } from './record-overlay'
 import type { PageCardProps } from './page-card'
@@ -80,7 +81,7 @@ const TYPE_ICON: Record<DriveType, typeof FileIcon> = {
 }
 
 const TABS: ReadonlyArray<{ id: DriveTab; label: string }> = [
-  { id: 'all', label: 'All' },
+  { id: 'all', label: 'All files' },
   { id: 'mine', label: 'My files' },
   { id: 'recent', label: 'Recent' },
   { id: 'shared', label: 'Shared with me' },
@@ -209,30 +210,9 @@ export default function FilesCard(props: PageCardProps) {
 
   const filtered = view.type !== null || view.creator !== null || !!q || !view.uploads || !view.chat
 
-  // Which files: All, My files, Recent, Shared with me. In a card, a capsule in its header (Liam, 11-23: Files
-  // "still need to be updated", as the inbox's filters went up); on its own, the row over the list.
+  // Which files: All files (the start), My files, Recent, Shared with me. A dropdown beside the others, not a
+  // row of its own (Liam, 11-23: "can't this also be a dropdown and we show all by default").
   const chooseTab = (tab: DriveTab) => setView((v) => ({ ...v, tab, sort: tab === 'recent' ? 'opened' : v.sort === 'opened' ? 'modified' : v.sort }))
-  const tabs = (inHeader: boolean) => (
-    <div role="radiogroup" aria-label="Which files" data-drive-tabs={inHeader ? 'header' : 'page'} className={inHeader ? CARD_HEADER_CAPSULE : 'flex flex-wrap items-center gap-1'}>
-      {TABS.map((t) => (
-        <button
-          key={t.id}
-          type="button"
-          role="radio"
-          aria-checked={view.tab === t.id}
-          data-drive-tab={t.id}
-          onClick={() => chooseTab(t.id)}
-          className={
-            inHeader
-              ? CARD_HEADER_SEGMENT
-              : cn('h-7 rounded-lg px-2.5 text-xs transition-colors', view.tab === t.id ? 'bg-foreground/[0.08] text-foreground' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground')
-          }
-        >
-          {t.label}
-        </button>
-      ))}
-    </div>
-  )
 
   return (
     <div className="relative h-full min-h-0">
@@ -240,7 +220,6 @@ export default function FilesCard(props: PageCardProps) {
         {inCard && (
           <CardHeaderSlot side="right">
             <div data-files-search-control="" className="flex items-center gap-0.5">
-              {!view.email && tabs(true)}
               <ExpandableSearch value={typed} onChange={setTyped} label="Search files" placeholder={view.email ? 'Search your mail' : 'Search files'} />
               <UploadButton inHeader uploading={uploading} onClick={() => picker.current?.click()} />
             </div>
@@ -265,9 +244,10 @@ export default function FilesCard(props: PageCardProps) {
               Drop to upload to Drive. Only you see it until you put it in a folder.
             </div>
           )}
-          <div className="flex shrink-0 flex-col gap-2 px-5 pb-2 pt-3">
-            {!view.email && !inCard && tabs(false)}
-            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+          {/* The page's first row, from the card's corner as the projects page's tabs (components/views/page-tabs.tsx):
+              the sources, then the choices. */}
+          <div className={cn('flex shrink-0 flex-col gap-2 pb-2 pt-2.5', PAGE_TAB_INSET)}>
+            <div className="flex flex-wrap items-center gap-1">
               <SourceToggle label={DRIVE_SOURCE_LABELS.upload} on={!view.email && view.uploads} id="upload" onClick={() => setView((v) => toggleSource(v, 'uploads'))} />
               <SourceToggle label={DRIVE_SOURCE_LABELS.team_chat} on={!view.email && view.chat} id="team_chat" onClick={() => setView((v) => toggleSource(v, 'chat'))} />
               <SourceToggle
@@ -279,6 +259,16 @@ export default function FilesCard(props: PageCardProps) {
                 }
               />
               <span className="mx-1 h-4 w-px bg-border" aria-hidden />
+              {/* Not for mail's attachments: those are the mailbox's, not anyone's in Drive. */}
+              {!view.email && (
+                <Select label="Which files" value={view.tab} onChange={(t) => chooseTab(t as DriveTab)} data="tab">
+                  {TABS.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.label}
+                    </option>
+                  ))}
+                </Select>
+              )}
               <Select label="Type" value={view.type ?? ''} onChange={(t) => setView((v) => ({ ...v, type: (t || null) as DriveType | null }))} data="type">
                 <option value="">All types</option>
                 {DRIVE_TYPES.map((t) => (
@@ -408,24 +398,32 @@ function SourceToggle({ label, on, id, onClick }: { label: string; on: boolean; 
       aria-pressed={on}
       data-drive-source={id}
       onClick={onClick}
-      className={cn('h-7 rounded-full border px-2.5 transition-colors', on ? 'border-foreground/20 bg-foreground/[0.08] text-foreground' : 'border-border text-muted-foreground hover:text-foreground')}
+      className={pageTabClass(on)}
     >
       {label}
     </button>
   )
 }
 
+/**
+ * A choice in the tabs' pill: the browser's own arrow drawn away, ours in its
+ * place, so the words and the chevron sit 12px and 10px from the round ends
+ * (Liam, 11-23: "can you fix these too the spacing is wrong").
+ */
 function Select({ label, value, onChange, data, children }: { label: string; value: string; onChange: (v: string) => void; data: string; children: React.ReactNode }) {
   return (
-    <select
-      aria-label={label}
-      value={value}
-      data-drive-filter={data}
-      onChange={(e) => onChange(e.target.value)}
-      className="h-7 rounded-lg border border-border bg-background px-2 text-xs text-foreground outline-none focus:border-foreground/30"
-    >
-      {children}
-    </select>
+    <span className="relative inline-flex shrink-0">
+      <select
+        aria-label={label}
+        value={value}
+        data-drive-filter={data}
+        onChange={(e) => onChange(e.target.value)}
+        className="h-7 cursor-pointer appearance-none rounded-full border border-foreground/[0.06] bg-foreground/[0.03] pl-3 pr-7 text-[13px] text-foreground outline-none transition-colors hover:bg-foreground/[0.06] focus-visible:border-foreground/30"
+      >
+        {children}
+      </select>
+      <ChevronDown aria-hidden className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" strokeWidth={1.75} />
+    </span>
   )
 }
 

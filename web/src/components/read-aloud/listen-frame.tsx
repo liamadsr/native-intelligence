@@ -15,16 +15,15 @@
  * window in front's target through getFrontListenTarget: what the user was
  * listening to when they spoke, and the reading to resume once the reply and
  * its follow-up window are over.
- * A window that holds a target pulses when it is the window the user works
- * in, where what opens reads itself once listen mode is on, or when one of
- * its targets is the one reading (the section player's playingKey). It does
- * so whether listen mode is on or off (Liam, 2026-09-29: "the hue is always
- * visible, regardless if listen mode is on or off"): the hue marks the window
- * listen mode would read, and the toggle in the top bar (./listen-mode-toggle)
- * is what says whether it is on. Every other
- * window stays still, and so does every window while read-aloud can't play (a
- * capture recording, dictation, a browser) or the window isn't drawn (a
- * background tab, its card folded). Moving on to the next item swaps
+ * A window pulses only while listen mode (Interactive) is on AND one of its
+ * targets is the one being read (the section player's playingKey): the hue
+ * says "this is what I'm reading to you", and is gone while nothing is read
+ * (Liam, 11-23: "I feel like it's a bit much … I only want it to show when
+ * interactive is enabled and it's actually reading the contents of the given
+ * page"; until then, from 2026-09-29, it also marked the window listen mode
+ * would read, on or off). Every other window stays still, and so does every
+ * window while read-aloud can't play (a capture recording, dictation, a
+ * browser) or the window isn't drawn (a background tab, its card folded). Moving on to the next item swaps
  * its target out for a moment (a skeleton while the next email loads), so a
  * window only counts as holding none once that has lasted
  * LISTEN_TARGET_GAP_MS: browsing doesn't make the pulse dip at every step.
@@ -68,6 +67,7 @@ import {
 } from 'react'
 import type { BorderBeamProps } from 'border-beam'
 import { useSectionPlayer } from '@/lib/read-aloud/section-player'
+import { useListenMode } from '@/lib/read-aloud/listen-mode'
 import type { ListenTargetAbout } from '@/lib/voice/voice-ask'
 
 /**
@@ -416,8 +416,13 @@ const ListenFramePulse = memo(function ListenFramePulse({
     () => playingKey !== null && registry.hosts(playingKey),
     noTarget,
   )
-  // Listen mode on or off alike (see the header).
-  const active = supported && drawn && hostsTarget && (readingHere || focused)
+  // Only while Interactive is on and reading this window's page (see the header). The item it reads swapped
+  // for the next (a skeleton while that loads: no target here for a moment) keeps it lit for
+  // LISTEN_TARGET_GAP_MS, so moving on through a mailbox doesn't make it blink; reading moving elsewhere, or
+  // Interactive turned off, stills it at once.
+  const listening = useListenMode()
+  const readRecently = useHeldTrue(readingHere, LISTEN_TARGET_GAP_MS)
+  const active = supported && drawn && listening && (readingHere || (readRecently && !hostsTargetNow))
 
   // Tells the top bar's toggle whether this window can read something now:
   // the window the user works in, holding a target (held across the next

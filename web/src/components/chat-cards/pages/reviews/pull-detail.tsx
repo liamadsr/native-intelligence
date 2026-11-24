@@ -49,7 +49,7 @@ import { cn } from '@/lib/utils'
 import { parsePatch, type MergeMethod, type ReviewCheck, type ReviewFile, type ReviewPr } from '@/lib/github/reviews'
 import { DetailBreadcrumbHeader } from '@/app/account/(dashboard)/views/detail-breadcrumb-header'
 import { WindowActions, WindowProperties } from '@/components/views/window-properties'
-import { DetailTabsInHeader, useDetailTabsInHeader } from '@/components/chat-cards/detail-tabs'
+import { DETAIL_TAB_ROW, DetailTabs } from '@/components/views/page-tabs'
 import { PreferenceActionButton, usePreferencesActions } from '@/components/views/preference-action'
 import { EntityIcon } from '@/components/entities/entity-icon'
 import { PropertyGroup } from '@/components/views/property-group'
@@ -70,10 +70,6 @@ type Tab = 'description' | 'files' | 'checks'
 const METHOD_LABEL: Record<MergeMethod, string> = { squash: 'Squash and merge', merge: 'Create a merge commit', rebase: 'Rebase and merge' }
 
 const REVIEW_LABEL: Record<string, string> = { APPROVED: 'Approved', CHANGES_REQUESTED: 'Changes requested', REVIEW_REQUIRED: 'Review required' }
-
-const PILL = 'inline-flex shrink-0 items-center px-3 py-1 text-xs rounded-full border transition-colors whitespace-nowrap'
-const PILL_ON = 'bg-foreground text-background border-foreground font-medium'
-const PILL_OFF = 'bg-transparent text-muted-foreground border-border hover:bg-muted hover:text-foreground'
 
 /** A PR description without its HTML comments (templates' hints), which the renderer would show as text. */
 export function cleanBody(body: string): string {
@@ -135,7 +131,6 @@ export function PullDetail({
   const [data, setData] = React.useState<PullAnswer | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [tab, setTab] = React.useState<Tab>('description')
-  const tabsInHeader = useDetailTabsInHeader()
   const [confirming, setConfirming] = React.useState(false)
   const [method, setMethod] = React.useState<MergeMethod | null>(null)
   const [merging, setMerging] = React.useState(false)
@@ -207,40 +202,24 @@ export function PullDetail({
     }
   }
 
-  const tabs: Array<{ id: Tab; label: string }> = [
-    { id: 'description', label: 'Description' },
-    { id: 'files', label: `Files changed${pr.changedFiles ? ` ${pr.changedFiles}` : ''}` },
-    { id: 'checks', label: `Checks${checks.length ? ` ${checks.length}` : ''}` },
-  ]
-
   return (
     <div data-reviews-panel={`${pr.repo}#${pr.number}`} aria-label="Pull request" className="relative flex h-full min-h-0 flex-col">
       {header(pr.title)}
-      {/* In a card, Description / Files changed / Checks are a capsule in the
-          card's header, and this row keeps only what is left in it (Liam,
-          11-23: "these details view pages like projects and pull request …
-          feel out of place"); empty (Merge and GitHub in the Properties
-          popover), it is gone. */}
-      <DetailTabsInHeader
-        label="Pull request"
-        tabs={[
-          { id: 'description', label: 'Description', data: { 'data-reviews-tab': 'description' } },
-          { id: 'files', label: 'Files changed', count: pr.changedFiles, data: { 'data-reviews-tab': 'files' } },
-          { id: 'checks', label: 'Checks', count: checks.length, data: { 'data-reviews-tab': 'checks' } },
-        ]}
-        value={tab}
-        onChange={setTab}
-      />
-      <div data-reviews-toolbar="" className="mx-auto flex h-12 w-full max-w-[736px] shrink-0 items-center pl-2.5 pr-8 empty:hidden">
-        {!tabsInHeader && (
-          <div role="tablist" className="flex min-w-0 shrink items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {tabs.map((t) => (
-              <button key={t.id} type="button" role="tab" aria-selected={tab === t.id} data-reviews-tab={t.id} onClick={() => setTab(t.id)} className={cn(PILL, tab === t.id ? PILL_ON : PILL_OFF)}>
-                {t.label}
-              </button>
-            ))}
-          </div>
-        )}
+      {/* Its first row from the far left, the tabs on the line a list's view tabs
+          start on, whatever column the pull request keeps below (Liam, 11-23: "it
+          should start to the far left even though the page content is indented";
+          components/views/page-tabs.tsx). */}
+      <div data-reviews-toolbar="" className={DETAIL_TAB_ROW}>
+        <DetailTabs
+          label="Pull request"
+          tabs={[
+            { id: 'description', label: 'Description', data: { 'data-reviews-tab': 'description' } },
+            { id: 'files', label: 'Files changed', count: pr.changedFiles, data: { 'data-reviews-tab': 'files' } },
+            { id: 'checks', label: 'Checks', count: checks.length, data: { 'data-reviews-tab': 'checks' } },
+          ]}
+          value={tab}
+          onChange={setTab}
+        />
         <WindowActions className="ml-auto flex shrink-0 items-center gap-1">
           {data && pr.state === 'open' && (
             <PreferenceActionButton
@@ -273,8 +252,7 @@ export function PullDetail({
       <div className="flex min-h-0 flex-1 justify-center">
         <ScrollArea scrollbar={false} className="h-full w-full">
           <div className="mx-auto w-full min-w-0 max-w-[736px] space-y-6 px-8 pb-28">
-            {/* Without the row above (in a card), the title keeps a detail page's 24px from the top. */}
-            <div className={cn('space-y-1.5', tabsInHeader ? 'pt-6' : 'pt-2')}>
+            <div className="space-y-1.5 pt-2">
               <h1 className="text-xl font-semibold leading-snug text-foreground">{pr.title}</h1>
               <p className="flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
                 <PrStateIcon pr={pr} className="size-3.5" />

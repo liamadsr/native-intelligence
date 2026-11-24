@@ -13,6 +13,7 @@
  * Guests move or cancel a booking from the link in their confirmation
  * (/b/<token>); nothing here sends them anything.
  */
+import { pageTabClass } from '@/components/views/page-tabs'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -184,23 +185,14 @@ export function LinkBookingsPanel() {
   return (
     <div data-link-bookings="">
       <div className="flex flex-wrap items-center gap-2">
-        <div
-          role="tablist"
-          aria-label="Which bookings"
-          className="inline-flex rounded-md border p-0.5"
-        >
+        <div role="tablist" aria-label="Which bookings" className="inline-flex gap-1">
           {VIEWS.map((v) => (
             <button
               key={v.id}
               role="tab"
               aria-selected={view === v.id}
               onClick={() => setView(v.id)}
-              className={cn(
-                'rounded px-2.5 py-1 text-xs',
-                view === v.id
-                  ? 'bg-muted text-foreground font-medium'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
+              className={pageTabClass(view === v.id)}
             >
               {v.label}
             </button>

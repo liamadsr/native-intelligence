@@ -8,6 +8,7 @@ import * as React from 'react'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { PAGE_TAB_COUNT, pageTabClass } from '@/components/views/page-tabs'
 import type { SeoSpendView } from '@/lib/seo/spend-view'
 import { buyBlockedReason, SeoDataNotice, SeoSpendLine, spendLineText } from '../data-status'
 import { StatTiles } from '../stat-tiles'
@@ -174,46 +175,47 @@ describe('tiles and tabs', () => {
     act(() => tabs[1].click())
     expect(seen).toEqual(['history'])
   })
-  it('in a card’s header the tabs are a capsule of 24px segments: the same tablist, the same tabs, the one in force lifted', () => {
-    // Liam, 11-23: "all the SEO pages".
-    const seen: string[] = []
-    render(<TabPills header label="Business" value="profile" onChange={(t) => seen.push(t)} tabs={[{ id: 'grid', label: 'Map rankings', count: 3 }, { id: 'profile', label: 'Profile' }]} />)
+  it('tab pills wear every page’s tab pill (Liam, 11-23: “everything looks the same as the projects page”): no capsule, one line that scrolls', () => {
+    render(<TabPills label="Business" className="mt-3" value="profile" onChange={() => {}} tabs={[{ id: 'grid', label: 'Map rankings', count: 1200 }, { id: 'profile', label: 'Profile' }]} />)
     const list = container.querySelector<HTMLElement>('[role="tablist"]')!
     expect(list.getAttribute('aria-label')).toBe('Business')
-    expect(list.dataset.seoTabs).toBe('header')
-    expect(list.className).toContain('h-6')
-    expect(list.className).toContain('ni-header-spaced')
+    expect(list.dataset.seoTabs).toBeUndefined()
+    expect(list.className).toContain('overflow-x-auto')
+    expect(list.className).not.toContain('flex-wrap')
+    // The caller's placement is the wrapper's, so the pills' room for the focus ring moves nothing.
+    expect(list.parentElement!.className).toContain('mt-3')
     const tabs = [...list.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
-    expect(tabs.map((t) => [t.dataset.seoTab, t.textContent, t.getAttribute('aria-selected')])).toEqual([
-      ['grid', 'Map rankings3', 'false'],
-      ['profile', 'Profile', 'true'],
+    expect(tabs.map((t) => [t.dataset.seoTab, t.textContent, t.className])).toEqual([
+      ['grid', 'Map rankings1,200', pageTabClass(false)],
+      ['profile', 'Profile', pageTabClass(true)],
     ])
-    expect(tabs[0].className).toContain('aria-selected:bg-foreground/[0.1]')
-    act(() => tabs[0].click())
-    expect(seen).toEqual(['grid'])
+    expect(tabs[0].querySelector('span')!.className).toBe(PAGE_TAB_COUNT)
   })
-  it('a filter in a card’s header is a capsule of radios, the short words standing in where the header is narrow', () => {
+  it('a filter is a radiogroup of the same pills, the short words standing in where its row is narrow', () => {
     const seen: string[] = []
     render(
       <FilterChips
-        header
         label="Period"
         value="28"
         onChange={(v) => seen.push(v)}
         options={[
           { value: '7', label: '7 days', short: '7d' },
           { value: '28', label: '28 days', short: '28d' },
+          { value: '90', label: '90 days' },
         ]}
       />,
     )
     const group = container.querySelector<HTMLElement>('[role="radiogroup"]')!
-    expect(group.className).toContain('h-6')
+    expect(group.getAttribute('aria-label')).toBe('Period')
+    expect(group.dataset.seoFilterGroup).toBeUndefined()
     const radios = [...group.querySelectorAll<HTMLButtonElement>('[role="radio"]')]
-    expect(radios.map((r) => [r.dataset.seoFilter, r.getAttribute('aria-checked'), r.title])).toEqual([
-      ['7', 'false', '7 days'],
-      ['28', 'true', '28 days'],
+    expect(radios.map((r) => [r.dataset.seoFilter, r.getAttribute('aria-checked'), r.title, r.className])).toEqual([
+      ['7', 'false', '7 days', pageTabClass(false)],
+      ['28', 'true', '28 days', pageTabClass(true)],
+      ['90', 'false', '', pageTabClass(false)],
     ])
-    expect(radios[0].querySelector('.\\@\\[56rem\\]\\:hidden')!.textContent).toBe('7d')
+    expect(radios[0].querySelector('.\\@\\[46rem\\]\\:hidden')!.textContent).toBe('7d')
+    expect(radios[2].textContent).toBe('90 days')
     act(() => radios[0].click())
     expect(seen).toEqual(['7'])
   })
