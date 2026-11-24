@@ -126,8 +126,8 @@ describe('the header up on the sky', () => {
 // looks good". jsdom draws no :has(), so the rule is read from the stylesheet.
 describe('the controls’ pill with one icon alone', () => {
   const css = readFileSync(join(process.cwd(), 'src/styles/tailwind.css'), 'utf8')
-  const alone =
-    '[data-card-header-pill="controls"]:has(> [data-card-header-slot="right"]:empty):not(:has([data-listen-header])):not(:has(> button ~ button))'
+  // Classes, not data attributes: the minimize flight's copy keeps classes only (a review, 11-23).
+  const alone = '.ni-header-controls:has(> .ni-header-right-slot:empty):not(:has([data-listen-header])):not(:has(> button ~ button))'
 
   it('a circle the header’s height (42px), the icon in its middle', () => {
     const rule = css.slice(css.indexOf(`${alone} {`))
@@ -137,7 +137,7 @@ describe('the controls’ pill with one icon alone', () => {
   })
 
   it('only then: not with page controls in the slot, Interactive, or a second button (Full screen)', () => {
-    expect(alone).toContain('[data-card-header-slot="right"]:empty')
+    expect(alone).toContain('.ni-header-right-slot:empty')
     expect(alone).toContain(':not(:has([data-listen-header]))')
     expect(alone).toContain(':not(:has(> button ~ button))')
   })

@@ -949,7 +949,7 @@ export function ShowToolCard({
               Interactive (listen mode, the desktop app) leads it, the same toggle as the top bar's at the header's
               24px, as its other controls (Liam, 11-23: "that button also shows in the header so it's not a
               different thing"); first, so the page's controls and Minimize never move as it comes and goes. */}
-          <div data-card-header-pill="controls" className={cn(SKY_PILL, '-mr-[var(--sky-reserve,0px)] ml-auto min-w-0 shrink gap-0.5 px-2 [&:not(:has(button))]:hidden')}>
+          <div data-card-header-pill="controls" className={cn(SKY_PILL, 'ni-header-controls -mr-[var(--sky-reserve,0px)] ml-auto min-w-0 shrink gap-0.5 px-2 [&:not(:has(button))]:hidden')}>
             <ListenModeToggle variant="header" />
             {controls}
           </div>
@@ -1005,7 +1005,7 @@ export function ShowToolCard({
       {/* No Save as view here (Liam, 11-21: "remove this save button from
           every page"): a list's changes are saved from its toolbar (Save
           as new view, view-toolbar.tsx). */}
-      <div ref={rightSlotRef} data-card-header-slot="right" className="flex shrink-0 items-center empty:hidden" />
+      <div ref={rightSlotRef} data-card-header-slot="right" className="ni-header-right-slot flex shrink-0 items-center empty:hidden" />
       {/* The live capture's notepad: Full screen here in its header, not
           round over its corner (Liam, 11-20: nothing floats at the foot of
           the capture's page; its corner sat on the page's last row). */}

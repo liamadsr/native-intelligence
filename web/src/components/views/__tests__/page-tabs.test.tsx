@@ -4,8 +4,8 @@
  * header of the pages but make it look really nice and clean like linear does
  * … it should start to the far left even though the page content is
  * indented"): one quiet pill for a list's saved views and a detail page's
- * sections, and every detail page's sections on its own first row, 18px in,
- * never in a card's header. The two panels too heavy to mount here (a
+ * sections, and every detail page's sections on its own first row, in the
+ * card's corner, never in a card's header. The two panels too heavy to mount here (a
  * capture's, a document's) and the rest are read from their source, the way
  * capture-live-chat-section.test.tsx reads the capture panel.
  */

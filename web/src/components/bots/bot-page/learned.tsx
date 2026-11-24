@@ -21,7 +21,6 @@ import { WhatNiLearned } from '@/components/memory/what-ni-learned'
 import { useWorkspaceId, useWorkspaces } from '@/app/account/workspace-switcher'
 import { PACKS, type AreaKey } from '@/lib/packs/registry'
 import { AREA_FACE_KEYS } from '@/lib/work/work-area'
-import { cn } from '@/lib/utils'
 import { BotPageCard, BotPageEmpty } from './bot-page-card'
 
 export function Learned({ area, name, workspaceId }: { area: AreaKey; name: string; workspaceId: string | null }) {

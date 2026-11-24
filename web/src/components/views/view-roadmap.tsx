@@ -61,7 +61,9 @@ const DRAG_THRESHOLD_PX = 3
  * scrolls is cut where they stand instead (`--rm-sl` / `--rm-st`, the scroll
  * position, written on the scroller as it moves), so nothing shows through.
  */
-const CUT_UNDER_LIST = 'inset(0 0 0 var(--rm-sl, 0px))'
+// Only the left edge cuts: the other three reach far out, so a marker's title chip past the timeline's end, or a
+// selected bar's ring, still shows whole (a review, 11-23).
+const CUT_UNDER_LIST = 'inset(-64px -100vw -64px var(--rm-sl, 0px))'
 const ZOOM_STORAGE_KEY = 'ni:roadmap-zoom'
 const PANEL_STORAGE_KEY = 'ni:roadmap-left-collapsed'
 

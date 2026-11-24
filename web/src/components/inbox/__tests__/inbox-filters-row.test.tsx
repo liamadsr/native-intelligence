@@ -16,7 +16,7 @@ import { CardHeaderSlotsProvider } from '@/components/chat-cards/card-header-slo
 vi.mock('sonner', () => ({ toast: vi.fn() }))
 vi.mock('@/app/account/(dashboard)/views/team-chat-view', () => ({ TeamChatView: () => null }))
 
-const { InboxView } = await import('../inbox-view')
+const { InboxView, InboxFilters } = await import('../inbox-view')
 
 let container: HTMLDivElement
 let right: HTMLDivElement
@@ -56,6 +56,17 @@ describe('the inbox’s filters', () => {
     await act(async () => root.render(<InboxView />))
     expect(container.querySelector('[data-inbox-filters="page"] [data-inbox-filter="all"]')).not.toBeNull()
     expect(right.childElementCount).toBe(0)
+  })
+
+  it('narrow (the list beside an open item): the long one shortened, the pills onto a second line, all in reach (a review, 11-23)', async () => {
+    const s = { filter: 'all', data: null } as unknown as Parameters<typeof InboxFilters>[0]['s']
+    await act(async () => root.render(<InboxFilters s={s} variant="row" narrow />))
+    const tabs = container.querySelector<HTMLElement>('[data-inbox-filters="page"]')!
+    expect(tabs.className).toContain('flex-wrap')
+    expect(tabs.className).not.toContain('overflow-x-auto')
+    const mentions = tabs.querySelector<HTMLElement>('[data-inbox-filter="mentions"]')!
+    expect(mentions.textContent).toBe('Mentions')
+    expect(mentions.getAttribute('title')).toBe('Mentions & assignments')
   })
 
   it('a key on a filter is the filter’s, not the list’s: Enter presses it, e and h never touch a row', async () => {

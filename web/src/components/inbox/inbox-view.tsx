@@ -65,7 +65,7 @@ export const FILTER_LABELS: Record<InboxFilter, string> = {
   mail: 'Mail',
   held: 'Held',
 }
-/** In the panel, where room is short: the long one shortened (its full name is the tooltip). */
+/** In the panel, or the list beside an open item, where room is short: the long one shortened (its full name is the tooltip). */
 const SHORT_LABELS: Partial<Record<InboxFilter, string>> = { mentions: 'Mentions' }
 
 /** The keys' hint under the list. */
@@ -138,15 +138,24 @@ export function inboxKeyDown(e: KeyboardEvent<HTMLElement>, s: InboxState, opts:
  * from the card's corner (`row`), or in the panel beside the rail, where room is short, pills that wrap with
  * the long one shortened (`panel`, its full name the tooltip). Never in the card's header.
  */
-export function InboxFilters({ s, variant }: { s: InboxState; variant: 'panel' | 'row' }) {
+export function InboxFilters({ s, variant, narrow = false }: { s: InboxState; variant: 'panel' | 'row'; narrow?: boolean }) {
   const counts = useMemo(() => inboxCounts(s.data), [s.data])
   if (variant === 'row') {
+    // Narrow (the list beside an open item, 22rem): the long one shortened and the pills onto a second line, so
+    // Mail and Held stay in reach (a review, 11-23: scrolled sideways, they sat out of sight).
     return (
-      <div className={DETAIL_TAB_ROW}>
+      <div className={cn(DETAIL_TAB_ROW, narrow && 'h-auto min-h-12 py-2.5')}>
         <DetailTabs
           label="Show"
           data-inbox-filters="page"
-          tabs={INBOX_FILTERS.map((f) => ({ id: f, label: FILTER_LABELS[f], count: counts[f], data: { 'data-inbox-filter': f } }))}
+          wrap={narrow}
+          tabs={INBOX_FILTERS.map((f) => ({
+            id: f,
+            label: narrow ? (SHORT_LABELS[f] ?? FILTER_LABELS[f]) : FILTER_LABELS[f],
+            title: FILTER_LABELS[f],
+            count: counts[f],
+            data: { 'data-inbox-filter': f },
+          }))}
           value={s.filter}
           onChange={setInboxFilter}
         />
@@ -361,7 +370,7 @@ export function InboxView({
     <div className="flex h-full min-h-0" data-inbox-view="" onKeyDown={(e) => inboxKeyDown(e, s, opts)} tabIndex={-1}>
       <div className={cn('flex min-h-0 flex-col', pane ? 'hidden w-[22rem] shrink-0 md:flex' : 'flex-1')}>
         {/* The page's first row, from the card's corner; narrowed beside an open conversation, the pills scroll. */}
-        <InboxFilters s={s} variant="row" />
+        <InboxFilters s={s} variant="row" narrow={!!pane} />
         <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4" role="listbox" aria-label="Inbox" tabIndex={0} data-inbox-list="">
           <InboxList s={s} forYouCount={forYouCount} opts={opts} />
         </div>

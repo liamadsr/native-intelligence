@@ -48,12 +48,6 @@ export function CardHeaderSlot({ side, children }: { side: 'left' | 'right'; chi
 }
 
 /**
- * A place inside the page in the card's header, after its title: `children`
- * (the place's name, its state) after a chevron, and the title a button back
- * to the page (`onBack`, named `backLabel`). Nothing outside a card: the page
- * keeps its own way back there (useCardHeaderSlots() is null).
- */
-/**
  * The page's own title in the card header, in place of its name (Liam, 11-23: "lets move the current date into
  * the page title"): what it holds stands where the name stood, the name hidden while it is there.
  */
@@ -63,6 +57,12 @@ export function CardHeaderTitle({ children }: { children: React.ReactNode }) {
   return host ? createPortal(children, host) : null
 }
 
+/**
+ * A place inside the page in the card's header, after its title: `children`
+ * (the place's name, its state) after a chevron, and the title a button back
+ * to the page (`onBack`, named `backLabel`). Nothing outside a card: the page
+ * keeps its own way back there (useCardHeaderSlots() is null).
+ */
 export function CardHeaderTrail({ onBack, backLabel, children }: { onBack: () => void; backLabel: string; children: React.ReactNode }) {
   const slots = useCardHeaderSlots()
   const setBack = slots?.setBack

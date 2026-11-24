@@ -319,13 +319,14 @@ a:hover .lucide,
    controls and no Interactive): a circle the header's height, the icon in its
    middle, not a 46px oval with the icon 2px right of it (Liam, 11-23: "make
    sure when this only shows the one icon it still looks good"). Unlayered: it
-   has to win over the pill's own padding and the button's margin. */
-[data-card-header-pill="controls"]:has(> [data-card-header-slot="right"]:empty):not(:has([data-listen-header])):not(:has(> button ~ button)) {
+   has to win over the pill's own padding and the button's margin. Classes,
+   not data attributes: the minimize flight's copy keeps classes only. */
+.ni-header-controls:has(> .ni-header-right-slot:empty):not(:has([data-listen-header])):not(:has(> button ~ button)) {
   width: 42px;
   padding-inline: 0;
   justify-content: center;
 }
-[data-card-header-pill="controls"]:has(> [data-card-header-slot="right"]:empty):not(:has([data-listen-header])):not(:has(> button ~ button)) > button {
+.ni-header-controls:has(> .ni-header-right-slot:empty):not(:has([data-listen-header])):not(:has(> button ~ button)) > button {
   margin-left: 0;
 }
 

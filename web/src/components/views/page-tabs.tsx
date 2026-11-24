@@ -73,6 +73,7 @@ export function DetailTabs<T extends string>({
   value,
   onChange,
   label,
+  wrap = false,
   ...data
 }: {
   tabs: ReadonlyArray<DetailTab<T>>
@@ -80,6 +81,8 @@ export function DetailTabs<T extends string>({
   onChange: (id: T) => void
   /** The tablist's name for assistive tech ("Project", "Pull request"). */
   label: string
+  /** Onto a second line, not sideways, where every tab must stay in reach (the Inbox's beside an open item). */
+  wrap?: boolean
 } & { [attr: `data-${string}`]: string }) {
   return (
     <div
@@ -87,7 +90,11 @@ export function DetailTabs<T extends string>({
       aria-label={label}
       data-detail-tablist=""
       {...data}
-      className="-my-1 flex min-w-0 shrink items-center gap-1 overflow-x-auto py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      className={
+        wrap
+          ? 'flex min-w-0 shrink flex-wrap items-center gap-1'
+          : '-my-1 flex min-w-0 shrink items-center gap-1 overflow-x-auto py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'
+      }
     >
       {tabs.map((t) => (
         <button
