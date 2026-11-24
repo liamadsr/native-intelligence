@@ -44,6 +44,8 @@ let gmailThreads: Record<string, Reply>
 let deletedItems: Reply
 let graphList: Reply
 let graphConversation: Reply
+/** Runs as a provider read answers, before the sync writes: a local change landing in between. */
+let afterRead: (() => void) | null = null
 
 const respond = ({ status, body }: Reply) => ({ ok: status >= 200 && status < 300, status, json: async () => body ?? {} })
 const fetchMock = vi.fn(async (input: unknown) => {
@@ -52,11 +54,15 @@ const fetchMock = vi.fn(async (input: unknown) => {
   if (url.startsWith(`${GMAIL}/threads?`)) return respond(gmailList)
   if (url.startsWith(`${GMAIL}/threads/`)) {
     const id = decodeURIComponent(url.slice(`${GMAIL}/threads/`.length).split('?')[0])
-    return respond(gmailThreads[id] ?? { status: 404 })
+    const answer = respond(gmailThreads[id] ?? { status: 404 })
+    afterRead?.()
+    return answer
   }
   if (url.startsWith(`${GRAPH}/mailFolders/deleteditems`)) return respond(deletedItems)
   if (url.startsWith(`${GRAPH}/messages?`)) {
-    return respond(new URL(url).searchParams.has('$filter') && url.includes('conversationId') ? graphConversation : graphList)
+    const answer = respond(new URL(url).searchParams.has('$filter') && url.includes('conversationId') ? graphConversation : graphList)
+    afterRead?.()
+    return answer
   }
   return respond({ status: 404 })
 })
@@ -121,6 +127,7 @@ beforeEach(() => {
   deletedItems = { status: 200, body: { id: 'folder-deleted' } }
   graphList = { status: 200, body: { value: [] } }
   graphConversation = { status: 200, body: { value: [] } }
+  afterRead = null
   fetchMock.mockClear()
   vi.stubGlobal('fetch', fetchMock)
   log = vi.spyOn(console, 'log').mockImplementation(() => {})
@@ -463,5 +470,66 @@ describe('a mailbox linked to several workspaces: each keeps its own current cop
       [WS, 'drafts', undefined],
       [WS2, 'inbox', 'simon-there'],
     ])
+  })
+})
+
+/**
+ * The sync's race with a local change (Liam, 11-24: archived invites back in
+ * the inbox). A sync reads the thread from the mailbox; our archive (or a
+ * read, a move) lands at the mailbox and in the index; then the sync writes
+ * what it read. Its copy of the mailbox state is older than the row's: the row
+ * keeps the archive, and takes the rest of what was read.
+ */
+describe('a sync that read the mailbox before a local change does not undo it', () => {
+  /** The local change as thread-triage.ts and email-client.ts write it: the new state, stamped synced_at. */
+  const localChange = (patch: Record<string, unknown>) => () => {
+    const row = rows()[0]
+    Object.assign(row, patch, { synced_at: new Date(Date.now() + 1000).toISOString() })
+  }
+
+  it('Gmail: labels read with INBOX, then our archive, then the stale write: the row stays archived', async () => {
+    fake.seed('email_thread_index', [
+      { id: 'idx-1', workspace_id: WS, user_id: 'user-1', provider: 'google', provider_thread_id: 'thr-1', provider_message_id: 'm-simon', folder: 'inbox', is_unread: true, message_count: 1, synced_at: '2026-11-24T09:00:00.000Z' },
+    ])
+    gmailThreads['thr-1'] = { status: 200, body: { id: 'thr-1', messages: [SIMON] } }
+    afterRead = localChange({ folder: 'archive', is_unread: false })
+    await expect(indexGmailThread(db(), target())).resolves.toBe('indexed')
+    expect(rows()).toHaveLength(1)
+    // The mailbox state is the archive's; the rest is what the sync read.
+    expect(rows()[0]).toMatchObject({ folder: 'archive', is_unread: false, provider_message_id: 'm-simon', needs_reply: true, account_id: 'acct-work' })
+    expect(rows()[0].label_ids).toBeUndefined()
+  })
+
+  it('Gmail: a row last written before the read takes all of it (the archive reached Gmail first)', async () => {
+    fake.seed('email_thread_index', [
+      { id: 'idx-1', workspace_id: WS, user_id: 'user-1', provider: 'google', provider_thread_id: 'thr-1', folder: 'archive', is_unread: false, synced_at: '2026-11-24T09:00:00.000Z' },
+    ])
+    // Moved back to the inbox at Gmail (elsewhere), read after: the sync is the newer word.
+    gmailThreads['thr-1'] = { status: 200, body: { id: 'thr-1', messages: [SIMON] } }
+    await indexGmailThread(db(), target())
+    expect(rows()[0]).toMatchObject({ folder: 'inbox', is_unread: true, label_ids: ['INBOX', 'UNREAD'] })
+    expect(rows()[0].synced_at > '2026-11-24T09:00:00.000Z').toBe(true)
+  })
+
+  it('Gmail: a new message the stale read saw still lands (its id is what says mail arrived)', async () => {
+    fake.seed('email_thread_index', [
+      { id: 'idx-1', workspace_id: WS, user_id: 'user-1', provider: 'google', provider_thread_id: 'thr-1', provider_message_id: 'm-simon', folder: 'inbox', message_count: 1, synced_at: '2026-11-24T09:00:00.000Z' },
+    ])
+    const LATER = gmailMessage('m-later', ['INBOX', 'UNREAD'], 'Simon Åkerlund <simon@harborline.io>', '1790400000000')
+    gmailThreads['thr-1'] = { status: 200, body: { id: 'thr-1', messages: [SIMON, LATER] } }
+    afterRead = localChange({ folder: 'archive' })
+    await indexGmailThread(db(), target())
+    expect(rows()[0]).toMatchObject({ folder: 'archive', provider_message_id: 'm-later', message_count: 2, last_message_at: new Date(1790400000000).toISOString() })
+  })
+
+  it('Outlook: a read state and a moved message id written after the read stay; Outlook writes no folder either way', async () => {
+    fake.seed('email_thread_index', [
+      { id: 'idx-1', workspace_id: WS, user_id: 'user-1', provider: 'microsoft', provider_thread_id: 'conv-1', provider_message_id: 'msg-1', folder: 'inbox', is_unread: true, synced_at: '2026-11-24T09:00:00.000Z' },
+    ])
+    graphConversation = { status: 200, body: { value: [graphMessage('msg-1', '2026-11-24T08:00:00Z')] } }
+    // Our archive moved the message (a new id) and marked the thread read, between the read and the write.
+    afterRead = localChange({ folder: 'archive', is_unread: false, provider_message_id: 'msg-1-moved' })
+    await indexOutlookThread(db(), target({ threadId: 'conv-1' }))
+    expect(rows()[0]).toMatchObject({ folder: 'archive', is_unread: false, provider_message_id: 'msg-1-moved', needs_reply: true })
   })
 })

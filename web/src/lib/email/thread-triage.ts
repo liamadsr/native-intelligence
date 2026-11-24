@@ -527,9 +527,14 @@ async function setMuted(userId: string, mailbox: LiveMailbox, threadId: string, 
 // The index (what Mail lists), as the change left the thread
 // ---------------------------------------------------------------------------
 
-/** The person's index rows for the thread in this mailbox (a legacy mailbox's have no account). */
+/**
+ * The person's index rows for the thread in this mailbox (a legacy mailbox's
+ * have no account), as the change just left the mailbox: stamped `synced_at`,
+ * so a sync that read the mailbox before it doesn't put the old state back
+ * (src/lib/crm/email-sync.ts, GMAIL_MAILBOX_STATE).
+ */
 function indexRows(db: SupabaseClient, userId: string, threadId: string, accountId: string | null, patch: Record<string, unknown>) {
-  const query = db.from('email_thread_index').update(patch).eq('user_id', userId).eq('provider_thread_id', threadId)
+  const query = db.from('email_thread_index').update({ ...patch, synced_at: new Date().toISOString() }).eq('user_id', userId).eq('provider_thread_id', threadId)
   return accountId ? query.eq('account_id', accountId) : query.is('account_id', null)
 }
 

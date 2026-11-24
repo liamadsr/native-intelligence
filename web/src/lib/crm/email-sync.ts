@@ -245,6 +245,8 @@ export async function indexGmailThread(
   opts: { logWriteErrors?: boolean } = {},
 ): Promise<ThreadIndexOutcome> {
   const { accessToken, userEmail, userId, threadId, accountId } = target
+  // When the mailbox was read: a local change after it wins (writeThreadCopies).
+  const fetchedAt = new Date().toISOString()
   // The addresses, plus the automated-mail headers (src/lib/email/automated-sender.ts).
   const metadataHeaders = ['From', 'Reply-To', 'To', 'Cc', 'Date', ...AUTOMATED_HEADER_NAMES]
     .map((name) => `metadataHeaders=${encodeURIComponent(name)}`)
@@ -323,22 +325,41 @@ export async function indexGmailThread(
     synced_at: new Date().toISOString(),
   }
 
-  await writeThreadCopies(supabaseAdmin, target, threadData, senderEmail || null, { ...opts, what: 'Thread' })
+  await writeThreadCopies(supabaseAdmin, target, threadData, senderEmail || null, { ...opts, what: 'Thread', fetchedAt, mailboxState: GMAIL_MAILBOX_STATE })
   return 'indexed'
 }
+
+/**
+ * The columns a local change (thread-triage.ts, email-client.ts: archive,
+ * trash, move, read, star) writes from what it just did to the mailbox. A
+ * sync's copy of them is only as new as its read of the mailbox: one that
+ * read before a local change and writes after it would put the old state back
+ * (Liam, 11-24: archived invites back in the inbox). Every local change stamps
+ * `synced_at`, and a sync writes these only while the row's `synced_at` is no
+ * later than its read (writeThreadCopies). Outlook's index keeps no folder
+ * from the sync; its move gives the newest message a new id, so that id is
+ * the local change's too. Gmail's newest message id is never a local change's
+ * (and is what says new mail arrived, triage.ts), so the sync always writes it.
+ */
+export const GMAIL_MAILBOX_STATE = ['folder', 'is_unread', 'is_starred', 'label_ids'] as const
+export const OUTLOOK_MAILBOX_STATE = ['is_unread', 'is_starred', 'provider_message_id'] as const
 
 /**
  * Write one thread's row into each workspace's copy (`target.workspaceIds`,
  * else every workspace its account is linked to): updated in place or added,
  * its contact link that workspace's own contact for the sender. Upsert can't
  * name the COALESCE unique index, so each copy is found first.
+ *
+ * `fetchedAt` (when the mailbox was read) fences `mailboxState`: a row whose
+ * `synced_at` is later (a local change, or a sync that read after this one)
+ * keeps those columns and its `synced_at`; the rest is written as read.
  */
 async function writeThreadCopies(
   supabaseAdmin: SupabaseClient,
   target: ThreadIndexTarget,
   threadData: Record<string, unknown>,
   senderEmail: string | null,
-  opts: { logWriteErrors?: boolean; what: string },
+  opts: { logWriteErrors?: boolean; what: string; fetchedAt?: string; mailboxState?: readonly string[] },
 ): Promise<void> {
   const { userId, workspaceId, threadId, accountId } = target
   const workspaceIds = target.workspaceIds ?? (await threadCopyWorkspaceIds(accountId, workspaceId, supabaseAdmin))
@@ -367,10 +388,9 @@ async function writeThreadCopies(
 
     if (existingThread) {
       // Update existing thread (also sets account_id if it was null)
-      const { error: updateErr } = await supabaseAdmin
-        .from('email_thread_index')
-        .update(row)
-        .eq('id', existingThread.id)
+      const updateErr = opts.fetchedAt
+        ? await writeFenced(supabaseAdmin, existingThread.id, row, opts.fetchedAt, opts.mailboxState ?? [])
+        : (await supabaseAdmin.from('email_thread_index').update(row).eq('id', existingThread.id)).error
       if (updateErr && opts.logWriteErrors) {
         console.error(`[Email Refresh] ${opts.what} update error for ${threadId}:`, updateErr.message)
       }
@@ -383,6 +403,29 @@ async function writeThreadCopies(
       }
     }
   }
+}
+
+/**
+ * The row as read, unless something newer wrote it since `fetchedAt`: then
+ * everything but the mailbox state (and `synced_at`, which stays theirs).
+ */
+async function writeFenced(
+  supabaseAdmin: SupabaseClient,
+  id: string,
+  row: Record<string, unknown>,
+  fetchedAt: string,
+  mailboxState: readonly string[],
+): Promise<{ message: string } | null> {
+  const { data, error } = await supabaseAdmin
+    .from('email_thread_index')
+    .update(row)
+    .eq('id', id)
+    .or(`synced_at.is.null,synced_at.lte.${fetchedAt}`)
+    .select('id')
+  if (error) return error
+  if ((data ?? []).length > 0) return null
+  const rest = Object.fromEntries(Object.entries(row).filter(([key]) => key !== 'synced_at' && !mailboxState.includes(key)))
+  return (await supabaseAdmin.from('email_thread_index').update(rest).eq('id', id)).error
 }
 
 // ---------------------------------------------------------------------------
@@ -432,6 +475,7 @@ async function syncOutlookThreads(
     params.set('$filter', `receivedDateTime ge ${thirtyDaysAgo}`)
   }
 
+  const fetchedAt = new Date().toISOString()
   const res = await fetch(
     `https://graph.microsoft.com/v1.0/me/messages?${params}`,
     { headers: { Authorization: `Bearer ${accessToken}` } },
@@ -461,7 +505,7 @@ async function syncOutlookThreads(
         supabaseAdmin,
         { accessToken, userEmail, userId, workspaceId, workspaceIds, threadId, accountId },
         threadMessages,
-        { logWriteErrors: syncedCount < 3 },
+        { logWriteErrors: syncedCount < 3, fetchedAt },
       )
       syncedCount++
     } catch (err) {
@@ -485,7 +529,7 @@ async function indexOutlookMessages(
   supabaseAdmin: SupabaseClient,
   target: ThreadIndexTarget,
   threadMessages: OutlookMessage[],
-  opts: { logWriteErrors?: boolean } = {},
+  opts: { logWriteErrors?: boolean; fetchedAt?: string } = {},
 ): Promise<void> {
   const { userEmail, userId, threadId, accountId } = target
   const lastMsg = threadMessages[0] // newest first
@@ -539,6 +583,7 @@ async function indexOutlookMessages(
 
   await writeThreadCopies(supabaseAdmin, target, outlookThreadData, fromEmail || null, {
     ...opts,
+    mailboxState: OUTLOOK_MAILBOX_STATE,
     what: 'Outlook thread',
   })
 }
@@ -581,6 +626,7 @@ export async function indexOutlookThread(
     $select: `${OUTLOOK_THREAD_SELECT},isDraft,parentFolderId,internetMessageHeaders`,
     $top: '50',
   })
+  const fetchedAt = new Date().toISOString()
   const [listRes, deletedItems] = await Promise.all([
     fetch(`https://graph.microsoft.com/v1.0/me/messages?${params}`, {
       headers: { Authorization: `Bearer ${target.accessToken}` },
@@ -592,7 +638,7 @@ export async function indexOutlookThread(
     .filter((m) => m.parentFolderId !== deletedItems)
     .sort((a, b) => (b.receivedDateTime ?? '').localeCompare(a.receivedDateTime ?? ''))
   if (messages.length === 0) return 'gone'
-  await indexOutlookMessages(supabaseAdmin, target, messages, opts)
+  await indexOutlookMessages(supabaseAdmin, target, messages, { ...opts, fetchedAt })
   return 'indexed'
 }
 
