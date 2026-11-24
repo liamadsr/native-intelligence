@@ -183,3 +183,30 @@ fn this_build_resolved_the_capabilities_for_its_profile() {
     assert_eq!(ids, want);
     assert_eq!(remote_urls(&resolved["default"]), ["https://nativeintelligence.dev/*", "https://dial8.ai/*"]);
 }
+
+/// Of `core:window` the web gets exactly three calls: start a drag and
+/// toggle maximize from a `data-tauri-drag-region` (Tauri's drag script
+/// sends `start_dragging` on a press and `internal_toggle_maximize` on a
+/// double click), and ask whether a window is visible. The toggle only
+/// maximizes or restores a window that can be resized (tauri's
+/// `internal_toggle_maximize` checks `is_resizable` first): `main` and the
+/// `workspace-*` windows. The HUDs, the dictate panel and the studio
+/// recorder are built with `.resizable(false)` and are left as they are.
+/// Its optional `label` reaches any app window, and on Windows a maximize or
+/// restore also shows the window, so the most a page can do with it is bring
+/// `main` or a workspace window to the front, maximized or restored. Nothing
+/// that closes, hides, moves, sets the size of or creates a window.
+#[test]
+fn core_window_is_drag_maximize_and_visibility_only() {
+    let mut window: Vec<String> =
+        permissions(&capability()).into_iter().filter(|p| p.starts_with("core:window:")).collect();
+    window.sort();
+    assert_eq!(
+        window,
+        [
+            "core:window:allow-internal-toggle-maximize",
+            "core:window:allow-is-visible",
+            "core:window:allow-start-dragging",
+        ]
+    );
+}
