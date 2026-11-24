@@ -407,6 +407,50 @@ describe('planHomeTurn', () => {
     expect(body).toContain('[UPDATE DATA')
   })
 
+  it('an event turn holds mail from someone the person is in a meeting with right now: left out and undelivered, the meeting named, heldUntil its end (Liam, 2026-11-24)', async () => {
+    const now = Date.now()
+    const iso = (min: number) => new Date(now + min * 60_000).toISOString()
+    const turnRow = (over: Row) => ({ workspace_id: WS, user_id: USER, state: 'routed', outcome: 'turn', delivered_at: null, created_at: iso(-3), occurs_at: iso(-3), expires_at: null, ...over })
+    const seed = {
+      ...baseSeed(),
+      agent_event: [
+        turnRow({ id: '1', kind: 'email.needs_reply', facts: { from: 'dana@acme.example', known: true }, ref_type: 'email_thread', ref_id: 'pt-1' }),
+        turnRow({ id: '2', kind: 'email.needs_reply', facts: { from: 'sam@other.example', known: true }, ref_type: 'email_thread', ref_id: 'pt-2' }),
+      ],
+      email_thread_index: [
+        { id: 'ti-1', workspace_id: WS, user_id: USER, provider_thread_id: 'pt-1', needs_reply: true },
+        { id: 'ti-2', workspace_id: WS, user_id: USER, provider_thread_id: 'pt-2', needs_reply: true },
+      ],
+    }
+    const sync = { ref: 'calendar_event', id: 'evt-sync', title: 'Fernhill weekly sync', startIso: iso(-20), endIso: iso(10), people: ['dana@acme.example'] }
+    const reads: number[] = []
+    const readHoldMeetings = async (ms: number) => (reads.push(ms), [sync])
+    const { client, tables } = memDb(seed)
+    const plan = (await planHomeTurn(client, { ...DATA, workItemIds: [], reason: 'event' }, { now, readHoldMeetings })) as HomeTurnPlan
+    expect(plan.ok).toBe(true)
+    expect(reads).toEqual([now])
+    expect(plan.events!.eventIds).toEqual(['2'])
+    expect(plan.events!.heldUntil).toBe(iso(10))
+    expect(plan.events!.lines[0]).toMatch(/^- They are in a meeting now, until .*: “Fernhill weekly sync”, with dana@acme\.example\. Native Intelligence is holding mail from them/)
+    expect(plan.events!.lines[1]).toContain('[email_thread pt-2]')
+    expect(plan.events!.lines.join('\n')).not.toContain('pt-1')
+    expect(plan.dedupeKey).toBe(homeTurnDedupeKey('event', ['2']))
+    // The held row is still the router's, undelivered, for the turn after the meeting.
+    expect(tables.agent_event.find((r) => r.id === '1')).toMatchObject({ state: 'routed', delivered_at: null })
+
+    // Everything held: nothing to say now, and when to ask again.
+    const { client: onlyHeld } = memDb({ ...seed, agent_event: [seed.agent_event[0]] })
+    expect(await planHomeTurn(onlyHeld, { ...DATA, workItemIds: [], reason: 'event' }, { now, readHoldMeetings })).toEqual({ ok: false, reason: 'nothing_new', heldUntil: iso(10) })
+
+    // No line names a sender: the calendar is never read.
+    reads.length = 0
+    const { client: noMail } = memDb({ ...baseSeed(), agent_event: [turnRow({ id: '5', kind: 'reminder.due', facts: { title: 'Ship the deck' }, ref_type: 'notification', ref_id: 'n-5' })] })
+    const reminder = (await planHomeTurn(noMail, { ...DATA, workItemIds: [], reason: 'event' }, { now, readHoldMeetings })) as HomeTurnPlan
+    expect(reminder.events!.eventIds).toEqual(['5'])
+    expect(reminder.events!.heldUntil).toBeUndefined()
+    expect(reads).toEqual([])
+  })
+
   it("opts in to the ChatGPT plan by default: a free user's home turn goes ahead (its rebuild runs it on their plan)", async () => {
     const { checkUsageLimits } = await import('@/lib/ai/auth')
     const { client } = memDb(baseSeed())

@@ -5,6 +5,7 @@ import {
   HOME_TURN_DEBOUNCE_PERIOD,
   HOME_TURN_DEBOUNCE_TIMEOUT,
   HOME_TURN_REQUESTED_EVENT,
+  MEETING_HOLD_GRACE_MS,
   parseHomeTurnRequested,
   type HomeTurnRequestedData,
 } from '@/lib/chat/home-turn'
@@ -64,6 +65,26 @@ async function requestDreamerRetry(step: HomeTurnRunContext['step'], data: HomeT
   if (data.reason !== 'dreamer') return
   const next = dreamerFollowUpRequest(data, { skipped: reason, nowMs: Date.now() })
   if (next) await step.sendEvent('request-dreamer-retry', next)
+}
+
+/**
+ * The event turn left out mail from someone the person is in a meeting with
+ * (event-turn.ts meetingHold): once the meeting is over (its end, plus
+ * MEETING_HOLD_GRACE_MS), ask for one more event turn, which gathers every
+ * undelivered row again, the held ones included. Ids only, keyed on the
+ * conversation and the time, so runs held for the same meeting ask once.
+ * Before the run's log line: a sleep replays the run's code.
+ */
+async function askAfterMeeting(step: GetStepTools<typeof inngest>, data: HomeTurnRequestedData, heldUntil: string | undefined): Promise<void> {
+  if (data.reason !== 'event' || !heldUntil) return
+  const at = Date.parse(heldUntil) + MEETING_HOLD_GRACE_MS
+  if (!Number.isFinite(at)) return
+  await step.sleepUntil('held-for-meeting', new Date(at))
+  await step.sendEvent('after-meeting', {
+    id: `home-turn:after-meeting:${data.conversationId}:${at}`,
+    name: HOME_TURN_REQUESTED_EVENT,
+    data: { conversationId: data.conversationId, userId: data.userId, workspaceId: data.workspaceId, workItemIds: [], reason: 'event' },
+  })
 }
 
 /** The context a home turn's run gets (its event and Inngest's step tools). */
@@ -143,6 +164,7 @@ export async function runHomeTurn({ event, step }: HomeTurnRunContext) {
     if (!planned.ok) {
       const record = planned.record
       if (record) await step.run(`record-skip${suffix}`, () => recordSkippedHomeTurn(getServiceClient(), data, { reason: planned.reason, record }))
+      await askAfterMeeting(step, data, planned.heldUntil)
       console.info(homeTurnLogLine({ conversationId: data.conversationId, reports: record?.reports.length, outcome: planned.reason }))
       await requestDreamerRetry(step, data, planned.reason)
       return { status: 'skipped', reason: planned.reason }
@@ -297,6 +319,7 @@ export async function runHomeTurn({ event, step }: HomeTurnRunContext) {
   if (finished.written && ROUTED_HOME_TURN_REASONS.has(data.reason)) {
     await step.sendEvent('route', routeRequestEvent({ userId: data.userId, workspaceId: data.workspaceId, conversationId: data.conversationId }, `home-turn:${turnRow.id}`))
   }
+  await askAfterMeeting(step, data, events?.heldUntil)
   const outcome = read.done && read.end !== 'completed' ? `${finished.outcome}:${read.end}` : finished.outcome
   console.info(
     homeTurnLogLine({ conversationId: data.conversationId, rowId: turnRow.id, reports: turnPlan.reports.length, outcome, narrationChars: finished.narrationChars }),
