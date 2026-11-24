@@ -191,7 +191,8 @@ fn this_build_resolved_the_capabilities_for_its_profile() {
 #[test]
 fn the_control_size_command_answers_the_control_alone() {
     assert!(permissions(&capability()).iter().any(|p| p == "allow-studio-recorder-control-size"));
-    let src = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/commands/studio_recorder.rs")).unwrap();
+    // A Windows checkout has CRLF line endings (as app_commands.rs reads its sources): the text is compared as LF.
+    let src = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/commands/studio_recorder.rs")).unwrap().replace("\r\n", "\n");
     let body = src.split("pub fn studio_recorder_control_size(").nth(1).expect("the command");
     let body = &body[..body.find("\n}\n").expect("its end")];
     let first = body.lines().nth(1).unwrap_or("").trim();
