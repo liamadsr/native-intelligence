@@ -29,7 +29,7 @@ export const INBOX_MAIL_MAX = 50
 const NOTIFICATION_COLUMNS =
   'id, type, title, body, actor_id, target_type, target_id, context_type, context_id, is_read, group_key, metadata, created_at, actor:member!actor_id(id, display_name, avatar_url)'
 
-const MAIL_COLUMNS = 'id, account_id, provider, provider_thread_id, provider_message_id, folder, last_message_at, is_unread, needs_reply, auto_classified, from_email'
+const MAIL_COLUMNS = 'id, account_id, provider, provider_thread_id, provider_message_id, folder, last_message_at, is_unread, needs_reply, auto_classified, from_email, message_count'
 
 export interface InboxRead {
   items: InboxItem[]
