@@ -25,6 +25,7 @@
 
 import { useEffect, useRef } from 'react'
 import { cn } from '@/lib/utils'
+import { prefersReducedMotion } from '@/lib/media-query'
 
 export type DotGlyphMode = 'ambient' | 'pulse' | 'ripple'
 
@@ -50,11 +51,6 @@ interface Dot {
   hy: number
   /** Per-dot phase offset so the field doesn't pulse in lockstep. */
   phase: number
-}
-
-function prefersReducedMotion(): boolean {
-  if (typeof window === 'undefined') return false
-  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
 /** Read the host element's resolved color so dots inherit `currentColor`. */

@@ -78,6 +78,7 @@ import { useWatched } from '@/hooks/use-watched'
 import { lazyComponent } from '@/lib/lazy-component'
 import { useAgentLook } from '@/lib/bots/agent-look-store'
 import type { AgentLook } from '@/lib/bots/agent-look'
+import { prefersReducedMotion } from '@/lib/media-query'
 
 const BotAvatar = lazyComponent(() => import('bot-avatars').then((m) => m.BotAvatar))
 
@@ -157,10 +158,6 @@ export function easeGaze(from: Gaze | null, to: Gaze): Gaze {
 }
 /** The canvas never takes the pointer (its overscan would reach past the box). */
 const CANVAS_STYLE = { pointerEvents: 'none' } as const
-
-function prefersReducedMotion(): boolean {
-  return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-}
 
 export const AgentBot = memo(function AgentBot({
   state,

@@ -32,6 +32,7 @@ import { AgentBot } from '@/components/bots/agent-bot'
 import { useAgentLook } from '@/lib/bots/agent-look-store'
 import { agentLookFeet } from '@/lib/bots/agent-look'
 import { isVoiceBirdHere, sendVoiceBirdAway, subscribeVoiceBird, voiceBirdPhase } from './voice-bird'
+import { REDUCED_MOTION_QUERY, mediaMatches } from '@/lib/media-query'
 
 /** Its size on screen, px: small. */
 export const VOICE_BIRD_SIZE = 48
@@ -99,7 +100,7 @@ export function hopDelay(random: () => number = Math.random): number {
 }
 
 function prefersReducedMotion(): boolean {
-  return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  return mediaMatches(REDUCED_MOTION_QUERY)
 }
 
 /** Its hatch: a pop in, on the layer's own box (composited). */

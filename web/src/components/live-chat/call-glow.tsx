@@ -31,6 +31,7 @@
 import { memo, useEffect, useState, useSyncExternalStore } from 'react'
 import { ComposerVoiceGlow } from '@/app/account/(dashboard)/chat/composer-voice-glow'
 import type { HudAudioLevels } from '@/components/live-hud/hud-audio-levels'
+import { REDUCED_MOTION_QUERY, prefersReducedMotion, subscribeMedia } from '@/lib/media-query'
 
 /** A level (0–1, gained) at or above this counts as audio flowing. */
 export const FLOWING_LEVEL = 0.03
@@ -38,13 +39,9 @@ export const FLOWING_LEVEL = 0.03
 export const SILENCE_HOLD_MS = 4000
 
 function subscribeReducedMotion(onChange: () => void) {
-  if (typeof window === 'undefined' || !window.matchMedia) return () => {}
-  const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
-  mq.addEventListener?.('change', onChange)
-  return () => mq.removeEventListener?.('change', onChange)
+  return subscribeMedia(REDUCED_MOTION_QUERY, onChange)
 }
-const getReducedMotion = () =>
-  typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+const getReducedMotion = () => prefersReducedMotion()
 
 function subscribeVisibility(onChange: () => void) {
   document.addEventListener('visibilitychange', onChange)

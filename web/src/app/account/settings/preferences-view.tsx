@@ -44,6 +44,7 @@ import {
   type BackgroundMode,
 } from '@/lib/custom-background'
 import { AssistantSection } from './assistant-section'
+import { mediaMatches, subscribeMedia } from '@/lib/media-query'
 
 type ThemeMode = 'system' | 'light' | 'dark'
 
@@ -61,8 +62,7 @@ function isDarkActive(): boolean {
 function applyTheme(mode: ThemeMode) {
   const isDark =
     mode === 'dark' ||
-    (mode === 'system' &&
-      window.matchMedia('(prefers-color-scheme: dark)').matches)
+    (mode === 'system' && mediaMatches('(prefers-color-scheme: dark)'))
 
   if (isDark) {
     document.documentElement.classList.add('dark')
@@ -487,12 +487,10 @@ export function PreferencesView() {
   // for the previews — after a tick, so we read the class the global listener set.
   useEffect(() => {
     if (theme !== 'system') return
-    const mq = window.matchMedia('(prefers-color-scheme: dark)')
     const handler = () => {
       requestAnimationFrame(() => setDarkMode(isDarkActive()))
     }
-    mq.addEventListener('change', handler)
-    return () => mq.removeEventListener('change', handler)
+    return subscribeMedia('(prefers-color-scheme: dark)', handler)
   }, [theme])
 
   function handleThemeChange(mode: ThemeMode) {

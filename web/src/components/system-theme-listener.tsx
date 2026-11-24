@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react'
 import { applyThemeVariables, THEME_STORAGE_KEY } from '@/lib/themes'
+import { mediaMatches, subscribeMedia } from '@/lib/media-query'
 
 /**
  * Always-mounted listener that keeps the app in sync with the OS appearance
@@ -19,13 +20,13 @@ import { applyThemeVariables, THEME_STORAGE_KEY } from '@/lib/themes'
  */
 export function SystemThemeListener() {
   useEffect(() => {
-    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const DARK = '(prefers-color-scheme: dark)'
 
     const syncFromSystem = () => {
       // Only follow the OS when in System mode (no pinned light/dark choice).
       if (localStorage.getItem('theme')) return
 
-      const isDark = mq.matches
+      const isDark = mediaMatches(DARK)
       const root = document.documentElement
       if (isDark) {
         root.classList.add('dark')
@@ -45,10 +46,10 @@ export function SystemThemeListener() {
       if (e.key === 'theme' || e.key === THEME_STORAGE_KEY) syncFromSystem()
     }
 
-    mq.addEventListener('change', syncFromSystem)
+    const unsubscribe = subscribeMedia(DARK, syncFromSystem)
     window.addEventListener('storage', onStorage)
     return () => {
-      mq.removeEventListener('change', syncFromSystem)
+      unsubscribe()
       window.removeEventListener('storage', onStorage)
     }
   }, [])

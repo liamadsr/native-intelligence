@@ -11,6 +11,7 @@ import { useSwitchWorkspace, useWorkspaces, type WorkspaceItem } from '../worksp
 import { useTeams } from '../teams-context'
 import { CreateWorkspaceWizard } from '../create-workspace-wizard'
 import { OPEN_WORKSPACES_EVENT } from '../workspaces-veil-events'
+import { prefersReducedMotion } from '@/lib/media-query'
 
 /**
  * The workspaces veil: every workspace you belong to, behind the app.
@@ -109,10 +110,6 @@ function emergeFrames(fit: Fit, reduced: boolean): Keyframe[] {
     { offset: 0.8, borderRadius: `${FLIGHT_RADIUS_PX}px` },
     { offset: 1, transform: AT_HOME, opacity: 1, borderRadius: '0px' },
   ]
-}
-
-function prefersReducedMotion(): boolean {
-  return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
 /** Resolves when `animation` finishes or is cancelled — or after `ms` regardless,

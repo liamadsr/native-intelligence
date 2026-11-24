@@ -95,7 +95,7 @@ export const NEUTRAL_DAY_GRADIENTS: ThemeGradients = marketingGradients(NEUTRAL_
  */
 export function marketingSkyStaticOnly(win: Window = window): boolean {
   try {
-    if (typeof win.matchMedia === 'function' && win.matchMedia('(prefers-reduced-motion: reduce)').matches) return true
+    if (typeof win.matchMedia === 'function' && win.matchMedia('(prefers-reduced-motion: reduce)')?.matches) return true
   } catch {
     // No media queries: assume motion is fine.
   }

@@ -13,6 +13,7 @@
  * shell-heavy-deps.test.ts), transform and opacity only, nothing left
  * running, and none at all under reduced motion or without the API (jsdom).
  */
+import { prefersReducedMotion } from '@/lib/media-query'
 
 /** Where it starts: clear, 6px up, 98% size. */
 export const PALETTE_ENTRANCE_FROM: Keyframe = { opacity: 0, transform: 'translateY(-6px) scale(0.98)' }
@@ -22,9 +23,7 @@ export const PALETTE_ENTRANCE_MS = 160
 export const PALETTE_ENTRANCE_EASING = 'cubic-bezier(0.16, 1, 0.3, 1)'
 
 /** Reduced motion asked for (no animation then). */
-export function prefersReducedMotion(): boolean {
-  return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
-}
+export { prefersReducedMotion }
 
 /**
  * Play an entrance on `el` once: from `from` (the palette's by default) to

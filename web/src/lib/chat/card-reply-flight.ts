@@ -53,6 +53,7 @@
  * like a square") and its fit (coverTransform / fitStillCopy).
  */
 import type { CardReplyRef } from './card-reply'
+import { prefersReducedMotion } from '@/lib/media-query'
 
 type FlightCard = Pick<CardReplyRef, 'kind' | 'id'>
 
@@ -309,7 +310,7 @@ export function cancelFlight(key: string): void {
 /** Flights may play: the Web Animations API is there and reduced motion is not asked for. */
 export function canFly(): boolean {
   if (typeof document === 'undefined' || typeof document.body?.animate !== 'function') return false
-  return !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+  return !prefersReducedMotion()
 }
 
 /** An element's own corner radius (px), as drawn. */

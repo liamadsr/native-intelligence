@@ -17,6 +17,7 @@ import { cn } from '@/lib/utils'
 import { filterSnippets } from '@/lib/snippets/match'
 import { snippetPreview, type Snippet } from '@/lib/snippets/types'
 import { PALETTE_ENTRANCE_EASING } from '@/lib/motion/palette-entrance'
+import { prefersReducedMotion } from '@/lib/media-query'
 
 export interface SnippetMenuHandle {
   /** A key pressed in the host's field. True: the menu took it. */
@@ -211,7 +212,7 @@ function Entrance({ children }: { children: ReactNode }) {
   useLayoutEffect(() => {
     const el = ref.current
     if (!el || typeof el.animate !== 'function') return
-    if (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    if (prefersReducedMotion()) return
     el.animate([{ opacity: 0, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }], { duration: 140, easing: PALETTE_ENTRANCE_EASING })
   }, [])
   return (

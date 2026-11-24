@@ -84,6 +84,7 @@ import { DevicesMenu } from './devices-menu'
 import { CallLiveNotes } from './call-live-notes'
 import type { HostedTeamCall as ActiveTeamCall } from './team-calls-provider'
 import { useTeamCalls } from './team-calls-provider'
+import { mediaMatches, subscribeMedia } from '@/lib/media-query'
 
 interface Member {
   id: string
@@ -137,17 +138,14 @@ export function CallPanel({
 }
 
 function subscribeWide(onChange: () => void): () => void {
-  if (typeof window.matchMedia !== 'function') return () => {}
-  const query = window.matchMedia(CALL_WIDE_QUERY)
-  query.addEventListener('change', onChange)
-  return () => query.removeEventListener('change', onChange)
+  return subscribeMedia(CALL_WIDE_QUERY, onChange)
 }
 
 /** Is the window wide enough for the call's column beside the chat? Changes only when the window crosses the line. */
 function useWideWindow(): boolean {
   return useSyncExternalStore(
     subscribeWide,
-    () => typeof window.matchMedia === 'function' && window.matchMedia(CALL_WIDE_QUERY).matches,
+    () => mediaMatches(CALL_WIDE_QUERY),
     () => false,
   )
 }

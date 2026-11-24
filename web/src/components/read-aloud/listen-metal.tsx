@@ -37,6 +37,7 @@
 
 import { useSyncExternalStore, type CSSProperties } from 'react'
 import { MetalFx, createInstance, isMetalFxSupported } from 'metal-fx'
+import { REDUCED_MOTION_QUERY, prefersReducedMotion, subscribeMedia } from '@/lib/media-query'
 
 /** metal-fx's rainbow palette, as Liam pasted it (2026-09-27). 'silver'
  *  would match the pulse's mono. */
@@ -99,15 +100,13 @@ const getServerIsDark = () => false
 
 // ── prefers-reduced-motion ───────────────────────────────────────────────────
 
-const REDUCED_MOTION = '(prefers-reduced-motion: reduce)'
-
+// Read in render (useSyncExternalStore), so a null from WebKit's matchMedia
+// must not throw here: it took the dashboard down in the desktop app
+// (Sentry JAVASCRIPT-NEXTJS-CR, lib/media-query.ts).
 function subscribeReducedMotion(onChange: () => void) {
-  if (typeof matchMedia === 'undefined') return () => {}
-  const media = matchMedia(REDUCED_MOTION)
-  media.addEventListener('change', onChange)
-  return () => media.removeEventListener('change', onChange)
+  return subscribeMedia(REDUCED_MOTION_QUERY, onChange)
 }
-const getReducedMotion = () => typeof matchMedia !== 'undefined' && matchMedia(REDUCED_MOTION).matches
+const getReducedMotion = () => prefersReducedMotion()
 const getServerReducedMotion = () => false
 
 /** Its visibility follows the toggle's ancestors (see the header). */
