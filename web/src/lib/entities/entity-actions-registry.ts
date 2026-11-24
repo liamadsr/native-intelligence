@@ -49,11 +49,15 @@ export type EntityOpen = 'record' | 'calendar-event' | 'flow' | 'sequence' | 'pr
  *           "not archived" (an initiative's planned/active/completed), so an
  *           undo puts the one it had back, and `restore` is only the fallback.
  *   flag    a boolean column (a project's `is_archived`), PATCHed.
+ *   stamp   an `archived_at` stamp (a canvas, 676): archived through the
+ *           route's DELETE (without `permanent`), restored by PATCH
+ *           `{ archived: false }`.
  *   none    no archive; `why` says what the kind does instead.
  */
 export type EntityArchive =
   | { kind: 'status'; route: string; via: 'delete' | 'patch'; archived: string; restore: string; restorePrevious: boolean }
   | { kind: 'flag'; route: string; column: 'is_archived' }
+  | { kind: 'stamp'; route: string }
   | { kind: 'none'; why: string }
 
 export interface EntityActionsDescriptor {
@@ -291,7 +295,9 @@ export const ENTITY_ACTIONS: Readonly<Record<EntityType, EntityActionsDescriptor
     // `/account?canvas=<id>` opens the Canvases card on it.
     link: true,
     rename: { route: 'canvases', field: 'title' },
-    archive: { kind: 'none', why: 'A canvas is archived on the Canvases page, where it can be restored.' },
+    // Archived from any list's row (the Canvases page is a views list, docs/plans/views-everywhere.md);
+    // restored by Undo, or from the page's Archived filter.
+    archive: { kind: 'stamp', route: 'canvases' },
     share: true,
     makeTask: true,
   },
@@ -441,5 +447,6 @@ export function isArchivedRow(type: string, row: Record<string, unknown> | null 
   if (!a || !row) return false
   if (a.kind === 'status') return row.status === a.archived
   if (a.kind === 'flag') return row[a.column] === true
+  if (a.kind === 'stamp') return typeof row.archived_at === 'string' && row.archived_at !== ''
   return false
 }

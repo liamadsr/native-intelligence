@@ -14,6 +14,16 @@ export const ENTITY_ENDPOINTS: Record<ViewEntityType, (id: string) => string | n
   skill: id => `/api/account/skills/${id}`,
   // A pull request's detail is the Reviews page's own (GitHub's), never prefetched here.
   github_pr: () => null,
+  // The Drive kinds' own routes (PATCH { title } / { name } / { project_id }).
+  canvas: id => `/api/account/canvases/${id}`,
+  spreadsheet: id => `/api/account/spreadsheets/${id}`,
+  data_table: id => `/api/account/tables/${id}`,
+  // A folder's row is a folder or a record of its own kind: the Folders page acts on it.
+  drive_item: () => null,
+  // PATCH takes status (a board's drag), name and the rest (parseCampaignWrite).
+  campaign: id => `/api/account/campaigns/${id}`,
+  // A team is changed on its own settings page, never inline.
+  team: () => null,
   action: id => `/api/account/actions/${id}`,
   project: id => `/api/account/projects/${id}`,
   initiative: id => `/api/account/initiatives/${id}`,

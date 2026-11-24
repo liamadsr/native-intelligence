@@ -26,7 +26,8 @@ const TEAMS = [
 ]
 vi.mock('@/app/account/teams-context', () => ({ useTeams: () => ({ teams: TEAMS, refetchTeams: vi.fn() }) }))
 vi.mock('@/hooks/use-entity-sync', () => ({ useEntityListSync: () => {} }))
-vi.mock('@/components/views/unified-view-layout', () => ({ UnifiedViewLayout: () => <div data-testid="board-list" /> }))
+// The board's list stubbed; the module's context (the card surface the teams list reads) kept.
+vi.mock('@/components/views/unified-view-layout', async (orig) => ({ ...(await orig<object>()), UnifiedViewLayout: () => <div data-testid="board-list" /> }))
 
 import { TeamsView } from '../teams-view'
 import { TeamActionsView } from '../team-actions-view'
@@ -82,7 +83,8 @@ describe('the Teams page in a card', () => {
     await settle()
     expect(right.querySelector('[data-new-team]')?.textContent).toBe('New team')
     expect(container.querySelector('h1')).toBeNull()
-    expect(container.textContent).toContain('Teams in this workspace')
+    // The teams: the shared views list (docs/plans/views-everywhere.md).
+    expect(container.querySelector('[data-local-view-list="team"]')).not.toBeNull()
     expect(container.querySelector('[aria-label="New team"]')).toBeNull()
   })
 

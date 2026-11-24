@@ -44,6 +44,8 @@ export const ROADMAP_DATE_FIELDS: Partial<Record<ViewEntityType, RoadmapDateFiel
   action: { start: null, end: { field: 'due_at', type: 'timestamp' } },
   project: { start: { field: 'start_date', type: 'date' }, end: { field: 'target_date', type: 'date' } },
   initiative: { start: null, end: { field: 'target_date', type: 'date' } },
+  // A campaign runs from its start to its end (views-everywhere, batch 2).
+  campaign: { start: { field: 'starts_on', type: 'date' }, end: { field: 'ends_on', type: 'date' } },
 }
 
 export function supportsRoadmap(entityType: ViewEntityType): boolean {

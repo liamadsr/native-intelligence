@@ -49,6 +49,13 @@ export type ViewEntityType =
       | 'claim'
       | 'email_thread'
       | 'data_row'
+      // The Drive pages (docs/plans/views-everywhere.md): whiteboards,
+      // workbooks and the workspace's own tables, listed as Docs is.
+      | 'canvas'
+      | 'spreadsheet'
+      | 'data_table'
+      // Campaigns (views-everywhere, batch 2): a board by status, a roadmap by its dates.
+      | 'campaign'
     >
   | 'agent'
   | 'skill'
@@ -57,6 +64,14 @@ export type ViewEntityType =
   // shared list, board, filters and settings draw them; the page filters,
   // groups and sorts its own rows (lib/github/reviews-view.ts).
   | 'github_pr'
+  // Folders (docs/plans/views-everywhere.md): a folder's subfolders and the
+  // records filed in it, of every kind, read from the folder routes. The page
+  // filters, groups and sorts its own rows (lib/drive/folder-view.ts).
+  | 'drive_item'
+  // Teams (views-everywhere, batch 2): the teams the person can see, read by
+  // the Teams page from /api/account/teams (it hides private teams they're
+  // not on) and filtered there (components/views/local-view-list.tsx).
+  | 'team'
 export type LibraryScope = 'all' | 'mine' | 'workspace' | 'discover'
 /**
  * How a view is drawn. `graph` is the knowledge map — a WebGL canvas of claims
@@ -437,6 +452,18 @@ export const GITHUB_PR_FILTER_FIELDS: FilterFieldDefinition[] = [
   { field: 'created_at', label: 'Created', type: 'date' },
 ]
 
+/**
+ * A folder's rows (Folders, docs/plans/views-everywhere.md): its subfolders
+ * and what is filed in it. The page applies them to the rows the folder
+ * routes returned (lib/drive/folder-view.ts); no table behind them.
+ */
+export const DRIVE_ITEM_FILTER_FIELDS: FilterFieldDefinition[] = [
+  { field: 'item_type', label: 'Type', type: 'enum', options: ['folder', 'document', 'data_table', 'spreadsheet', 'canvas', 'attachment'], virtual: true },
+  { field: 'title', label: 'Name', type: 'text' },
+  { field: 'updated_at', label: 'Updated', type: 'date' },
+  { field: 'filed_at', label: 'Filed', type: 'date' },
+]
+
 export const FILTERABLE_FIELDS: Record<ViewEntityType, FilterFieldDefinition[]> = {
   github_pr: GITHUB_PR_FILTER_FIELDS,
   agent: LIBRARY_FILTER_FIELDS,
@@ -538,6 +565,51 @@ export const FILTERABLE_FIELDS: Record<ViewEntityType, FilterFieldDefinition[]> 
     // 367. With no Kind filter a list shows docs only (applyEntityDefaults).
     { field: 'kind', label: 'Kind', type: 'enum', options: ['doc', 'report', 'prep'] },
     { field: 'title', label: 'Title', type: 'text' },
+    { field: 'created_at', label: 'Created', type: 'date' },
+    { field: 'updated_at', label: 'Updated', type: 'date' },
+  ],
+
+  // The Drive kinds (views-everywhere): who owns it, where it sits, who sees it, when.
+  canvas: [
+    { field: 'owner_member_id', label: 'Owner', type: 'member', allowEmpty: true },
+    { field: 'project_id', label: 'Project', type: 'project', allowEmpty: true },
+    { field: 'visibility', label: 'Visibility', type: 'enum', options: ['workspace', 'private'] },
+    { field: 'archived', label: 'Archived', type: 'boolean', virtual: true },
+    { field: 'title', label: 'Title', type: 'text' },
+    { field: 'created_at', label: 'Created', type: 'date' },
+    { field: 'updated_at', label: 'Updated', type: 'date' },
+  ],
+  spreadsheet: [
+    { field: 'created_by', label: 'Creator', type: 'member', allowEmpty: true },
+    { field: 'last_edited_by', label: 'Last edited by', type: 'member', allowEmpty: true },
+    { field: 'visibility', label: 'Visibility', type: 'enum', options: ['workspace', 'private'] },
+    { field: 'status', label: 'Status', type: 'enum', options: ['active', 'archived'] },
+    { field: 'title', label: 'Title', type: 'text' },
+    { field: 'created_at', label: 'Created', type: 'date' },
+    { field: 'updated_at', label: 'Updated', type: 'date' },
+  ],
+  data_table: [
+    { field: 'owner_member_id', label: 'Owner', type: 'member', allowEmpty: true },
+    { field: 'visibility', label: 'Visibility', type: 'enum', options: ['workspace', 'private'] },
+    { field: 'table_kind', label: 'Kind', type: 'enum', options: ['table', 'pipeline'] },
+    { field: 'archived', label: 'Archived', type: 'boolean', virtual: true },
+    { field: 'name', label: 'Name', type: 'text' },
+    { field: 'created_at', label: 'Created', type: 'date' },
+    { field: 'updated_at', label: 'Updated', type: 'date' },
+  ],
+  drive_item: DRIVE_ITEM_FILTER_FIELDS,
+  team: [
+    { field: 'is_private', label: 'Private', type: 'boolean' },
+    { field: 'name', label: 'Name', type: 'text' },
+    { field: 'issue_prefix', label: 'Prefix', type: 'text' },
+    { field: 'created_at', label: 'Created', type: 'date' },
+  ],
+  campaign: [
+    { field: 'status', label: 'Status', type: 'enum', options: ['planned', 'active', 'paused', 'completed', 'archived'] },
+    { field: 'owner_member_id', label: 'Owner', type: 'member', allowEmpty: true },
+    { field: 'starts_on', label: 'Starts', type: 'date' },
+    { field: 'ends_on', label: 'Ends', type: 'date' },
+    { field: 'name', label: 'Name', type: 'text' },
     { field: 'created_at', label: 'Created', type: 'date' },
     { field: 'updated_at', label: 'Updated', type: 'date' },
   ],
@@ -814,6 +886,14 @@ export const DEFAULT_DISPLAY_PROPERTIES: Record<ViewEntityType, string[]> = {
   company: ['contact_count', 'industry', 'domain'],
   email_thread: ['labels', 'is_unread', 'folder', 'last_message_at', 'from_email'],
   document: ['project', 'created_by', 'updated_at'],
+  // Docs' three where the kind has them: where it sits, whose, when.
+  canvas: ['sharing', 'project', 'created_by', 'updated_at'],
+  spreadsheet: ['sheets', 'sharing', 'created_by', 'updated_at'],
+  data_table: ['table_kind', 'created_by', 'updated_at'],
+  drive_item: ['item_type', 'updated_at'],
+  // What it reaches (or what it is for), what it sent, when it runs, where it stands.
+  campaign: ['campaign_reach', 'campaign_counts', 'campaign_window', 'status'],
+  team: ['issue_prefix', 'team_members'],
   initiative: ['target_date', 'project', 'status'],
   project: ['labels', 'target_date', 'progress', 'initiative', 'lead', 'status'],
   flow: ['trigger', 'action_target', 'team', 'last_run', 'enabled'],
@@ -1018,6 +1098,49 @@ export const DISPLAY_PROPERTIES: Record<ViewEntityType, DisplayPropertyDefinitio
     { field: 'created_at', label: 'Created' },
     { field: 'updated_at', label: 'Updated' },
   ],
+  canvas: [
+    { field: 'project', label: 'Project', editable: { picker: 'project', apiField: 'project_id', allowEmpty: true } },
+    { field: 'created_by', label: 'Owner' },
+    { field: 'sharing', label: 'Sharing' },
+    { field: 'visibility', label: 'Visibility' },
+    { field: 'created_at', label: 'Created' },
+    { field: 'updated_at', label: 'Updated' },
+  ],
+  spreadsheet: [
+    { field: 'created_by', label: 'Creator' },
+    { field: 'sheets', label: 'Sheets' },
+    { field: 'sharing', label: 'Sharing' },
+    { field: 'visibility', label: 'Visibility' },
+    { field: 'created_at', label: 'Created' },
+    { field: 'updated_at', label: 'Updated' },
+  ],
+  data_table: [
+    { field: 'table_kind', label: 'Kind' },
+    { field: 'created_by', label: 'Owner' },
+    { field: 'visibility', label: 'Visibility' },
+    { field: 'created_at', label: 'Created' },
+    { field: 'updated_at', label: 'Updated' },
+  ],
+  team: [
+    { field: 'issue_prefix', label: 'Prefix' },
+    { field: 'team_members', label: 'Members' },
+    { field: 'created_at', label: 'Created' },
+  ],
+  campaign: [
+    { field: 'status', label: 'Status', editable: { picker: 'enum', apiField: 'status' } },
+    { field: 'campaign_reach', label: 'Audience or objective' },
+    { field: 'campaign_counts', label: 'Sent, replied, opted out' },
+    { field: 'campaign_window', label: 'Dates' },
+    { field: 'channels', label: 'Channels' },
+    { field: 'owner', label: 'Owner' },
+    { field: 'created_at', label: 'Created' },
+    { field: 'updated_at', label: 'Updated' },
+  ],
+  drive_item: [
+    { field: 'item_type', label: 'Type' },
+    { field: 'updated_at', label: 'Updated' },
+    { field: 'filed_at', label: 'Filed' },
+  ],
   initiative: [
     { field: 'status', label: 'Status', editable: { picker: 'enum', apiField: 'status' } },
     { field: 'owner', label: 'Owner', editable: { picker: 'member', apiField: 'owner_id', allowEmpty: true } },
@@ -1212,6 +1335,16 @@ export const DISPLAY_PROPERTIES: Record<ViewEntityType, DisplayPropertyDefinitio
  */
 export const DEFAULT_ORDERING: Partial<Record<ViewEntityType, SortConfig[]>> = {
   github_pr: [{ field: 'updated_at', direction: 'desc' }],
+  // The Drive lists open on the one touched last, as their pages always did.
+  canvas: [{ field: 'updated_at', direction: 'desc' }],
+  // As the Campaigns page always listed them: the one touched last first.
+  campaign: [{ field: 'updated_at', direction: 'desc' }],
+  // Teams by name, as the Teams page lists them.
+  team: [{ field: 'name', direction: 'asc' }],
+  spreadsheet: [{ field: 'updated_at', direction: 'desc' }],
+  data_table: [{ field: 'updated_at', direction: 'desc' }],
+  // A folder: its subfolders first (item_type sorts `folder` ahead), then the newest filed.
+  drive_item: [{ field: 'updated_at', direction: 'desc' }],
   // Preserve the library endpoints' ordering until the user chooses a sort.
   agent: [],
   skill: [],
@@ -1285,6 +1418,13 @@ export const DEFAULT_BOARD_GROUP_BY: Record<ViewEntityType, string> = {
   company: 'industry',
   email_thread: 'folder',
   document: 'status',
+  // No status to group a board by: the Drive kinds draw a list only (view-layouts.ts).
+  canvas: 'visibility',
+  spreadsheet: 'visibility',
+  data_table: 'table_kind',
+  drive_item: 'item_type',
+  campaign: 'status',
+  team: 'is_private',
   initiative: 'status',
   project: 'status',
   flow: 'enabled',
@@ -1370,6 +1510,28 @@ export const FIELD_CATEGORIES: Record<ViewEntityType, { label: string; fields: s
   document: [
     { label: '', fields: ['created_by', 'project_id', 'team_id', 'is_pinned', 'status'] },
     { label: 'Content', fields: ['title', 'created_at', 'updated_at'] },
+  ],
+  canvas: [
+    { label: '', fields: ['owner_member_id', 'project_id', 'visibility', 'archived'] },
+    { label: 'Content', fields: ['title', 'created_at', 'updated_at'] },
+  ],
+  spreadsheet: [
+    { label: '', fields: ['created_by', 'last_edited_by', 'visibility', 'status'] },
+    { label: 'Content', fields: ['title', 'created_at', 'updated_at'] },
+  ],
+  data_table: [
+    { label: '', fields: ['owner_member_id', 'visibility', 'table_kind', 'archived'] },
+    { label: 'Content', fields: ['name', 'created_at', 'updated_at'] },
+  ],
+  team: [{ label: '', fields: ['is_private', 'name', 'issue_prefix', 'created_at'] }],
+  campaign: [
+    { label: '', fields: ['status', 'owner_member_id'] },
+    { label: 'Dates', fields: ['starts_on', 'ends_on', 'created_at', 'updated_at'] },
+    { label: 'Content', fields: ['name'] },
+  ],
+  drive_item: [
+    { label: '', fields: ['item_type'] },
+    { label: 'Content', fields: ['title', 'updated_at', 'filed_at'] },
   ],
   initiative: [
     { label: '', fields: ['status', 'owner_id', 'labels', 'target_date'] },

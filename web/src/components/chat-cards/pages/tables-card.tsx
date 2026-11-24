@@ -13,10 +13,11 @@
  */
 import * as React from 'react'
 import { TablesView, type TablesCardState } from '@/app/account/(dashboard)/views/tables-view'
-import { usePagePlace, type PageCardProps } from './page-card'
+import { PageCardSurface, usePageCardSurface, usePagePlace, type PageCardProps } from './page-card'
 
 export function TablesPageCard({ pipelines = false, ...props }: PageCardProps & { pipelines?: boolean }) {
   const place = usePagePlace(props)
+  const surface = usePageCardSurface(props)
   const at = place.at
   const openId = at?.type === 'data_table' ? at.id : at?.type === 'data_row' ? (at.in ?? null) : null
   const rowId = at?.type === 'data_row' ? at.id : null
@@ -65,9 +66,11 @@ export function TablesPageCard({ pipelines = false, ...props }: PageCardProps & 
   )
   if (finding) return <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading…</div>
   return (
-    <div className="h-full min-h-0">
-      <TablesView onCount={props.onCount} card={card} pipelines={pipelines} />
-    </div>
+    <PageCardSurface surface={surface}>
+      <div className="h-full min-h-0">
+        <TablesView card={card} pipelines={pipelines} />
+      </div>
+    </PageCardSurface>
   )
 }
 
