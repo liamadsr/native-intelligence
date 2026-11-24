@@ -11,14 +11,16 @@
 -- and display settings need no saved-view row); listing and saving their saved
 -- views fails on the enum. Apply it before rolling out the code that uses it.
 --
--- The values are added and never used in this file. It has no begin/commit:
--- `ALTER TYPE … ADD VALUE` may not run inside a transaction block on an older
--- Postgres, and the new values are not used here in any case.
+-- It is only `ALTER TYPE view_entity_type ADD VALUE IF NOT EXISTS` statements
+-- and the schema reload: nothing in this file uses the new values (no check,
+-- default or seed), and nothing needs to. It has no begin/commit of its own.
 --
--- How to apply: on the server, in the database container, with psql, as
--- deploy/README.md says under "Day to day", "Apply a database migration",
--- before the roll-out and on the owner's word. Re-running it is harmless (IF
--- NOT EXISTS).
+-- How to apply: on the server, in the database container, with
+-- `psql --single-transaction -v ON_ERROR_STOP=1 -f 717_views_everywhere_kinds.sql`,
+-- as deploy/README.md says under "Day to day", "Apply a database migration",
+-- before the roll-out and on the owner's word. One transaction is fine on
+-- Postgres 12 and later, because no statement in it uses a value it adds.
+-- Re-running it is harmless (IF NOT EXISTS).
 
 alter type public.view_entity_type add value if not exists 'canvas';
 alter type public.view_entity_type add value if not exists 'spreadsheet';
