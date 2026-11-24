@@ -11,8 +11,12 @@ import { FILTERABLE_FIELDS } from '@/lib/views/types'
 
 const MIGRATIONS = path.resolve(__dirname, '../../../../supabase/migrations')
 
-/** Kinds no saved view is ever made of: Reviews' pull requests are GitHub's (canSaveViews={false}). */
-const NEVER_SAVED = new Set(['github_pr'])
+/**
+ * Kinds no saved view is made of (canSaveViews={false}): Reviews' pull
+ * requests are GitHub's; Files has none until a migration adds 'file' to the
+ * enum (files-card.tsx, docs/plans/views-everywhere.md).
+ */
+const NEVER_SAVED = new Set(['github_pr', 'file'])
 
 function enumValues(): Set<string> {
   const values = new Set<string>()
