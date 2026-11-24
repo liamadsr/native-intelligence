@@ -11,6 +11,8 @@ import { makeFakeSupabase, type FakeSupabase } from '@/lib/work/__tests__/fake-s
 
 let db: FakeSupabase
 let mailbox: { provider: 'google' | 'microsoft'; token: string; email: string | null; accountId: string | null } | null
+const sentry = vi.hoisted(() => ({ messages: [] as Array<{ msg: string; ctx: { tags: Record<string, string>; extra: Record<string, unknown> } }> }))
+vi.mock('@sentry/nextjs', () => ({ captureMessage: (msg: string, ctx: never) => sentry.messages.push({ msg, ctx }) }))
 
 vi.mock('@/lib/admin', () => ({ getServiceClient: () => db }))
 vi.mock('@/lib/email/thread-mailbox', () => ({
@@ -99,6 +101,7 @@ const MICROSOFT = { provider: 'microsoft' as const, token: 'm-tok', email: 'me@o
 
 beforeEach(() => {
   db = makeFakeSupabase()
+  sentry.messages.length = 0
   mailbox = GOOGLE
   calls = []
   gmailLabels = [
@@ -280,7 +283,129 @@ describe('changeEmailThreads on Gmail', () => {
     gmailThreads.second = [{ id: 's1', labelIds: ['INBOX'], internalDate: '1' }]
     const outcomes = await changeEmailThreads('u-1', 'ws-1', ['amazon', 'second'], { archive: true })
     expect(outcomes.map((o) => o.status)).toEqual(['failed', 'changed'])
-    expect(outcomes[0].error).toMatch(/403/)
+    // In plain words, and its code: an older connection without the modify scope.
+    // A Gmail 403 without a code is read as the grant: it says what Gmail lets the app do.
+    expect(outcomes[0]).toMatchObject({ reason: 'permission', provider: 'google', httpStatus: 403, error: expect.stringMatching(/Gmail only lets Native Intelligence read and draft mail.*modify permission/) })
+  })
+})
+
+/**
+ * Incoming's Done on a thread that isn't in the inbox at all (Liam, 11-24:
+ * "That email could not be archived. It's back in the list."): the index
+ * follows the mailbox, and the outcome says the thread is out of the inbox,
+ * while its status still says what happened at the mailbox. A real failure
+ * says why, in plain words, and is reported (never the mail).
+ */
+describe('a thread that isn’t in the inbox at all, and why a change failed', () => {
+  const seedRow = (thread: string, over: Record<string, unknown> = {}) =>
+    db.seed('email_thread_index', [{ id: `r-${thread}`, user_id: 'u-1', workspace_id: 'ws-1', provider: 'google', provider_thread_id: thread, account_id: 'acct-g', folder: 'inbox', ...over }])
+
+  it('deleted at Gmail: archive drops its index rows, not_found, out of the inbox', async () => {
+    seedRow('deleted')
+    const [outcome] = await changeEmailThreads('u-1', 'ws-1', ['deleted'], { archive: true })
+    expect(outcome).toMatchObject({ status: 'not_found', outOfInbox: 'gone', error: expect.stringMatching(/Gmail no longer has this email/) })
+    expect(db.rows('email_thread_index')).toEqual([])
+    expect(sentry.messages).toEqual([])
+  })
+
+  it('deleted at Gmail: a change that isn’t an archive leaves the index alone', async () => {
+    seedRow('deleted')
+    const [outcome] = await changeEmailThreads('u-1', 'ws-1', ['deleted'], { star: true })
+    expect(outcome.status).toBe('not_found')
+    expect(outcome.outOfInbox).toBeUndefined()
+    expect(db.rows('email_thread_index')).toHaveLength(1)
+  })
+
+  it('an id Gmail refuses (400) is not a thread that is gone: nothing dropped, and it is reported', async () => {
+    seedRow('bad-id')
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => (String(input).includes('/threads/bad-id') ? Promise.resolve(json({}, 400)) : fakeFetch(input, init))))
+    const [outcome] = await changeEmailThreads('u-1', 'ws-1', ['bad-id'], { archive: true })
+    expect(outcome).toMatchObject({ status: 'not_found', reason: 'unreadable' })
+    expect(outcome.outOfInbox).toBeUndefined()
+    expect(db.rows('email_thread_index')).toHaveLength(1)
+    expect(sentry.messages.map((m) => m.ctx.tags['triage.reason'])).toEqual(['unreadable'])
+  })
+
+  it('in Trash at Gmail: a plain archive is already done, and the index says Trash', async () => {
+    seedRow('trashed')
+    const [outcome] = await changeEmailThreads('u-1', 'ws-1', ['trashed'], { archive: true })
+    expect(outcome).toMatchObject({ status: 'unchanged', outOfInbox: 'trash' })
+    expect(db.rows('email_thread_index')[0]).toMatchObject({ folder: 'trash' })
+    expect(calls.filter((c) => c.method === 'POST')).toEqual([])
+  })
+
+  it('in Spam at Gmail: its folder is Spam; a change that isn’t an archive still fails, and isn’t reported', async () => {
+    gmailThreads.junk = [{ id: 'j1', labelIds: ['SPAM'], internalDate: '1' }]
+    seedRow('junk')
+    const [outcome] = await changeEmailThreads('u-1', 'ws-1', ['junk'], { star: true })
+    expect(outcome).toMatchObject({ status: 'failed', trashed: true, reason: 'trash', error: expect.stringMatching(/in Spam at Gmail/) })
+    expect(db.rows('email_thread_index')[0]).toMatchObject({ folder: 'spam' })
+    expect(sentry.messages).toEqual([])
+  })
+
+  it('wholly in Deleted Items at Outlook: archive is already done, the index says Trash', async () => {
+    mailbox = MICROSOFT
+    graphMessages = [{ id: 'd1', conversationId: 'conv-del', isRead: true, parentFolderId: 'folder-deleteditems', receivedDateTime: '2026-10-27T08:00:00Z' }]
+    seedRow('conv-del', { provider: 'microsoft', account_id: 'acct-m' })
+    const [outcome] = await changeEmailThreads('u-1', 'ws-1', ['conv-del'], { archive: true })
+    expect(outcome).toMatchObject({ status: 'unchanged', outOfInbox: 'trash' })
+    expect(db.rows('email_thread_index')[0]).toMatchObject({ folder: 'trash' })
+  })
+
+  it('gone at Outlook (no message at all): archive drops its rows', async () => {
+    mailbox = MICROSOFT
+    seedRow('conv-none', { provider: 'microsoft', account_id: 'acct-m' })
+    const [outcome] = await changeEmailThreads('u-1', 'ws-1', ['conv-none'], { archive: true })
+    expect(outcome).toMatchObject({ status: 'not_found', outOfInbox: 'gone', error: expect.stringMatching(/Outlook no longer has this email/) })
+    expect(db.rows('email_thread_index')).toEqual([])
+  })
+
+  it('no mailbox could be reached: names the provider to reconnect, and is reported as not reached', async () => {
+    mailbox = null
+    seedRow('amazon')
+    const [outcome] = await changeEmailThreads('u-1', 'ws-1', ['amazon'], { archive: true })
+    expect(outcome).toMatchObject({ status: 'failed', reason: 'reconnect', provider: 'google', error: expect.stringMatching(/^Gmail needs reconnecting in Settings › Connectors/) })
+    expect(sentry.messages).toHaveLength(1)
+    expect(sentry.messages[0].ctx.tags).toMatchObject({ 'triage.status': 'failed', 'triage.reason': 'reconnect', 'triage.provider': 'google', 'triage.mailbox_reached': 'no' })
+  })
+
+  it.each([
+    [401, 'reconnect', /Gmail needs reconnecting/],
+    [429, 'busy', /Gmail is busy right now/],
+    [503, 'provider', /Gmail had a problem \(error 503\)/],
+    [409, 'refused', /Gmail refused the change \(error 409\)/],
+  ])('Gmail answering %i is %s, in plain words', async (status, reason, words) => {
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => (String(input).endsWith('/threads/amazon/modify') ? Promise.resolve(json({}, status)) : fakeFetch(input, init))))
+    const [outcome] = await changeEmailThreads('u-1', 'ws-1', ['amazon'], { archive: true })
+    expect(outcome).toMatchObject({ status: 'failed', reason, httpStatus: status, error: expect.stringMatching(words) })
+  })
+
+  it('Gmail’s 403 for a grant without gmail.modify (its archive, as the connection asks for today) says so, with its code', async () => {
+    const scopeRefusal = { error: { code: 403, message: 'Request had insufficient authentication scopes.', status: 'PERMISSION_DENIED', details: [{ reason: 'ACCESS_TOKEN_SCOPE_INSUFFICIENT' }] } }
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => (String(input).endsWith('/threads/amazon/modify') ? Promise.resolve(json(scopeRefusal, 403)) : fakeFetch(input, init))))
+    const [outcome] = await changeEmailThreads('u-1', 'ws-1', ['amazon'], { archive: true })
+    expect(outcome).toMatchObject({ status: 'failed', reason: 'permission', httpStatus: 403, code: 'ACCESS_TOKEN_SCOPE_INSUFFICIENT', error: expect.stringMatching(/not archive it/) })
+    expect(sentry.messages[0].ctx.tags['triage.provider_code']).toBe('ACCESS_TOKEN_SCOPE_INSUFFICIENT')
+    // The provider's message never travels.
+    expect(JSON.stringify(sentry.messages[0].ctx)).not.toMatch(/insufficient authentication/)
+  })
+
+  it('an Outlook 403 asks to reconnect Outlook', async () => {
+    mailbox = MICROSOFT
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => (/\/messages\/o1\/move$/.test(String(input)) ? Promise.resolve(json({ error: { code: 'ErrorAccessDenied', message: 'Access is denied.' } }, 403)) : fakeFetch(input, init))))
+    const [outcome] = await changeEmailThreads('u-1', 'ws-1', ['conv-1'], { archive: true })
+    expect(outcome).toMatchObject({ status: 'failed', reason: 'permission', code: 'ErrorAccessDenied', error: expect.stringMatching(/Reconnect Outlook in Settings › Connectors/) })
+  })
+
+  it('a report carries status, provider, reason and HTTP status, the thread id only hashed, no mail', async () => {
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => (String(input).endsWith('/threads/amazon/modify') ? Promise.resolve(json({}, 403)) : fakeFetch(input, init))))
+    await changeEmailThreads('u-1', 'ws-1', ['amazon'], { archive: true })
+    expect(sentry.messages).toHaveLength(1)
+    const [{ msg, ctx }] = sentry.messages
+    expect(msg).toBe('email triage: a thread change failed')
+    expect(ctx.tags).toEqual({ 'triage.status': 'failed', 'triage.reason': 'permission', 'triage.provider': 'google', 'triage.http_status': '403', 'triage.provider_code': 'none', 'triage.mailbox_reached': 'yes' })
+    expect(ctx.extra).toEqual({ thread: expect.stringMatching(/^[0-9a-f]{16}$/), change: ['archive'], partly_landed: false })
+    expect(JSON.stringify(ctx)).not.toMatch(/amazon|me@gmail\.com/)
   })
 })
 

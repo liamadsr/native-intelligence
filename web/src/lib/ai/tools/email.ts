@@ -632,6 +632,7 @@ export function createEmailTools(
             status: o.status,
             ...(o.account ? { account: o.account } : {}),
             ...(o.applied && o.status === 'changed' ? { applied: changeArgs(o.applied) } : {}),
+            ...(o.outOfInbox ? { out_of_inbox: o.outOfInbox } : {}),
             ...(o.error ? { error: o.error } : {}),
           })),
           ...(undo.length ? { undo } : {}),

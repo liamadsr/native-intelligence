@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+import * as Sentry from '@sentry/nextjs'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getServiceClient } from '@/lib/admin'
 import { isMissingColumnError } from '@/lib/mcp-client/public-row'
@@ -70,7 +72,96 @@ export interface ThreadTriageOutcome {
   trashed?: true
   /** Left alone: the thread is starred or flagged and the call keeps starred mail (ChangeOptions.skipStarred). */
   kept?: 'starred'
+  /**
+   * The thread isn't in the inbox at all, and the index now says so (Liam,
+   * 11-24: Incoming's Done said "That email could not be archived" and the
+   * email came back): 'gone', the mailbox holds none of it any more (deleted
+   * there), so its index rows are removed; 'trash' / 'spam', all of it is
+   * there, so its rows say that folder. Set only when the change archives or
+   * mutes. The status stays what happened at the mailbox (not_found, or
+   * unchanged for a plain archive of a trashed thread): a caller that wanted
+   * the thread out of the inbox (Incoming's Done) takes it as done.
+   */
+  outOfInbox?: 'gone' | 'trash' | 'spam'
+  /** On a failure, why, as a code (the error says it in plain words). */
+  reason?: TriageFailReason
+  /** The mailbox's provider, when known (the failure report). */
+  provider?: 'google' | 'microsoft'
+  /** The provider's HTTP status behind a failure, when it gave one. */
+  httpStatus?: number
+  /** The provider's own error code behind it (ACCESS_TOKEN_SCOPE_INSUFFICIENT, ErrorItemNotFound…), never its message. */
+  code?: string
   error?: string
+}
+
+/**
+ * Why a change failed:
+ *   reconnect   no mailbox could be reached (its sign-in won't refresh), or the provider said 401;
+ *   permission  the provider refused for want of permission (403: an older connection without the modify scope);
+ *   busy        throttled (429), even after the retry;
+ *   provider    the provider's own error (5xx);
+ *   refused     another refusal (4xx);
+ *   no_folder   an Outlook mailbox with no Archive (or Inbox) folder;
+ *   trash       the thread is in Trash or Spam;
+ *   unreadable  every mailbox tried refused the thread's id (400): not a thread that is gone;
+ *   unknown     anything else.
+ */
+export type TriageFailReason = 'reconnect' | 'permission' | 'busy' | 'provider' | 'refused' | 'no_folder' | 'trash' | 'unreadable' | 'unknown'
+
+/** A provider call that answered with an error: its provider, what it was doing, and its HTTP status. */
+export class ProviderError extends Error {
+  constructor(
+    readonly provider: 'google' | 'microsoft',
+    readonly op: string,
+    readonly status: number,
+    /** The provider's own error code (Google's error.status or reason, Graph's error.code), never its message. */
+    readonly code: string | null = null,
+  ) {
+    super(`${provider === 'google' ? 'Gmail' : 'Outlook'} ${op} error: ${status}${code ? ` (${code})` : ''}`)
+    this.name = 'ProviderError'
+  }
+}
+
+/** A provider error answer's code: a short identifier only (it goes to Sentry), never the message text. */
+async function errorCode(res: Response): Promise<string | null> {
+  try {
+    const body = (await res.json()) as { error?: { status?: unknown; code?: unknown; errors?: Array<{ reason?: unknown }>; details?: Array<{ reason?: unknown }> } }
+    const e = body?.error
+    const candidates = [e?.details?.find((d) => typeof d?.reason === 'string')?.reason, e?.errors?.[0]?.reason, e?.status, e?.code]
+    const code = candidates.find((c): c is string => typeof c === 'string' && /^[A-Za-z0-9_.]{1,64}$/.test(c))
+    return code ?? null
+  } catch {
+    return null
+  }
+}
+
+/** Gmail's answer when the connection's grant doesn't cover the call (no gmail.modify). */
+const SCOPE_CODES = new Set(['ACCESS_TOKEN_SCOPE_INSUFFICIENT', 'insufficientPermissions', 'PERMISSION_DENIED'])
+/** The two Gmail scopes that let an app change a thread's labels (archive, read, star); the connection asks for neither (lib/oauth/config.ts). */
+export const GMAIL_MODIFY_SCOPES = ['https://www.googleapis.com/auth/gmail.modify', 'https://mail.google.com/'] as const
+
+const providerName = (provider: 'google' | 'microsoft' | null | undefined) => (provider === 'google' ? 'Gmail' : provider === 'microsoft' ? 'Outlook' : 'Your mailbox')
+
+/** A failure in plain words, and its code. */
+export function failureOf(err: unknown, provider: 'google' | 'microsoft'): { error: string; reason: TriageFailReason; httpStatus?: number; code?: string } {
+  const name = providerName(provider)
+  if (err instanceof ProviderError) {
+    const httpStatus = err.status
+    if (httpStatus === 401) return { error: `${name} needs reconnecting in Settings › Connectors.`, reason: 'reconnect', httpStatus, ...(err.code ? { code: err.code } : {}) }
+    if (httpStatus === 403 && err.provider === 'google' && (!err.code || SCOPE_CODES.has(err.code))) {
+      // The Gmail connection is granted reading and drafting only: archive,
+      // read and star need Gmail's modify permission, which it doesn't ask
+      // for (lib/oauth/config.ts). Reconnecting asks for the same.
+      return { error: 'Gmail only lets Native Intelligence read and draft mail, not archive it or mark it read. The Gmail connection needs Gmail’s modify permission.', reason: 'permission', httpStatus, ...(err.code ? { code: err.code } : {}) }
+    }
+    if (httpStatus === 403) return { error: `${name} refused the change: it doesn’t allow Native Intelligence to change this mail. Reconnect ${name} in Settings › Connectors.`, reason: 'permission', httpStatus, ...(err.code ? { code: err.code } : {}) }
+    if (httpStatus === 429) return { error: `${name} is busy right now. Try again in a minute.`, reason: 'busy', httpStatus, ...(err.code ? { code: err.code } : {}) }
+    if (httpStatus >= 500) return { error: `${name} had a problem (error ${httpStatus}). Try again in a minute.`, reason: 'provider', httpStatus, ...(err.code ? { code: err.code } : {}) }
+    return { error: `${name} refused the change (error ${httpStatus}).`, reason: 'refused', httpStatus, ...(err.code ? { code: err.code } : {}) }
+  }
+  const message = err instanceof Error ? err.message : ''
+  if (/has no (Archive|Inbox) folder/.test(message)) return { error: `${message}.`, reason: 'no_folder' }
+  return { error: message || `${name} refused the change.`, reason: 'unknown' }
 }
 
 /** How a whole call treats its threads. */
@@ -191,21 +282,31 @@ interface GmailLabel {
   name: string
 }
 
-/** The thread's messages, oldest first, or null when this mailbox has none of it. */
-async function gmailThreadMessages(token: string, threadId: string): Promise<GmailMessageMeta[] | null> {
+/**
+ * Why a mailbox has none of a thread: 'gone', it was read and holds nothing of
+ * it (Gmail 404, Graph no message); 'unreadable', it refused the id (400: an
+ * id from another mailbox, or one it doesn't take).
+ */
+type Absent = { absent: 'gone' | 'unreadable' }
+const GONE: Absent = { absent: 'gone' }
+const UNREADABLE: Absent = { absent: 'unreadable' }
+
+/** The thread's messages, oldest first, or why this mailbox has none of it. */
+async function gmailThreadMessages(token: string, threadId: string): Promise<GmailMessageMeta[] | Absent> {
   const res = await providerFetch(`${GMAIL_API}/threads/${encodeURIComponent(threadId)}?format=minimal`, {
     headers: { Authorization: `Bearer ${token}` },
   })
-  if (res.status === 400 || res.status === 404) return null
-  if (!res.ok) throw new Error(`Gmail thread read error: ${res.status}`)
+  if (res.status === 404) return GONE
+  if (res.status === 400) return UNREADABLE
+  if (!res.ok) throw new ProviderError('google', 'thread read', res.status, await errorCode(res))
   const data = (await res.json()) as { messages?: GmailMessageMeta[] }
   const messages = (data.messages ?? []).filter((m) => typeof m?.id === 'string')
-  return messages.length ? messages : null
+  return messages.length ? messages : GONE
 }
 
 async function gmailLabelList(token: string): Promise<GmailLabel[]> {
   const res = await providerFetch(`${GMAIL_API}/labels`, { headers: { Authorization: `Bearer ${token}` } })
-  if (!res.ok) throw new Error(`Gmail labels read error: ${res.status}`)
+  if (!res.ok) throw new ProviderError('google', 'labels read', res.status, await errorCode(res))
   const data = (await res.json()) as { labels?: GmailLabel[] }
   return (data.labels ?? []).filter((l) => typeof l?.id === 'string' && typeof l?.name === 'string')
 }
@@ -218,7 +319,7 @@ async function createGmailLabel(token: string, name: string): Promise<GmailLabel
   })
   // 409: it exists after all (made a moment ago): the caller reads the list again.
   if (res.status === 409) return null
-  if (!res.ok) throw new Error(`Gmail label create error: ${res.status}`)
+  if (!res.ok) throw new ProviderError('google', 'label create', res.status, await errorCode(res))
   const label = (await res.json()) as GmailLabel
   return typeof label?.id === 'string' ? label : null
 }
@@ -230,7 +331,7 @@ async function gmailModify(token: string, path: string, add: string[], remove: s
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ ...(add.length ? { addLabelIds: add } : {}), ...(remove.length ? { removeLabelIds: remove } : {}) }),
   })
-  if (!res.ok) throw new Error(`Gmail modify error: ${res.status}`)
+  if (!res.ok) throw new ProviderError('google', 'modify', res.status, await errorCode(res))
   onWrite?.()
 }
 
@@ -358,7 +459,7 @@ interface OutlookFolders {
 async function outlookFolderId(token: string, wellKnown: string): Promise<string | null> {
   const res = await providerFetch(`${GRAPH_API}/mailFolders/${wellKnown}?$select=id`, { headers: { Authorization: `Bearer ${token}` } })
   if (res.status === 404) return null
-  if (!res.ok) throw new Error(`Outlook folder read error: ${res.status}`)
+  if (!res.ok) throw new ProviderError('microsoft', 'folder read', res.status, await errorCode(res))
   const id = ((await res.json()) as { id?: unknown }).id
   return typeof id === 'string' && id ? id : null
 }
@@ -377,6 +478,15 @@ async function outlookFolders(token: string): Promise<OutlookFolders> {
  * indexOutlookThread orders them), or null when this mailbox has none of it.
  */
 async function outlookConversation(token: string, conversationId: string, folders: OutlookFolders): Promise<GraphMessageMeta[] | null> {
+  const read = await readOutlookConversation(token, conversationId, folders)
+  return Array.isArray(read) ? read : null
+}
+
+/**
+ * The conversation's messages outside Deleted Items, newest first; 'trash'
+ * when every one of them is in Deleted Items; or why this mailbox has none.
+ */
+async function readOutlookConversation(token: string, conversationId: string, folders: OutlookFolders): Promise<GraphMessageMeta[] | 'trash' | Absent> {
   const params = new URLSearchParams({
     // OData string literal: single quotes are escaped by doubling.
     $filter: `conversationId eq '${conversationId.replace(/'/g, "''")}'`,
@@ -387,8 +497,9 @@ async function outlookConversation(token: string, conversationId: string, folder
   let url: string | null = `${GRAPH_API}/messages?${params}`
   while (url) {
     const res: Response = await providerFetch(url, { headers: { Authorization: `Bearer ${token}` } })
-    if (res.status === 400 || res.status === 404) return null
-    if (!res.ok) throw new Error(`Outlook thread read error: ${res.status}`)
+    if (res.status === 400) return UNREADABLE
+    if (res.status === 404) return GONE
+    if (!res.ok) throw new ProviderError('microsoft', 'thread read', res.status, await errorCode(res))
     const data = (await res.json()) as { value?: GraphMessageMeta[]; '@odata.nextLink'?: string }
     messages.push(...(data.value ?? []).filter((m) => typeof m?.id === 'string'))
     url = data['@odata.nextLink'] ?? null
@@ -396,7 +507,8 @@ async function outlookConversation(token: string, conversationId: string, folder
   const live = messages
     .filter((m) => !folders.deleted || m.parentFolderId !== folders.deleted)
     .sort((a, b) => (b.receivedDateTime ?? '').localeCompare(a.receivedDateTime ?? ''))
-  return live.length ? live : null
+  if (live.length) return live
+  return messages.length ? 'trash' : GONE
 }
 
 function outlookThreadState(messages: GraphMessageMeta[], folders: OutlookFolders): Omit<ThreadState, 'muted'> {
@@ -417,7 +529,7 @@ async function graphCall(token: string, path: string, method: 'PATCH' | 'POST', 
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  if (!res.ok) throw new Error(`Outlook message update error: ${res.status}`)
+  if (!res.ok) throw new ProviderError('microsoft', 'message update', res.status, await errorCode(res))
   onWrite?.()
   return (await res.json().catch(() => null)) as { id?: unknown } | null
 }
@@ -583,14 +695,40 @@ class TriageCall {
   }
 }
 
-/** The change in one mailbox, or null when it holds none of the thread. */
+/** Whether the change takes the thread out of the inbox (what Incoming's Done asks). */
+const takesOutOfInbox = (change: ThreadChange) => change.archive === true || change.mute === true
+
+/**
+ * A thread wholly in Trash or Spam: its index rows say so, and a plain
+ * archive (with or without read) is already done; anything else on it fails.
+ */
+async function inTrash(userId: string, mailbox: LiveMailbox, threadId: string, change: ThreadChange, where: 'trash' | 'spam'): Promise<ThreadTriageOutcome> {
+  const { error } = await indexRows(getServiceClient(), userId, threadId, mailbox.accountId, { folder: where })
+  if (error) console.warn('[thread-triage] trashed thread index row not updated:', error.message)
+  const plainArchive = change.archive === true && Object.keys(change).every((k) => k === 'archive' || k === 'read')
+  const out = takesOutOfInbox(change) ? { outOfInbox: where } : {}
+  const name = providerName(mailbox.provider)
+  if (plainArchive) return { threadId, status: 'unchanged', account: mailbox.email, provider: mailbox.provider, ...out }
+  return {
+    threadId,
+    status: 'failed',
+    account: mailbox.email,
+    provider: mailbox.provider,
+    trashed: true,
+    reason: 'trash',
+    ...out,
+    error: `This thread is in ${where === 'spam' ? 'Spam' : 'Trash'} at ${name} (Trash or Spam is never changed here).`,
+  }
+}
+
+/** The change in one mailbox, or why it holds none of the thread. */
 async function changeInMailbox(
   userId: string,
   mailbox: LiveMailbox,
   threadId: string,
   change: ThreadChange,
   call: TriageCall,
-): Promise<ThreadTriageOutcome | null> {
+): Promise<ThreadTriageOutcome | Absent> {
   const key = mailboxKey(mailbox)
   let state: Omit<ThreadState, 'muted'>
   let apply: (applied: ThreadChange, onWrite: OnWrite, onNewestMoved: (id: string) => void) => Promise<string | null>
@@ -598,9 +736,10 @@ async function changeInMailbox(
 
   if (mailbox.provider === 'google') {
     const messages = await gmailThreadMessages(mailbox.token, threadId)
-    if (!messages) return null
+    if (!Array.isArray(messages)) return messages
     if (messages.every((m) => (m.labelIds ?? []).some((l) => l === 'TRASH' || l === 'SPAM'))) {
-      return { threadId, status: 'failed', account: mailbox.email, trashed: true, error: 'This thread is in Trash or Spam.' }
+      const spam = messages.every((m) => (m.labelIds ?? []).includes('SPAM'))
+      return inTrash(userId, mailbox, threadId, change, spam ? 'spam' : 'trash')
     }
     const wantsLabels = !!(change.addLabels?.length || change.removeLabels?.length)
     state = await gmailThreadState(messages, async (ids) => {
@@ -622,15 +761,16 @@ async function changeInMailbox(
     }
   } else {
     const folders = await call.outlookFolders(key, mailbox.token)
-    const messages = await outlookConversation(mailbox.token, threadId, folders)
-    if (!messages) return null
+    const messages = await readOutlookConversation(mailbox.token, threadId, folders)
+    if (messages === 'trash') return inTrash(userId, mailbox, threadId, change, 'trash')
+    if (!Array.isArray(messages)) return messages
     state = outlookThreadState(messages, folders)
     apply = (applied, onWrite, onNewestMoved) => applyOutlook(mailbox.token, messages, folders, applied, onWrite, onNewestMoved)
   }
   if (call.options.skipStarred && state.starred) return { threadId, status: 'unchanged', account: mailbox.email, kept: 'starred' }
 
   const muted = change.mute !== undefined ? await isMuted(userId, mailbox, threadId) : false
-  if (muted === null) return { threadId, status: 'failed', account: mailbox.email, error: MUTE_UNAVAILABLE }
+  if (muted === null) return { threadId, status: 'failed', account: mailbox.email, provider: mailbox.provider, reason: 'unknown', error: MUTE_UNAVAILABLE }
   const { applied, undo } = effectiveChange({ ...state, muted }, change)
   const known = unknownLabels.length ? { unknownLabels } : {}
   if (isEmptyChange(applied)) {
@@ -665,9 +805,10 @@ async function changeInMailbox(
       threadId,
       status: 'failed',
       account: mailbox.email,
+      provider: mailbox.provider,
       applied,
       ...(wrote ? { undo } : {}),
-      error: err instanceof Error ? err.message : 'The mailbox refused the change.',
+      ...failureOf(err, mailbox.provider),
     }
   }
   await updateIndexRows(userId, threadId, mailbox.accountId, applied, newestMessageId)
@@ -683,23 +824,105 @@ async function changeInMailbox(
   }
 }
 
+/** The provider the person's index row for the thread names, for a mailbox that couldn't be reached. */
+async function indexedProvider(userId: string, workspaceId: string, threadId: string): Promise<'google' | 'microsoft' | null> {
+  try {
+    const { data } = await getServiceClient()
+      .from('email_thread_index')
+      .select('provider')
+      .eq('user_id', userId)
+      .eq('workspace_id', workspaceId)
+      .eq('provider_thread_id', threadId)
+      .limit(1)
+      .maybeSingle()
+    const provider = (data as { provider?: unknown } | null)?.provider
+    return provider === 'google' || provider === 'microsoft' ? provider : null
+  } catch {
+    return null
+  }
+}
+
+/** A thread the mailbox no longer holds: gone from the index there (as the sync's triage drops a 'gone' thread). */
+async function dropGone(userId: string, mailbox: LiveMailbox, threadId: string): Promise<void> {
+  let query = getServiceClient()
+    .from('email_thread_index')
+    .delete()
+    .eq('user_id', userId)
+    .eq('provider', mailbox.provider)
+    .eq('provider_thread_id', threadId)
+  query = mailbox.accountId ? query.eq('account_id', mailbox.accountId) : query.is('account_id', null)
+  const { error } = await query
+  if (error) console.warn('[thread-triage] gone thread index rows not removed:', error.message)
+}
+
 async function changeOneThread(userId: string, workspaceId: string, threadId: string, change: ThreadChange, call: TriageCall): Promise<ThreadTriageOutcome> {
+  let provider: 'google' | 'microsoft' | undefined
   try {
     let reached = false
+    const gone: LiveMailbox[] = []
     for await (const mailbox of mailboxesForThread(userId, threadId, { workspaceId })) {
       reached = true
+      provider = mailbox.provider
       const outcome = mailbox.provider === 'microsoft'
         ? await call.inTurn(mailboxKey(mailbox), () => changeInMailbox(userId, mailbox, threadId, change, call))
         : await changeInMailbox(userId, mailbox, threadId, change, call)
-      if (outcome) return outcome
+      if (!('absent' in outcome)) return outcome
+      if (outcome.absent === 'gone') gone.push(mailbox)
     }
     // No mailbox to read at all (a token that won't refresh, a disabled
     // account) is a failure to retry, not a thread that is gone: only a
     // mailbox that was read and holds none of it is not_found.
-    if (!reached) return { threadId, status: 'failed', error: 'No mailbox for this thread could be reached. It may need reconnecting.' }
-    return { threadId, status: 'not_found', error: 'No mailbox connected to this workspace holds this thread.' }
+    if (!reached) {
+      const indexed = await indexedProvider(userId, workspaceId, threadId)
+      return {
+        threadId,
+        status: 'failed',
+        reason: 'reconnect',
+        ...(indexed ? { provider: indexed } : {}),
+        error: `${providerName(indexed)} needs reconnecting in Settings › Connectors: no mailbox for this email could be reached.`,
+      }
+    }
+    if (!gone.length) {
+      // Every mailbox refused the id: not one that is gone.
+      return { threadId, status: 'not_found', provider, reason: 'unreadable', error: `${providerName(provider)} wouldn’t read this thread’s id.` }
+    }
+    // Read, and none of it there any more (deleted at the mailbox): out of the
+    // inbox here too, when that is what was asked.
+    if (takesOutOfInbox(change)) {
+      for (const mailbox of gone) await dropGone(userId, mailbox, threadId)
+      return { threadId, status: 'not_found', provider, outOfInbox: 'gone', error: `${providerName(provider)} no longer has this email (it was deleted there), so it’s gone from the inbox here too.` }
+    }
+    return { threadId, status: 'not_found', provider, error: 'No mailbox connected to this workspace holds this thread.' }
   } catch (err) {
-    return { threadId, status: 'failed', error: err instanceof Error ? err.message : 'The mailbox refused the change.' }
+    return { threadId, status: 'failed', ...(provider ? { provider } : {}), ...(provider ? failureOf(err, provider) : { reason: 'unknown' as const, error: err instanceof Error ? err.message : 'The mailbox refused the change.' }) }
+  }
+}
+
+/** A real failure, for Sentry: its status, provider, reason and HTTP status, never the mail (the thread id hashed). */
+function reportFailures(outcomes: readonly ThreadTriageOutcome[], change: ThreadChange): void {
+  for (const o of outcomes) {
+    const real = (o.status === 'failed' && o.reason !== 'trash') || (o.status === 'not_found' && o.reason === 'unreadable')
+    if (!real) continue
+    try {
+      Sentry.captureMessage('email triage: a thread change failed', {
+        level: 'warning',
+        tags: {
+          'triage.status': o.status,
+          'triage.reason': o.reason ?? 'unknown',
+          'triage.provider': o.provider ?? 'unknown',
+          'triage.http_status': o.httpStatus !== undefined ? String(o.httpStatus) : 'none',
+          'triage.provider_code': o.code ?? 'none',
+          'triage.mailbox_reached': o.reason === 'reconnect' ? 'no' : 'yes',
+        },
+        extra: {
+          thread: createHash('sha256').update(o.threadId).digest('hex').slice(0, 16),
+          change: Object.keys(change).sort(),
+          partly_landed: !!o.undo,
+        },
+      })
+    } catch {
+      // Reporting never breaks the change.
+    }
   }
 }
 
@@ -726,6 +949,7 @@ export async function changeEmailThreads(
     }
   }
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, ids.length) }, worker))
+  reportFailures(outcomes, change)
   return outcomes
 }
 
