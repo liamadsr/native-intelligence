@@ -221,8 +221,7 @@ out until the owner rolls it out.
       fetched, as Reviews' sections do). Search still runs on the server.
       Recent opens on the last opened. Right-click opens it, opens the record
       it lives on, or moves one's own Drive upload (M too).
-      **No saved views yet:** the view enum has no `file`, and 717 is merged.
-      A later migration adding `file` turns them on (`canSaveViews` in
-      files-card.tsx).
+      Saved views are on: migration **718** adds `file` to the enum (apply it
+      as 717, before the roll-out).
 - [ ] Agents & skills
 - [ ] Library

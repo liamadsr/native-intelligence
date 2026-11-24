@@ -11,12 +11,8 @@ import { FILTERABLE_FIELDS } from '@/lib/views/types'
 
 const MIGRATIONS = path.resolve(__dirname, '../../../../supabase/migrations')
 
-/**
- * Kinds no saved view is made of (canSaveViews={false}): Reviews' pull
- * requests are GitHub's; Files has none until a migration adds 'file' to the
- * enum (files-card.tsx, docs/plans/views-everywhere.md).
- */
-const NEVER_SAVED = new Set(['github_pr', 'file'])
+/** Kinds no saved view is made of (canSaveViews={false}): Reviews' pull requests are GitHub's. */
+const NEVER_SAVED = new Set(['github_pr'])
 
 function enumValues(): Set<string> {
   const values = new Set<string>()
@@ -50,6 +46,17 @@ describe('view_entity_type covers every saved view kind', () => {
     for (const kind of ['canvas', 'spreadsheet', 'data_table', 'drive_item', 'campaign', 'team']) {
       expect(code).toContain(`alter type public.view_entity_type add value if not exists '${kind}';`)
     }
+    expect(code).not.toMatch(/\bbegin\b|\bcommit\b/i)
+    expect(code.trim().endsWith("notify pgrst, 'reload schema';")).toBe(true)
+  })
+
+  it('718 adds the Files kind, outside a transaction, and reloads the schema', () => {
+    const sql = readFileSync(path.join(MIGRATIONS, '718_files_saved_views.sql'), 'utf8')
+    const code = sql
+      .split('\n')
+      .filter((l) => l.trim() && !l.trim().startsWith('--'))
+      .join('\n')
+    expect(code).toContain("alter type public.view_entity_type add value if not exists 'file';")
     expect(code).not.toMatch(/\bbegin\b|\bcommit\b/i)
     expect(code.trim().endsWith("notify pgrst, 'reload schema';")).toBe(true)
   })

@@ -18,7 +18,7 @@
  *             (grouping, sort, properties), search in the header (run on
  *             the server, as before), the shared rows (the file's glyph,
  *             where it lives, who made it, its size, a time) and J/K/Enter.
- *             No saved views yet: the view enum has no `file`.
+ *             Saved views and their tabs too (migration 718 adds `file`).
  *   A row     opens the in-app viewer (components/files); its right-click
  *             opens the record an upload lives on, over the page, inside
  *             the card, or moves one's own Drive upload (M too).
@@ -338,7 +338,6 @@ export default function FilesCard(props: PageCardProps) {
                 search={typed}
                 onSearchChange={setTyped}
                 searchPlaceholder={view.email ? 'Search your mail' : 'Search files'}
-                canSaveViews={false}
                 headerExtra={<UploadButton inHeader={inCard} uploading={uploading} onClick={() => picker.current?.click()} />}
                 onOpen={(row) => void openItem(row.item)}
                 menuItemsOf={menuItemsOf}

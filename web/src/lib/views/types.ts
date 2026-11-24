@@ -74,7 +74,7 @@ export type ViewEntityType =
   | 'team'
   // Files (views-everywhere): every file the person may see, read by the
   // Files page from its own sources (drive-files-data.ts) and filtered there.
-  // No saved views yet: the enum has no 'file' (its migration is a later one).
+  // Saved views: migration 718 adds 'file' to the enum.
   | 'file'
 export type LibraryScope = 'all' | 'mine' | 'workspace' | 'discover'
 /**
