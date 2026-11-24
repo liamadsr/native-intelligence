@@ -2,7 +2,10 @@
 
 import { isTagKind, type TagKind } from '@/lib/tags/kinds'
 import { companyCrmCell } from '@/components/crm/company-crm-fields'
-import { ENTITY_IDENTITIES } from '@/lib/entities/entity-identity'
+import { ENTITY_IDENTITIES, entityIdentity } from '@/lib/entities/entity-identity'
+import { listSharingText, type RowSharing } from '@/lib/entity-access/list-sharing'
+import { useRowMenuItems } from './row-menu-items'
+import { CAMPAIGN_STATUS_LABELS, describeAudience, type CampaignAudience, type CampaignStatus } from '@/lib/campaigns/shape'
 import { EntityIcon } from '@/components/entities/entity-icon'
 import { LIST_FOCUS_RING, LIST_ROW_ATTR, PROPERTY_FIELD_ATTR, useIsListFocused } from '../list-keyboard'
 import * as React from 'react'
@@ -11,12 +14,13 @@ import { ThinkingOrb } from 'thinking-orbs'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { AlarmClock, Check, ChevronRight, ExternalLink, EyeOff, FlaskConical, Loader2, Play, Send, Telescope, Users, X, Zap } from 'lucide-react'
+import { AlarmClock, Boxes, Check, ChevronRight, ExternalLink, EyeOff, FlaskConical, Loader2, Play, Repeat, Send, Telescope, Users, X, Zap } from 'lucide-react'
 import { ProjectIcon, isEmoji } from '@/components/ui/emoji-icon-picker'
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuSeparator,
   ContextMenuShortcut,
   ContextMenuSub,
   ContextMenuSubContent,
@@ -355,7 +359,10 @@ function EntityRowImpl({
   // Contact rows carry an "Add to sequence" item (the mounted contact list —
   // unified-view-layout — listens for the event and opens the shared picker).
   const hasSequenceItem = entityType === 'contact'
-  const hasMenu = !!reminderEntityType || hasSequenceItem || hasEntityActions
+  // A page's own verbs for a kind the registry doesn't know (row-menu-items.tsx).
+  const pageMenuItemsOf = useRowMenuItems()
+  const pageMenuItems = React.useMemo(() => pageMenuItemsOf?.(item) ?? [], [pageMenuItemsOf, item])
+  const hasMenu = !!reminderEntityType || hasSequenceItem || hasEntityActions || pageMenuItems.length > 0
 
   /**
    * THE MENU MOUNTS ON THE FIRST RIGHT-CLICK, NOT WITH THE ROW.
@@ -510,12 +517,12 @@ function EntityRowImpl({
             (migrations 223 and 369), so this is a reminder, not an access
             signal. `visibility` is optional on the row: a list fetched before
             the column shipped simply has no badge. */}
-        {(entityType === 'capture' || entityType === 'document') && item.visibility === 'private' && (
+        {(PRIVATE_ICON_KINDS.has(entityType) && item.visibility === 'private' || entityType === 'team' && item.is_private === true) && (
           <EyeOff
             className="ml-1.5 inline h-3 w-3 shrink-0 align-middle text-muted-foreground"
-            aria-label={`Only you can see this ${entityType}`}
+            aria-label={entityType === 'team' ? teamPrivateLabel() : privateLabel(entityType, item)}
           >
-            <title>{`Only you can see this ${entityType}`}</title>
+            <title>{entityType === 'team' ? teamPrivateLabel() : privateLabel(entityType, item)}</title>
           </EyeOff>
         )}
         {/* Where this row lives, when that isn't where the user is. Draws
@@ -610,6 +617,19 @@ function EntityRowImpl({
             from="list_row"
           />
         )}
+        {pageMenuItems.length > 0 && (!!reminderEntityType || hasSequenceItem || hasEntityActions) && <ContextMenuSeparator />}
+        {pageMenuItems.map((m) => (
+          <ContextMenuItem
+            key={m.key}
+            data-row-menu-item={m.key}
+            onSelect={m.onSelect}
+            className={m.destructive ? 'text-destructive focus:text-destructive' : undefined}
+          >
+            {m.icon && <m.icon className="mr-2 h-3.5 w-3.5 text-muted-foreground" />}
+            {m.label}
+            {m.shortcut && <ContextMenuShortcut>{m.shortcut}</ContextMenuShortcut>}
+          </ContextMenuItem>
+        ))}
       </ContextMenuContent>
     </ContextMenu>
     {renameDialog}
@@ -630,6 +650,44 @@ const ROW_OMIT = ['open'] as const
  */
 export const EntityRow = React.memo(EntityRowImpl)
 
+/** A campaign's status dot: the state at a glance, as the Campaigns page always drew it. */
+const CAMPAIGN_STATUS_DOT: Record<CampaignStatus, string> = {
+  planned: 'bg-muted-foreground/50',
+  active: 'bg-emerald-500',
+  paused: 'bg-amber-500',
+  completed: 'bg-blue-500',
+  archived: 'bg-muted-foreground/30',
+}
+
+/** "Mar 1 – Apr 15", one-sided, or null when neither date is set (calendar dates, read as local days). */
+export function campaignWindow(startsOn: string | null | undefined, endsOn: string | null | undefined): string | null {
+  const fmt = (iso: string) => {
+    const [y, m, d] = iso.slice(0, 10).split('-').map(Number)
+    return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  }
+  if (startsOn && endsOn) return `${fmt(startsOn)} – ${fmt(endsOn)}`
+  if (startsOn) return `From ${fmt(startsOn)}`
+  if (endsOn) return `Until ${fmt(endsOn)}`
+  return null
+}
+
+/** The kinds whose private rows carry the eye-off glyph after the title, as a doc's does. */
+const PRIVATE_ICON_KINDS: ReadonlySet<ViewEntityType> = new Set(['capture', 'document', 'canvas', 'spreadsheet', 'data_table'])
+
+const PRIVATE_NOUN: Partial<Record<ViewEntityType, string>> = { data_table: 'table' }
+
+/** A team's privacy reads as its members': only they see it. */
+function teamPrivateLabel(): string {
+  return 'Only its members can see this team'
+}
+
+/** "Only you can see this canvas", or, for one shared with the reader, that it is private and shared with them. */
+function privateLabel(entityType: ViewEntityType, item: Record<string, unknown>): string {
+  const noun = PRIVATE_NOUN[entityType] ?? entityType
+  const sharedWithMe = (item.sharing as { shared_with_me?: boolean } | null | undefined)?.shared_with_me === true
+  return sharedWithMe ? `This ${noun} is private and shared with you` : `Only you can see this ${noun}`
+}
+
 /** A loop row's bot name (its embedded teammate), or null when it has none the reader can see. */
 function flowBotName(item: Record<string, unknown>): string | null {
   const name = (item.bot as { name?: unknown } | null | undefined)?.name
@@ -642,6 +700,13 @@ export function getTitle(entityType: ViewEntityType, item: Record<string, unknow
     case 'skill':
       return (item.name as string) || 'Untitled'
     case 'github_pr': return (item.title as string) || 'Untitled pull request'
+    // The Drive kinds (docs/plans/views-everywhere.md), with their own words for no title.
+    case 'canvas': return (item.title as string) || 'Untitled canvas'
+    case 'spreadsheet': return (item.title as string) || 'Untitled spreadsheet'
+    case 'data_table': return (item.name as string) || 'Untitled table'
+    case 'drive_item': return (item.title as string) || 'Untitled'
+    case 'campaign': return (item.name as string) || 'Untitled campaign'
+    case 'team': return (item.name as string) || 'Untitled team'
     case 'action': return (item.title as string) || 'Untitled'
     case 'capture': return (item.title as string) || 'Untitled Capture'
     case 'contact': return (item.full_name as string) || 'Unknown'
@@ -789,6 +854,21 @@ function EntityLeading({
       return <EntityIcon kind="capture" />
     case 'document':
       return <EntityIcon kind="document" />
+    case 'canvas':
+    case 'spreadsheet':
+      return <EntityIcon kind={entityType} />
+    case 'data_table':
+      // Its own emoji where it set one; a pipeline of companies or contacts (679) wears its record's glyph, a deal pipeline the deal's.
+      if (typeof item.icon === 'string' && isEmoji(item.icon)) return <span className="text-sm shrink-0">{item.icon}</span>
+      return <EntityIcon kind={item.table_kind === 'pipeline' ? ((item.record_kind as string | null) ?? 'deal') : 'data_table'} />
+    // A campaign: its glyph; a rolling one (new matches weekly) says so after its title's cells.
+    case 'campaign':
+      return <EntityIcon kind="campaign" />
+    case 'team':
+      return <EntityIcon kind="team" />
+    // A folder's row: a subfolder or a record of its own kind.
+    case 'drive_item':
+      return <EntityIcon kind={(item.item_type as string) === 'folder' ? 'drive_folder' : (item.item_type as string)} />
     case 'project':
       return <ProjectIcon icon={item.icon as string | null} size="sm" />
     case 'initiative': {
@@ -2908,6 +2988,65 @@ function PropertyCell({ item, property, entityType, onPatch, pickerContext, canE
         </span>
       )
     }
+    // ── The Drive kinds' cells (docs/plans/views-everywhere.md) ──
+    // Sharing (688): "Shared with you", or "Shared · N" on its owner's row; nothing otherwise.
+    case 'sharing': {
+      const text = listSharingText(item.sharing as RowSharing | null | undefined)
+      return text ? <span className={chipClass} data-row-sharing="">{text}</span> : null
+    }
+    // ── A campaign's cells (views-everywhere, batch 2) ──
+    // Who a sending campaign reaches, else what it is for.
+    case 'campaign_reach': {
+      const text = item.sequence_id && item.audience ? describeAudience(item.audience as CampaignAudience) : (item.objective as string | null)
+      if (!text) return null
+      return (
+        <span className="flex max-w-[260px] items-center gap-1 truncate text-[11px] text-muted-foreground">
+          {item.rolling === true && !!item.sequence_id && <Repeat className="h-3 w-3 shrink-0" aria-label="Adds new matches weekly" />}
+          <span className="truncate">{text}</span>
+        </span>
+      )
+    }
+    case 'campaign_counts': {
+      const c = item.counts as { sent?: number; replied?: number; opted_out?: number } | null | undefined
+      if (!c || !(c.sent ?? 0)) return null
+      return <span className="whitespace-nowrap text-[11px] tabular-nums text-muted-foreground">{c.sent} sent · {c.replied ?? 0} replied · {c.opted_out ?? 0} opted out</span>
+    }
+    case 'campaign_window': {
+      const text = campaignWindow(item.starts_on as string | null, item.ends_on as string | null)
+      return text ? <span className={chipClass}>{text}</span> : null
+    }
+    case 'channels': {
+      const list = Array.isArray(item.channels) ? (item.channels as string[]) : []
+      return list.length ? <span className="max-w-[160px] truncate text-[11px] text-muted-foreground">{list.join(', ')}</span> : null
+    }
+    // ── A team's cells ──
+    case 'issue_prefix':
+      return item.issue_prefix ? <span className="font-mono text-[11px] text-muted-foreground">{item.issue_prefix as string}</span> : null
+    case 'team_members': {
+      const people = typeof item.member_count === 'number' ? item.member_count : 0
+      const agents = typeof item.ai_member_count === 'number' ? item.ai_member_count : 0
+      return (
+        <span className="flex items-center gap-2 whitespace-nowrap text-[11px] tabular-nums text-muted-foreground">
+          <span className="flex items-center gap-1" title={`${people} ${people === 1 ? 'person' : 'people'}`}><Users className="h-3 w-3" />{people}</span>
+          {agents > 0 && <span className="flex items-center gap-1" title={`${agents} AI teammate${agents === 1 ? '' : 's'}`}><Boxes className="h-3 w-3" />{agents}</span>}
+        </span>
+      )
+    }
+    // A workbook's sheets, only when there is more than one.
+    case 'sheets': {
+      const n = Array.isArray(item.sheet_names) ? item.sheet_names.length : 0
+      return n > 1 ? <span className="text-[11px] text-muted-foreground whitespace-nowrap">{n} sheets</span> : null
+    }
+    // A table's kind: only a pipeline says so (a plain table is the default).
+    case 'table_kind':
+      if (item.table_kind !== 'pipeline') return null
+      return <span className={chipClass}>{item.is_default ? 'Pipeline · Default' : 'Pipeline'}</span>
+    // A folder's row: what it is (Folder, Doc, Table, Sheet, Canvas, File).
+    case 'item_type': {
+      const t = item.item_type as string | undefined
+      const label = t === 'folder' ? 'Folder' : t ? (entityIdentity(t)?.label ?? null) : null
+      return label ? <span className="text-[10px] uppercase tracking-wide text-muted-foreground whitespace-nowrap">{label}</span> : null
+    }
     case 'priority': {
       const p = (item.priority as string) || 'none'
       if (p === 'none') return null
@@ -2928,6 +3067,17 @@ function PropertyCell({ item, property, entityType, onPatch, pickerContext, canE
     case 'status': {
       // Sequence rows use the shared status chip metadata (SEQUENCE_STATUS_META)
       // so the list, board and detail page all render the same chip.
+      // A campaign's: its dot and its word (lib/campaigns/shape.ts).
+      if (entityType === 'campaign') {
+        const status = item.status as CampaignStatus | undefined
+        if (!status || !CAMPAIGN_STATUS_LABELS[status]) return null
+        return (
+          <span className={cn(chipClass, 'gap-1.5')} data-campaign-status={status}>
+            <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', CAMPAIGN_STATUS_DOT[status])} aria-hidden />
+            {CAMPAIGN_STATUS_LABELS[status]}
+          </span>
+        )
+      }
       if (entityType === 'sequence') {
         const meta = SEQUENCE_STATUS_META[(item.status as string) ?? '']
         if (!meta) return null
@@ -2975,6 +3125,17 @@ function PropertyCell({ item, property, entityType, onPatch, pickerContext, canE
           {labels.length > 2 && <span className="text-[10px] text-muted-foreground">+{labels.length - 2}</span>}
         </div>
       )
+    }
+    // Read-only (a campaign's): the owner's avatar, as a project's lead.
+    case 'owner': {
+      const ownerName = (item.owner as { display_name?: string } | null)?.display_name
+      const ownerAvatar = (item.owner as { avatar_url?: string } | null)?.avatar_url
+      return ownerName ? (
+        <Avatar className="h-5 w-5 border border-border/60" title={ownerName}>
+          {ownerAvatar && <AvatarImage src={ownerAvatar} />}
+          <AvatarFallback className="text-[9px] bg-muted/40">{getInitials(ownerName)}</AvatarFallback>
+        </Avatar>
+      ) : null
     }
     case 'lead': {
       const leadName = (item.lead_name as string)
@@ -3040,7 +3201,7 @@ function PropertyCell({ item, property, entityType, onPatch, pickerContext, canE
       const v = item[property] as string | null
       return v ? <span className={cn(chipClass, 'capitalize')}>{v.replace(/_/g, ' ')}</span> : null
     }
-    case 'last_interaction_at': case 'last_message_at': case 'created_at': case 'updated_at': case 'started_at': {
+    case 'last_interaction_at': case 'last_message_at': case 'created_at': case 'updated_at': case 'started_at': case 'filed_at': {
       const v = item[property] as string | null
       if (!v) return null
       return <span className={cn(chipClass)}>{formatRelative(v)}</span>

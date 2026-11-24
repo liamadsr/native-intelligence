@@ -26,6 +26,13 @@ const ENTITY_CONTEXT_REQUIREMENTS: Record<ViewEntityType, ContextKey[]> = {
   agent: [],
   skill: [],
   github_pr: [],
+  // Owner and creator filters, the canvas's project chip.
+  canvas: ['members', 'projects'],
+  spreadsheet: ['members'],
+  data_table: ['members'],
+  drive_item: [],
+  campaign: ['members'],
+  team: [],
   action: ['members', 'projects', 'labels', 'workflowStates'],
   project: ['members', 'initiatives', 'labels', 'workflowStates'],
   initiative: ['members', 'labels'],

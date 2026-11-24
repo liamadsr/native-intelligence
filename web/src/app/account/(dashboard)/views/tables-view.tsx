@@ -1,32 +1,39 @@
 'use client'
 
 /**
- * Tables (phase 1, migration 520): the workspace's own databases. The list of
- * tables, a way to make one (it starts with a Name column and three blank
- * rows), and one table open as its editable grid (phase 3,
- * src/components/tables/table-detail.tsx). It owns its fetches against
- * /api/account/tables, like the Campaigns page.
+ * Tables (phase 1, migration 520): the workspace's own databases. The list is
+ * a views list, as Docs is (docs/plans/views-everywhere.md): saved views and
+ * their tabs, the filters (owner, visibility, kind, archived, dates), the
+ * display settings, search, the shared rows (the table glyph or a pipeline's
+ * record glyph, a private eye, Pipeline and Default, owner, when it changed)
+ * and J/K/Enter. A row's right-click is the one entity actions menu (Copy ID,
+ * Rename, Make a task). New table opens the Create composer (it starts with a
+ * Name column and three blank rows); one table open is its editable grid
+ * (phase 3, src/components/tables/table-detail.tsx).
  *
- * With `pipelines` (Tables, phase 7) it is the Deals page: the pipelines
- * only (a pipeline is a table whose rows are deals), and New pipeline makes
- * one with its stages and system columns (/api/account/pipelines).
+ * With `pipelines` (Tables, phase 7) it is the Deals page: the same list,
+ * pinned to the pipelines (a pipeline is a table whose rows are deals), and New
+ * pipeline makes one with its stages and system columns (/api/account/pipelines).
  */
-import { EntityIcon } from '@/components/entities/entity-icon'
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { HandCoins, Lock, Plus, Table2 } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { TableDetail } from '@/components/tables/table-detail'
 import { CardHeaderSlot, useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
 import { CARD_HEADER_PILL_BUTTON } from '@/components/chat-cards/card-header-button'
-import { relativeTime } from '@/lib/work/presentation'
+import { UnifiedViewLayout } from '@/components/views/unified-view-layout'
 import { cn } from '@/lib/utils'
+import type { ViewFilter } from '@/lib/views/types'
 import type { DataTable } from '@/lib/tables/types'
 import { openCreateDialog } from '@/lib/create/open-create'
 import { ViewHeader } from './view-header'
 
 const NEW_TABLE_LABEL = 'New table'
 const NEW_PIPELINE_LABEL = 'New pipeline'
+
+/** The Deals page's list: the pipelines only, a filter the person can't take off. */
+const PIPELINES_ONLY: ViewFilter[] = [{ id: 'pipelines-only', field: 'table_kind', operator: 'is', value: 'pipeline' }]
 
 async function readJson<T>(res: Response): Promise<T> {
   const json = (await res.json().catch(() => ({}))) as T & { error?: string }
@@ -45,54 +52,20 @@ export interface TablesCardState {
   onOpen: (id: string | null, name?: string) => void
 }
 
-export function TablesView({ onCount, card, pipelines = false }: { onCount?: (count: number) => void; card?: TablesCardState; pipelines?: boolean } = {}) {
-  const [tables, setTables] = useState<DataTable[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
+export function TablesView({ card, pipelines = false }: { card?: TablesCardState; pipelines?: boolean } = {}) {
   const [ownOpenId, setOwnOpenId] = useState<string | null>(null)
   const openId = card ? card.openId : ownOpenId
-  const setOpenId = (id: string | null) => {
-    if (card) card.onOpen(id, tables?.find((t) => t.id === id)?.name)
+  const setOpenId = (id: string | null, name?: string) => {
+    if (card) card.onOpen(id, name)
     else setOwnOpenId(id)
   }
   const [creating, setCreating] = useState(false)
   const inCard = useCardHeaderSlots() !== null
-  // How many there are, for a chat card's header (pages in the chat).
-  const onCountRef = useRef(onCount)
-  onCountRef.current = onCount
-  useEffect(() => {
-    if (tables) onCountRef.current?.(tables.length)
-  }, [tables])
-
-  const load = useCallback(async () => {
-    try {
-      // The Deals page makes the default pipeline on its first read.
-      if (pipelines) await fetch('/api/account/pipelines').catch(() => null)
-      const json = await readJson<{ tables: DataTable[] }>(await fetch('/api/account/tables'))
-      const all = Array.isArray(json.tables) ? json.tables : []
-      setTables(pipelines ? all.filter((t) => t.kind === 'pipeline') : all)
-      setError(null)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : pipelines ? 'Could not load pipelines' : 'Could not load tables')
-      setTables([])
-    }
-  }, [pipelines])
-
-  useEffect(() => {
-    void load()
-  }, [load])
-
-  // A table made in the Create composer (its New table, C then T): the list
-  // takes it in (the composer opens it on its own).
-  useEffect(() => {
-    const onCreated = (e: Event) => {
-      if ((e as CustomEvent<{ entityType?: string }>).detail?.entityType === 'table') void load()
-    }
-    window.addEventListener('ni:entity-created', onCreated)
-    return () => window.removeEventListener('ni:entity-created', onCreated)
-  }, [load])
+  const scopeFilters = useMemo(() => (pipelines ? PIPELINES_ONLY : undefined), [pipelines])
 
   // New table opens the one Create composer on Table, its starters a choice
-  // in it (docs/plans/create-everything.md); New pipeline keeps its own form.
+  // in it (docs/plans/create-everything.md); the list reads again on what is
+  // made there. New pipeline keeps its own form.
   const startCreate = () => (pipelines ? setCreating(true) : openCreateDialog({ type: 'table' }))
 
   if (openId) {
@@ -102,10 +75,7 @@ export function TablesView({ onCount, card, pipelines = false }: { onCount?: (co
         tableId={openId}
         initialLayout={card?.layout}
         initialRowId={card?.rowId ?? null}
-        onBack={() => {
-          setOpenId(null)
-          void load()
-        }}
+        onBack={() => setOpenId(null)}
       />
     )
   }
@@ -133,66 +103,20 @@ export function TablesView({ onCount, card, pipelines = false }: { onCount?: (co
           }
         />
       )}
-      {/* In a card, a row's icon and name stand under the header's icon and
-          title, as on Spreadsheets. */}
-      <div className={cn('min-h-0 flex-1 overflow-y-auto pb-6', inCard ? 'pl-[18px] pr-5 pt-2' : 'px-5')}>
-        {creating && pipelines && (
+      {creating && pipelines && (
+        <div className={cn(inCard ? 'pl-[18px] pr-5' : 'px-5')}>
           <NewPipelineForm
             onCancel={() => setCreating(false)}
             onCreated={(table) => {
               setCreating(false)
-              setTables((prev) => [...(prev ?? []), table])
-              setOpenId(table.id)
+              setOpenId(table.id, table.name)
             }}
           />
-        )}
-        {tables === null ? (
-          <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>
-        ) : error ? (
-          <p className="py-10 text-center text-sm text-destructive">{error}</p>
-        ) : tables.length === 0 ? (
-          !creating && <EmptyState pipelines={pipelines} onCreate={startCreate} />
-        ) : (
-          <ul className="divide-y divide-border">
-            {tables.map((t) => (
-              <li key={t.id}>
-                <button type="button" onClick={() => setOpenId(t.id)} className={cn('flex w-full items-center py-2.5 text-left hover:bg-muted/40', inCard ? 'gap-2' : 'gap-3')}>
-                  {t.kind === 'pipeline' ? (
-                    // A pipeline of companies or contacts (679) wears its record's icon.
-                    <span role="img" aria-label={t.record_kind === 'company' ? 'Pipeline of companies' : t.record_kind === 'contact' ? 'Pipeline of contacts' : 'Pipeline'} className="flex shrink-0">
-                      <EntityIcon kind={t.record_kind ?? 'deal'} size={inCard ? 'sm' : 'md'} />
-                    </span>
-                  ) : (
-                    <EntityIcon kind="data_table" size={inCard ? 'sm' : 'md'} />
-                  )}
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{t.name}</span>
-                  {t.is_default && <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">Default</span>}
-                  {t.visibility === 'private' && <Lock className="h-3 w-3 shrink-0 text-muted-foreground" aria-label="Private" />}
-                  <span className="shrink-0 text-xs text-muted-foreground">{relativeTime(t.updated_at)}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
+        </div>
+      )}
+      <div className="min-h-0 flex-1" data-table-list="">
+        <UnifiedViewLayout entityType="data_table" scopeFilters={scopeFilters} onItemSelect={(id, title) => setOpenId(id, title)} />
       </div>
-    </div>
-  )
-}
-
-function EmptyState({ onCreate, pipelines }: { onCreate: () => void; pipelines: boolean }) {
-  return (
-    <div className="flex flex-col items-center justify-center gap-3 py-20 text-center">
-      {pipelines ? <HandCoins className="h-7 w-7 text-muted-foreground/60" /> : <Table2 className="h-7 w-7 text-muted-foreground/60" />}
-      <div>
-        <p className="text-sm font-medium text-foreground">{pipelines ? 'No pipelines yet' : 'No tables yet'}</p>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {pipelines ? 'A pipeline follows deals through their stages, from lead to won.' : 'A table keeps a list of anything: orders, hires, suppliers, ideas.'}
-        </p>
-      </div>
-      <Button size="sm" variant="outline" onClick={onCreate}>
-        <Plus className="h-3.5 w-3.5" />
-        {pipelines ? NEW_PIPELINE_LABEL : NEW_TABLE_LABEL}
-      </Button>
     </div>
   )
 }

@@ -11,6 +11,17 @@ import { makeStore, mountRoot, stubFetch } from './page-card-harness'
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 vi.mock('@/components/views/unified-view-layout', async (orig) => (await import('./page-card-harness')).probeListModule(orig))
 
+// jsdom cannot size the shared list's virtualizer: every row drawn.
+vi.mock('@tanstack/react-virtual', () => ({
+  useVirtualizer: (opts: { count: number; estimateSize: () => number }) => ({
+    getVirtualItems: () => Array.from({ length: opts.count }, (_, index) => ({ index, key: index, start: index * opts.estimateSize(), size: opts.estimateSize(), end: (index + 1) * opts.estimateSize() })),
+    getTotalSize: () => opts.count * opts.estimateSize(),
+    measureElement: () => {},
+    measure: () => {},
+    scrollToIndex: () => {},
+  }),
+}))
+
 import TeamsCard from '../pages/teams-card'
 import type { PageCardSpec } from '@/lib/chat-cards/pages'
 
@@ -36,8 +47,10 @@ describe('TeamsCard', () => {
   it('opens a team inside the card, keeping it for the next turn', async () => {
     const store = makeStore('t1', spec)
     await mount.render(React.createElement(TeamsCard, { toolCallId: 't1', spec, store, fullScreen: false }))
-    const name = Array.from(mount.container.querySelectorAll('span')).find((el) => el.textContent === 'Platform') as HTMLElement
-    await act(async () => (name.closest('button') as HTMLElement).click())
+    // The teams are the shared list's rows (docs/plans/views-everywhere.md): a row opens its team.
+    const row = mount.container.querySelector<HTMLElement>(`[data-list-row-id="${TEAM}"]`)!
+    expect(row.textContent).toContain('Platform')
+    await act(async () => row.click())
     expect(store.contextEntries()[0]).toMatchObject({ at: { type: 'team', id: TEAM }, moved: true })
   })
 })

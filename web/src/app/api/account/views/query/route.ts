@@ -32,6 +32,9 @@ import { isCustomFieldPath } from '@/lib/views/custom-field-columns'
 import { countEntriesByList, emptyEntryCounts } from '@/lib/prospecting/lists'
 import { fetchAllRows, inChunks } from '@/lib/supabase/paging'
 import { flowRowForViewer } from '@/lib/flows/types'
+import { listSharingByRecord } from '@/lib/entity-access/store'
+import { campaignCounts } from '@/lib/campaigns/counts'
+import type { Campaign } from '@/lib/campaigns/shape'
 import { NextResponse, type NextRequest } from 'next/server'
 import { normalizeCompletedFilter } from '@/lib/views/completed-window'
 import {
@@ -322,6 +325,37 @@ export async function POST(request: NextRequest) {
     let items = (data || []) as Record<string, unknown>[]
     // Another member's mail or chat loop shows without its sender filter or channel.
     if (entity_type === 'flow') items = items.map((row) => flowRowForViewer(row, user.id))
+    // A sending campaign's counts and its sequence's name, as /api/account/campaigns adds them.
+    if (entity_type === 'campaign' && items.length > 0) {
+      const sending = items.filter((c) => typeof c.sequence_id === 'string' && c.sequence_id)
+      if (sending.length > 0) {
+        try {
+          const ids = [...new Set(sending.map((c) => c.sequence_id as string))]
+          const [counts, sequences] = await Promise.all([
+            campaignCounts(supabase, { workspaceId, campaigns: sending as unknown as Campaign[] }),
+            supabase.from('sequence').select('id, name').eq('workspace_id', workspaceId).in('id', ids),
+          ])
+          const names = new Map(((sequences.data ?? []) as Array<{ id: string; name: string }>).map((q) => [q.id, q.name]))
+          items = items.map((c) => (c.sequence_id ? { ...c, counts: counts.get(c.id as string), sequence_name: names.get(c.sequence_id as string) ?? null } : c))
+        } catch (err) {
+          // Counts are a garnish: the list stands without them.
+          console.error('[views/query] campaign counts failed:', err instanceof Error ? err.message : String(err))
+        }
+      }
+    }
+    // A Drive row's sharing (688; docs/plans/views-everywhere.md): how many its
+    // owner shared it with, or that it was shared with the viewer, as the
+    // canvases and spreadsheets routes send it for their own lists.
+    if ((entity_type === 'canvas' || entity_type === 'spreadsheet') && items.length > 0) {
+      const ownerKey = entity_type === 'canvas' ? 'owner_member_id' : 'created_by'
+      const sharing = await listSharingByRecord(
+        supabase,
+        { workspaceId, memberId: member.id },
+        entity_type,
+        items.map((r) => ({ id: r.id as string, owner: (r[ownerKey] as string | null) ?? null, visibility: (r.visibility as string) ?? 'workspace' })),
+      )
+      items = items.map((r) => ({ ...r, sharing: sharing.get(r.id as string) ?? { shared_count: 0, shared_with_me: false } }))
+    }
 
     // Enrich items with project names when not already joined
     // (captures don't have a FK join to projects, so resolve separately)
