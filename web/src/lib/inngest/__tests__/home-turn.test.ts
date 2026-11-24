@@ -60,6 +60,9 @@ vi.mock('@/lib/now/check-in', () => checkInLib)
 // An approval turn's calls are marked carried (approval-turn.ts, 445).
 const approvalLib = vi.hoisted(() => ({ markApprovalsCarried: vi.fn(async () => undefined) }))
 vi.mock('@/lib/safety/approval-turn', () => approvalLib)
+// The Dreamer's reports are marked delivered by the turn that carried them (docs/plans/dreamer.md).
+const dreamerLib = vi.hoisted(() => ({ markDreamerReportsDelivered: vi.fn(async () => 1), hasUndeliveredDreamerReports: vi.fn(async () => false) }))
+vi.mock('@/lib/dreamer/reports', async () => ({ ...(await vi.importActual<typeof import('@/lib/dreamer/reports')>('@/lib/dreamer/reports')), ...dreamerLib }))
 
 import '../home-turn'
 
@@ -188,7 +191,7 @@ describe('homeTurn', () => {
   })
 
   it('routes exactly the background reasons (never a text, Slack or linked agent turn: those answer where they came from)', () => {
-    expect([...ROUTED_HOME_TURN_REASONS].sort()).toEqual(['agent_answer', 'approval', 'check_in', 'digest', 'event', 'guest_ask', 'helper_report'])
+    expect([...ROUTED_HOME_TURN_REASONS].sort()).toEqual(['agent_answer', 'approval', 'check_in', 'digest', 'dreamer', 'event', 'guest_ask', 'helper_report'])
   })
 
   it('a steered turn logs how it ended', async () => {
@@ -251,6 +254,95 @@ describe('homeTurn', () => {
       await hoisted.handler({ event: EVENT, step: createStepMock() })
       expect(digestLib.markDigestDelivered).not.toHaveBeenCalled()
       expect(digestLib.sendDigestNotice).not.toHaveBeenCalled()
+    })
+  })
+
+  describe("the Dreamer's update (docs/plans/dreamer.md)", () => {
+    beforeEach(() => {
+      server.claimHomeTurn.mockResolvedValue({ kind: 'claimed', row: ROW })
+      server.sendHomeTurn.mockResolvedValue({ kind: 'read', result: { done: true, end: 'completed', state: state(5) } })
+      dreamerLib.markDreamerReportsDelivered.mockReset()
+      dreamerLib.markDreamerReportsDelivered.mockResolvedValue(2)
+      dreamerLib.hasUndeliveredDreamerReports.mockReset()
+      dreamerLib.hasUndeliveredDreamerReports.mockResolvedValue(false)
+    })
+    const DREAMER_EVENT = { data: { ...IDS, workItemIds: [], reason: 'dreamer' } }
+    const DREAMER_PLAN = { ok: true, sessionId: 'sess', reports: [], workItemIds: [], dedupeKey: 'dreamer:r1', dreamer: { reports: [], reportIds: ['r1', 'r2'] } }
+    const MORE = {
+      id: 'home-turn-requested:dreamer-more:row-1',
+      name: 'home/turn.requested',
+      data: { conversationId: IDS.conversationId, userId: IDS.userId, workspaceId: IDS.workspaceId, workItemIds: [], reason: 'dreamer' },
+    }
+
+    it('marks its reports delivered whether the agent spoke or stayed quiet; a written one routes', async () => {
+      server.planHomeTurn.mockResolvedValue(DREAMER_PLAN)
+      for (const finished of [{ outcome: 'written', written: true }, { outcome: 'quiet', written: false }]) {
+        dreamerLib.markDreamerReportsDelivered.mockClear()
+        server.finishHomeTurn.mockResolvedValue(finished)
+        const step = createStepMock()
+        await hoisted.handler({ event: DREAMER_EVENT, step })
+        expect(step.run.mock.calls.map(([id]) => id)).toEqual(['plan', 'claim', 'send', 'finish', 'deliver-dreamer-reports', 'dreamer-leftovers'])
+        expect(dreamerLib.markDreamerReportsDelivered).toHaveBeenCalledWith({ db: true }, { workspaceId: IDS.workspaceId, userId: IDS.userId, reportIds: ['r1', 'r2'], homeTurnId: 'row-1' })
+        expect(step.sendEvent.mock.calls).toEqual(finished.written ? [ROUTE] : [])
+      }
+    })
+
+    it('reports still waiting after a turn that delivered some ask for the next update at once, keyed on that turn', async () => {
+      server.planHomeTurn.mockResolvedValue(DREAMER_PLAN)
+      server.finishHomeTurn.mockResolvedValue({ outcome: 'quiet', written: false })
+      dreamerLib.hasUndeliveredDreamerReports.mockResolvedValue(true)
+      const step = createStepMock()
+      await hoisted.handler({ event: DREAMER_EVENT, step })
+      expect(step.sendEvent.mock.calls).toEqual([['request-dreamer-leftovers', MORE]])
+    })
+
+    it('a turn that delivered nothing (its mark found every report taken) asks for nothing: no loop', async () => {
+      server.planHomeTurn.mockResolvedValue(DREAMER_PLAN)
+      server.finishHomeTurn.mockResolvedValue({ outcome: 'quiet', written: false })
+      dreamerLib.markDreamerReportsDelivered.mockResolvedValue(0)
+      dreamerLib.hasUndeliveredDreamerReports.mockResolvedValue(true)
+      const step = createStepMock()
+      await hoisted.handler({ event: DREAMER_EVENT, step })
+      expect(dreamerLib.hasUndeliveredDreamerReports).not.toHaveBeenCalled()
+      expect(step.sendEvent).not.toHaveBeenCalled()
+    })
+
+    it('a failed mark fails the step (so Inngest retries it) and asks for nothing', async () => {
+      server.planHomeTurn.mockResolvedValue(DREAMER_PLAN)
+      server.finishHomeTurn.mockResolvedValue({ outcome: 'written', written: true })
+      dreamerLib.markDreamerReportsDelivered.mockRejectedValue(new Error('dreamer_report delivery not marked: down'))
+      const step = createStepMock()
+      await expect(hoisted.handler({ event: DREAMER_EVENT, step })).rejects.toThrow(/delivery not marked/)
+      expect(step.sendEvent).not.toHaveBeenCalled()
+    })
+
+    it('one cut off at the read cap delivers nothing: its reports wait for the next update', async () => {
+      server.planHomeTurn.mockResolvedValue(DREAMER_PLAN)
+      server.finishHomeTurn.mockResolvedValue({ outcome: 'watch_exhausted', written: false })
+      await hoisted.handler({ event: DREAMER_EVENT, step: createStepMock() })
+      expect(dreamerLib.markDreamerReportsDelivered).not.toHaveBeenCalled()
+    })
+
+    it("a skip a later try may clear (the session parked on the person's question) asks again in an hour; any other skip asks nothing", async () => {
+      server.planHomeTurn.mockResolvedValue({ ok: false, reason: 'question_pending' })
+      const step = createStepMock()
+      await hoisted.handler({ event: DREAMER_EVENT, step })
+      const [[id, retry]] = step.sendEvent.mock.calls as Array<[string, { id: string; ts: number; data: Record<string, unknown> }]>
+      expect(id).toBe('request-dreamer-retry')
+      expect(retry.id).toMatch(new RegExp(`^home-turn-requested:dreamer-retry:${IDS.conversationId}:\\d+$`))
+      expect(retry.ts - Date.now()).toBeGreaterThan(59 * 60_000)
+      expect(retry.data).toEqual(MORE.data)
+      for (const reason of ['autonomy_off', 'usage_limited', 'nothing_new', 'lookup_failed', 'not_home']) {
+        server.planHomeTurn.mockResolvedValue({ ok: false, reason })
+        const other = createStepMock()
+        await hoisted.handler({ event: DREAMER_EVENT, step: other })
+        expect(other.sendEvent, reason).not.toHaveBeenCalled()
+      }
+      // Never for another reason's turn.
+      server.planHomeTurn.mockResolvedValue({ ok: false, reason: 'question_pending' })
+      const report = createStepMock()
+      await hoisted.handler({ event: EVENT, step: report })
+      expect(report.sendEvent).not.toHaveBeenCalled()
     })
   })
 

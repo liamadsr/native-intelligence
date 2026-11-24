@@ -82,7 +82,7 @@ describe('migration 443', () => {
     const listed = inList(BODY, 'home_turn_reason_check', 'reason')
     expect(listed).toEqual([...inList(flat(read('435_agent_links.sql')), 'home_turn_reason_check', 'reason'), 'check_in', 'approval'])
     // Every reason the app writes; 'check_in' lands in HOME_TURN_REASONS with the check-in, either may come first. 456 adds 'call', 474 'team_chat'.
-    for (const r of HOME_TURN_REASONS.filter((r) => r !== 'call' && r !== 'team_chat')) expect(listed).toContain(r)
+    for (const r of HOME_TURN_REASONS.filter((r) => r !== 'call' && r !== 'team_chat' && r !== 'dreamer')) expect(listed).toContain(r)
   })
 
   it("agent_event.kind is 406's list plus pr.changed, exactly the app's kinds, filed under work", () => {

@@ -128,6 +128,20 @@ export async function workspaceIsDormant(
   supabase: ReturnType<typeof getServiceClient>,
   workspaceId: string,
 ): Promise<boolean> {
+  return (await workspaceDormancy(supabase, workspaceId)) === 'dormant'
+}
+
+/**
+ * The same probes as workspaceIsDormant, saying when a read failed
+ * (`unknown`) instead of reading it as active: for a caller that must fail
+ * CLOSED (the Dreamer, src/lib/dreamer/run.ts: a run nobody asked for spends
+ * money, so a dormancy it can't read starts nothing). workspaceIsDormant
+ * reads `unknown` as not dormant (fail-open), as before.
+ */
+export async function workspaceDormancy(
+  supabase: ReturnType<typeof getServiceClient>,
+  workspaceId: string,
+): Promise<'dormant' | 'active' | 'unknown'> {
   const sinceIso = new Date(Date.now() - DORMANCY_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString()
 
   const { count: captureCount, error: captureErr } = await supabase
@@ -136,8 +150,8 @@ export async function workspaceIsDormant(
     .eq('workspace_id', workspaceId)
     .gte('created_at', sinceIso)
     .limit(1)
-  if (captureErr) return false // fail-open: never skip a fire on a read error
-  if ((captureCount ?? 0) > 0) return false
+  if (captureErr) return 'unknown' // fail-open for workspaceIsDormant: never skip a fire on a read error
+  if ((captureCount ?? 0) > 0) return 'active'
 
   const { count: actionCount, error: actionErr } = await supabase
     .from('actions')
@@ -145,8 +159,8 @@ export async function workspaceIsDormant(
     .eq('workspace_id', workspaceId)
     .gte('updated_at', sinceIso)
     .limit(1)
-  if (actionErr) return false // fail-open
-  if ((actionCount ?? 0) > 0) return false
+  if (actionErr) return 'unknown'
+  if ((actionCount ?? 0) > 0) return 'active'
 
   // The person's own chat turns (a bot relay's 'user' row is the main agent
   // writing to a bot, never the person: left out).
@@ -158,8 +172,8 @@ export async function workspaceIsDormant(
     .is('ui_message->metadata->relay', null)
     .gte('created_at', sinceIso)
     .limit(1)
-  if (chatErr) return false // fail-open
-  if ((chatCount ?? 0) > 0) return false
+  if (chatErr) return 'unknown'
+  if ((chatCount ?? 0) > 0) return 'active'
 
   // A draft the person reviewed or sent.
   const { count: draftCount, error: draftErr } = await supabase
@@ -169,8 +183,8 @@ export async function workspaceIsDormant(
     .in('status', ['approved', 'edited', 'sending', 'sent', 'dismissed'])
     .gte('updated_at', sinceIso)
     .limit(1)
-  if (draftErr) return false // fail-open
-  if ((draftCount ?? 0) > 0) return false
+  if (draftErr) return 'unknown'
+  if ((draftCount ?? 0) > 0) return 'active'
 
   // A draft the person sent or dismissed: those rows are deleted now (the
   // holding pattern, src/lib/email/hold.ts), so a service-only row keeps when
@@ -181,8 +195,8 @@ export async function workspaceIsDormant(
     .eq('workspace_id', workspaceId)
     .gte('last_review_at', sinceIso)
     .limit(1)
-  if (reviewErr) return false // fail-open (before 343 the table is missing)
-  return (reviewCount ?? 0) === 0
+  if (reviewErr) return 'unknown' // (before 343 the table is missing)
+  return (reviewCount ?? 0) === 0 ? 'dormant' : 'active'
 }
 
 /**

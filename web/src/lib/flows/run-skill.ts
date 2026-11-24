@@ -34,7 +34,7 @@ import {
   computeToolCeiling,
   ALWAYS_ON_CAPABILITY_TOOL_NAMES,
 } from '@/lib/ai/tool-discovery'
-import { ALL_CATEGORY_IDS, CHAT_NATIVE_TOOL_NAMES, getMutatingToolNames, isAttendedOnlyTool, isChatNativeTool } from '@/lib/ai/tool-registry'
+import { ALL_CATEGORY_IDS, CHAT_NATIVE_TOOL_NAMES, PARENT_NOTES_TOOL_NAMES, getMutatingToolNames, isAttendedOnlyTool, isChatNativeTool, isParentNotesTool } from '@/lib/ai/tool-registry'
 import { attendedOnlyToolsDeniedTo } from '@/lib/safety/caller'
 import { createNotification } from '@/lib/notifications'
 import { botNoticeCopy, botNoticeMetadata, noticeTeammateName } from '@/lib/bots/bot-notice'
@@ -539,6 +539,9 @@ export function computeSkillCeiling(
     ceiling?.add(VERDICT_TOOL_NAME)
   }
   for (const name of CHAT_NATIVE_TOOL_NAMES) ceiling?.delete(name)
+  // Nor the Dreamer's notes tools (docs/plans/dreamer.md): the main agent's
+  // private research, and its researcher's own writes, never a loop's.
+  for (const name of PARENT_NOTES_TOOL_NAMES) ceiling?.delete(name)
   // Nor an attended-only tool (bots v3 Phase 5): nobody is in an unattended
   // run to have asked for it, so the trust authority denies it
   // (caller.ts: a loop run is agent_unattended). A loop run's follow-up CHAT
@@ -1002,7 +1005,7 @@ async function assembleSkillRun(
   )
     // Headless: no client exists to resolve the clarifying-question picker,
     // and a chat-native tool only runs in the main chat.
-    .filter((name) => name !== 'ask_user' && !isChatNativeTool(name) && !isAttendedOnlyTool(name))
+    .filter((name) => name !== 'ask_user' && !isChatNativeTool(name) && !isAttendedOnlyTool(name) && !isParentNotesTool(name))
     // Report mode's ceiling excludes mutating CORE tools that
     // computeInitialActiveTools would otherwise surface from step one.
     // ALWAYS_ON_CAPABILITY_TOOL_NAMES (web_search) is exempt: web access is a

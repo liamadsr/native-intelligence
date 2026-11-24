@@ -248,7 +248,7 @@ export const NO_AREA_TOOL_GROUPS: readonly string[] = ['attachments', 'comments'
 /**
  * Tools inside an area's group that belong to no area: the `actions` group
  * also holds the bot relay, the local agents and the reads and acts on background work, and
- * `library` holds `remember`, `update_now`, `finish_getting_started`, `connect_link`, `save_business_profile` and `get_tool_approval_result`. Calling them is running the show, not working
+ * `library` holds `remember`, `update_now`, `finish_getting_started`, `connect_link`, `save_business_profile`, `get_tool_approval_result` and the Dreamer's notes tools. Calling them is running the show, not working
  * in Actions or on skills.
  */
 export const NO_AREA_TOOL_NAMES: ReadonlySet<string> = new Set([
@@ -288,6 +288,14 @@ export const NO_AREA_TOOL_NAMES: ReadonlySet<string> = new Set([
   'save_business_profile',
   // How a held call ended (GEN-1172): any area's approval, never working on skills.
   'get_tool_approval_result',
+  // The Dreamer (docs/plans/dreamer.md): the main agent's background research and its notes, of no area.
+  'list_agent_notes',
+  'search_agent_notes',
+  'read_agent_notes',
+  'read_parent_thread',
+  'write_agent_notes',
+  'delete_agent_notes',
+  'notify_parent',
 ])
 
 /** The system skill slug of an area's playbook: `mail-playbook`. */

@@ -200,7 +200,7 @@ import {
 import { createExternalMcpTools } from '@/lib/mcp-client/adapter'
 import { DEFAULT_CHAT_POLICY, MAIN_MODEL, modelIdentityNote, renderHelperModelRoster } from '@/lib/ai/models'
 import { STRONG_DAILY_CAP } from '@/lib/ai/model-route'
-import { ALL_CATEGORY_IDS, ALL_TOOL_NAMES, getToolNamesForCategories } from '@/lib/ai/tool-registry'
+import { ALL_CATEGORY_IDS, ALL_TOOL_NAMES, DREAMER_ONLY_TOOL_NAMES, getToolNamesForCategories } from '@/lib/ai/tool-registry'
 import { COMPANY_MENTION_TOOL_NAMES, LIVE_MEETING_TOOL_NAMES, PERSON_MENTION_TOOL_NAMES } from '@/lib/ai/tool-discovery'
 import { offOverrides } from '@/test/editions'
 
@@ -654,7 +654,8 @@ describe('rebuildChatSpec for a fixed input', () => {
     // registry is discoverable, Evals and the agent browser included.
     expect(spec.ceiling).toBeNull()
     const surface = new Set(spec.ceilingTools.map((t) => t.name))
-    for (const name of ALL_TOOL_NAMES) expect(surface.has(name), name).toBe(true)
+    // But the Dreamer's own tools: its work run's alone (docs/plans/dreamer.md).
+    for (const name of ALL_TOOL_NAMES) expect(surface.has(name), name).toBe(!DREAMER_ONLY_TOOL_NAMES.has(name))
     const featureTools = getToolNamesForCategories(['evals', 'browser'])
     expect(featureTools.length).toBeGreaterThan(0)
     for (const name of featureTools) expect(surface.has(name), name).toBe(true)

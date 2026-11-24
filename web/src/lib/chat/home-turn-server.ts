@@ -12,7 +12,10 @@
  *      'event': every undelivered row the router sorted `turn`, minus what
  *      settled since, keyed on their ids, agent-events/event-turn.ts; for
  *      'approval': the calls the person's yes ran in this thread that no
- *      approval turn carried, src/lib/safety/approval-turn.ts); and
+ *      approval turn carried, src/lib/safety/approval-turn.ts; for 'dreamer':
+ *      the person's undelivered Dreamer reports of the last 24 hours, oldest
+ *      first, at most three, keyed `dreamer:<report id>`,
+ *      src/lib/dreamer/reports.ts); and
  *      the session isn't parked on an open question or approval (a send
  *      would steer past the person's pending `ask_user` picker). A home
  *      thread with no live eve session (none registered yet, or the one it
@@ -126,6 +129,7 @@ import {
   buildHomeTurnBody,
   checkInTurnKey,
   digestTurnKey,
+  dreamerTurnKey,
   homeTurnMessageId,
   homeTurnTag,
   isBackgroundUpdateText,
@@ -137,6 +141,7 @@ import {
   urgentByOfParts,
   type HomeTurnCheckIn,
   type HomeTurnApprovals,
+  type HomeTurnDreamer,
   type HomeTurnDigest,
   type HomeTurnEvents,
   type HomeTurnReason,
@@ -145,6 +150,7 @@ import {
 } from '@/lib/chat/home-turn'
 import { digestBody, gatherDigest } from '@/lib/agent-events/digest'
 import { gatherCheckIn, type CheckInGather } from '@/lib/now/check-in'
+import { gatherDreamerReports } from '@/lib/dreamer/reports'
 import { appendHomeMessage } from '@/lib/chat/home-message-writer'
 import { eventTurnBody, gatherEventTurn } from '@/lib/agent-events/event-turn'
 import { gatherGuestAsks, type HomeTurnGuestAsks } from '@/lib/guests/guest-asks'
@@ -277,6 +283,8 @@ export interface HomeTurnPlan {
   checkIn?: HomeTurnCheckIn
   /** 'approval': the calls the person's yes ran that no turn carried yet (src/lib/safety/approval-turn.ts). */
   approvals?: HomeTurnApprovals
+  /** 'dreamer': the Dreamer's undelivered reports (src/lib/dreamer/reports.ts), marked delivered after the turn. */
+  dreamer?: HomeTurnDreamer
   /** 'slack', 'text', 'agent_ask': the channel messages the turn carries, oldest first. */
   channelMessages?: PlannedChannelMessage[]
   /** 'slack': a DM (the home thread) or a channel thread (their own conversation for it). */
@@ -937,6 +945,7 @@ export async function planHomeTurn(
     agentAnswers?: HomeTurnAgentAnswers
     checkIn?: HomeTurnCheckIn
     approvals?: HomeTurnApprovals
+    dreamer?: HomeTurnDreamer
     channelMessages?: PlannedChannelMessage[]
     channelPlace?: 'direct' | 'thread'
     record: NonNullable<Extract<HomeTurnPlanResult, { ok: false }>['record']>
@@ -988,6 +997,7 @@ export async function planHomeTurn(
     let agentAnswers: HomeTurnAgentAnswers | undefined
     let checkIn: HomeTurnCheckIn | undefined
     let approvals: HomeTurnApprovals | undefined
+    let dreamer: HomeTurnDreamer | undefined
     let channelMessages: PlannedChannelMessage[] | undefined
     if (channelOfReason(data.reason)) {
       // The person's messages no earlier turn of the channel carried (never the payload's word for which).
@@ -1027,6 +1037,13 @@ export async function planHomeTurn(
       if (!gathered) return { ok: false, reason: 'nothing_new' }
       approvals = gathered
       dedupeKey = homeTurnDedupeKey('approval', gathered.approvalIds)
+    } else if (data.reason === 'dreamer') {
+      // The Dreamer's reports (docs/plans/dreamer.md): the person's undelivered
+      // ones from the last 24 hours, oldest first (never the payload's word for which).
+      const gathered = await gatherDreamerReports(supabase, { workspaceId: data.workspaceId, userId: data.userId }, deps.now)
+      if (!gathered) return { ok: false, reason: 'nothing_new' }
+      dreamer = gathered
+      dedupeKey = gathered.reportIds.length === 1 ? dreamerTurnKey(gathered.reportIds[0]) : homeTurnDedupeKey('dreamer', gathered.reportIds)
     } else if (data.reason === 'digest') {
       // The daily digest (A6 slice 4): re-read the rows the cron named (never
       // trusting the payload for what they say) and the log since the last one.
@@ -1107,6 +1124,7 @@ export async function planHomeTurn(
       ...(agentAnswers ? { agentAnswers } : {}),
       ...(checkIn ? { checkIn } : {}),
       ...(approvals ? { approvals } : {}),
+      ...(dreamer ? { dreamer } : {}),
       ...(channelMessages ? { channelMessages, channelPlace: channelThread ? ('thread' as const) : ('direct' as const) } : {}),
       record,
       chatgptPlan,
@@ -1186,6 +1204,7 @@ export async function planHomeTurn(
     ...(checked.guestAsks ? { guestAsks: checked.guestAsks } : {}),
     ...(checked.agentAnswers ? { agentAnswers: checked.agentAnswers } : {}),
     ...(approvals ? { approvals } : {}),
+    ...(checked.dreamer ? { dreamer: checked.dreamer } : {}),
     ...(checked.channelMessages ? { channelMessages: checked.channelMessages, channelPlace: checked.channelPlace ?? 'direct' } : {}),
     ...(primer ? { primer } : {}),
     ...(checked.chatgptPlan ? { chatgptPlan: true as const } : {}),
@@ -1676,6 +1695,7 @@ export async function sendHomeTurn(
     agentAnswers: plan.agentAnswers ?? null,
     checkIn: plan.checkIn ?? null,
     approvals: plan.approvals ?? null,
+    dreamer: plan.dreamer ?? null,
     channelMessages: plan.channelMessages ?? [],
     channelPlace: plan.channelPlace,
   })
@@ -1881,6 +1901,7 @@ export function homeTurnLabel(plan: Pick<HomeTurnPlan, 'reports'>, reason: HomeT
   if (reason === 'agent_answer') return 'Their agent answered'
   if (reason === 'agent_ask') return 'Their agent asked'
   if (reason === 'approval') return 'After your approval'
+  if (reason === 'dreamer') return 'From your researcher'
   if (plan.reports.length === 1) return oneLine(plan.reports[0].report.title, HOME_TURN_LABEL_CHARS) || 'Update'
   return plan.reports.length > 1 ? `${plan.reports.length} updates` : 'Update'
 }

@@ -19,7 +19,7 @@
  *
  * Pure and client-safe.
  */
-import { ATTENDED_ONLY_TOOL_NAMES, CHAT_NATIVE_TOOL_NAMES, TOOL_CATEGORIES, getToolDefinition, getToolSideEffect } from '@/lib/ai/tool-registry'
+import { ATTENDED_ONLY_TOOL_NAMES, CHAT_NATIVE_TOOL_NAMES, PARENT_NOTES_TOOL_NAMES, TOOL_CATEGORIES, getToolDefinition, getToolSideEffect } from '@/lib/ai/tool-registry'
 import { GUEST_ALWAYS_TOOLS, GUEST_ONLY_TOOLS } from './tools'
 
 /** What always waits for the owner's yes (agent_guest.ask_before). Outward calls always do. */
@@ -106,7 +106,8 @@ const NEVER_CATEGORIES: ReadonlySet<string> = new Set(['evals', 'content', 'stud
 
 /** True for a registry tool the People tab may offer a guest. */
 function offerableRegistryTool(name: string, sideEffect: string): boolean {
-  if (GUEST_NEVER_TOOLS.has(name) || CHAT_NATIVE_TOOL_NAMES.has(name) || ATTENDED_ONLY_TOOL_NAMES.has(name)) return false
+  // Nor the Dreamer's notes (docs/plans/dreamer.md): the owner's private research.
+  if (GUEST_NEVER_TOOLS.has(name) || CHAT_NATIVE_TOOL_NAMES.has(name) || ATTENDED_ONLY_TOOL_NAMES.has(name) || PARENT_NOTES_TOOL_NAMES.has(name)) return false
   return sideEffect === 'read' || sideEffect === 'internal-write' || sideEffect === 'delete' || sideEffect === 'external-write'
 }
 
