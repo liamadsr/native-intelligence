@@ -71,6 +71,7 @@ import { homeArrives, homeLeaves, pagePanelOnScreen, panelLeaves } from './fligh
 export { MINIMIZE_FLIGHT_MS } from '@/lib/chat/tile-flight'
 import type { ChatCardStore } from './card-store'
 import { closeFrontCards } from './front-card'
+import { mediaMatches, subscribeMedia } from '@/lib/media-query'
 
 export interface MinimizedCard {
   /** The card's id in its store. */
@@ -105,19 +106,18 @@ const DESKTOP_QUERY = '(min-width: 48rem)'
 const APP_RAIL_ATTR = 'data-app-rail'
 
 export function besideAppRail(): boolean {
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false
-  return window.matchMedia(DESKTOP_QUERY).matches && document.documentElement.hasAttribute(APP_RAIL_ATTR)
+  if (typeof window === 'undefined') return false
+  return mediaMatches(DESKTOP_QUERY) && document.documentElement.hasAttribute(APP_RAIL_ATTR)
 }
 
 /** Tells `listener` when besideAppRail may have changed: the window crossing `md`, or the rail coming or going. */
 export function subscribeBesideAppRail(listener: () => void): () => void {
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return () => {}
-  const media = window.matchMedia(DESKTOP_QUERY)
-  media.addEventListener?.('change', listener)
+  if (typeof window === 'undefined') return () => {}
+  const unsubscribe = subscribeMedia(DESKTOP_QUERY, listener)
   const observer = typeof MutationObserver === 'undefined' ? null : new MutationObserver(listener)
   observer?.observe(document.documentElement, { attributes: true, attributeFilter: [APP_RAIL_ATTR] })
   return () => {
-    media.removeEventListener?.('change', listener)
+    unsubscribe()
     observer?.disconnect()
   }
 }

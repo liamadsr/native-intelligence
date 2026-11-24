@@ -19,21 +19,19 @@
  * Client-safe: no server imports.
  */
 import { useSyncExternalStore } from 'react'
+import { mediaMatches, subscribeMedia } from '@/lib/media-query'
 
 /** Where the app rail shows (tailwind's `md`, the rail's `hidden md:flex`). */
 export const RAIL_MEDIA = '(min-width: 48rem)'
 
 function subscribeRailMedia(onChange: () => void): () => void {
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return () => {}
-  const query = window.matchMedia(RAIL_MEDIA)
-  query.addEventListener('change', onChange)
-  return () => query.removeEventListener('change', onChange)
+  return subscribeMedia(RAIL_MEDIA, onChange)
 }
 
 /** No media queries to ask (a test's DOM): the rail's own CSS decides alone, so nothing is held back here. */
 export function railMediaNow(): boolean {
   if (typeof window === 'undefined') return false
-  return typeof window.matchMedia !== 'function' || window.matchMedia(RAIL_MEDIA).matches
+  return mediaMatches(RAIL_MEDIA, true)
 }
 
 /** The app rail is on screen (the window at `md` or wider); false on the server. */

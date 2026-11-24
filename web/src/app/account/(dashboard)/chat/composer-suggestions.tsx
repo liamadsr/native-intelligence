@@ -25,6 +25,7 @@
  * component re-renders on a rotation, never the composer.
  */
 import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type MutableRefObject, type RefObject } from 'react'
+import { prefersReducedMotion } from '@/lib/media-query'
 
 /** How long the default hint stays between suggestions. */
 export const HINT_HOLD_MS = 3000
@@ -86,9 +87,7 @@ const documentVisible = () => document.visibilityState !== 'hidden'
 const serverVisible = () => true
 
 /** Whether the person asked for less motion (read when it matters, not subscribed). */
-export function prefersReducedMotion(): boolean {
-  return typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-}
+export { prefersReducedMotion }
 
 interface FieldBox {
   /** Wide enough for a placeholder at all (as PromptInputTextarea). */

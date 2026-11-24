@@ -62,6 +62,7 @@ import { DevicesMenu } from '@/components/team-calls/devices-menu'
 import { GuestCallNotes } from '@/components/team-calls/call-live-notes'
 import { MEETING_GLASS, MeetingShell } from './meeting-card'
 import { GuestChatView, GuestSidePanel, useChatUnread, useGuestChat, type GuestPanelTab } from './guest-chat'
+import { mediaMatches } from '@/lib/media-query'
 
 type Done = 'declined' | 'removed' | 'left' | 'ended' | 'inactive' | 'full' | 'limited' | 'early' | 'elsewhere' | 'error' | 'unreachable' | 'lost'
 
@@ -735,7 +736,7 @@ function GuestCall({
   // The notes come on: on a wide screen the panel opens on them, as the notes pad did; a phone keeps the call in view.
   const notesBefore = useRef(false)
   useEffect(() => {
-    if (showNotes && !notesBefore.current && typeof window !== 'undefined' && window.matchMedia?.(WIDE_QUERY).matches) setPanel((p) => p ?? 'notes')
+    if (showNotes && !notesBefore.current && mediaMatches(WIDE_QUERY)) setPanel((p) => p ?? 'notes')
     notesBefore.current = showNotes
   }, [showNotes])
   // Notes gone (turned off, or not connected): their tab goes, and the panel with it if it was on them.
