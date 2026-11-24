@@ -400,16 +400,22 @@ export async function inboxDone(item: InboxItem): Promise<void> {
   removeLocally(item.key)
   if (state.openKey === item.key) set({ openKey: null })
   let ok = false
+  /** The server's reason for a failure, in plain words (thread-triage.ts failureOf). */
+  let why: string | null = null
   let undo: (() => Promise<unknown>) | null = null
   if (item.source === 'mail' && item.open.kind === 'mail') {
     const threadIds = [item.open.providerThreadId]
     const res = await post('/api/account/email/threads/triage', { thread_ids: threadIds, change: { archive: true } }).catch(() => null)
     // A 200 is not a yes: the thread's own outcome is (a mailbox that refused,
     // or holds no such thread, answers 200 with that thread's status).
-    const body = res?.ok ? ((await res.json().catch(() => null)) as { threads?: Array<{ status?: string }> } | null) : null
-    const status = body?.threads?.[0]?.status
-    ok = status === 'changed' || status === 'unchanged'
-    undo = () => post('/api/account/email/threads/triage', { thread_ids: threadIds, change: { archive: false } })
+    const body = res?.ok ? ((await res.json().catch(() => null)) as { threads?: Array<{ status?: string; out_of_inbox?: string; error?: string }> } | null) : null
+    const thread = body?.threads?.[0]
+    // Archived; or out of the inbox already (deleted at the mailbox, in Trash
+    // or Spam: out_of_inbox, the index following it): what Done asked.
+    ok = thread?.status === 'changed' || thread?.status === 'unchanged' || !!thread?.out_of_inbox
+    why = !ok && typeof thread?.error === 'string' && thread.error.trim() ? thread.error.trim().slice(0, 240) : null
+    // Nothing to put back for a thread that wasn't in the inbox at all.
+    undo = thread?.out_of_inbox ? null : () => post('/api/account/email/threads/triage', { thread_ids: threadIds, change: { archive: false } })
   } else {
     const ids = item.notificationIds.slice(0, 200)
     const res = await post('/api/account/inbox/notifications', { action: 'done', ids }).catch(() => null)
@@ -421,7 +427,13 @@ export async function inboxDone(item: InboxItem): Promise<void> {
   if (!ok) {
     // Never silently: the row comes back, and says why.
     unmarkDone(item.key)
-    toast.error(item.source === 'mail' ? 'That email could not be archived. It’s back in the list.' : 'That could not be marked done. It’s back in the list.')
+    toast.error(
+      item.source === 'mail'
+        ? why
+          ? `That email could not be archived: ${why} It’s back in the list.`
+          : 'That email could not be archived. It’s back in the list.'
+        : 'That could not be marked done. It’s back in the list.',
+    )
     return void loadInbox()
   }
   toast.success(item.source === 'mail' ? 'Archived' : 'Done', {

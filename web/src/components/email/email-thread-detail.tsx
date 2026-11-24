@@ -53,6 +53,7 @@ import { requestEmailReply } from '@/lib/email/reply-in-chat'
 import { composeDraftKey } from '@/lib/email/compose-drafts'
 import type { ComposeMode } from '@/lib/email/compose'
 import { EmailComposer } from './email-composer'
+import { archiveFailure } from '@/lib/email/archive-failure'
 
 interface EmailLabel {
   id: string
@@ -341,10 +342,9 @@ export function EmailThreadDetail({
   const handleArchive = useCallback(async () => {
     onThreadUpdate?.({ type: 'remove', threadId })
     onClose?.()
-    const ok = await fetch(`/api/account/email/threads/${threadId}/archive`, {
-      method: 'POST',
-    }).then((res) => res.ok, () => false)
-    if (!ok) toast.error('Could not archive the email')
+    const res = await fetch(`/api/account/email/threads/${threadId}/archive`, { method: 'POST' }).catch(() => null)
+    // The server's reason when it gives one (Gmail without permission to change mail: lib/email/gmail-permission.ts).
+    if (!res?.ok) toast.error(await archiveFailure(res, 'Could not archive the email'))
   }, [threadId, onClose, onThreadUpdate])
 
   // The person's own reply (Reply, Reply all, Forward): the composer under
@@ -401,10 +401,8 @@ export function EmailThreadDetail({
   const handleTrash = useCallback(async () => {
     onThreadUpdate?.({ type: 'remove', threadId })
     onClose?.()
-    const ok = await fetch(`/api/account/email/threads/${threadId}/trash`, {
-      method: 'POST',
-    }).then((res) => res.ok, () => false)
-    if (!ok) toast.error('Could not delete the email')
+    const res = await fetch(`/api/account/email/threads/${threadId}/trash`, { method: 'POST' }).catch(() => null)
+    if (!res?.ok) toast.error(await archiveFailure(res, 'Could not delete the email'))
   }, [threadId, onClose, onThreadUpdate])
 
   // A task about this thread: the action composer, titled "Follow up: <subject>"
