@@ -148,6 +148,7 @@ export function InboxFilters({ s, variant, narrow = false }: { s: InboxState; va
         <DetailTabs
           label="Show"
           data-inbox-filters="page"
+          inline
           wrap={narrow}
           tabs={INBOX_FILTERS.map((f) => ({
             id: f,

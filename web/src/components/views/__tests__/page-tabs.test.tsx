@@ -16,6 +16,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { DETAIL_TAB_ROW, DetailTabs, PAGE_TAB, PAGE_TAB_INSET, PAGE_TAB_ON, PAGE_TAB_OFF, pageTabClass } from '../page-tabs'
+import { CardHeaderSlotsProvider } from '@/components/chat-cards/card-header-slot'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -88,6 +89,61 @@ describe('DetailTabs', () => {
     expect(source('view-toolbar.tsx')).toContain("alignToContent ? PAGE_TAB_INSET : ")
     // The board's first column under the first pill.
     expect(source('view-board.tsx')).toContain('className="flex gap-4 py-4 px-2.5 overflow-x-auto')
+  })
+})
+
+describe('in a card: the card’s top row (Liam, 11-24: "why is it that on prod the tabs are indented?")', () => {
+  const tabs = [{ id: 'overview', label: 'Overview' }, { id: 'files', label: 'Files' }] as const
+
+  it('the sections stand in the card body’s top row, the card’s whole width, in a row of their own; the page’s row is left empty and hides', async () => {
+    const top = document.createElement('div')
+    document.body.append(top)
+    try {
+      await act(async () =>
+        root.render(
+          <CardHeaderSlotsProvider value={{ left: null, right: null, pageTop: top }}>
+            <div data-page-row="" className={DETAIL_TAB_ROW}>
+              <DetailTabs label="Project" tabs={tabs} value="overview" onChange={() => {}} />
+            </div>
+          </CardHeaderSlotsProvider>,
+        ),
+      )
+      const list = top.querySelector('[role="tablist"]')!
+      expect(list.getAttribute('aria-label')).toBe('Project')
+      expect(list.parentElement!.className).toBe(DETAIL_TAB_ROW)
+      expect(container.querySelector('[role="tablist"]')).toBeNull()
+      expect(container.querySelector('[data-page-row]')!.childElementCount).toBe(0)
+      expect(DETAIL_TAB_ROW).toContain('empty:hidden')
+    } finally {
+      top.remove()
+    }
+  })
+
+  it('`inline` keeps them in the page (the Inbox’s, over its list column); a covered page (no top row) keeps its own', async () => {
+    const top = document.createElement('div')
+    document.body.append(top)
+    try {
+      await act(async () =>
+        root.render(
+          <CardHeaderSlotsProvider value={{ left: null, right: null, pageTop: top }}>
+            <DetailTabs label="Show" inline tabs={tabs} value="overview" onChange={() => {}} />
+          </CardHeaderSlotsProvider>,
+        ),
+      )
+      expect(top.childElementCount).toBe(0)
+      expect(container.querySelector('[role="tablist"]')).not.toBeNull()
+      await act(async () =>
+        root.render(
+          <CardHeaderSlotsProvider value={{ left: null, right: null, trail: null }}>
+            <DetailTabs label="Project" tabs={tabs} value="overview" onChange={() => {}} />
+          </CardHeaderSlotsProvider>,
+        ),
+      )
+      expect(top.childElementCount).toBe(0)
+      expect(container.querySelector('[role="tablist"][aria-label="Project"]')).not.toBeNull()
+    } finally {
+      top.remove()
+    }
   })
 })
 
