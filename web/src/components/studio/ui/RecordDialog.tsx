@@ -10,7 +10,8 @@ import { Modal, StudioSelect } from './controls';
 import type { ManualRecording, RecordingSession, RecordingStart } from './useManualRecording';
 import { plainStep } from './record-steps';
 import { studioRecorder } from '@/lib/tauri-bridge';
-import { answerHellos, dropHandoff, sendContent, writeHandoff, type PrompterHandoff } from '@/lib/studio/prompter/channel';
+import type { PrompterHandoff } from '@/lib/studio/prompter/channel';
+import { recordingController } from '../record/controller';
 import { linesOf, type ScriptLine } from '@/lib/studio/prompter/follow';
 import { NOTHING_HEARD } from '@/lib/studio/prompter/live-words';
 import { PrompterPanel } from '../prompter/PrompterPanel';
@@ -211,6 +212,11 @@ function LiveTake({ session, close, ...props }: Props & Extra & { session: Recor
   // build whose floating control can't show it. A beats take keeps its one-line prompter, whose Next marks the beats.
   const following = kind === 'browser' ? 'browser' as const : rec.takeLive?.following === 'old-app' || props.panel === false ? 'old-app' as const : null;
   const inPage = prompter.allowed && !prompter.beats && following !== null && (prompter.lines.length > 0 || prompter.items.length > 0);
+  // Recording: the dialog gets out of the way, so the whole app can be used (and shown) while the take records. Stop
+  // is the floating control's (or the browser's own bar, or the Studio's recording bar); "Show" brings this back. A
+  // browser take that shows its script here keeps it: the browser has no floating control to show it in.
+  const keepOpen = kind === 'browser' && inPage;
+  useEffect(() => { if (recording && !keepOpen && !closedOnRecord.has(session.id)) { closedOnRecord.add(session.id); close(); } }, [recording, keepOpen, session.id, close]);
   const uploads = rec.uploads as ReadonlyArray<{ role?: string; label?: string; fraction?: number; done?: boolean }>;
   // Finishing has two parts: the last of the files go up (short when they went up while recording), then the Studio
   // makes them a video, which it finishes on its own whether or not anyone watches.
@@ -479,22 +485,15 @@ export function prompterWhere(kind: string, panel: boolean | null, allowedHere: 
   return 'Shown while you record.';
 }
 
-/** While a desktop take records: hand its script and checklist to the floating control, and remove the copy left for
- *  it when the take ends. */
+/** Takes whose dialog closed itself as they started recording (so "Show" opens it again for good). */
+const closedOnRecord = new Set<string>();
+
+/** While a desktop take records: hand its script and checklist to the floating control (the page's recording
+ *  controller keeps answering for it after this dialog closes, and removes the copy left for it when the take ends). */
 function useHandoff(live: { sessionId: string; following: PrompterHandoff['following'] } | null, lines: ScriptLine[], items: PrompterHandoff['items']) {
-  const latest = useRef<PrompterHandoff | null>(null);
   const sessionId = live?.sessionId ?? null, following = live?.following ?? null;
   useEffect(() => {
-    if (!sessionId || !following) { latest.current = null; return; }
-    const handoff: PrompterHandoff = { sessionId, following, lines, items };
-    latest.current = handoff;
-    if (!lines.length && !items.length) return;
-    writeHandoff(handoff);
-    void sendContent(handoff);
+    if (!sessionId || !following || (!lines.length && !items.length)) return;
+    recordingController().handOff({ sessionId, following, lines, items });
   }, [sessionId, following, lines, items]);
-  useEffect(() => {
-    if (!sessionId) return;
-    const off = answerHellos(sessionId, () => latest.current);
-    return () => { off(); dropHandoff(sessionId); };
-  }, [sessionId]);
 }

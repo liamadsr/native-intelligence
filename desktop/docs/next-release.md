@@ -28,3 +28,19 @@ Check on a Mac after the build:
 - [ ] Resize from the corner.
 - [ ] Unplug a second display with the panel on it: it comes back onto the main one within about 5 s.
 - [ ] Turn Local transcription off: the panel says so, and scrolling by hand works.
+
+### With recording anywhere (the take outlives the Studio card)
+
+Once a take starts recording, the Record dialog closes itself, so the whole app can be used and shown. Stop is the
+floating control's.
+
+On a build older than this release, the script and checklist of a window take of another app showed only in the
+Record dialog. They now show only when the person reopens the dialog ("Show" in the Studio's recording bar), and it
+is modal again then. The new build's panel replaces this: one more reason to ship it.
+
+Unchanged on every build:
+- Quitting the app, or closing its window, while a take records: the take is finalized and offered at the next
+  launch, as before.
+- A main-window reload mid-take: the Mac keeps recording and the floating control still stops it. The page doesn't
+  pick the running take back up. Once stopped, it is sent and filed as a take left over (the shell brings the
+  recording controller up for it), and "Recording saved" is said when it is.
