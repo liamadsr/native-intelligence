@@ -20,7 +20,7 @@ const BOARD: LayoutOption = { value: 'board', label: 'Board', Icon: Columns2 }
 const ROADMAP: LayoutOption = { value: 'roadmap', label: 'Roadmap', Icon: ChartGantt }
 
 /** Kinds drawn as a list only. */
-const LIST_ONLY: ReadonlySet<ViewEntityType> = new Set(['canvas', 'spreadsheet', 'data_table', 'drive_item', 'team'])
+const LIST_ONLY: ReadonlySet<ViewEntityType> = new Set(['canvas', 'spreadsheet', 'data_table', 'drive_item', 'team', 'file'])
 
 /** A table's rows: four layouts of their own. */
 const TABLE_LAYOUTS: LayoutOption[] = [

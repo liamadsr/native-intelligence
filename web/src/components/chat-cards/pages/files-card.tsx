@@ -12,22 +12,28 @@
  *   Sources   Uploads (to records, and to Drive itself) and Team chat, on by
  *             default; Email attachments, its own filter, off by default:
  *             read live from their own mailboxes, never kept.
- *   Filters   type, who made it; Sort by last modified, date added, last
- *             opened, name or size.
- *   A row     the file's icon, name, where it lives, who made it, its size
- *             and a time (the sort's). The name opens the in-app viewer
- *             (components/files); an upload's record opens over the page,
- *             inside the card, as before.
+ *   The list  the views system's (docs/plans/views-everywhere.md), through
+ *             LocalViewList: the shared toolbar's filters (type, who made
+ *             it, modified / added / opened, name), its display settings
+ *             (grouping, sort, properties), search in the header (run on
+ *             the server, as before), the shared rows (the file's glyph,
+ *             where it lives, who made it, its size, a time) and J/K/Enter.
+ *             No saved views yet: the view enum has no `file`.
+ *   A row     opens the in-app viewer (components/files); its right-click
+ *             opens the record an upload lives on, over the page, inside
+ *             the card, or moves one's own Drive upload (M too).
  *   Upload    drop files on the card (or Upload): a Drive upload, the
  *             uploader's alone until they file it in a folder (709).
  *   M         on a focused row of their own Drive upload: move it to a
  *             folder, or take it out of one.
  */
 import * as React from 'react'
-import { ChevronDown, File as FileIcon, FileCode, FileImage, FileSpreadsheet, FileText, Film, Music, Paperclip, Presentation, Search, Upload, X } from 'lucide-react'
+import { ChevronDown, ExternalLink, Eye, File as FileIcon, FileCode, FileImage, FileSpreadsheet, FileText, Film, FolderInput, Music, Paperclip, Presentation, Upload, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Input } from '@/components/ui/input'
-import { ExpandableSearch } from '@/components/views/expandable-search'
+import { LocalViewList } from '@/components/views/local-view-list'
+import type { RowMenuItemsOf } from '@/components/views/list/row-menu-items'
+import type { SortConfig } from '@/lib/views/types'
 import { useFileViewer } from '@/components/files/file-viewer'
 import { FLOATING_CARD_CLASS } from '@/components/attention/card-skin'
 import { formatFileSize, type WorkspaceFile } from '@/lib/attachments/workspace-files-model'
@@ -42,6 +48,7 @@ import {
   DRIVE_TYPES,
   driveItemTime,
   sortDriveItems,
+  PARENT_NOUN,
   type DriveItem,
   type DriveSort,
   type DriveType,
@@ -101,12 +108,37 @@ interface DriveView {
   uploads: boolean
   chat: boolean
   email: boolean
-  type: DriveType | null
-  creator: string | null
-  sort: DriveSort
 }
 
-const DEFAULT_VIEW: DriveView = { tab: 'all', uploads: true, chat: true, email: false, type: null, creator: null, sort: 'modified' }
+const DEFAULT_VIEW: DriveView = { tab: 'all', uploads: true, chat: true, email: false }
+
+/** A file as the shared list reads it (the view-only kind `file`). */
+type FileRowData = { [key: string]: unknown; id: string; title: string; item: DriveItem }
+const FILE_DATE_FIELDS: ReadonlySet<string> = new Set(['updated_at', 'created_at', 'opened_at'])
+const FILE_SEARCH_FIELDS = ['title'] as const
+/** Recent opens on the last opened; mail's attachments on the newest arrived (they never change). */
+const OPENED_FIRST: readonly SortConfig[] = [{ field: 'opened_at', direction: 'desc' }]
+const ADDED_FIRST: readonly SortConfig[] = [{ field: 'created_at', direction: 'desc' }]
+const FILE_GROUP_LABELS = { file_type: DRIVE_TYPE_LABELS as Readonly<Record<string, string>> }
+
+/** A Drive item as a row: its kind, who made it (a member, else the sender's words), where it lives, its times. */
+export function fileRowOf(item: DriveItem, members: readonly DriveMember[]): FileRowData {
+  const creator = creatorOf(item, members)
+  return {
+    id: item.key,
+    title: item.name,
+    file_type: item.type,
+    source: item.source,
+    created_by: creator?.id ?? null,
+    ...(creator ? { creator: { id: creator.id, display_name: creator.display_name, avatar_url: creator.avatar_url ?? null } } : item.creator.label ? { created_by_name: item.creator.label } : {}),
+    file_where: item.where,
+    file_size: item.size,
+    updated_at: item.modifiedAt,
+    created_at: item.createdAt,
+    opened_at: item.openedAt ?? null,
+    item,
+  }
+}
 
 /** Who made an item, as a member (uploads carry a user, chat files a member). */
 function creatorOf(item: DriveItem, members: readonly DriveMember[]): DriveMember | null {
@@ -117,7 +149,7 @@ function creatorOf(item: DriveItem, members: readonly DriveMember[]): DriveMembe
 
 /** A source toggle: on its own it turns the other source back on, so one is always shown. */
 export function toggleSource(v: DriveView, source: 'uploads' | 'chat'): DriveView {
-  if (v.email) return { ...v, email: false, uploads: source === 'uploads', chat: source === 'chat', sort: v.sort === 'created' ? 'modified' : v.sort }
+  if (v.email) return { ...v, email: false, uploads: source === 'uploads', chat: source === 'chat' }
   const other = source === 'uploads' ? 'chat' : 'uploads'
   const next = { ...v, [source]: !v[source] }
   if (!next.uploads && !next.chat) next[other] = true
@@ -148,11 +180,10 @@ export default function FilesCard(props: PageCardProps) {
     const needle = q.toLowerCase()
     const list = base
       .filter((i) => (i.source === 'upload' ? view.uploads : i.source === 'team_chat' ? view.chat : view.email))
-      .filter((i) => !view.type || i.type === view.type)
-      .filter((i) => !view.creator || creatorOf(i, members)?.id === view.creator)
       .filter((i) => view.tab !== 'recent' || !needle || i.name.toLowerCase().includes(needle))
       .map((i) => ({ ...i, openedAt: recent.opened.get(i.key) ?? i.openedAt ?? null }))
-    return sortDriveItems(list, view.sort)
+    // In the sources' own order; the view's sort and filters are the shared list's.
+    return sortDriveItems(list, view.tab === 'recent' ? 'opened' : 'modified').map((i) => fileRowOf(i, members))
   }, [view, q, files.items, recent.items, recent.opened, mail.items, members])
 
   const loading = view.email ? mail.loading : view.tab === 'recent' ? recent.loading : files.loading
@@ -208,23 +239,40 @@ export default function FilesCard(props: PageCardProps) {
   // M: move one's own Drive upload to a folder.
   const [moving, setMoving] = React.useState<DriveItem | null>(null)
 
-  const filtered = view.type !== null || view.creator !== null || !!q || !view.uploads || !view.chat
+  const filtered = !!q || !view.uploads || !view.chat
 
   // Which files: All files (the start), My files, Recent, Shared with me. A dropdown beside the others, not a
   // row of its own (Liam, 11-23: "can't this also be a dropdown and we show all by default").
-  const chooseTab = (tab: DriveTab) => setView((v) => ({ ...v, tab, sort: tab === 'recent' ? 'opened' : v.sort === 'opened' ? 'modified' : v.sort }))
+  const chooseTab = (tab: DriveTab) => setView((v) => ({ ...v, tab }))
+
+  // A row's right-click: open it, open the record it lives on, or move one's own Drive upload (M too).
+  const openParent = React.useCallback(
+    (item: DriveItem) => {
+      const p = item.upload?.parent
+      if (p && p.type !== 'row' && p.type !== 'drive') records.open({ type: p.type, id: p.id, label: p.label })
+    },
+    [records],
+  )
+  const menuItemsOf = React.useCallback<RowMenuItemsOf>(
+    (row) => {
+      const item = (row as FileRowData).item
+      const p = item.upload?.parent
+      return [
+        { key: 'open', label: 'Open', icon: Eye, onSelect: () => void openItem(item) },
+        ...(p && p.type !== 'row' && p.type !== 'drive' ? [{ key: 'open_parent', label: `Open ${PARENT_NOUN[p.type].toLowerCase()}`, icon: ExternalLink, onSelect: () => openParent(item) }] : []),
+        ...(p?.type === 'drive' ? [{ key: 'move', label: 'Move to a folder…', icon: FolderInput, shortcut: 'M', onSelect: () => setMoving(item) }] : []),
+      ]
+    },
+    [openItem, openParent],
+  )
+  const rowKeys = React.useMemo(
+    () => [{ key: 'm', on: (row: FileRowData) => row.item.upload?.parent.type === 'drive', run: (row: FileRowData) => setMoving(row.item) }],
+    [],
+  )
 
   return (
     <div className="relative h-full min-h-0">
       <CardCovered covered={!!records.current}>
-        {inCard && (
-          <CardHeaderSlot side="right">
-            <div data-files-search-control="" className="flex items-center gap-0.5">
-              <ExpandableSearch value={typed} onChange={setTyped} label="Search files" placeholder={view.email ? 'Search your mail' : 'Search files'} />
-              <UploadButton inHeader uploading={uploading} onClick={() => picker.current?.click()} />
-            </div>
-          </CardHeaderSlot>
-        )}
         <input
           ref={picker}
           type="file"
@@ -255,7 +303,7 @@ export default function FilesCard(props: PageCardProps) {
                 on={view.email}
                 id="email"
                 onClick={() =>
-                  setView((v) => (v.email ? { ...v, email: false, sort: 'modified' } : { ...v, email: true, tab: 'all', creator: null, sort: v.sort === 'name' || v.sort === 'size' ? v.sort : 'created' }))
+                  setView((v) => (v.email ? { ...v, email: false } : { ...v, email: true, tab: 'all' }))
                 }
               />
               <span className="mx-1 h-4 w-px bg-border" aria-hidden />
@@ -269,40 +317,7 @@ export default function FilesCard(props: PageCardProps) {
                   ))}
                 </Select>
               )}
-              <Select label="Type" value={view.type ?? ''} onChange={(t) => setView((v) => ({ ...v, type: (t || null) as DriveType | null }))} data="type">
-                <option value="">All types</option>
-                {DRIVE_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {DRIVE_TYPE_LABELS[t]}
-                  </option>
-                ))}
-              </Select>
-              {!view.email && (
-                <Select label="Created by" value={view.creator ?? ''} onChange={(c) => setView((v) => ({ ...v, creator: c || null }))} data="creator">
-                  <option value="">Anyone</option>
-                  {members.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.display_name?.trim() || 'A teammate'}
-                    </option>
-                  ))}
-                </Select>
-              )}
-              <Select label="Sort" value={view.sort} onChange={(s) => setView((v) => ({ ...v, sort: s as DriveSort }))} data="sort">
-                {DRIVE_SORTS.filter((s) => !view.email || (s !== 'opened' && s !== 'modified')).map((s) => (
-                  <option key={s} value={s}>
-                    {DRIVE_SORT_LABELS[s]}
-                  </option>
-                ))}
-              </Select>
-              {!inCard && (
-                <>
-                  <div className="relative ml-auto w-48 min-w-0">
-                    <Search aria-hidden className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                    <Input type="search" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Search files" aria-label="Search files" data-files-search="" className="h-7 pl-7 text-xs" />
-                  </div>
-                  <UploadButton uploading={uploading} onClick={() => picker.current?.click()} />
-                </>
-              )}
+              {/* Type, who made it and the sort are the list's own (the shared toolbar's filters and display). */}
             </div>
             {view.email && (
               <p className="text-xs text-muted-foreground" data-drive-email-note="">
@@ -310,47 +325,43 @@ export default function FilesCard(props: PageCardProps) {
               </p>
             )}
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6">
+          <div className="min-h-0 flex-1" data-drive-list="">
             {error ? (
               <p className="py-10 text-center text-sm text-destructive">{error}</p>
-            ) : shown.length === 0 && loading ? (
-              <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>
-            ) : shown.length === 0 && !more ? (
-              <EmptyState view={view} filtered={filtered} mailboxes={mail.mailboxes} />
             ) : (
-              <>
-                {shown.length > 0 && (
-                  <ul className="divide-y divide-border" data-drive-list="">
-                    {shown.map((item) => (
-                      <FileRow
-                        key={item.key}
-                        item={item}
-                        sort={view.sort}
-                        creator={creatorOf(item, members)}
-                        onOpen={() => void openItem(item)}
-                        onOpenParent={() => {
-                          const p = item.upload?.parent
-                          if (p && p.type !== 'row' && p.type !== 'drive') records.open({ type: p.type, id: p.id, label: p.label })
-                        }}
-                        onMove={item.upload?.parent.type === 'drive' ? () => setMoving(item) : undefined}
-                      />
-                    ))}
-                  </ul>
-                )}
-                {more && (
-                  <div className="flex justify-center pt-3">
-                    <button
-                      type="button"
-                      data-files-more=""
-                      disabled={loading}
-                      onClick={() => loadMore()}
-                      className="h-7 rounded-lg px-3 text-xs text-muted-foreground hover:bg-muted/60 hover:text-foreground disabled:opacity-50"
-                    >
-                      {loading ? 'Loading…' : 'Show more'}
-                    </button>
-                  </div>
-                )}
-              </>
+              <LocalViewList<FileRowData>
+                entityType="file"
+                rows={shown}
+                loading={loading && shown.length === 0}
+                dateFields={FILE_DATE_FIELDS}
+                searchFields={FILE_SEARCH_FIELDS}
+                search={typed}
+                onSearchChange={setTyped}
+                searchPlaceholder={view.email ? 'Search your mail' : 'Search files'}
+                canSaveViews={false}
+                headerExtra={<UploadButton inHeader={inCard} uploading={uploading} onClick={() => picker.current?.click()} />}
+                onOpen={(row) => void openItem(row.item)}
+                menuItemsOf={menuItemsOf}
+                rowKeys={rowKeys}
+                fallbackOrdering={view.tab === 'recent' ? OPENED_FIRST : view.email ? ADDED_FIRST : undefined}
+                groupLabels={FILE_GROUP_LABELS}
+                empty={<EmptyState view={view} filtered={filtered} mailboxes={mail.mailboxes} />}
+                footer={
+                  more ? (
+                    <div className="flex shrink-0 justify-center py-3">
+                      <button
+                        type="button"
+                        data-files-more=""
+                        disabled={loading}
+                        onClick={() => loadMore()}
+                        className="h-7 rounded-lg px-3 text-xs text-muted-foreground hover:bg-muted/60 hover:text-foreground disabled:opacity-50"
+                      >
+                        {loading ? 'Loading…' : 'Show more'}
+                      </button>
+                    </div>
+                  ) : null
+                }
+              />
             )}
           </div>
         </div>
@@ -445,74 +456,6 @@ function EmptyState({ view, filtered, mailboxes }: { view: DriveView; filtered: 
         {line && <p className="mt-1 text-sm text-muted-foreground">{line}</p>}
       </div>
     </div>
-  )
-}
-
-function FileRow({
-  item,
-  sort,
-  creator,
-  onOpen,
-  onOpenParent,
-  onMove,
-}: {
-  item: DriveItem
-  sort: DriveSort
-  creator: DriveMember | null
-  onOpen: () => void
-  onOpenParent: () => void
-  onMove?: () => void
-}) {
-  const size = formatFileSize(item.size)
-  const Icon = TYPE_ICON[item.type]
-  const parent = item.upload?.parent
-  const opensParent = !!parent && parent.type !== 'row' && parent.type !== 'drive'
-  const by = creator?.display_name?.trim() || item.creator.label || null
-  return (
-    <li
-      data-files-row={item.upload?.id ?? item.key}
-      data-drive-row={item.key}
-      onKeyDown={(e) => {
-        if (onMove && (e.key === 'm' || e.key === 'M') && !e.metaKey && !e.ctrlKey && !e.altKey) {
-          e.preventDefault()
-          e.stopPropagation()
-          onMove()
-        }
-      }}
-      className="flex items-center gap-3 py-2"
-    >
-      <span aria-hidden className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted/60 text-muted-foreground">
-        <Icon className="size-4" strokeWidth={1.75} />
-      </span>
-      <span className="min-w-0 flex-1">
-        <button
-          type="button"
-          data-files-open={item.upload?.id ?? item.key}
-          onClick={onOpen}
-          title={onMove ? `Open ${item.name} (M to move it to a folder)` : `Open ${item.name}`}
-          className="block max-w-full truncate text-left text-sm font-medium text-foreground hover:underline"
-        >
-          {item.name}
-        </button>
-        {opensParent ? (
-          <button
-            type="button"
-            data-files-parent={`${parent!.type}:${parent!.id}`}
-            onClick={onOpenParent}
-            className="block max-w-full truncate text-left text-xs text-muted-foreground hover:text-foreground hover:underline"
-          >
-            {item.where}
-          </button>
-        ) : (
-          <span data-files-parent={parent ? `${parent.type}:${parent.id}` : item.source} className="block max-w-full truncate text-left text-xs text-muted-foreground">
-            {item.where}
-          </span>
-        )}
-      </span>
-      {by && <span className="hidden w-28 shrink-0 truncate text-xs text-muted-foreground md:block">{by}</span>}
-      {size && <span className="hidden shrink-0 text-xs tabular-nums text-muted-foreground sm:block">{size}</span>}
-      <span className="w-16 shrink-0 text-right text-xs text-muted-foreground">{shortDate(driveItemTime(item, sort))}</span>
-    </li>
   )
 }
 

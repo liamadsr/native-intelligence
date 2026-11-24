@@ -15,7 +15,7 @@
  */
 import * as React from 'react'
 import { useHotkeys, type HotkeyDefinition } from '@/lib/hotkeys'
-import type { GroupedResults, ViewEntityType } from '@/lib/views/types'
+import type { GroupedResults, SortConfig, ViewEntityType } from '@/lib/views/types'
 import { defaultOrdering } from '@/lib/views/types'
 import { filterLocalRows, groupLocalRows, sortLocalRows, type LocalRow } from '@/lib/views/local-rows'
 import { CardHeaderSlot, useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
@@ -42,35 +42,60 @@ export interface LocalViewListProps<T extends LocalRow> {
   groupLabels?: Readonly<Record<string, Readonly<Record<string, string>>>>
   /** Drawn in the list's place when there are no rows and no search. */
   empty?: React.ReactNode
+  /**
+   * Search the page runs itself (Files: on the server): the box shows this
+   * and reports to `onSearchChange`, and the rows are not searched here.
+   */
+  search?: string
+  onSearchChange?: (search: string) => void
+  searchPlaceholder?: string
+  /** Saved views (the tabs and Save): off for a kind the enum doesn't hold (Files). */
+  canSaveViews?: boolean
+  /** The page's own controls beside the search: in the card's header, or the toolbar's right. */
+  headerExtra?: React.ReactNode
+  /** The page's own row above the toolbar (Files' sources). */
+  above?: React.ReactNode
+  /** Under the rows (Show more). */
+  footer?: React.ReactNode
+  /** The page's own keys on the focused row (Files' M to move), beside J/K/Enter/O. */
+  rowKeys?: ReadonlyArray<{ key: string; run: (row: T) => void; on?: (row: T) => boolean }>
+  /** The order while the view names none, when the page's place has its own (Files' Recent: last opened first). */
+  fallbackOrdering?: readonly SortConfig[]
 }
 
 const NO_LABELS: Readonly<Record<string, Readonly<Record<string, string>>>> = {}
 
-export function LocalViewList<T extends LocalRow>({ entityType, rows, loading, dateFields, searchFields, onOpen, menuItemsOf, groupLabels = NO_LABELS, empty }: LocalViewListProps<T>) {
+export function LocalViewList<T extends LocalRow>({
+  entityType, rows, loading, dateFields, searchFields, onOpen, menuItemsOf, groupLabels = NO_LABELS, empty,
+  search: controlledSearch, onSearchChange, searchPlaceholder, canSaveViews = true, headerExtra, above, footer, rowKeys, fallbackOrdering,
+}: LocalViewListProps<T>) {
   const inCard = useCardHeaderSlots() !== null
   const surface = React.useContext(CardSurfaceContext)
   // The card's options for this list, once (CardConfigSource is read at mount).
   const [card] = React.useState(() => surface?.listOptions(entityType, entityType))
-  const { views, activeViewId, activeView, setActiveViewId, createView, updateView, duplicateView, deleteView } = useView(entityType, undefined, undefined, { standalone: !!card })
+  const { views, activeViewId, activeView, setActiveViewId, createView, updateView, duplicateView, deleteView } = useView(entityType, undefined, undefined, { standalone: !!card, listViews: canSaveViews })
   const { config, updateConfig, resetConfig, isDirty, overrides, saveOverrides, discardOverrides } = useViewConfig(activeView, entityType, updateView, false, undefined, 'workspace', card, card ? 'memory' : 'storage')
 
-  const [search, setSearch] = React.useState(card?.search ?? '')
+  const [ownSearch, setOwnSearch] = React.useState(card?.search ?? '')
+  const controlled = controlledSearch !== undefined
+  const search = controlled ? controlledSearch : ownSearch
   const changeSearch = React.useCallback(
     (next: string) => {
-      setSearch(next)
+      if (controlled) onSearchChange?.(next)
+      else setOwnSearch(next)
       card?.onSearchChange?.(next)
     },
-    [card],
+    [card, controlled, onSearchChange],
   )
 
   const { data, flat } = React.useMemo(() => {
-    const q = search.trim().toLowerCase()
+    const q = controlled ? '' : search.trim().toLowerCase()
     const searched = q ? rows.filter((r) => searchFields.some((f) => String(r[f] ?? '').toLowerCase().includes(q))) : rows
-    const sorted = sortLocalRows(filterLocalRows(searched, config.filters, dateFields), config.ordering, defaultOrdering(entityType))
+    const sorted = sortLocalRows(filterLocalRows(searched, config.filters, dateFields), config.ordering, fallbackOrdering ?? defaultOrdering(entityType))
     const field = config.grouping?.field
     const grouped: Record<string, unknown>[] | GroupedResults[] = field ? groupLocalRows(sorted, field, groupLabels[field] ?? {}) : sorted
     return { data: grouped, flat: sorted }
-  }, [rows, search, searchFields, config.filters, config.ordering, config.grouping, dateFields, entityType, groupLabels])
+  }, [rows, search, controlled, fallbackOrdering, searchFields, config.filters, config.ordering, config.grouping, dateFields, entityType, groupLabels])
 
   // ── The keyboard, as in every list (list-keyboard.tsx). ──
   const rootRef = React.useRef<HTMLDivElement>(null)
@@ -98,8 +123,14 @@ export function LocalViewList<T extends LocalRow>({ entityType, rows, loading, d
       { ...base, key: 'ArrowUp', handler: () => moveFocus(-1) },
       { ...onRow, key: 'Enter', handler: () => focusedRow && onOpen(focusedRow) },
       { ...onRow, key: 'o', handler: () => focusedRow && onOpen(focusedRow) },
+      ...(rowKeys ?? []).map((k) => ({
+        ...base,
+        key: k.key,
+        disabled: !focusedRow || (k.on ? !k.on(focusedRow) : false),
+        handler: () => focusedRow && k.run(focusedRow),
+      })),
     ]
-  }, [ownsKeys, moveFocus, focusedRow, onOpen])
+  }, [ownsKeys, moveFocus, focusedRow, onOpen, rowKeys])
   useHotkeys(keys)
 
   const onItemSelect = React.useCallback(
@@ -111,13 +142,21 @@ export function LocalViewList<T extends LocalRow>({ entityType, rows, loading, d
     [flat, onOpen],
   )
 
-  const searchBox = <ExpandableSearch value={search} onChange={changeSearch} label={`Search ${ENTITY_PLURAL[entityType]}`} placeholder={`Search ${ENTITY_PLURAL[entityType]}…`} />
+  const searchBox = (
+    <div className="flex items-center gap-1.5">
+      <ExpandableSearch value={search} onChange={changeSearch} label={`Search ${ENTITY_PLURAL[entityType]}`} placeholder={searchPlaceholder ?? `Search ${ENTITY_PLURAL[entityType]}…`} />
+      {headerExtra}
+    </div>
+  )
 
   return (
     <div ref={rootRef} data-list-keyboard-root="" data-local-view-list={entityType} className="relative isolate flex h-full min-h-0 flex-col">
       {inCard && <CardHeaderSlot side="right">{searchBox}</CardHeaderSlot>}
+      {above}
       <ViewToolbar
         embedded
+        canSaveViews={canSaveViews}
+        hideTabs={!canSaveViews}
         alignToContent
         compact={card?.compact}
         layoutInHeader={inCard}
@@ -149,6 +188,7 @@ export function LocalViewList<T extends LocalRow>({ entityType, rows, loading, d
           </RowMenuItemsProvider>
         )}
       </div>
+      {footer}
     </div>
   )
 }

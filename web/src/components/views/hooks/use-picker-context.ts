@@ -33,6 +33,8 @@ const ENTITY_CONTEXT_REQUIREMENTS: Record<ViewEntityType, ContextKey[]> = {
   drive_item: [],
   campaign: ['members'],
   team: [],
+  // The Created by filter and cell.
+  file: ['members'],
   action: ['members', 'projects', 'labels', 'workflowStates'],
   project: ['members', 'initiatives', 'labels', 'workflowStates'],
   initiative: ['members', 'labels'],

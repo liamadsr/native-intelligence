@@ -72,6 +72,10 @@ export type ViewEntityType =
   // the Teams page from /api/account/teams (it hides private teams they're
   // not on) and filtered there (components/views/local-view-list.tsx).
   | 'team'
+  // Files (views-everywhere): every file the person may see, read by the
+  // Files page from its own sources (drive-files-data.ts) and filtered there.
+  // No saved views yet: the enum has no 'file' (its migration is a later one).
+  | 'file'
 export type LibraryScope = 'all' | 'mine' | 'workspace' | 'discover'
 /**
  * How a view is drawn. `graph` is the knowledge map — a WebGL canvas of claims
@@ -598,6 +602,14 @@ export const FILTERABLE_FIELDS: Record<ViewEntityType, FilterFieldDefinition[]> 
     { field: 'updated_at', label: 'Updated', type: 'date' },
   ],
   drive_item: DRIVE_ITEM_FILTER_FIELDS,
+  file: [
+    { field: 'file_type', label: 'Type', type: 'enum', options: ['pdf', 'document', 'sheet', 'slides', 'image', 'video', 'audio', 'other'] },
+    { field: 'created_by', label: 'Created by', type: 'member', allowEmpty: true },
+    { field: 'title', label: 'Name', type: 'text' },
+    { field: 'updated_at', label: 'Modified', type: 'date' },
+    { field: 'created_at', label: 'Added', type: 'date' },
+    { field: 'opened_at', label: 'Opened', type: 'date' },
+  ],
   team: [
     { field: 'is_private', label: 'Private', type: 'boolean' },
     { field: 'name', label: 'Name', type: 'text' },
@@ -894,6 +906,7 @@ export const DEFAULT_DISPLAY_PROPERTIES: Record<ViewEntityType, string[]> = {
   // What it reaches (or what it is for), what it sent, when it runs, where it stands.
   campaign: ['campaign_reach', 'campaign_counts', 'campaign_window', 'status'],
   team: ['issue_prefix', 'team_members'],
+  file: ['file_where', 'created_by', 'file_size', 'updated_at'],
   initiative: ['target_date', 'project', 'status'],
   project: ['labels', 'target_date', 'progress', 'initiative', 'lead', 'status'],
   flow: ['trigger', 'action_target', 'team', 'last_run', 'enabled'],
@@ -1121,6 +1134,14 @@ export const DISPLAY_PROPERTIES: Record<ViewEntityType, DisplayPropertyDefinitio
     { field: 'created_at', label: 'Created' },
     { field: 'updated_at', label: 'Updated' },
   ],
+  file: [
+    { field: 'file_where', label: 'Where it lives' },
+    { field: 'created_by', label: 'Created by' },
+    { field: 'file_size', label: 'Size' },
+    { field: 'updated_at', label: 'Modified' },
+    { field: 'created_at', label: 'Added' },
+    { field: 'opened_at', label: 'Opened' },
+  ],
   team: [
     { field: 'issue_prefix', label: 'Prefix' },
     { field: 'team_members', label: 'Members' },
@@ -1341,6 +1362,8 @@ export const DEFAULT_ORDERING: Partial<Record<ViewEntityType, SortConfig[]>> = {
   campaign: [{ field: 'updated_at', direction: 'desc' }],
   // Teams by name, as the Teams page lists them.
   team: [{ field: 'name', direction: 'asc' }],
+  // Files: the one changed last first, as the page always opened.
+  file: [{ field: 'updated_at', direction: 'desc' }],
   spreadsheet: [{ field: 'updated_at', direction: 'desc' }],
   data_table: [{ field: 'updated_at', direction: 'desc' }],
   // A folder: its subfolders first (item_type sorts `folder` ahead), then the newest filed.
@@ -1425,6 +1448,7 @@ export const DEFAULT_BOARD_GROUP_BY: Record<ViewEntityType, string> = {
   drive_item: 'item_type',
   campaign: 'status',
   team: 'is_private',
+  file: 'file_type',
   initiative: 'status',
   project: 'status',
   flow: 'enabled',
@@ -1524,6 +1548,11 @@ export const FIELD_CATEGORIES: Record<ViewEntityType, { label: string; fields: s
     { label: 'Content', fields: ['name', 'created_at', 'updated_at'] },
   ],
   team: [{ label: '', fields: ['is_private', 'name', 'issue_prefix', 'created_at'] }],
+  file: [
+    { label: '', fields: ['file_type', 'created_by'] },
+    { label: 'Dates', fields: ['updated_at', 'created_at', 'opened_at'] },
+    { label: 'Content', fields: ['title'] },
+  ],
   campaign: [
     { label: '', fields: ['status', 'owner_member_id'] },
     { label: 'Dates', fields: ['starts_on', 'ends_on', 'created_at', 'updated_at'] },

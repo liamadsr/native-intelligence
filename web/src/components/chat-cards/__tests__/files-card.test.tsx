@@ -2,8 +2,9 @@
 /**
  * Drive's Files card (docs/plans/drive-files.md, phase 2): uploads and team
  * chat files merged newest first; All, My files, Recent and Shared with me;
- * mail attachments behind their own filter, read live; type, creator and
- * sort; a file opened in the viewer (and its open recorded, never a mail
+ * mail attachments behind their own filter, read live; the list is the views
+ * system's (docs/plans/views-everywhere.md: the shared toolbar's type,
+ * creator and sort, the shared rows); a file opened in the viewer (and its open recorded, never a mail
  * file's); a dropped or picked file uploaded to Drive; M moves one's own
  * Drive upload to a folder. Made-up people and files.
  */
@@ -44,6 +45,16 @@ vi.mock('@/components/files/file-viewer', () => ({
     return { open, viewer: file ? React.createElement('div', { 'data-viewer': file.url ?? file.key, 'data-name': file.name }) : null }
   },
 }))
+// jsdom cannot size the shared list's virtualizer: every row drawn.
+vi.mock('@tanstack/react-virtual', () => ({
+  useVirtualizer: (opts: { count: number; estimateSize: () => number }) => ({
+    getVirtualItems: () => Array.from({ length: opts.count }, (_, index) => ({ index, key: index, start: index * opts.estimateSize(), size: opts.estimateSize(), end: (index + 1) * opts.estimateSize() })),
+    getTotalSize: () => opts.count * opts.estimateSize(),
+    measureElement: () => {},
+    measure: () => {},
+    scrollToIndex: () => {},
+  }),
+}))
 vi.mock('../card-body', () => ({
   CardRecordPanel: ({ record }: { record: { type: string; id: string } }) => React.createElement('div', { 'data-record-panel': `${record.type}:${record.id}` }),
   useOpenRecords: () => {
@@ -56,7 +67,9 @@ vi.mock('../card-body', () => ({
   },
 }))
 
-import FilesCard, { fileIconOf, toggleSource } from '../pages/files-card'
+import FilesCard, { fileIconOf, fileRowOf, toggleSource } from '../pages/files-card'
+import { filterLocalRows } from '@/lib/views/local-rows'
+import { itemFromUpload } from '@/lib/drive/drive-items'
 import type { PageCardSpec } from '@/lib/chat-cards/pages'
 import type { WorkspaceFile } from '@/lib/attachments/workspace-files-model'
 import type { DriveChatFile } from '@/lib/drive/chat-files'
@@ -138,7 +151,9 @@ const settle = async (ms = 0) => {
   })
 }
 const q = <T extends Element = HTMLElement>(sel: string) => mount.container.querySelector<T>(sel)
-const rows = () => Array.from(mount.container.querySelectorAll<HTMLElement>('[data-drive-row]')).map((r) => r.dataset.driveRow)
+/** The shared list's rows, by their item key. */
+const rows = () => Array.from(mount.container.querySelectorAll<HTMLElement>('[data-list-row-id]')).map((r) => r.dataset.listRowId)
+const row = (key: string) => q(`[data-list-row-id="${key}"]`)
 const click = async (sel: string) => {
   await act(async () => q(sel)!.click())
   await settle()
@@ -166,10 +181,10 @@ describe('Drive’s Files card', () => {
     expect(asked).toContain('GET /api/account/drive/chat-files?limit=50&tab=all')
     expect(asked.some((a) => a.includes('mail-files'))).toBe(false)
     expect(rows()).toEqual(['upload:mine', 'team_chat:ch-1/u-bo/a.png', 'upload:quote'])
-    expect(q('[data-drive-row="upload:mine"]')!.textContent).toContain('Drive · only you')
-    expect(q('[data-drive-row="team_chat:ch-1/u-bo/a.png"]')!.textContent).toContain('#design')
-    const quote = q('[data-drive-row="upload:quote"]')!
-    expect(quote.querySelector('[data-files-parent]')!.textContent).toBe('Action · Send the quote')
+    expect(row('upload:mine')!.textContent).toContain('Drive · only you')
+    expect(row('team_chat:ch-1/u-bo/a.png')!.textContent).toContain('#design')
+    const quote = row('upload:quote')!
+    expect(quote.textContent).toContain('Action · Send the quote')
     expect(quote.textContent).toContain('Bo Lin')
     expect(quote.textContent).toContain('820 KB')
     expect(counts.at(-1)).toBe(3)
@@ -198,12 +213,14 @@ describe('Drive’s Files card', () => {
     const which = q<HTMLSelectElement>('[data-drive-filter="tab"]')!
     expect(which.value).toBe('all')
     expect(Array.from(which.options).map((o) => o.textContent)).toEqual(['All files', 'My files', 'Recent', 'Shared with me'])
-    // One row, from the card's corner: the sources, then the choices.
-    const row = which.closest('[class*="px-2.5"]')!
-    expect(row.querySelector('[data-drive-source="upload"]')).not.toBeNull()
-    expect(row.querySelector('[data-drive-filter="sort"]')).not.toBeNull()
+    // One row, from the card's corner: the sources, then which files. Type, who made it and the sort are the shared toolbar's.
+    const first = which.closest('[class*="px-2.5"]')!
+    expect(first.querySelector('[data-drive-source="upload"]')).not.toBeNull()
+    expect(q('[data-drive-filter="sort"]')).toBeNull()
+    expect(q('[data-local-view-list="file"]')).not.toBeNull()
     // The header keeps the search and Upload.
-    expect(right.querySelector('[data-files-search-control]')).not.toBeNull()
+    expect(right.querySelector('input, [aria-label="Search files"]')).not.toBeNull()
+    expect(right.querySelector('[data-drive-upload]')).not.toBeNull()
     // The sources wear the tabs' pill.
     expect(q('[data-drive-source="upload"]')!.className).toContain('h-7')
     await pick('[data-drive-filter="tab"]', 'mine')
@@ -221,9 +238,8 @@ describe('Drive’s Files card', () => {
     })
     await render()
     await pick('[data-drive-filter="tab"]', 'recent')
+    // Last opened first: Recent's own order while the view names none.
     expect(rows()).toEqual(['team_chat:ch-1/u-bo/a.png', 'upload:quote'])
-    expect(q<HTMLSelectElement>('[data-drive-filter="sort"]')!.value).toBe('opened')
-    expect(q('[data-drive-row="upload:quote"]')!.textContent).toContain('Nov 21')
   })
 
   it('keeps mail attachments behind their own filter, read live, and never records opening one', async () => {
@@ -234,59 +250,79 @@ describe('Drive’s Files card', () => {
     expect(q('[data-drive-email-note]')).not.toBeNull()
     expect(q('[data-drive-filter="tab"]')).toBeNull()
     expect(rows()).toEqual(['email:acct:m1:plan.pdf'])
-    expect(q('[data-drive-row="email:acct:m1:plan.pdf"]')!.textContent).toContain('Q3 plan')
-    await click('[data-drive-row="email:acct:m1:plan.pdf"] [data-files-open]')
+    expect(row('email:acct:m1:plan.pdf')!.textContent).toContain('Q3 plan')
+    await act(async () => row('email:acct:m1:plan.pdf')!.click())
+    await settle()
     expect(hoisted.opened.at(-1)).toMatchObject({ name: 'plan.pdf', sourceLabel: 'Q3 plan' })
     expect(hoisted.opened.at(-1)!.load).toBeTypeOf('function')
     expect(asked.some((a) => a.startsWith('POST /api/account/drive/opens'))).toBe(false)
   })
 
-  it('filters by type and by who made it, and toggles a source without hiding both', async () => {
+  it('filters by type and by who made it (the shared filters over its rows), and toggles a source without hiding both', async () => {
+    const files = [itemFromUpload(MINE), itemFromUpload(QUOTE)].map((i) => fileRowOf(i, [ME, BO]))
+    const ids = (rs: Array<{ id: string }>) => rs.map((r) => r.id)
+    const dates = new Set(['updated_at', 'created_at', 'opened_at'])
+    // Type: the item's own kind (from its MIME type), as the page's Type select read it.
+    const markdown = files.find((f) => f.id === 'upload:mine')!.file_type as string
+    expect(files.find((f) => f.id === 'upload:quote')!.file_type).not.toBe(markdown)
+    expect(ids(filterLocalRows(files, [{ id: 'f', field: 'file_type', operator: 'is', value: markdown }], dates))).toEqual(['upload:mine'])
+    expect(ids(filterLocalRows(files, [{ id: 'f', field: 'created_by', operator: 'is', value: 'mem-bo' }], dates))).toEqual(['upload:quote'])
+    expect(files.find((f) => f.id === 'upload:quote')).toMatchObject({ created_by: 'mem-bo', file_where: 'Action · Send the quote' })
     await render()
-    await pick('[data-drive-filter="type"]', 'image')
-    expect(rows()).toEqual(['team_chat:ch-1/u-bo/a.png'])
-    await pick('[data-drive-filter="type"]', '')
-    await pick('[data-drive-filter="creator"]', 'mem-bo')
-    expect(rows()).toEqual(['team_chat:ch-1/u-bo/a.png', 'upload:quote'])
-    await pick('[data-drive-filter="creator"]', '')
     await click('[data-drive-source="team_chat"]')
     expect(rows()).toEqual(['upload:mine', 'upload:quote'])
-    const v = { tab: 'all' as const, uploads: true, chat: false, email: false, type: null, creator: null, sort: 'modified' as const }
+    const v = { tab: 'all' as const, uploads: true, chat: false, email: false }
     expect(toggleSource(v, 'uploads')).toMatchObject({ uploads: false, chat: true })
   })
 
   it('opens an upload in the viewer through a short signed link, and records the open', async () => {
     await render()
-    await click('[data-drive-row="upload:quote"] [data-files-open]')
+    await act(async () => row('upload:quote')!.click())
+    await settle()
     expect(hoisted.signed).toHaveBeenCalledWith('attachments', 'u1/x/quote.pdf', 600)
     expect(q('[data-viewer]')!.dataset.viewer).toBe('https://files.test/u1/x/quote.pdf')
     expect(asked).toContain('POST /api/account/drive/opens')
-    await click('[data-drive-row="team_chat:ch-1/u-bo/a.png"] [data-files-open]')
+    await act(async () => row('team_chat:ch-1/u-bo/a.png')!.click())
+    await settle()
     expect(hoisted.opened.at(-1)).toMatchObject({ url: 'https://chat.test/ch-1/u-bo/a.png', sourceLabel: '#design' })
   })
 
-  it('opens an upload’s record inside the card', async () => {
+  it('opens an upload’s record inside the card, from its row’s right-click', async () => {
     await render()
-    await click('[data-drive-row="upload:quote"] [data-files-parent]')
+    // The shared row's menu mounts on its first right-click (useArmedContextMenu), then opens.
+    for (let i = 0; i < 2; i++) {
+      await act(async () => void row('upload:quote')!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 })))
+      await settle()
+    }
+    const item = document.querySelector<HTMLElement>('[data-row-menu-item="open_parent"]')!
+    expect(item.textContent).toContain('Open action')
+    await act(async () => item.click())
+    await settle()
     expect(q('[data-record-panel="action:act-1"]')).not.toBeNull()
   })
 
   it('M on one’s own Drive upload moves it to a folder', async () => {
+    // jsdom lays nothing out: the list counts as on screen (list-keyboard.tsx asks); nor has it CSS.escape.
+    vi.spyOn(Element.prototype, 'getClientRects').mockReturnValue([{}] as unknown as DOMRectList)
+    vi.stubGlobal('CSS', { escape: (v: string) => v.replace(/["\\]/g, '\\$&') })
+    const key = (k: string) => act(async () => void document.body.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true })))
     await render()
-    await act(async () => {
-      q('[data-drive-row="upload:mine"] [data-files-open]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'm', bubbles: true }))
-    })
+    await key('j')
+    expect(row('upload:mine')!.hasAttribute('data-list-focused')).toBe(true)
+    await key('m')
     await settle()
     expect(q('[data-drive-move]')).not.toBeNull()
     await click('[data-drive-move-to="fo-1"]')
     expect(asked).toContain('POST /api/account/folders/fo-1/items')
     expect(q('[data-drive-move]')).toBeNull()
     // Someone else's file on a record: M does nothing.
-    await act(async () => {
-      q('[data-drive-row="upload:quote"] [data-files-open]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'm', bubbles: true }))
-    })
+    await key('j')
+    await key('j')
+    expect(row('upload:quote')!.hasAttribute('data-list-focused')).toBe(true)
+    await key('m')
     await settle()
     expect(q('[data-drive-move]')).toBeNull()
+    vi.restoreAllMocks()
   })
 
   it('uploads a picked file to Drive, unfiled', async () => {
@@ -306,7 +342,7 @@ describe('Drive’s Files card', () => {
     routes['/api/account/drive/chat-files'] = () => ({ files: [], before: null })
     await render()
     expect(q('[data-files-empty]')!.textContent).toContain('No files yet')
-    await pick('[data-drive-filter="type"]', 'pdf')
+    await click('[data-drive-source="team_chat"]')
     expect(q('[data-files-empty]')!.textContent).toContain('No files match')
   })
 

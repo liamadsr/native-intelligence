@@ -24,6 +24,8 @@ export const ENTITY_ENDPOINTS: Record<ViewEntityType, (id: string) => string | n
   campaign: id => `/api/account/campaigns/${id}`,
   // A team is changed on its own settings page, never inline.
   team: () => null,
+  // A file is a source's own (an upload, a chat file, a mail attachment): nothing inline.
+  file: () => null,
   action: id => `/api/account/actions/${id}`,
   project: id => `/api/account/projects/${id}`,
   initiative: id => `/api/account/initiatives/${id}`,
