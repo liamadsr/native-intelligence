@@ -1,5 +1,6 @@
 'use client'
 
+import { useSupportChatDue } from '@/lib/support-chat/use-support-chat-due'
 import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { usePostHog } from 'posthog-js/react'
 import { cn } from '@/lib/utils'
@@ -487,6 +488,9 @@ export function DashboardShell({
   avatarUrl: string | null
 }) {
   useBodyScrollLock()
+  // Support chat (715, 719): the person's conversation with our team, started in the background
+  // once per browser session if it is due (an account from before gets theirs as they come back).
+  useSupportChatDue()
 
   const posthog = usePostHog()
   useEffect(() => {

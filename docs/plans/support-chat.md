@@ -1,6 +1,6 @@
 # Support chat: a direct line to everyone who signs up
 
-Branch `claude/support-chat`, migration 715. Not merged, not rolled out.
+Migration 715 (branch `claude/support-chat`): merged and live in production. Migration 719, existing accounts (branch `claude/support-chat-existing`): not merged, not rolled out.
 
 ## What you asked for
 
@@ -101,8 +101,24 @@ new accounts only.
 
 ## Existing accounts
 
-Nothing is backfilled. **Admin › Support Chat › Start one for an existing account** starts one
-by email address, with the welcome.
+You asked (2026-11-24): "Does this work for existing accounts too or only new ones? can we
+also make it so that it shows up for existing users in addition to the new ones".
+
+At first it was new accounts only, plus an admin's start one account at a time. Migration
+719 adds:
+
+- **A switch at Admin › Support Chat: "Existing accounts get one too", on by default.** While
+  it's on, everyone who signed up before support chat gets their conversation the next time
+  they use the app. Off: new accounts only, as before.
+- **No burst.** Nothing loops over every account on the server. The dashboard asks once per
+  browser session, in the background a few seconds after it loads, so conversations start one
+  by one as people come back. The welcome notifies only that person; our staff get nothing
+  from it.
+- **Their own welcome**, beside the new-account one, with a preview. By default: "Hi {name},
+  you can now reach our team directly here. Ask us anything, and tell us about bugs or ideas
+  any time." Leave it empty and they get the new-account welcome.
+- Still never our staff, and never someone who deleted theirs (only an admin's start brings
+  that back). There are no bot or agent sign-ins in this product to leave out.
 
 ## What changed after the reference spec (the clean-room behaviour notes)
 
@@ -131,9 +147,8 @@ how it behaves. From those notes:
    admin has opened team chat once on production, sign-ups get no support conversation (no
    one to send the welcome). Alternative: a separate list, set on the admin page.
 2. **The welcome comes from you** (the first admin on the team), not a company account.
-3. **A one-time backfill for everyone who signed up before: not done.** If you want it, it's one
-   statement on the server once 715 is applied (a loop calling `support_chat_start` for every
-   account), and every one of them gets the welcome at once, with an unread badge. Your call.
+3. **Existing accounts get one too, on by default (719)**, lazily as they come back, with their
+   own welcome. Turn it off at Admin › Support Chat before rolling 719 out if you'd rather wait.
 4. **Customer messages notify every admin, in the app only.** No email to us.
 5. **For now, no calls, files from our side, reactions or threads in these conversations.**
    Each can come later; calls need our staff to be in a call without being in the workspace,
@@ -148,6 +163,17 @@ how it behaves. From those notes:
 9. **Staff can't delete a customer's conversation.**
 
 ## Production
+
+**719 (existing accounts):** apply after 715 and before its code, with `psql -v
+ON_ERROR_STOP=1 < 719_support_chat_existing.sql` (one transaction). No new setting. Once it is
+applied, the switch is on: accounts from before get their conversation as they come back,
+even under the code already running (it asks from the team chat list). To hold that, run
+`update public.support_chat_settings set existing_accounts = false;` with the migration, then
+turn it on from the admin page when you're ready. Rehearsed on a local Postgres: 715, then
+719 twice, 14 checks passing. Not checked in a browser: the admin page reads the database's
+settings, and DEV has neither migration.
+
+**715:**
 
 - **Migration 715** first, then the code. Apply it with `psql -v ON_ERROR_STOP=1 <
   715_support_chat.sql` in the database container ("Apply a database migration" in
