@@ -13,7 +13,7 @@
  *
  * An empty list is hidden; with all of them empty, one quiet line.
  * Reads: POST /api/account/seo/google/search-console/opportunities for the
- * header's period, with a request counter.
+ * page's period, with a request counter.
  */
 import * as React from 'react'
 import { BarChart3, CircleCheck, Loader2 } from 'lucide-react'

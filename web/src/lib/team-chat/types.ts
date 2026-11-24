@@ -90,6 +90,13 @@ export interface TeamChatChannel {
   muted_until?: string | null
   /** Our staff's view of a customer's support conversation (migration 715). */
   support?: TeamChatSupportInfo | null
+  /**
+   * The person may edit it (migration 714's team_chat_can_manage): a channel
+   * or meeting chat they made (a meeting's host), or any of them for the
+   * workspace's owner or admin. Never a DM. The database decides again on
+   * every change; this only says whether to offer it. Absent: false.
+   */
+  can_manage?: boolean
 }
 
 /** A file or image on a message (migration 555), as stored and drawn. */

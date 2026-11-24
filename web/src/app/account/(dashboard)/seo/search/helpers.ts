@@ -15,10 +15,10 @@ import type {
 
 // ── The period ───────────────────────────────────────────────────────────
 
-/** The header's periods: the backend's presets, in plain words. */
+/** The page's periods (at the end of its tab row): the backend's presets, in plain words. */
 export type SearchPeriod = Extract<GscDateRange, 'last_7_days' | 'last_28_days' | 'last_3_months' | 'last_12_months'>
 
-/** `short`: the period's words where a card's header is narrow (FilterChips). */
+/** `short`: the period's words where the page's tab row is narrow (FilterChips). */
 export const SEARCH_PERIODS: ReadonlyArray<{ value: SearchPeriod; label: string; short: string; words: string }> = [
   { value: 'last_7_days', label: '7 days', short: '7d', words: 'the 7 days before' },
   { value: 'last_28_days', label: '28 days', short: '28d', words: 'the 28 days before' },

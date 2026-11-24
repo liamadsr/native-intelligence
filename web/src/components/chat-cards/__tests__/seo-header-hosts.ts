@@ -1,11 +1,19 @@
 /**
  * For the SEO page-card tests that draw the page in a card: the card header's
  * hosts as show-tool-card.tsx hands them to the page (its right end and the
- * trail after its title), and the title's press while a trail shows.
+ * trail after its title), and the title's press while a trail shows; and
+ * the page's first row, where its tabs stand in a card (Liam, 11-23:
+ * "everything looks the same as the projects page").
  */
 import * as React from 'react'
 import { vi } from 'vitest'
 import { CardHeaderSlotsProvider, type CardHeaderBack } from '../card-header-slot'
+
+/** The page's first element when it is its tab row (DETAIL_TAB_ROW), else null. */
+export function pageTabRow(page: Element | null): HTMLElement | null {
+  const first = page?.firstElementChild
+  return first instanceof HTMLElement && first.hasAttribute('data-seo-tab-row') ? first : null
+}
 
 export function seoHeaderHosts() {
   const right = document.createElement('div')

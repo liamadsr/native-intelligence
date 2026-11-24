@@ -199,3 +199,28 @@ describe('who a support message notifies', () => {
     expect(await supportStaffRecipients(svc)).toEqual([])
   })
 })
+
+describe('714’s Edit, Rename and Delete never reach a support conversation', () => {
+  it('the list never says can_manage for one, not even to its workspace’s owner (its customer)', async () => {
+    const { canManageChannel } = await import('@/lib/team-chat/store')
+    expect(canManageChannel({ kind: 'support', created_by: null }, { memberId: 'm-ana', role: 'owner' })).toBe(false)
+    expect(canManageChannel({ kind: 'support', created_by: 'm-ana' }, { memberId: 'm-ana', role: 'admin' })).toBe(false)
+    // Unchanged for the kinds 714 manages.
+    expect(canManageChannel({ kind: 'channel', created_by: null }, { memberId: 'm-ana', role: 'owner' })).toBe(true)
+  })
+
+  it('the menu offers nothing for one, even if told it may', async () => {
+    const { manageChoices } = await import('@/app/account/(dashboard)/views/team-chat-manage')
+    expect(manageChoices({ kind: 'support', can_manage: true })).toEqual([])
+    expect(manageChoices({ kind: 'channel', can_manage: true }).map((c) => c.what)).toEqual(['edit', 'delete'])
+  })
+
+  it('714’s team_chat_can_manage takes channels and meeting chats only, and 715 doesn’t restate it', async () => {
+    const { migrationsInOrder } = await import('@/test/migration-sql')
+    const all = migrationsInOrder()
+    const last = all.filter((m) => /create or replace function public\.team_chat_can_manage\(/i.test(m.sql)).at(-1)
+    expect(last?.num).toBe(714)
+    const body = last!.sql.slice(last!.sql.search(/create or replace function public\.team_chat_can_manage\(/i))
+    expect(body.slice(0, 2000)).toMatch(/kind in \('channel', 'meeting'\)/)
+  })
+})

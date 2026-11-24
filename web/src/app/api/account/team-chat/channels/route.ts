@@ -9,7 +9,9 @@
  *          { staff: true, userId }; for everyone else it is null. A
  *          person with no support conversation whose account was made since
  *          support chat began (and who never deleted theirs) gets it here,
- *          the first time it is due (src/lib/support-chat/store.ts).
+ *          the first time it is due (src/lib/support-chat/store.ts). Each
+ *          says whether the person may edit it (can_manage, migration 714;
+ *          never a support conversation).
  *   POST { name, teamId?, topic? } → { id } a new channel, for the whole
  *          workspace or for a team the person is in.
  * Everything runs as the person, under RLS (src/lib/team-chat/store.ts).
@@ -25,10 +27,10 @@ import { isSupportStaffUser, syncSupportStaff } from '@/lib/support-chat/staff'
 import { listSupportInbox, startSupportChatIfDue } from '@/lib/support-chat/store'
 
 export async function GET() {
-  const auth = await requireWorkspaceMember()
+  const auth = await requireWorkspaceMember({ select: 'id, role' })
   if (auth instanceof Response) return auth
   try {
-    const scope = { workspaceId: auth.workspaceId, memberId: auth.member.id }
+    const scope = { workspaceId: auth.workspaceId, memberId: auth.member.id, role: auth.member.role ?? null }
     let { channels, threads } = await listChannels(auth.supabase, scope)
     // No support conversation yet (715): one is due when the account was made since support chat
     // began and never deleted one (asked once in a while; the database decides, once per account).

@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 /**
- * A pull request's Description / Files changed / Checks in a card's header
- * (Liam, 11-23: "these details view pages like projects and pull request …
- * feel out of place"): a capsule in the card's right slot, the counts after
- * the words, a press switching what the page shows, and no row of pills over
- * the title. On its own, the row of pills, as before.
+ * A pull request's Description / Files changed / Checks on the page's first
+ * row, from the far left (Liam, 11-23: "make it look really nice and clean
+ * like linear does … it should start to the far left even though the page
+ * content is indented"): a tablist on the 18px line, the counts after the
+ * words, a press switching what the page shows; none in the card's header.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as React from 'react'
@@ -90,25 +90,23 @@ async function mount(inCard: boolean) {
 }
 
 describe('a pull request’s sections', () => {
-  it('in a card: a capsule in the header, counted; a press switches; no row over the title', async () => {
+  it('in a card: the page’s first row, from the far left, counted; a press switches; none in the header', async () => {
     await mount(true)
-    const capsule = right.querySelector<HTMLElement>('[data-detail-tabs="header"]')!
-    expect(capsule).not.toBeNull()
-    expect(capsule.getAttribute('aria-label')).toBe('Pull request')
-    expect(Array.from(capsule.querySelectorAll('[role="tab"]')).map((b) => b.textContent)).toEqual(['Description', 'Files changed2', 'Checks1'])
-    expect(capsule.querySelector('[data-reviews-tab="description"]')!.getAttribute('aria-selected')).toBe('true')
-    // The row is left empty (Merge and GitHub in the Properties popover), so it hides.
+    expect(right.querySelector('[role="tablist"]')).toBeNull()
     const row = container.querySelector<HTMLElement>('[data-reviews-toolbar]')!
-    expect(row.childNodes.length).toBe(0)
-    expect(row.className).toContain('empty:hidden')
-    expect(container.querySelector('[role="tablist"]')).toBeNull()
+    expect(row.className).toContain('px-2.5')
+    expect(row.className).not.toContain('max-w-[736px]')
+    const tabs = row.querySelector<HTMLElement>('[role="tablist"]')!
+    expect(tabs.getAttribute('aria-label')).toBe('Pull request')
+    expect(Array.from(tabs.querySelectorAll('[role="tab"]')).map((b) => b.textContent)).toEqual(['Description', 'Files changed2', 'Checks1'])
+    expect(tabs.querySelector('[data-reviews-tab="description"]')!.getAttribute('aria-selected')).toBe('true')
 
-    await act(async () => capsule.querySelector<HTMLButtonElement>('[data-reviews-tab="checks"]')!.click())
-    expect(capsule.querySelector('[data-reviews-tab="checks"]')!.getAttribute('aria-selected')).toBe('true')
+    await act(async () => tabs.querySelector<HTMLButtonElement>('[data-reviews-tab="checks"]')!.click())
+    expect(tabs.querySelector('[data-reviews-tab="checks"]')!.getAttribute('aria-selected')).toBe('true')
     expect(container.querySelector('[data-reviews-checks]')!.textContent).toContain('test')
   })
 
-  it('on its own: the row of pills, as before', async () => {
+  it('on its own: the same row', async () => {
     await mount(false)
     expect(right.childElementCount).toBe(0)
     const row = container.querySelector<HTMLElement>('[data-reviews-toolbar]')!

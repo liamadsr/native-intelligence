@@ -37,7 +37,7 @@ import { notifyLevelOf, type TeamChatNotifyLevel } from './notify'
 import { isSnoozed } from './snooze'
 import { isMissingColumnError } from '@/lib/mcp-client/public-row'
 
-export type TeamChatErrorCode = 'not_found' | 'forbidden' | 'conflict' | 'bad_request' | 'failed'
+export type TeamChatErrorCode = 'not_found' | 'forbidden' | 'conflict' | 'busy' | 'bad_request' | 'failed'
 
 export class TeamChatError extends Error {
   constructor(
@@ -49,10 +49,16 @@ export class TeamChatError extends Error {
   }
 }
 
-/** A Postgres error as a TeamChatError: 42501 forbidden, 23505 conflict, 22023/23514 bad request, else failed. */
+/**
+ * A Postgres error as a TeamChatError: 42501 forbidden, P0002 not found
+ * (714's "no such conversation"), 23505 conflict, 55000 busy (714: a call is
+ * live), 22023/23514 bad request, else failed.
+ */
 export function teamChatErrorOf(error: { code?: string; message?: string } | null | undefined, what: string): TeamChatError {
   const code = error?.code
   if (code === '42501') return new TeamChatError('forbidden', `${what}: not allowed`)
+  if (code === 'P0002') return new TeamChatError('not_found', `${what}: no such conversation`)
+  if (code === '55000') return new TeamChatError('busy', `${what}: busy`)
   if (code === '23505') return new TeamChatError('conflict', `${what}: already exists`)
   if (code === '22023' || code === '23514' || code === '22P02') return new TeamChatError('bad_request', `${what}: invalid`)
   return new TeamChatError('failed', `${what} failed${error?.message ? `: ${error.message}` : ''}`)
@@ -89,6 +95,8 @@ export function resetMessageColumns(): void {
 interface ChannelRow {
   id: string
   kind: TeamChatChannelKind
+  /** Who made it (474: the member; a meeting's host, 574/585). Read by listChannels only. */
+  created_by?: string | null
   name: string | null
   topic: string | null
   team_id: string | null
@@ -109,12 +117,12 @@ interface ChannelRow {
  */
 export async function listChannels(
   supabase: SupabaseClient,
-  scope: { workspaceId: string; memberId: string },
+  scope: { workspaceId: string; memberId: string; /** The person's workspace role: an owner or admin manages every channel and meeting chat (714). */ role?: string | null },
 ): Promise<{ channels: TeamChatChannel[]; threads: TeamChatThreadUnread[] }> {
   const [channels, unread, threadUnread, levels] = await Promise.all([
     supabase
       .from('team_chat_channel')
-      .select('id, kind, name, topic, team_id, dm_key, last_message_at, archived_at, created_at')
+      .select('id, kind, name, topic, team_id, dm_key, last_message_at, archived_at, created_at, created_by')
       .eq('workspace_id', scope.workspaceId)
       .is('archived_at', null)
       .order('last_message_at', { ascending: false, nullsFirst: false })
@@ -170,9 +178,27 @@ export async function listChannels(
       thread_mentions: inThreads.get(row.id)?.mentions ?? 0,
       notify,
       muted_until: snoozeOf.get(row.id) ?? null,
+      can_manage: canManageChannel(row, scope),
     }
   })
   return { channels: list, threads }
+}
+
+/**
+ * Whether to offer the person Edit (and, on a meeting chat, Delete): 714's
+ * team_chat_can_manage, as far as the list knows it. A channel or meeting
+ * chat they made, or any of them for an owner or admin; never a DM or a
+ * support conversation (715). The
+ * listed rows are already ones they may read and not archived. The database
+ * decides again on every change.
+ */
+export function canManageChannel(row: { kind: ChannelRow['kind']; created_by?: string | null }, scope: { memberId: string; role?: string | null }): boolean {
+  // A support conversation (715) is never edited this way, not even by the workspace's owner (who is its
+  // customer): 714's team_chat_can_manage takes channels and meeting chats only, and its delete is
+  // support_chat_remove's.
+  if (row.kind === 'dm' || row.kind === 'support') return false
+  if (scope.role === 'owner' || scope.role === 'admin') return true
+  return !!row.created_by && row.created_by === scope.memberId
 }
 
 /**

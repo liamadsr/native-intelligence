@@ -177,15 +177,15 @@ describe('Drive’s Files card', () => {
 
   it('My files and Shared with me ask each source for the caller’s own, or others’', async () => {
     await render()
-    await click('[data-drive-tab="mine"]')
+    await pick('[data-drive-filter="tab"]', 'mine')
     expect(asked).toContain('GET /api/account/files?limit=50&owner=mine')
     expect(asked).toContain('GET /api/account/drive/chat-files?limit=50&tab=mine')
-    await click('[data-drive-tab="shared"]')
+    await pick('[data-drive-filter="tab"]', 'shared')
     expect(asked).toContain('GET /api/account/files?limit=50&owner=others')
     expect(asked).toContain('GET /api/account/drive/chat-files?limit=50&tab=shared')
   })
 
-  it('in a card, Which files is a capsule in its header (Liam, 11-23), not a row over the list; a press there still switches', async () => {
+  it('in a card, Which files is a dropdown that starts on All files, beside the others, on the page’s one row from the card’s corner; none in its header (Liam, 11-23: "can\'t this also be a dropdown and we show all by default")', async () => {
     const right = document.createElement('div')
     document.body.append(right)
     const { CardHeaderSlotsProvider } = await import('../card-header-slot')
@@ -193,16 +193,22 @@ describe('Drive’s Files card', () => {
       React.createElement(CardHeaderSlotsProvider, { value: { left: null, right } }, React.createElement(FilesCard, { toolCallId: 'files-1', spec, store: makeStore('files-1', spec), fullScreen: true })),
     )
     await settle()
-    const capsule = right.querySelector<HTMLElement>('[data-drive-tabs="header"]')!
-    expect(capsule.getAttribute('role')).toBe('radiogroup')
-    expect(Array.from(capsule.querySelectorAll('[data-drive-tab]')).map((b) => b.textContent)).toEqual(['All', 'My files', 'Recent', 'Shared with me'])
     expect(q('[data-drive-tabs]')).toBeNull()
-    // The sources and choices stay over the list.
-    expect(q('[data-drive-source="upload"], [data-source-toggle="upload"], button')).not.toBeNull()
-    await act(async () => capsule.querySelector<HTMLButtonElement>('[data-drive-tab="mine"]')!.click())
-    await settle()
+    expect(right.querySelector('select')).toBeNull()
+    const which = q<HTMLSelectElement>('[data-drive-filter="tab"]')!
+    expect(which.value).toBe('all')
+    expect(Array.from(which.options).map((o) => o.textContent)).toEqual(['All files', 'My files', 'Recent', 'Shared with me'])
+    // One row, from the card's corner: the sources, then the choices.
+    const row = which.closest('[class*="px-2.5"]')!
+    expect(row.querySelector('[data-drive-source="upload"]')).not.toBeNull()
+    expect(row.querySelector('[data-drive-filter="sort"]')).not.toBeNull()
+    // The header keeps the search and Upload.
+    expect(right.querySelector('[data-files-search-control]')).not.toBeNull()
+    // The sources wear the tabs' pill.
+    expect(q('[data-drive-source="upload"]')!.className).toContain('h-7')
+    await pick('[data-drive-filter="tab"]', 'mine')
     expect(asked).toContain('GET /api/account/files?limit=50&owner=mine')
-    expect(capsule.querySelector('[data-drive-tab="mine"]')!.getAttribute('aria-checked')).toBe('true')
+    expect(q<HTMLSelectElement>('[data-drive-filter="tab"]')!.value).toBe('mine')
     right.remove()
   })
 
@@ -214,7 +220,7 @@ describe('Drive’s Files card', () => {
       ],
     })
     await render()
-    await click('[data-drive-tab="recent"]')
+    await pick('[data-drive-filter="tab"]', 'recent')
     expect(rows()).toEqual(['team_chat:ch-1/u-bo/a.png', 'upload:quote'])
     expect(q<HTMLSelectElement>('[data-drive-filter="sort"]')!.value).toBe('opened')
     expect(q('[data-drive-row="upload:quote"]')!.textContent).toContain('Nov 21')
@@ -226,7 +232,7 @@ describe('Drive’s Files card', () => {
     await click('[data-drive-source="email"]')
     expect(asked).toContain('GET /api/account/drive/mail-files')
     expect(q('[data-drive-email-note]')).not.toBeNull()
-    expect(q('[data-drive-tab="all"]')).toBeNull()
+    expect(q('[data-drive-filter="tab"]')).toBeNull()
     expect(rows()).toEqual(['email:acct:m1:plan.pdf'])
     expect(q('[data-drive-row="email:acct:m1:plan.pdf"]')!.textContent).toContain('Q3 plan')
     await click('[data-drive-row="email:acct:m1:plan.pdf"] [data-files-open]')

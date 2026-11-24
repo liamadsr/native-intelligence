@@ -1013,11 +1013,12 @@ describe('EvalSuiteDetail — mid-edit clobber', () => {
   })
 })
 
-// Liam, 11-23: "these details view pages … that show the different pages at
-// the top … feel out of place": in a card, Overview / Cases / Runs are a
-// capsule in the card's header, and the strip over the page is gone.
-describe('EvalSuiteDetail — its tabs in a card’s header', () => {
-  it('a capsule in the right slot, counted; a press switches and is reported; no strip in the page', async () => {
+// Liam, 11-23: "I want to put it back in the header of the pages but make it
+// look really nice and clean like linear does … it should start to the far
+// left": in a card too, Overview / Cases / Runs are the page's first row, from
+// the far left, and the card's header holds none of them.
+describe('EvalSuiteDetail — its tabs on the page’s first row, in a card too', () => {
+  it('a tablist from the far left, counted, none in the header; a press switches and is reported', async () => {
     fetchSuite.mockResolvedValue({
       suite: suiteRow(),
       cases: [caseRow({ id: 'c1' }), caseRow({ id: 'c2' })],
@@ -1035,13 +1036,12 @@ describe('EvalSuiteDetail — its tabs in a card’s header', () => {
         )
       })
       await act(async () => {})
-      const capsule = right.querySelector<HTMLElement>('[data-detail-tabs="header"]')!
-      expect(capsule).not.toBeNull()
-      expect(Array.from(capsule.querySelectorAll('[role="tab"]')).map((b) => b.textContent)).toEqual(['Overview', 'Cases2', 'Runs1'])
-      expect(capsule.querySelector('[data-detail-tab="overview"]')!.getAttribute('aria-selected')).toBe('true')
-      // No pills in the page itself.
-      expect(Array.from(container.querySelectorAll('button[aria-pressed]')).some((b) => (b.textContent ?? '').startsWith('Cases'))).toBe(false)
-      await act(async () => capsule.querySelector<HTMLButtonElement>('[data-detail-tab="cases"]')!.click())
+      expect(right.querySelector('[role="tablist"]')).toBeNull()
+      const tabs = container.querySelector<HTMLElement>('[role="tablist"][aria-label="Suite"]')!
+      expect(tabs.parentElement!.className).toContain('px-2.5')
+      expect(Array.from(tabs.querySelectorAll('[role="tab"]')).map((b) => b.textContent)).toEqual(['Overview', 'Cases2', 'Runs1'])
+      expect(tabs.querySelector('[data-detail-tab="overview"]')!.getAttribute('aria-selected')).toBe('true')
+      await act(async () => tabs.querySelector<HTMLButtonElement>('[data-detail-tab="cases"]')!.click())
       expect(onTabChange).toHaveBeenCalledWith('cases')
       expect(container.querySelector('[data-testid="view-layout-eval_case"]')).toBeTruthy()
     } finally {

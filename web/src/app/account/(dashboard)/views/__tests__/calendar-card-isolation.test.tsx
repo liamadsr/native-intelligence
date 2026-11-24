@@ -197,14 +197,17 @@ describe('a calendar card beside the Calendar page', () => {
 describe('a calendar card in its card', () => {
   let left: HTMLDivElement
   let right: HTMLDivElement
+  let title: HTMLSpanElement
   beforeEach(() => {
     left = document.createElement('div')
     right = document.createElement('div')
-    document.body.append(left, right)
+    title = document.createElement('span')
+    document.body.append(left, right, title)
   })
   afterEach(() => {
     left.remove()
     right.remove()
+    title.remove()
   })
 
   async function mountInCard({ covered = false } = {}) {
@@ -213,7 +216,7 @@ describe('a calendar card in its card', () => {
       root.render(
         h(
           CardHeaderSlotsProvider,
-          { value: { left, right, trail: null, setBack: vi.fn() } },
+          { value: { left, right, trail: null, title, setBack: vi.fn() } },
           // As calendar-card-body.tsx draws it: covered while a record is open over it.
           h(CardCovered, { covered, children: h(CalendarCardView, { initial: { view: 'week', date: '2026-10-04', accounts: null }, compact: true, onStateChange }) }),
         ),
@@ -231,7 +234,15 @@ describe('a calendar card in its card', () => {
       expect(controls.querySelector(`button[aria-label="${label}"]`), label).not.toBeNull()
     }
     expect(controls.querySelector('button[aria-label="Week"]')!.getAttribute('aria-pressed')).toBe('true')
-    expect(controls.querySelector('[data-calendar-header-date]')!.textContent).toContain('October 2026')
+    // The dates are the page's title (Liam, 11-23: "lets move the current date into the page title"), once
+    // ("why is the current date repeated here like three times"): the long label, the short one for a narrow header.
+    expect(controls.querySelector('[data-calendar-header-date]')).toBeNull()
+    const date = title.querySelector('[data-calendar-header-date]')!
+    expect(date.lastElementChild!.textContent).toMatch(/^Oct \d+ – \d+, 2026$/)
+    expect(date.children.length).toBe(2)
+    // ‹ Today ›: Today between the arrows.
+    const order = Array.from(controls.querySelectorAll('button')).map((b) => b.getAttribute('aria-label') ?? b.textContent)
+    expect(order.slice(0, 3)).toEqual(['Previous', 'Today', 'Next'])
     // The page under it: none of those, and no title.
     for (const label of ['Previous', 'Next', 'New event']) {
       expect(container.querySelector(`button[aria-label="${label}"]`), label).toBeNull()

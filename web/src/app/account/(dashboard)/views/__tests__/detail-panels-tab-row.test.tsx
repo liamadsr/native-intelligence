@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 /**
- * A detail page's sections in a card's header (Liam, 11-23: "these details
- * view pages like projects and pull request and other pages that show the
- * different pages at the top … feel out of place"): in a card, the contact's
- * and the company's sections are a capsule in the card's right slot, a press
- * there switches the section, and the page's own row keeps only what is left
- * (nothing at all once the actions sit in the Properties popover). On their
- * own, the row of pills, as before.
+ * A detail page's sections on its own first row, from the far left (Liam,
+ * 11-23: "I want to put it back in the header of the pages but make it look
+ * really nice and clean like linear does … it should start to the far left
+ * even though the page content is indented"): in a card and on their own
+ * alike, the contact's and the company's sections are a tablist in the page's
+ * first row, on the 18px line a list's view tabs start on, counted; a press
+ * switches the section, and the card's header holds none of them.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createRoot, type Root } from 'react-dom/client'
@@ -130,16 +130,16 @@ async function mount(node: ReactNode, { inCard, withProperties = false }: { inCa
   })
 }
 
-const capsule = () => right.querySelector<HTMLElement>('[data-detail-tabs="header"]')
 const row = () => container.querySelector<HTMLElement>('[data-detail-tabs=""]')!
+const tabs = () => row().querySelector<HTMLElement>('[role="tablist"]')!
 
 describe('the contact’s sections', () => {
-  it('in a card: a capsule in the header with its counts; a press switches the section; none in the page', async () => {
+  it('in a card: the page’s first row, from the far left, with its counts; a press switches the section; none in the header', async () => {
     await mount(h(ContactDetailPanel, { contactId: 'ct-1', onClose: vi.fn() }), { inCard: true })
-    const tabs = capsule()!
-    expect(tabs).not.toBeNull()
-    expect(tabs.getAttribute('role')).toBe('tablist')
-    expect(Array.from(tabs.querySelectorAll('[data-detail-tab]')).map((b) => b.getAttribute('data-detail-tab'))).toEqual([
+    expect(right.querySelector('[role="tablist"]')).toBeNull()
+    expect(row().className).toContain('px-2.5')
+    expect(tabs().getAttribute('aria-label')).toBe('Contact')
+    expect(Array.from(tabs().querySelectorAll('[data-detail-tab]')).map((b) => b.getAttribute('data-detail-tab'))).toEqual([
       'overview',
       'details',
       'actions',
@@ -148,28 +148,26 @@ describe('the contact’s sections', () => {
       'deals',
       'agents',
     ])
-    expect(tabs.querySelector('[data-detail-tab="overview"]')!.getAttribute('aria-selected')).toBe('true')
-    expect(tabs.querySelector('[data-detail-tab="actions"]')!.textContent).toBe('Actions2')
-    expect(tabs.querySelector('[data-detail-tab="captures"]')!.textContent).toBe('Captures1')
-    // No pills left in the page's own row (the actions stay inline without a Properties popover).
-    expect(row().textContent).not.toContain('Overview')
-    expect(row().className).toContain('empty:hidden')
+    expect(tabs().querySelector('[data-detail-tab="overview"]')!.getAttribute('aria-selected')).toBe('true')
+    expect(tabs().querySelector('[data-detail-tab="actions"]')!.textContent).toBe('Actions2')
+    expect(tabs().querySelector('[data-detail-tab="captures"]')!.textContent).toBe('Captures1')
 
-    await act(async () => tabs.querySelector<HTMLButtonElement>('[data-detail-tab="details"]')!.click())
-    expect(tabs.querySelector('[data-detail-tab="details"]')!.getAttribute('aria-selected')).toBe('true')
+    await act(async () => tabs().querySelector<HTMLButtonElement>('[data-detail-tab="details"]')!.click())
+    expect(tabs().querySelector('[data-detail-tab="details"]')!.getAttribute('aria-selected')).toBe('true')
+    expect(tabs().querySelector('[data-detail-tab="overview"]')!.getAttribute('aria-selected')).toBe('false')
     expect(container.querySelector('[data-details-tab="contact"]')).not.toBeNull()
   })
 
-  it('in a card with a Properties popover: the row is left empty, so it hides', async () => {
+  it('in a card with a Properties popover: the row keeps its sections (the actions go to the popover)', async () => {
     await mount(h(ContactDetailPanel, { contactId: 'ct-1', onClose: vi.fn() }), { inCard: true, withProperties: true })
-    expect(capsule()).not.toBeNull()
-    expect(row().childNodes.length).toBe(0)
+    expect(tabs().querySelectorAll('[role="tab"]').length).toBe(7)
+    expect(right.querySelector('[role="tablist"]')).toBeNull()
   })
 
-  it('on its own: the row of pills, as before, and nothing in a header', async () => {
+  it('on its own: the same row', async () => {
     await mount(h(ContactDetailPanel, { contactId: 'ct-1', onClose: vi.fn() }), { inCard: false })
     expect(right.childElementCount).toBe(0)
-    const pill = Array.from(row().querySelectorAll('button')).find((b) => b.textContent === 'Details')!
+    const pill = Array.from(tabs().querySelectorAll('button')).find((b) => b.textContent === 'Details')!
     expect(pill).toBeTruthy()
     await act(async () => pill.click())
     expect(container.querySelector('[data-details-tab="contact"]')).not.toBeNull()
@@ -177,17 +175,17 @@ describe('the contact’s sections', () => {
 })
 
 describe('the company’s sections', () => {
-  it('in a card: a capsule with People counted; a press switches the section', async () => {
+  it('in a card: the page’s first row with People counted; a press switches the section', async () => {
     await mount(h(CompanyDetailPanel, { companyId: 'co-1', onClose: vi.fn() }), { inCard: true })
-    const tabs = capsule()!
-    expect(Array.from(tabs.querySelectorAll('[data-detail-tab]')).map((b) => b.textContent)).toEqual(['Overview', 'Details', 'People1', 'Deals', 'Agents'])
-    await act(async () => tabs.querySelector<HTMLButtonElement>('[data-detail-tab="details"]')!.click())
+    expect(right.querySelector('[role="tablist"]')).toBeNull()
+    expect(Array.from(tabs().querySelectorAll('[data-detail-tab]')).map((b) => b.textContent)).toEqual(['Overview', 'Details', 'People1', 'Deals', 'Agents'])
+    await act(async () => tabs().querySelector<HTMLButtonElement>('[data-detail-tab="details"]')!.click())
     expect(container.querySelector('[data-details-tab="company"]')).not.toBeNull()
   })
 
-  it('on its own: the row of pills', async () => {
+  it('on its own: the same row', async () => {
     await mount(h(CompanyDetailPanel, { companyId: 'co-1', onClose: vi.fn() }), { inCard: false })
     expect(right.childElementCount).toBe(0)
-    expect(Array.from(row().querySelectorAll('button')).some((b) => b.textContent === 'Overview')).toBe(true)
+    expect(Array.from(tabs().querySelectorAll('button')).some((b) => b.textContent === 'Overview')).toBe(true)
   })
 })

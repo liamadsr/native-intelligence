@@ -7,6 +7,8 @@
  * resizes, the card may not).
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { createRoot, type Root } from 'react-dom/client'
 import { act } from 'react'
 import { SkyHeaderRow } from '../sky-header-row'
@@ -117,5 +119,26 @@ describe('the header up on the sky', () => {
     expect(row().style.getPropertyValue('--sky-reserve')).toBe('0px')
     // The pills stay put: the row's right padding, the controls' pill's negative margin.
     expect(row().className).toContain('pr-[var(--sky-reserve,0px)]')
+  })
+})
+
+// Liam, 11-23: "can you make sure when this only shows the one icon it still
+// looks good". jsdom draws no :has(), so the rule is read from the stylesheet.
+describe('the controls’ pill with one icon alone', () => {
+  const css = readFileSync(join(process.cwd(), 'src/styles/tailwind.css'), 'utf8')
+  // Classes, not data attributes: the minimize flight's copy keeps classes only (a review, 11-23).
+  const alone = '.ni-header-controls:has(> .ni-header-right-slot:empty):not(:has([data-listen-header])):not(:has(> button ~ button))'
+
+  it('a circle the header’s height (42px), the icon in its middle', () => {
+    const rule = css.slice(css.indexOf(`${alone} {`))
+    expect(rule.slice(0, rule.indexOf('}'))).toMatch(/width: 42px;\s+padding-inline: 0;\s+justify-content: center;/)
+    const button = css.slice(css.indexOf(`${alone} > button {`))
+    expect(button.slice(0, button.indexOf('}'))).toContain('margin-left: 0;')
+  })
+
+  it('only then: not with page controls in the slot, Interactive, or a second button (Full screen)', () => {
+    expect(alone).toContain('.ni-header-right-slot:empty')
+    expect(alone).toContain(':not(:has([data-listen-header]))')
+    expect(alone).toContain(':not(:has(> button ~ button))')
   })
 })

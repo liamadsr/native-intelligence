@@ -3,8 +3,11 @@
 /**
  * One rank tracker (the Rankings card's `seo_rank_tracker` place): the crumb
  * back to the trackers and the site (in a card, its header's breadcrumb, with
- * Check now and the menu at the header's right), a quiet line of how it
- * checks, then
+ * Check now and the menu at the header's right), then its two tabs,
+ * Positions and History (the card's tabs), as the page's first row
+ * (DETAIL_TAB_ROW: in the card's corner, as a project's sections; Liam,
+ * 11-23: "everything looks the same as the projects page"), a quiet line of
+ * how it checks, then
  *
  *   while a check runs   the run rail (polled every 3 s) with Stop, and once
  *                        what a check takes; positions keep showing the last
@@ -15,7 +18,7 @@
  *   the numbers          in the top 3 / 10 / 100 and the average position on
  *                        the device chosen (a switch only when it checks
  *                        both), each with its change since the last check
- *   two tabs             Positions and History, as the card's tabs
+ *   the tab in force     Positions or History
  *
  * "Check now" is the one press that spends: when a check would cost more
  * than about $0.25 (POST estimate for this tracker), a small dialog shows the
@@ -29,6 +32,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { DETAIL_TAB_ROW } from '@/components/views/page-tabs'
 import { PageTitle } from '@/components/views/page-title'
 import { CONFIRM_ABOVE_USD, MAX_KEYWORDS_PER_ADD, MAX_KEYWORDS_PER_TRACKER } from '@/lib/seo/rank/limits'
 import {
@@ -501,10 +505,21 @@ export function TrackerDetail({
   const rail = run && live ? runRailLine(run) : null
 
   return (
-    <div data-seo-tracker={tracker.id} className={cn('flex h-full min-h-0 flex-col', inCard && 'pt-2')}>
+    <div data-seo-tracker={tracker.id} className="flex h-full min-h-0 flex-col">
       {header}
-      {/* In a card no header row stands above it: the page starts under the card's header. */}
-      <p data-seo-tracker-settings="" className={cn('truncate px-5 pb-2 text-xs text-muted-foreground', !inCard && '-mt-1')}>
+      {/* The first row, in a card and outside it: the tabs from the card's corner. */}
+      <div data-seo-tab-row="" className={DETAIL_TAB_ROW}>
+        <TabPills
+          label="Tracker"
+          tabs={[
+            { id: 'positions', label: 'Positions', count: tracker.keyword_count },
+            { id: 'history', label: 'History' },
+          ]}
+          value={activeTab as (typeof TRACKER_TABS)[number]}
+          onChange={onTab}
+        />
+      </div>
+      <p data-seo-tracker-settings="" className="truncate px-5 pb-2 text-xs text-muted-foreground">
         {trackerSettingsLine(tracker, markets)}
       </p>
       {rail && (
@@ -542,18 +557,7 @@ export function TrackerDetail({
         {/* No keywords: nothing to count yet, so no tiles of dashes. */}
         {keywordCount > 0 && <StatTiles tiles={tiles} className="mt-1" />}
 
-        <TabPills
-          className={keywordCount > 0 ? 'mt-5' : 'mt-1'}
-          label="Tracker"
-          tabs={[
-            { id: 'positions', label: 'Positions', count: tracker.keyword_count },
-            { id: 'history', label: 'History' },
-          ]}
-          value={activeTab as (typeof TRACKER_TABS)[number]}
-          onChange={onTab}
-        />
-
-        <div className="mt-3">
+        <div className={keywordCount > 0 ? 'mt-5' : 'mt-1'}>
           {activeTab === 'history' ? (
             <TrackerHistory tracker={tracker} device={shownDevice} version={version} keyword={keyword} onKeyword={setKeyword} />
           ) : (

@@ -24,8 +24,9 @@ const realtime = vi.hoisted(() => ({ handlers: new Map<string, (payload: unknown
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => {
     const channel = {
-      on: (_event: string, filter: { table: string }, cb: (payload: unknown) => void) => {
-        realtime.handlers.set(filter.table, cb)
+      on: (_event: string, filter: { table: string; event?: string }, cb: (payload: unknown) => void) => {
+        // A DELETE-only listener (714's unfiltered one) is kept apart from the table's own.
+        realtime.handlers.set(filter.event === 'DELETE' ? `${filter.table}:DELETE` : filter.table, cb)
         return channel
       },
       subscribe: () => channel,
@@ -168,6 +169,20 @@ describe('team chat on a phone (narrower than two panes)', () => {
     await settle()
     expect(panes()).toBe('list')
     expect(container.textContent).toContain('Start your first channel')
+  })
+
+  it('drops a conversation deleted on another screen (714: Realtime’s DELETE carries only the id), and goes back to the list', async () => {
+    await render()
+    await act(async () => row('general').click())
+    expect(panes()).toBe('channel')
+    channelsList = CHANNELS.filter((c) => c.id !== 'c-general')
+    // Someone else's id: nothing here changes.
+    await act(async () => realtime.handlers.get('team_chat_channel:DELETE')!({ eventType: 'DELETE', old: { id: 'not-here' } }))
+    expect(panes()).toBe('channel')
+    await act(async () => realtime.handlers.get('team_chat_channel:DELETE')!({ eventType: 'DELETE', old: { id: 'c-general' } }))
+    await settle()
+    expect(panes()).toBe('list')
+    expect(row('general')).toBeFalsy()
   })
 
   it('keeps the open channel as it was (its draft) when the view crosses the width, both ways', async () => {

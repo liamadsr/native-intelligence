@@ -53,7 +53,7 @@ import { PRIORITY_OPTIONS } from '@/lib/views/property-options'
 import { EntityTitleInput } from '@/components/views/entity-title-input'
 import { usePropertiesVisible } from '@/components/views/use-properties-visible'
 import { WindowProperties, WindowActions } from '@/components/views/window-properties'
-import { DetailTabsInHeader, useDetailTabsInHeader } from '@/components/chat-cards/detail-tabs'
+import { DETAIL_TAB_ROW, DetailTabs } from '@/components/views/page-tabs'
 import { CreateHereButton } from '@/components/create/create-here-button'
 import { UnifiedViewLayout, useIsWindowFocused } from '@/components/views/unified-view-layout'
 import { PropertyGroup } from '@/components/views/property-group'
@@ -197,7 +197,6 @@ export function InitiativeDetailPanel({
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [activeTab, setActiveTab] = usePanelSection<InitiativeSection>(section, onSectionChange, 'overview', INITIATIVE_SECTIONS)
-  const tabsInHeader = useDetailTabsInHeader()
   // The page-level inspector owns visibility; standalone panels use their width.
   const panelBodyRef = useRef<HTMLDivElement>(null)
   const propertiesOpen = usePropertiesVisible(panelBodyRef)
@@ -509,48 +508,22 @@ export function InitiativeDetailPanel({
     <div className="flex h-full flex-col">
       {listenBrief}
 
-      {/* Sub-header toolbar. Its tabs on the lists' line (the list's 12px
-          inset plus a row's gutter, components/views/list/entity-row.tsx
-          ROW_GUTTER_PX): a list tab's own view tabs and rows start where
-          these do (Liam, 11-20: "where the tables start doesn't match").
-          Fixed there for every tab, the centered overview's too, so a tab
-          never moves under the pointer when another is picked. Its pills
-          start 18px in, on the leading line the header island's icon and
-          a row's checkbox stand on, left of the content line (Liam, 11-21:
-          "the pills should be more to the left"; view-toolbar.tsx
-          alignToContent); 48px tall, its end where a row's content ends. */}
-      {/* In a card, the sections are a capsule in the card's header and this
-          row keeps only what is left in it (Liam, 11-23: "these details view
-          pages … that show the different pages at the top … feel out of
-          place"); empty (the actions in the Properties popover), it is gone. */}
-      <DetailTabsInHeader
-        label="Initiative"
-        tabs={INITIATIVE_SECTIONS.map(tab => ({
-          id: tab,
-          label: tab.charAt(0).toUpperCase() + tab.slice(1),
-        }))}
-        value={activeTab}
-        onChange={setActiveTab}
-      />
-      <div data-detail-tabs="" className="flex h-12 shrink-0 items-center pl-[18px] pr-[17px] empty:hidden">
-        {!tabsInHeader && (
-        <div className="flex items-center gap-1">
-          {INITIATIVE_SECTIONS.map(tab => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={cn(
-                'inline-flex shrink-0 items-center px-3 py-1 text-xs rounded-full border transition-colors whitespace-nowrap',
-                activeTab === tab
-                  ? 'bg-foreground text-background border-foreground font-medium'
-                  : 'bg-transparent text-muted-foreground border-border hover:bg-muted hover:text-foreground',
-              )}
-            >
-              {tab.charAt(0).toUpperCase() + tab.slice(1)}
-            </button>
-          ))}
-        </div>
-        )}
+      {/* Sub-header toolbar: the page's sections from the card's corner, as a
+          list's view tabs (components/views/page-tabs.tsx; Liam, 11-23: "it
+          should start to the far left even though the page content is
+          indented"), fixed there for every section, the centered overview's
+          too, so a tab never moves under the pointer when another is picked;
+          48px tall. */}
+      <div data-detail-tabs="" className={DETAIL_TAB_ROW}>
+        <DetailTabs
+          label="Initiative"
+          tabs={INITIATIVE_SECTIONS.map(tab => ({
+            id: tab,
+            label: tab.charAt(0).toUpperCase() + tab.slice(1),
+          }))}
+          value={activeTab}
+          onChange={setActiveTab}
+        />
         <WindowActions reveal={reminderOpen} className="ml-auto flex items-center gap-1">
           {saving && <span className="text-xs text-muted-foreground">Saving...</span>}
           {/* Remind me — the same picker ⇧H opens, anchored on its own button so
@@ -683,7 +656,7 @@ export function InitiativeDetailPanel({
 
           {activeTab === 'agents' && (
             <ScrollArea className="h-full">
-              <div className={cn('pl-10 pr-3.5', tabsInHeader && 'pt-4')}>
+              <div className="pl-10 pr-3.5">
                 <EntityActivitySection entityType="initiative" entityId={initiativeId} />
               </div>
             </ScrollArea>

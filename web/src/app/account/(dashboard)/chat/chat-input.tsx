@@ -1274,6 +1274,10 @@ export const ChatInput = memo(function ChatInput({
             ? '@container/chatinput relative rounded-[28px] border border-border/70 bg-background/80 px-2 py-2 shadow-sm'
             : '@container/chatinput relative rounded-3xl border border-border/70 bg-background/80 shadow-sm',
           (!inline || mainComposer) && 'backdrop-blur-xl',
+          // In a card (a comment box, team chat) the dark fill sat on the card's own dark glass and read near
+          // black: lifted to the grey the main chat's pill shows over the sky (Liam, 11-23: "make it so that this
+          // is the same color as the main chat panel"). The light theme already matches.
+          inline && !mainComposer && 'dark:bg-white/[0.05]',
         )}
         // The chat box itself (inside the root, without the agent row under it).
         data-bot-chat-box

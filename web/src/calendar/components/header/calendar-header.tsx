@@ -6,13 +6,13 @@ import { formatDate } from "date-fns";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { AccountFilterDropdown } from "@/components/account-filter-dropdown";
-import { CardHeaderSlot, useCardHeaderSlots } from "@/components/chat-cards/card-header-slot";
+import { CardHeaderSlot, CardHeaderTitle, useCardHeaderSlots } from "@/components/chat-cards/card-header-slot";
 import { CARD_HEADER_CAPSULE, CARD_HEADER_ICON_BUTTON, CARD_HEADER_PILL_BUTTON } from "@/components/chat-cards/card-header-button";
 
 import { useCalendar } from "@/calendar/contexts/calendar-context";
 import { AddEventDialog } from "@/calendar/components/dialogs/add-event-dialog";
 import { CopyAvailabilityButton } from "@/calendar/components/header/copy-availability-button";
-import { navigateDate, rangeText } from "@/calendar/helpers";
+import { headerDateLabel, navigateDate, rangeText } from "@/calendar/helpers";
 
 import type { IEvent } from "@/calendar/interfaces";
 import type { TCalendarView } from "@/calendar/types";
@@ -71,7 +71,7 @@ export function CalendarHeader({ view, events, onViewChange, filterAccountIds, o
         view={view}
         viewButtons={viewButtons}
         onViewChange={onViewChange}
-        label={{ short: `${shortMonth} ${year}`, long: `${month} ${year}`, range: rangeText(view, selectedDate) }}
+        label={headerDateLabel(view, selectedDate)}
         onToday={handleToday}
         onPrevious={handlePrevious}
         onNext={handleNext}
@@ -234,7 +234,7 @@ function CardCalendarHeader({
   view: TCalendarView;
   viewButtons: typeof VIEW_BUTTONS;
   onViewChange: (view: TCalendarView) => void;
-  label: { short: string; long: string; range: string };
+  label: { short: string; long: string };
   onToday: () => void;
   onPrevious: () => void;
   onNext: () => void;
@@ -252,22 +252,26 @@ function CardCalendarHeader({
           </button>
         </CardHeaderSlot>
       )}
+      {/* The dates it shows are the page's title (Liam, 11-23: "lets move the current date into the page title"). */}
+      <CardHeaderTitle>
+        <span data-calendar-header-date="" className="flex min-w-0 items-baseline whitespace-nowrap">
+          <span className="truncate @[36rem]:hidden">{label.short}</span>
+          <span className="hidden truncate @[36rem]:inline">{label.long}</span>
+        </span>
+      </CardHeaderTitle>
       <CardHeaderSlot side="right">
         <div data-calendar-header-controls="" className="flex min-w-0 items-center gap-1">
-          <button type="button" className={cn(CARD_HEADER_PILL_BUTTON, FROM_26)} onClick={onToday}>
-            Today
-          </button>
+          {/* ‹ Today ›: back and forward either side of the way back to today (Liam, 11-23: "it should be < today >
+              that way center brings you back to today"). */}
           <button type="button" className={iconButton} onClick={onPrevious} aria-label="Previous" title="Previous">
             <ChevronLeft className="size-3.5" strokeWidth={1.75} />
+          </button>
+          <button type="button" className={cn(CARD_HEADER_PILL_BUTTON, FROM_26)} onClick={onToday}>
+            Today
           </button>
           <button type="button" className={iconButton} onClick={onNext} aria-label="Next" title="Next">
             <ChevronRight className="size-3.5" strokeWidth={1.75} />
           </button>
-          <span data-calendar-header-date="" className="flex min-w-0 items-baseline gap-2 whitespace-nowrap px-1 text-[13px]">
-            <span className="font-medium @[36rem]:hidden">{label.short}</span>
-            <span className="hidden font-medium @[36rem]:inline">{label.long}</span>
-            <span className="hidden text-xs text-muted-foreground @[52rem]:inline">{label.range}</span>
-          </span>
           {onFilterChange && (
             <span className={FROM_44}>
               <AccountFilterDropdown

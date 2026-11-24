@@ -77,7 +77,7 @@ import { PropertyGroup } from '@/components/views/property-group'
 import { UnifiedViewLayout } from '@/components/views/unified-view-layout'
 import { usePropertiesVisible } from '@/components/views/use-properties-visible'
 import { WindowProperties, WindowActions } from '@/components/views/window-properties'
-import { DetailTabsInHeader, useDetailTabsInHeader } from '@/components/chat-cards/detail-tabs'
+import { DETAIL_TAB_ROW, DetailTabs } from '@/components/views/page-tabs'
 import { emitEntityDeleted } from '@/lib/entity-events'
 import { estimateRunCostUsd } from '@/lib/evals/estimate'
 import {
@@ -87,7 +87,6 @@ import {
   type EvalSuiteKind,
   type EvalSuiteRow,
 } from '@/lib/evals/types'
-import { cn } from '@/lib/utils'
 import {
   AlertTriangle,
   Clock,
@@ -190,40 +189,6 @@ function AutoGrowTextarea({
   )
 }
 
-/** One pill in the sub-header tab strip. Same markup and classes as the
- *  company and contact panels, so all three read as one control. */
-function TabPill({
-  active,
-  count,
-  onClick,
-  children,
-}: {
-  active: boolean
-  /** Rendered as the muted trailing badge. Omitted at 0 — a "0" badge is a
-   *  fact the empty state below already states more plainly. */
-  count?: number
-  onClick: () => void
-  children: React.ReactNode
-}) {
-  return (
-    <button
-      onClick={onClick}
-      aria-pressed={active}
-      className={cn(
-        'inline-flex shrink-0 items-center rounded-full border px-3 py-1 text-xs whitespace-nowrap transition-colors',
-        active
-          ? 'bg-foreground text-background border-foreground font-medium'
-          : 'bg-background text-muted-foreground border-border hover:bg-muted hover:text-foreground',
-      )}
-    >
-      {children}
-      {count !== undefined && count > 0 && (
-        <span className="ml-1.5 text-[10px] opacity-70">{count}</span>
-      )}
-    </button>
-  )
-}
-
 // ============================================================
 // The detail page
 // ============================================================
@@ -277,8 +242,6 @@ export function EvalSuiteDetail({
     'overview',
     EVAL_SUITE_TABS,
   )
-  // In a card the tabs are a capsule in the card's header (DetailTabsInHeader below).
-  const tabsInHeader = useDetailTabsInHeader()
 
   /**
    * The suite fetch. Its ONLY dependency is `suiteId` — deliberately, and this
@@ -713,48 +676,22 @@ export function EvalSuiteDetail({
         }
       />
 
-      {/* In a card, the tabs are a capsule in the card's header and the strip
-          below is gone (Liam, 11-23: "these details view pages … that show
-          the different pages at the top … feel out of place"). */}
-      <DetailTabsInHeader
-        label="Suite"
-        tabs={[
-          { id: 'overview', label: 'Overview' },
-          { id: 'cases', label: 'Cases', count: cases.length },
-          { id: 'runs', label: 'Runs', count: runs.length },
-        ]}
-        value={activeTab}
-        onChange={setActiveTab}
-      />
-      {/* The tab strip — the company panel's sub-header row, same markup and
-          same classes. Directly under the header, above the two-column body,
-          so it reads as belonging to the page rather than to either column. */}
-      {!tabsInHeader && (
-      <div className="flex h-10 shrink-0 items-center px-3">
-        <div className="flex items-center gap-1">
-          <TabPill
-            active={activeTab === 'overview'}
-            onClick={() => setActiveTab('overview')}
-          >
-            Overview
-          </TabPill>
-          <TabPill
-            active={activeTab === 'cases'}
-            count={cases.length}
-            onClick={() => setActiveTab('cases')}
-          >
-            Cases
-          </TabPill>
-          <TabPill
-            active={activeTab === 'runs'}
-            count={runs.length}
-            onClick={() => setActiveTab('runs')}
-          >
-            Runs
-          </TabPill>
-        </div>
+      {/* The tab strip: every detail page's first row, the tabs from the far left
+          (Liam, 11-23; components/views/page-tabs.tsx). Directly under the header,
+          above the two-column body, so it reads as belonging to the page rather
+          than to either column. */}
+      <div className={DETAIL_TAB_ROW}>
+        <DetailTabs
+          label="Suite"
+          tabs={[
+            { id: 'overview', label: 'Overview' },
+            { id: 'cases', label: 'Cases', count: cases.length },
+            { id: 'runs', label: 'Runs', count: runs.length },
+          ]}
+          value={activeTab}
+          onChange={setActiveTab}
+        />
       </div>
-      )}
 
       <div ref={panelBodyRef} className="flex min-h-0 flex-1 justify-center">
         <div className="mx-auto flex min-h-0 w-full max-w-[736px] min-w-0 flex-col">

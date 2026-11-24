@@ -55,6 +55,7 @@ import { useOwnSubnavShown } from '@/app/account/(dashboard)/page-panel/subnav-o
 import { CardCovered, CardOverlay } from '../card-covered'
 import { CARD_HEADER_ICON_BUTTON } from '../card-header-button'
 import { CardHeaderSlot, useCardHeaderSlots } from '../card-header-slot'
+import { PAGE_TAB_INSET, pageTabClass } from '@/components/views/page-tabs'
 import { publishReviewsCard, unpublishReviewsCard } from '../reviews-card-controls'
 import { RecordOverlay, usePageRecords } from './record-overlay'
 import { usePagePlace, type PageCardProps } from './page-card'
@@ -325,7 +326,8 @@ export default function ReviewsCard(props: PageCardProps) {
         <div ref={listRootRef} data-list-keyboard-root="" className="relative isolate flex h-full flex-col">
           {/* The sections and state as pills where the sub-nav beside the rail isn't: below `md`, or when it isn't on screen. */}
           {(
-            <div data-reviews-sections="" className={cn('flex shrink-0 flex-wrap items-center gap-1 px-[18px] pt-2', subnavShown && 'md:hidden')}>
+            // From the card's corner, as every page's tabs (components/views/page-tabs.tsx; Liam, 11-23: "everything looks the same as the projects page").
+            <div data-reviews-sections="" className={cn('flex shrink-0 flex-wrap items-center gap-1 pt-2.5', PAGE_TAB_INSET, subnavShown && 'md:hidden')}>
               {REVIEW_SECTIONS.map((s) => (
                 <Pill key={s} on={prefs.section === s} onClick={() => setSection(s)} data={{ 'data-reviews-section': s }}>
                   {SECTION_LABEL[s]}
@@ -443,10 +445,7 @@ function Pill({ on, onClick, data, children }: { on: boolean; onClick: () => voi
       {...data}
       aria-pressed={on}
       onClick={onClick}
-      className={cn(
-        'inline-flex shrink-0 items-center whitespace-nowrap rounded-full border px-3 py-1 text-xs transition-colors',
-        on ? 'border-foreground bg-foreground font-medium text-background' : 'border-border bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground',
-      )}
+      className={pageTabClass(on)}
     >
       {children}
     </button>

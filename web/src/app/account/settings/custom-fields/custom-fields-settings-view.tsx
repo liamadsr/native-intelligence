@@ -10,6 +10,7 @@
  * This is where a kind gets its FIRST field: a record's panel hides the
  * section while its kind has none (hide empty widgets).
  */
+import { pageTabClass } from '@/components/views/page-tabs'
 import { useCallback, useEffect, useState } from 'react'
 import { Plus } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -29,7 +30,7 @@ const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 /** The kind picker: one pill per kind the registry gives fields, in its order. */
 export function CustomFieldKindPicker({ value, onChange }: { value: CustomFieldEntity; onChange: (kind: CustomFieldEntity) => void }) {
   return (
-    <div role="tablist" aria-label="Kind" className="flex flex-wrap gap-1.5">
+    <div role="tablist" aria-label="Kind" className="flex flex-wrap gap-1">
       {CUSTOM_FIELD_ENTITIES.map((kind) => (
         <button
           key={kind}
@@ -38,12 +39,7 @@ export function CustomFieldKindPicker({ value, onChange }: { value: CustomFieldE
           aria-selected={kind === value}
           data-kind={kind}
           onClick={() => onChange(kind)}
-          className={cn(
-            'rounded-full border px-3 py-1 text-xs transition-colors',
-            kind === value
-              ? 'border-foreground/20 bg-foreground text-background'
-              : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground',
-          )}
+          className={pageTabClass(kind === value)}
         >
           {capitalize(CUSTOM_FIELD_KIND_NOUNS[kind].many)}
         </button>

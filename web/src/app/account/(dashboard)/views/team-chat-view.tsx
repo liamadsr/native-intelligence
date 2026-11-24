@@ -39,6 +39,15 @@
  * a Support label. The staff side's live updates come on a second Realtime
  * channel (RLS gives them support conversations only).
  *
+ * Managing a conversation (migration 714, ./team-chat-manage.tsx): its
+ * header's settings menu, and the sub-nav's row menu through the card's
+ * controls (`manage`), open Edit channel / Rename meeting chat and Delete
+ * (a channel or a meeting chat) for whoever may (the channel's can_manage). A rename lands in
+ * the list, the open header and the sub-nav at once and reaches every other
+ * screen through Realtime; a delete takes the conversation out of all of
+ * them (another screen hears it through its unfiltered DELETE listener, which
+ * carries only the id).
+ *
  * Owns its own fetches against /api/account/team-chat/* and one Supabase
  * Realtime channel for the workspace (team_chat_message, team_chat_channel,
  * team_chat_thread, team_chat_reaction; RLS filters what arrives), resyncing
@@ -104,6 +113,9 @@ import { setTeamChatOnScreen } from '@/lib/team-chat/on-screen'
 import type { TeamChatNotifyLevel } from '@/lib/team-chat/notify'
 import { isSnoozed } from '@/lib/team-chat/snooze'
 import { TeamChatNotifyMenu } from './team-chat-notify-menu'
+import { DeleteConversationDialog, EditConversationDialog, TeamChatManageMenu, type TeamChatManageWhat } from './team-chat-manage'
+import type { TeamChatEditedChannel } from '@/lib/team-chat/manage'
+import { emitEntityDeleted, emitEntityUpdated } from '@/lib/entity-events'
 import { useTeamChatCreateItems } from './team-chat-create-items'
 import { TeamChatPollCard } from './team-chat-poll-card'
 import { TeamChatPollDialog } from './team-chat-poll-dialog'
@@ -262,6 +274,8 @@ export function TeamChatView({
   const [waitingOnAgent, setWaitingOnAgent] = useState<Record<string, number>>({})
   const [newDmOpen, setNewDmOpen] = useState(false)
   const [newMeetingOpen, setNewMeetingOpen] = useState(false)
+  // Edit, Rename or Delete open on a conversation (migration 714).
+  const [manage, setManage] = useState<{ id: string; what: TeamChatManageWhat } | null>(null)
   // A meeting just made: the meetings section asks again.
   const [meetingsMade, setMeetingsMade] = useState(0)
   // The message the view was asked to open on (`focus`): where it is, and whether its pane has scrolled to it.
@@ -700,11 +714,18 @@ export function TeamChatView({
           setChannels((prev) => {
             if (!prev?.some((c) => c.id === row.id)) return prev
             if (row.archived_at) return prev.filter((c) => c.id !== row.id)
-            return prev.map((c) => (c.id === row.id ? { ...c, name: row.name ?? c.name, topic: row.topic ?? c.topic, last_message_at: row.last_message_at ?? c.last_message_at } : c))
+            // A topic cleared arrives as null (714's Edit channel): taken as it is, never kept.
+            return prev.map((c) => (c.id === row.id ? { ...c, name: row.name ?? c.name, topic: 'topic' in row ? (row.topic ?? null) : c.topic, last_message_at: row.last_message_at ?? c.last_message_at } : c))
           })
           return
         }
         refreshList()
+      })
+      // A meeting chat deleted (714) by someone else: Realtime can't filter a DELETE (its old row is
+      // the id alone), so this hears every one and drops only an id in the list.
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'team_chat_channel' }, (payload) => {
+        const id = (payload.old as { id?: string } | undefined)?.id
+        if (id) dropConversationRef.current(id)
       })
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') {
@@ -923,6 +944,54 @@ export function TeamChatView({
     setOpened(true)
   }, [])
 
+  // Edited (714): the list, the header and the sub-nav take the new name at once; other cards hear it.
+  const onEdited = useCallback((row: TeamChatEditedChannel) => {
+    setChannels((prev) => prev?.map((c) => (c.id === row.id ? { ...c, name: row.name, topic: row.topic } : c)) ?? prev)
+    if (row.kind === 'meeting') setMeetingsMade((n) => n + 1)
+    emitEntityUpdated({ entityType: 'team_chat_channel', id: row.id, fields: { name: row.name, topic: row.topic } })
+    toast(row.kind === 'meeting' ? 'Meeting chat renamed' : 'Channel saved')
+  }, [])
+  // Gone (714, here or on another screen): out of the list, its messages, an open thread or dialog; another
+  // conversation takes the screen if it was this one (loadChannels picks one).
+  const dropConversation = useCallback(
+    (id: string) => {
+      let had = false
+      setChannels((prev) => {
+        if (!prev?.some((c) => c.id === id)) return prev
+        had = true
+        return prev.filter((c) => c.id !== id)
+      })
+      setMessages((prev) => {
+        if (!(id in prev)) return prev
+        const next = { ...prev }
+        delete next[id]
+        return next
+      })
+      setOpenThread((t) => (t?.channelId === id ? null : t))
+      setManage((m) => (m?.id === id && m.what === 'edit' ? null : m))
+      if (selectedRef.current === id) {
+        setSelectedId(null)
+        setOpened(false)
+        void loadChannels()
+      }
+      if (had) setMeetingsMade((n) => n + 1)
+    },
+    [loadChannels],
+  )
+  const dropConversationRef = useRef(dropConversation)
+  dropConversationRef.current = dropConversation
+  const onDeleted = useCallback(
+    (id: string) => {
+      const kind = channels?.find((c) => c.id === id)?.kind
+      dropConversation(id)
+      emitEntityDeleted({ entityType: 'team_chat_channel', id })
+      toast(kind === 'channel' ? 'Channel deleted' : 'Meeting chat deleted')
+    },
+    [dropConversation, channels],
+  )
+  const manageChannel = useCallback((id: string, what: TeamChatManageWhat) => setManage({ id, what }), [])
+  const canManage = useCallback((id: string) => !!channels?.find((c) => c.id === id)?.can_manage, [channels])
+
   // New channel opens the one Create composer on Channel (docs/plans/create-everything.md):
   // started from a team's list, "Create in <team>" and only that team sees it.
   const startNewChannel = useCallback(
@@ -983,9 +1052,10 @@ export function TeamChatView({
       newMeeting: teamCalls.available ? () => setNewMeetingOpen(true) : null,
       meetingsKey,
       liveMeetings: liveMeetingChannels,
+      manage: manageChannel,
       show: () => onShowCardRef.current?.(),
     })
-  }, [cardId, channels, workspaceId, panelConversations, onScreen, openChannel, startNewChannel, teamCalls.available, meetingsKey, liveMeetingChannels])
+  }, [cardId, channels, workspaceId, panelConversations, onScreen, openChannel, startNewChannel, teamCalls.available, meetingsKey, liveMeetingChannels, manageChannel])
   useEffect(() => {
     if (!cardId) return
     return () => unpublishTeamChatCard(cardId)
@@ -1173,7 +1243,15 @@ export function TeamChatView({
         {teamCalls.available && (
           <>
             <SectionHeading label="Meetings" onAdd={() => setNewMeetingOpen(true)} addLabel="New meeting link" className="mt-5" />
-            <MeetingsSection refreshKey={meetingsKey} liveChannels={liveMeetingChannels} unread={unreadOf} activeChannelId={onScreen} onOpen={(id) => openChannel(id)} />
+            <MeetingsSection
+              refreshKey={meetingsKey}
+              liveChannels={liveMeetingChannels}
+              unread={unreadOf}
+              activeChannelId={onScreen}
+              onOpen={(id) => openChannel(id)}
+              canManage={canManage}
+              onManage={manageChannel}
+            />
           </>
         )}
       </div>
@@ -1227,6 +1305,7 @@ export function TeamChatView({
               onNotify={(level) => void setNotify(selected.id, level)}
               onSnooze={(until) => void setSnooze(selected.id, until)}
               onSupportChanged={() => void loadChannels()}
+              onManage={(what) => manageChannel(selected.id, what)}
               focusId={focused && !focused.rootId && focused.channelId === selected.id ? focused.id : null}
               onFocusShown={onFocusShown}
               {...common}
@@ -1303,6 +1382,22 @@ export function TeamChatView({
       </ResizablePanelGroup>
 
       <NewDmDialog open={newDmOpen} onOpenChange={setNewDmOpen} members={members} meId={meId} onPick={openDm} />
+      <EditConversationDialog
+        channel={manage?.what === 'edit' ? (channels?.find((c) => c.id === manage.id) ?? null) : null}
+        open={manage?.what === 'edit' && !!channels?.some((c) => c.id === manage.id)}
+        onOpenChange={(open) => !open && setManage(null)}
+        onSaved={onEdited}
+      />
+      <DeleteConversationDialog
+        channel={manage?.what === 'delete' ? (channels?.find((c) => c.id === manage.id) ?? { id: manage.id, kind: 'meeting' }) : null}
+        title={(() => {
+          const c = manage?.what === 'delete' ? channels?.find((x) => x.id === manage.id) : undefined
+          return c ? channelTitle(c) : 'this conversation'
+        })()}
+        open={manage?.what === 'delete'}
+        onOpenChange={(open) => !open && setManage(null)}
+        onDeleted={onDeleted}
+      />
       {teamCalls.available && (
         <NewMeetingDialog
           open={newMeetingOpen}
@@ -1471,6 +1566,7 @@ function ChannelPane({
   onNotify,
   onSnooze,
   onSupportChanged,
+  onManage,
   focusId,
   onFocusShown,
   meId,
@@ -1488,6 +1584,8 @@ function ChannelPane({
   FocusProps & {
   channel: TeamChatChannel
   title: string
+  /** Edit, Rename or Delete it (migration 714): the header's settings menu, for whoever may (channel.can_manage). */
+  onManage: (what: TeamChatManageWhat) => void
   /** How loud it is for the person: the header's menu sets it. */
   onNotify: (level: TeamChatNotifyLevel) => void
   /** Mute it for a while, or end that (migration 702): the same menu. */
@@ -1647,6 +1745,7 @@ function ChannelPane({
                 <TeamChatNotifyMenu kind={channel.kind} level={channel.notify} mutedUntil={channel.muted_until} onChange={onNotify} onSnooze={onSnooze} inHeader headerButtonClass={CARD_HEADER_ICON_BUTTON} />
               )}
               {support && <SupportControls channel={channel} onChanged={onSupportChanged} buttonClass={CARD_HEADER_ICON_BUTTON} />}
+              {!support && <TeamChatManageMenu channel={channel} onManage={onManage} inHeader headerButtonClass={CARD_HEADER_ICON_BUTTON} />}
             </div>
           </CardHeaderSlot>
         </>
@@ -1681,6 +1780,7 @@ function ChannelPane({
         {!support && <CallButton channel={channel} label={callLabel} />}
         {!staffView && <TeamChatNotifyMenu kind={channel.kind} level={channel.notify} mutedUntil={channel.muted_until} onChange={onNotify} onSnooze={onSnooze} />}
         {support && <SupportControls channel={channel} onChanged={onSupportChanged} />}
+        {!support && <TeamChatManageMenu channel={channel} onManage={onManage} />}
       </div>
       )}
 

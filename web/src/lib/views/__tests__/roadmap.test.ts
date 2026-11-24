@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { addDays, format, parseISO } from 'date-fns'
 import {
-  PX_PER_DAY, DEFAULT_SPAN_DAYS,
+  PX_PER_DAY, DEFAULT_SPAN_DAYS, ROADMAP_ZOOMS,
   axisTicks, dateToX, dayIndex, dragPatch, flattenRoadmapRows, itemSpan, parseDay,
   previewSpan, pxToDays, schedulePatch, spanBox, supportsRoadmap, timelineRange, undoPatch, xToDate,
 } from '../roadmap'
@@ -34,7 +34,7 @@ describe('date ↔ pixel math', () => {
   })
 
   it('xToDate inverts dateToX, and any x inside a day is that day', () => {
-    for (const zoom of ['week', 'month', 'quarter'] as const) {
+    for (const zoom of ['day', 'week', 'month', 'quarter'] as const) {
       const d = day('2026-12-24')
       const x = dateToX(d, origin, zoom)
       expect(ymd(xToDate(x, origin, zoom))).toBe('2026-12-24')
@@ -187,6 +187,15 @@ describe('the range and the axis', () => {
     expect(minor.every(t => t.date.getDay() === 1)).toBe(true)
     expect(minor[0].label).toBe('5') // Monday 5 October 2026
     expect(minor[1].x - minor[0].x).toBe(7 * PX_PER_DAY.month)
+  })
+
+  it('day zoom (Liam, 11-23: "lets add a day view"): the closest, a tick per day with its weekday, the month named on its 1st', () => {
+    expect(ROADMAP_ZOOMS[0]).toBe('day')
+    expect(PX_PER_DAY.day).toBeGreaterThan(PX_PER_DAY.week)
+    const { major, minor } = axisTicks(day('2026-11-29'), day('2026-12-02'), 'day')
+    expect(major.map(t => t.label)).toEqual(['November 2026', 'December'])
+    expect(minor.map(t => t.label)).toEqual(['Sun 29', 'Mon 30', 'Tue Dec 1', 'Wed 2'])
+    expect(minor[1].x).toBe(PX_PER_DAY.day)
   })
 
   it('week zoom: a tick per day', () => {
