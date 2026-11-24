@@ -73,6 +73,7 @@ import { FadingBlur } from '@/components/ui/fading-blur'
 import { APP_RAIL_ATTR, AppRail } from './rail/app-rail'
 import { EmptyPressMinimizes, MinimizedCardTile } from './minimized-card-tile'
 import { isWithinAppDomain } from '@/lib/app-url'
+import { checkPreviousOpen } from '@/lib/spreadsheets/open-marker'
 
 /** The top bar — always fully visible. The workspace switcher and the action
  *  buttons float over the chat, which scrolls on under them (Liam's
@@ -487,6 +488,11 @@ export function DashboardShell({
   avatarUrl: string | null
 }) {
   useBodyScrollLock()
+  // A page that died opening a spreadsheet (the desktop's WebContent process lost) left a marker:
+  // report it now, whichever page this boot shows (lib/spreadsheets/open-marker.ts).
+  useEffect(() => {
+    checkPreviousOpen()
+  }, [])
 
   const posthog = usePostHog()
   useEffect(() => {
