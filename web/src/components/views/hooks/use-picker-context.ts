@@ -31,6 +31,8 @@ const ENTITY_CONTEXT_REQUIREMENTS: Record<ViewEntityType, ContextKey[]> = {
   spreadsheet: ['members'],
   data_table: ['members'],
   drive_item: [],
+  campaign: ['members'],
+  team: [],
   action: ['members', 'projects', 'labels', 'workflowStates'],
   project: ['members', 'initiatives', 'labels', 'workflowStates'],
   initiative: ['members', 'labels'],

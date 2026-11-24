@@ -2,6 +2,8 @@
 
 import { GithubAutomationSection } from '@/components/github/github-automation-section'
 import { PageTitle } from '@/components/views/page-title'
+import { LocalViewList } from '@/components/views/local-view-list'
+import { EntityIcon } from '@/components/entities/entity-icon'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Boxes,
@@ -16,6 +18,7 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
+  Settings2,
   Shield,
   Trash2,
   UserMinus,
@@ -250,6 +253,12 @@ export function TeamsView({
 
 // ═══ Index: list + create teams ════════════════════════════════════════
 
+/** A team as the shared list reads it. */
+type TeamRow = TeamSummary & { [key: string]: unknown }
+const TEAM_DATE_FIELDS: ReadonlySet<string> = new Set(['created_at'])
+const TEAM_SEARCH_FIELDS = ['name', 'issue_prefix'] as const
+const TEAM_GROUP_LABELS = { is_private: { true: 'Private', false: 'Everyone' } }
+
 function TeamsIndex({
   onSelectTeam,
   onOpenBoard,
@@ -351,92 +360,38 @@ function TeamsIndex({
           )
         }
       />
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className={inCard ? 'mx-auto max-w-5xl px-8 pb-10 pt-4' : 'mx-auto max-w-5xl px-8 py-10'}>
-          <div>
-            {/* The card's header already says Teams. */}
-            {!inCard && <h1 className="text-2xl font-bold">Teams</h1>}
-            <p className={inCard ? 'text-muted-foreground' : 'mt-1 text-muted-foreground'}>
-              Teams in this workspace — humans and AI teammates, working together.
-            </p>
-          </div>
-
-          <div className="mt-8">
-            {loading ? (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {Array.from({ length: 3 }).map((_, i) => (
-                  <Skeleton key={i} className="h-32 w-full rounded-xl" />
-                ))}
-              </div>
-            ) : teams.length === 0 ? (
-              <div className="mt-16 text-center">
-                <Users className="mx-auto mb-3 h-10 w-10 text-muted-foreground/40" />
-                <p className="text-lg font-medium text-muted-foreground">No teams yet</p>
-                <Button className="mt-4" onClick={() => setShowCreate(true)}>
-                  <Plus className="mr-1.5 h-4 w-4" />
-                  Create a team
-                </Button>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {teams.map((team) => (
-                  <div
-                    key={team.id}
-                    className="group flex flex-col rounded-xl border bg-card p-4 transition-colors hover:border-foreground/20"
-                  >
-                    <button
-                      className="flex items-start justify-between text-left"
-                      onClick={() => onSelectTeam(team.id)}
-                    >
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="truncate font-semibold">{team.name}</span>
-                          {team.is_private && <Lock className="h-3 w-3 shrink-0 text-muted-foreground" />}
-                        </div>
-                        <Badge variant="outline" className="mt-1.5 text-[10px]">
-                          {team.issue_prefix}
-                        </Badge>
-                      </div>
-                    </button>
-
-                    <div className="mt-4 flex items-center gap-3 text-xs text-muted-foreground">
-                      <span className="flex items-center gap-1">
-                        <Users className="h-3.5 w-3.5" />
-                        {team.member_count}
-                      </span>
-                      {(team.ai_member_count ?? 0) > 0 && (
-                        <span className="flex items-center gap-1">
-                          <Boxes className="h-3.5 w-3.5" />
-                          {team.ai_member_count}
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="mt-3 flex items-center gap-2 border-t pt-3">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 flex-1 text-xs"
-                        onClick={() => onSelectTeam(team.id)}
-                      >
-                        Manage
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 flex-1 text-xs"
-                        onClick={() => onOpenBoard(team.id, team.name)}
-                      >
-                        <LayoutGrid className="mr-1 h-3.5 w-3.5" />
-                        Board
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
+      {/* The teams as a views list, as Docs lists docs (docs/plans/views-everywhere.md):
+          saved views, Private / Name / Prefix / Created filters, search, the
+          shared rows (a private team's eye, its prefix, its people and AI
+          teammates) and J/K/Enter. A row opens its settings; its right-click
+          also opens its board. */}
+      <div className="min-h-0 flex-1" data-team-list="">
+        <LocalViewList<TeamRow>
+          entityType="team"
+          rows={teams as TeamRow[]}
+          loading={loading}
+          dateFields={TEAM_DATE_FIELDS}
+          searchFields={TEAM_SEARCH_FIELDS}
+          onOpen={(team) => onSelectTeam(team.id)}
+          menuItemsOf={(item) => {
+            const team = item as unknown as TeamRow
+            return [
+              { key: 'manage', label: 'Manage', icon: Settings2, onSelect: () => onSelectTeam(team.id) },
+              { key: 'board', label: 'Open board', icon: LayoutGrid, onSelect: () => onOpenBoard(team.id, team.name) },
+            ]
+          }}
+          groupLabels={TEAM_GROUP_LABELS}
+          empty={
+            <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+              <EntityIcon kind="team" size="lg" muted />
+              <p className="text-sm text-muted-foreground">No teams yet</p>
+              <Button size="sm" variant="outline" onClick={() => setShowCreate(true)}>
+                <Plus className="mr-1.5 h-4 w-4" />
+                Create a team
+              </Button>
+            </div>
+          }
+        />
       </div>
 
       {/* Create team dialog */}

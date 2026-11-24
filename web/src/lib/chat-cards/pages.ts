@@ -208,6 +208,8 @@ export const PAGE_KINDS: Record<PageKind, PageKindDef> = {
     label: 'Campaigns',
     rows: 'campaigns',
     view: 'campaigns',
+    // A views list (docs/plans/views-everywhere.md); the server keeps the page's own read.
+    drawsEntity: 'campaign',
   },
   // Tables (phase 1, migration 520): the workspace's own databases. Gated with
   // Docs, where a workspace keeps what it writes down. `show` opens it on a

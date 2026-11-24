@@ -180,6 +180,15 @@ const DATA_TABLE_VIEW_SELECT = `
   creator:member!owner_member_id(id, display_name, avatar_url)
 `
 
+// A campaign's columns (lib/campaigns/shape.ts CAMPAIGN_COLUMNS) and its owner;
+// the query route adds a sending campaign's counts and its sequence's name.
+const CAMPAIGN_VIEW_SELECT = `
+  id, name, description, objective, status, channels, starts_on, ends_on, owner_member_id, tags,
+  metadata, sequence_id, audience, rolling, recipe, launched_at, launched_by, refreshed_at, stats,
+  created_at, updated_at, workspace_id,
+  owner:member!owner_member_id(id, display_name, avatar_url)
+`
+
 const INITIATIVE_VIEW_SELECT = `
   id, name, description, status, icon, color, owner_id, target_date,
   custom_fields, created_at, updated_at, workspace_id,
@@ -462,6 +471,8 @@ function buildUnfencedEntityQuery(
       throw new Error('Pull requests are read from GitHub by the Reviews page (/api/account/github/reviews)')
     case 'drive_item':
       throw new Error("A folder's rows are read by the Folders page (/api/account/folders)")
+    case 'team':
+      throw new Error('Teams are read by the Teams page (/api/account/teams)')
     // The Drive kinds: RLS decides who reads a private one (676, 675, 520, and 688's grants).
     case 'canvas':
       return supabase
@@ -472,6 +483,12 @@ function buildUnfencedEntityQuery(
       return supabase
         .from('spreadsheet')
         .select(SPREADSHEET_VIEW_SELECT, { count: 'exact' })
+        .eq('workspace_id', workspaceId)
+    // Member-only RLS, no visibility fence (267): every member reads every campaign.
+    case 'campaign':
+      return supabase
+        .from('campaign')
+        .select(CAMPAIGN_VIEW_SELECT, { count: 'exact' })
         .eq('workspace_id', workspaceId)
     case 'data_table':
       return supabase
@@ -770,6 +787,8 @@ const JUNCTION_FIELDS: Record<ViewEntityType, string[]> = {
   spreadsheet: [],
   data_table: [],
   drive_item: [],
+  campaign: [],
+  team: [],
 }
 
 // Label (tag) junction table per entity type, and the column naming the
@@ -836,6 +855,8 @@ const ARRAY_FIELDS: Record<ViewEntityType, string[]> = {
   spreadsheet: [],
   data_table: [],
   drive_item: [],
+  campaign: ['tags', 'channels'],
+  team: [],
 }
 
 function isJunctionField(entityType: ViewEntityType, field: string): boolean {
@@ -2178,6 +2199,7 @@ export function applySearch(
     case 'flow':
     case 'sequence':
     case 'eval_suite':
+    case 'campaign':
       query.ilike('name', `%${term}%`)
       break
 

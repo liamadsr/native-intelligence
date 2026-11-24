@@ -75,6 +75,8 @@ export const BULK_ACTIONS: Record<ViewEntityType, BulkActionDefinition[]> = {
   spreadsheet: [],
   data_table: [],
   drive_item: [],
+  campaign: [],
+  team: [],
   action: [
     { id: 'change_status', label: 'Change status...', icon: 'Circle', requiresValue: true, valueType: 'status', shortcut: 'S' },
     { id: 'assign_to', label: 'Assign to...', icon: 'User', requiresValue: true, valueType: 'member', shortcut: 'A' },

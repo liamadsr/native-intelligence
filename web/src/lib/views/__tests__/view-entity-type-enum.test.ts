@@ -43,7 +43,7 @@ describe('view_entity_type covers every saved view kind', () => {
       .split('\n')
       .filter((l) => l.trim() && !l.trim().startsWith('--'))
       .join('\n')
-    for (const kind of ['canvas', 'spreadsheet', 'data_table', 'drive_item']) {
+    for (const kind of ['canvas', 'spreadsheet', 'data_table', 'drive_item', 'campaign', 'team']) {
       expect(code).toContain(`alter type public.view_entity_type add value if not exists '${kind}';`)
     }
     expect(code).not.toMatch(/\bbegin\b|\bcommit\b/i)

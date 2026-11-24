@@ -20,6 +20,10 @@ export const ENTITY_ENDPOINTS: Record<ViewEntityType, (id: string) => string | n
   data_table: id => `/api/account/tables/${id}`,
   // A folder's row is a folder or a record of its own kind: the Folders page acts on it.
   drive_item: () => null,
+  // PATCH takes status (a board's drag), name and the rest (parseCampaignWrite).
+  campaign: id => `/api/account/campaigns/${id}`,
+  // A team is changed on its own settings page, never inline.
+  team: () => null,
   action: id => `/api/account/actions/${id}`,
   project: id => `/api/account/projects/${id}`,
   initiative: id => `/api/account/initiatives/${id}`,
