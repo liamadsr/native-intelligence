@@ -98,10 +98,22 @@ function subscribe(listener: () => void): () => void {
 }
 
 export async function loadInbox(): Promise<void> {
-  const res = await fetch('/api/account/inbox').catch(() => null)
+  let res: Response | null = null
+  try {
+    res = await fetch('/api/account/inbox')
+  } catch {
+    res = null
+  }
   if (!res?.ok) return set({ failed: true })
-  const json = (await res.json().catch(() => null)) as InboxData | null
-  if (!json) return set({ failed: true })
+  let raw: Partial<InboxData> | null = null
+  try {
+    raw = (await res.json()) as Partial<InboxData> | null
+  } catch {
+    raw = null
+  }
+  if (!raw || typeof raw !== 'object') return set({ failed: true })
+  // Each list an array, whatever came back.
+  const json: InboxData = { items: Array.isArray(raw.items) ? raw.items : [], held: Array.isArray(raw.held) ? raw.held : [], mail: Array.isArray(raw.mail) ? raw.mail : [] }
   set({ failed: false, data: json })
   if (json.mail.length > 0) void fillHeaders(json.mail).then(() => set({ headers: state.headers + 1 }))
 }
@@ -132,6 +144,25 @@ export function useInbox(reading: boolean): InboxState {
     }
   }, [reading])
   return useSyncExternalStore(subscribe, inboxState, () => INITIAL)
+}
+
+/**
+ * Whether anything in the inbox is unread, for Home's rail icon (Liam, 11-24:
+ * Inbox lives in Home, so Home carries its dot). Read once here, on the
+ * window's focus, and whenever `poke` changes (a notification arriving
+ * realtime): no timer of its own. Null until known.
+ */
+export function useInboxUnread(poke: unknown): boolean | null {
+  const s = useSyncExternalStore(subscribe, inboxState, () => INITIAL)
+  useEffect(() => {
+    void loadInbox()
+  }, [poke])
+  useEffect(() => {
+    const onFocus = () => void loadInbox()
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [])
+  return s.data ? s.data.items.some((i) => i.unread) : null
 }
 
 // ── What the list shows ──────────────────────────────────────────────────

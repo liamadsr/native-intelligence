@@ -75,6 +75,7 @@ import { PAGE_PANEL_W_VAR, holdFrontCard } from '@/components/chat-cards/front-c
 import { CARD_PAGES } from '@/lib/chat-cards/page-menu'
 import type { CardSpec } from '@/lib/chat-cards/kinds'
 import { __resetSelectedPlaceForTests } from '../../rail/selected-place'
+import { HOME_SIDE_KEY, __resetHomeSideForTests, homeSide, setHomeSide } from '../home-side'
 import { __resetSubnavOnScreenForTests, subnavCovers, subnavOnScreen, subscribeSubnavOnScreen } from '../subnav-on-screen'
 
 const DOC = 'd0000000-0000-4000-8000-000000000001'
@@ -122,6 +123,7 @@ beforeEach(() => {
   sources = []
   window.localStorage.clear()
   __resetSelectedPlaceForTests()
+  __resetHomeSideForTests()
   __resetSubnavOnScreenForTests()
   store.resetSidePanelStore()
   vi.stubGlobal(
@@ -247,15 +249,18 @@ describe('the page panel', () => {
     expect(icon.className).not.toMatch(/\bbg-|\bring-|rounded/)
   })
 
-  it('nothing to show: nothing at all, and the row keeps its room', async () => {
+  // Liam, 11-24: Inbox is Home's other side, so Home's panel is there even with nothing recent: its switch is on it.
+  it('nothing recent: the panel still shows, with Home’s Recent | Inbox switch and a quiet note', async () => {
     inbox = []
     recent = []
     act(() => root.render(<Row />))
     await flush()
     expect(reads).toBe(2)
-    expect(panel()).toBeNull()
-    expect(container.innerHTML).toBe('')
-    expect(store.getSidePanelState().pagePanel).toBe(false)
+    expect(panel()).not.toBeNull()
+    expect(panel()!.querySelector('[data-home-side="recent"]')).not.toBeNull()
+    expect(panel()!.querySelector('[data-recents-empty]')!.textContent).toBe('What you open and work on shows here.')
+    expect(rows()).toHaveLength(0)
+    expect(store.getSidePanelState().pagePanel).toBe(true)
   })
 
   it('what the person did outside the log joins the list (their Drive upload), and opens in the file viewer', async () => {
@@ -422,6 +427,35 @@ describe('the page panel', () => {
     act(() => releaseDoc())
     expect(lit()).toEqual([])
     await flush()
+  })
+
+  // Liam, 11-24: "the combined homepage has what we have in team-chat where we have the split between recent and
+  // notification or incoming in the sub-navigation" (docs/plans/hub-panels.md, "One Home").
+  it('carries Home’s Recent | Inbox switch: Recent first, a press or S shows the Inbox side, remembered on this device', async () => {
+    act(() => root.render(<Row />))
+    await flush()
+    const group = panel()!.querySelector<HTMLElement>('[role="radiogroup"][data-home-side]')!
+    expect(group.getAttribute('data-home-side')).toBe('recent')
+    expect([...group.querySelectorAll('[role="radio"]')].map((r) => [r.textContent, r.getAttribute('aria-checked')])).toEqual([
+      ['Recent', 'true'],
+      ['Inbox', 'false'],
+    ])
+    act(() => group.querySelector<HTMLButtonElement>('[data-home-side-option="inbox"]')!.click())
+    await flush()
+    expect(window.localStorage.getItem(HOME_SIDE_KEY)).toBe('inbox')
+    expect(container.querySelector('aside[aria-label="Recent"]')).toBeNull()
+    const inboxSide = container.querySelector<HTMLElement>('aside[aria-label="Inbox"]')!
+    expect(inboxSide.getAttribute('data-page-panel')).toBe('home')
+    expect(inboxSide.querySelector('[data-home-side="inbox"]')).not.toBeNull()
+    // And back with S, from the Recent side too.
+    act(() => setHomeSide('recent'))
+    await flush()
+    const keys = panel()!.querySelector<HTMLElement>('[data-recents-keys]')!
+    act(() => {
+      keys.dispatchEvent(new KeyboardEvent('keydown', { key: 's', bubbles: true, cancelable: true }))
+    })
+    await flush()
+    expect(homeSide()).toBe('inbox')
   })
 
   // Liam, 11-23: "so I can flip through the recent things I've looked at" (docs/plans/hub-panels.md).

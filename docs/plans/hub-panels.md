@@ -154,3 +154,77 @@ every page's sub-nav does.
   channel's row.
 - `page-panel/__tests__/hub-open.test.ts`: which row is lit for a card that names no record.
 - `components/inbox/__tests__/inbox-filters-header.test.tsx` (existing): the header's filter.
+
+---
+
+# One Home: Recent | Inbox (2026-11-24)
+
+Branch `claude/home-inbox`. No migration. Merged is not live.
+
+## What the owner said
+
+> "okay so I love the new inbox page, I think it's really great and bring you everything you
+> when you need it and I don't want to change anything about the way it works. But it does feel
+> like it overlaps with the Home page. I'm thinking is home's recent is all the things you've
+> interacted with recently like docs you edited, people you chatted with and so on and inbox is
+> where all your notifications are coming in maybe the combined homepage has what we have in
+> team-chat where we have the split between recent and notification or incoming in the
+> sub-navigation"
+
+## The design
+
+One Home. Its panel carries a two-way switch at the top, **Recent | Inbox**, drawn as Team chat's
+All | Recent is (`page-panel/panel-switch.tsx`: a radio group, the chosen side raised, arrows
+move).
+
+- **Recent** is what Home's panel was. The switch sits where the word "Recent" sat, with the filter
+  button beside it.
+- **Inbox** is the Inbox panel exactly as it was (`page-panel/inbox-panel.tsx`): the same store,
+  filter, rows and keys (E, H, Enter/O, J/K flip, Esc), and the same "just the item beside the
+  panel" (the Inbox card brought in front, the conversation or the thread alone in it). Nothing
+  about how Inbox works changed.
+- Both sides are Home's, a hub's (`data-hub-place="home"`): what either opens keeps Home selected,
+  opens alone and flips, as before.
+- Which side shows lives in `page-panel/home-side.ts`. The Inbox card covers its list while Home's
+  panel is beside it (`inbox-card.tsx`: `useOwnSubnavShown('home')`).
+- Home's panel now shows even when nothing is recent ("What you open and work on shows here."), so
+  the switch to Inbox is always there.
+
+## Decisions for the owner (defaults built; each easy to change)
+
+1. **The labels: "Recent | Inbox".** Your alternative word, "Incoming", is one string to change
+   (`HOME_SIDES` in `home-recents.tsx`). We kept "Inbox" because every way in (G J, `/`, Search) still
+   calls the page Inbox.
+2. **First visit and memory.** A first visit shows Recent. After that, the side last chosen is
+   remembered on this device (`ni:home-panel:side`), as Team chat's switch is.
+3. **The rail's Inbox button is gone; Home is the one place.**
+   - A saved bar that held Inbox drops it cleanly. The id isn't offered, so it isn't drawn, and the
+     next save tidies it out; the rest keeps its saved order.
+   - Every way into Inbox (`/`, Search, G J, the deep link `/account?page=inbox`, any link to the
+     page) opens the Inbox page's card. That card coming in front selects Home and puts it on its
+     Inbox side (`rail/selected-place.ts`, `rail-pages.ts` `HOME_PAGES` / `homeSideOfCard`).
+     A notification's banner opens its item, as before. There was no old `/account/inbox` route to
+     redirect: Inbox only ever opened as a card.
+   - Home's rail icon carries a **dot** (not a count) while anything in the Inbox is unread. A count
+     reads 260 on a busy inbox, which is noise on a 40px icon. The dot is read once, on the window's
+     focus, and when a notification arrives through the notifications' realtime: no timer
+     (`inbox-store.ts` `useInboxUnread`). The switch's Inbox side carries the same dot while you
+     are on Recent.
+4. **Phones (below `md`, no panel).** Home on a phone is the chat; it has no Recent list at all
+   (Recent was only ever the panel), so there is nowhere to put the switch. On a phone, G J, `/` and
+   Search open the Inbox card, which draws its own list and filter in its header, as it did. If you
+   want a Recent | Inbox list on phones too, that is a new phone screen: say so and we'll build it.
+5. **Keys: S switches sides** while either list has the focus (Recent → Inbox, Inbox → Recent). S
+   is free in both lists, and the ? sheet lists it (`lib/shortcuts.ts`, `recents-switch` and
+   `inbox-switch`). The switch itself also takes ← / → when it has the focus. G J still goes to
+   Inbox, now Home's Inbox side.
+
+## Tests
+
+- `rail-pages.test.ts`: no Inbox rail page. The Inbox page's card selects Home, however it came
+  (including from inside another page). Hubs are just Home now.
+- `selected-place-hub.test.ts`: the Inbox card, through the store, selects Home on its Inbox side.
+- `app-rail.test.tsx`: no Inbox icon, Home's dot, and a bar saved with Inbox dropping it.
+- `page-panel.test.tsx`: Home's switch (Recent first, a press or S shows Inbox, remembered), and the
+  panel shown with nothing recent.
+- `inbox-panel.test.tsx`: the Inbox side is Home's (a hub's frame); S goes back to Recent.
