@@ -34,6 +34,7 @@ import { TeamsProvider } from '../teams-context'
 import { NotificationProvider } from '../notification-context'
 import { InAppMessageProvider } from '../in-app-message-context'
 import { InAppMessageToaster } from '../in-app-message-toaster'
+import { RecordingNotices } from './recording-notices'
 import { GlobalFileViewer } from '@/components/files/global-file-viewer'
 import { InAppMessageDialog } from '../in-app-message-dialog'
 import { DesktopNudgeToast } from './desktop-nudge-toast'
@@ -700,6 +701,8 @@ export function DashboardShell({
       <UsageLimitDialog />
       <CaptureRecoveryPrompt />
       <InAppMessageToaster />
+      {/* A Studio take's notices when no Studio is on screen (recording-notices.tsx). */}
+      <RecordingNotices />
       {/* Files opened from where no viewer lives (a search result): components/files. */}
       <GlobalFileViewer />
       <InAppMessageDialog />

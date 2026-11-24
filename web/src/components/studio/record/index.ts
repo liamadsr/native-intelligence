@@ -4,7 +4,7 @@ import { BrowserRecorder } from './browser'
 import { browserEnvironment, chooseRecorder, type RecorderChoice } from './choose'
 import { DesktopRecorder, bridge, insideDesktopApp, nativeRecorderAvailable } from './desktop'
 
-export type { Recorder, FinishedTake, TakeFile, TakeOptions, TakeRole, ScreenChoice, SharedSurface, RecorderTargets, RecorderPermissions, RecorderPermissionName, PermissionState, DeviceOption, DesktopApp, DesktopDisplay, DesktopWindow, LiveStatus, LiveTrackStatus, LiveTrackState, EndReason, RecorderKind } from './types'
+export type { Recorder, TakeLiveInfo, FinishedTake, TakeFile, TakeOptions, TakeRole, ScreenChoice, SharedSurface, RecorderTargets, RecorderPermissions, RecorderPermissionName, PermissionState, DeviceOption, DesktopApp, DesktopDisplay, DesktopWindow, LiveStatus, LiveTrackStatus, LiveTrackState, EndReason, RecorderKind } from './types'
 export { BrowserRecorder, listBrowserDevices, openCameraPreview, unlockDeviceLabels } from './browser'
 export { DesktopRecorder } from './desktop'
 export { chooseRecorder, NEWER_APP_NEEDED, BROWSER_CANNOT_RECORD, type RecorderChoice, type RecorderEnvironment } from './choose'

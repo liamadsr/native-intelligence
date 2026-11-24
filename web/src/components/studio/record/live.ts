@@ -12,6 +12,7 @@
 // space left, the take was finished elsewhere), what reached it is kept and the recording stops.
 //
 // No UI here. The server's side is src/lib/studio/server/live-takes.ts.
+import { checkWorkspace } from './workspace-pin'
 import { STUDIO_API } from '../studio-env'
 import type { LiveTrackState, LiveTrackStatus, TakeRole } from './types'
 
@@ -75,21 +76,25 @@ const PUT_MS = 120_000
 /** The live take's calls over fetch: the app's own session, JSON in and out; a piece straight to its signed link. */
 export const fetchApi: LiveApi = {
   async get<T>(path: string) {
+    checkWorkspace()
     const response = await fetch(path, { signal: AbortSignal.timeout(CALL_MS) }).catch(() => null)
     if (!response) throw unreachable()
     return answer<T>(response)
   },
   async post<T>(path: string, body: unknown) {
+    checkWorkspace()
     const response = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(CALL_MS) }).catch(() => null)
     if (!response) throw unreachable()
     return answer<T>(response)
   },
   async remove(path) {
+    checkWorkspace()
     const response = await fetch(path, { method: 'DELETE', signal: AbortSignal.timeout(CALL_MS) }).catch(() => null)
     if (!response) throw unreachable()
     await answer(response)
   },
   async put(url, headers, body) {
+    checkWorkspace()
     const response = await fetch(url, { method: 'PUT', headers, body, signal: AbortSignal.timeout(PUT_MS) }).catch(() => null)
     if (!response) throw unreachable()
     await response.arrayBuffer().catch(() => undefined)

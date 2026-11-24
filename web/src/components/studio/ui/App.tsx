@@ -1,3 +1,4 @@
+import { recordingController } from '../record/controller';
 import { studioKeys, studioCan, setStudioCapabilities, previewCodeScenes } from '../studio-env';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { FormatPicker, SafeZones } from './FormatPicker';
@@ -97,7 +98,7 @@ export function App({ openVideoId = null, openPage, openAsk, onPlace, onLive }: 
   const [recoveryOffer,setRecoveryOffer]=useState<RecoveryOffer|null>(null);
   /** The agent saved this video while it had unsaved edits here: load its version or keep these. */
   const [agentUpdate,setAgentUpdate]=useState<string|null>(null);
-  const [manualIntent,setManualIntent]=useState<ManualOpenIntent|null>(null),[manualFollowUp,setManualFollowUp]=useState<RecordingSession|null>(null),claimedManualSessions=useRef(new Set<string>()),manualOpenLock=useRef(false);
+  const [manualIntent,setManualIntent]=useState<ManualOpenIntent|null>(null),[manualFollowUp,setManualFollowUp]=useState<RecordingSession|null>(null),claimedManualSessions=useRef(recordingController().claimed as Set<string>),manualOpenLock=useRef(false);
   /** The Mac app's take open before the Studio filed it (record/provisional.ts): its video id. Saving keeps it on this
       computer, Export waits; once filed the edit carries on from the Studio's copies (adoptFiledTake). */
   const provisionalOpen=useRef<string|null>(null),[provisionalId,setProvisionalId]=useState<string|null>(null),adopting=useRef(new Set<string>());
