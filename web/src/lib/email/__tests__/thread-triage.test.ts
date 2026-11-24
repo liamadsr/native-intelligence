@@ -285,7 +285,7 @@ describe('changeEmailThreads on Gmail', () => {
     expect(outcomes.map((o) => o.status)).toEqual(['failed', 'changed'])
     // In plain words, and its code: an older connection without the modify scope.
     // A Gmail 403 without a code is read as the grant: it says what Gmail lets the app do.
-    expect(outcomes[0]).toMatchObject({ reason: 'permission', provider: 'google', httpStatus: 403, error: expect.stringMatching(/Gmail only lets Native Intelligence read and draft mail.*modify permission/) })
+    expect(outcomes[0]).toMatchObject({ reason: 'permission', provider: 'google', httpStatus: 403, error: 'Gmail needs permission to change your mail. Update access in Settings › Connectors.' })
   })
 })
 
@@ -384,7 +384,7 @@ describe('a thread that isn’t in the inbox at all, and why a change failed', (
     const scopeRefusal = { error: { code: 403, message: 'Request had insufficient authentication scopes.', status: 'PERMISSION_DENIED', details: [{ reason: 'ACCESS_TOKEN_SCOPE_INSUFFICIENT' }] } }
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => (String(input).endsWith('/threads/amazon/modify') ? Promise.resolve(json(scopeRefusal, 403)) : fakeFetch(input, init))))
     const [outcome] = await changeEmailThreads('u-1', 'ws-1', ['amazon'], { archive: true })
-    expect(outcome).toMatchObject({ status: 'failed', reason: 'permission', httpStatus: 403, code: 'ACCESS_TOKEN_SCOPE_INSUFFICIENT', error: expect.stringMatching(/not archive it/) })
+    expect(outcome).toMatchObject({ status: 'failed', reason: 'permission', httpStatus: 403, code: 'ACCESS_TOKEN_SCOPE_INSUFFICIENT', error: 'Gmail needs permission to change your mail. Update access in Settings › Connectors.' })
     expect(sentry.messages[0].ctx.tags['triage.provider_code']).toBe('ACCESS_TOKEN_SCOPE_INSUFFICIENT')
     // The provider's message never travels.
     expect(JSON.stringify(sentry.messages[0].ctx)).not.toMatch(/insufficient authentication/)

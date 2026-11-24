@@ -3,6 +3,7 @@ import * as Sentry from '@sentry/nextjs'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getServiceClient } from '@/lib/admin'
 import { isMissingColumnError } from '@/lib/mcp-client/public-row'
+import { GMAIL_NEEDS_PERMISSION, isGmailPermissionRefusal, providerErrorCode as errorCode } from './gmail-permission'
 import { GMAIL_API, GRAPH_API } from './provider-drafts'
 import { mailboxesForThread, type LiveMailbox } from './thread-mailbox'
 
@@ -122,24 +123,6 @@ export class ProviderError extends Error {
   }
 }
 
-/** A provider error answer's code: a short identifier only (it goes to Sentry), never the message text. */
-async function errorCode(res: Response): Promise<string | null> {
-  try {
-    const body = (await res.json()) as { error?: { status?: unknown; code?: unknown; errors?: Array<{ reason?: unknown }>; details?: Array<{ reason?: unknown }> } }
-    const e = body?.error
-    const candidates = [e?.details?.find((d) => typeof d?.reason === 'string')?.reason, e?.errors?.[0]?.reason, e?.status, e?.code]
-    const code = candidates.find((c): c is string => typeof c === 'string' && /^[A-Za-z0-9_.]{1,64}$/.test(c))
-    return code ?? null
-  } catch {
-    return null
-  }
-}
-
-/** Gmail's answer when the connection's grant doesn't cover the call (no gmail.modify). */
-const SCOPE_CODES = new Set(['ACCESS_TOKEN_SCOPE_INSUFFICIENT', 'insufficientPermissions', 'PERMISSION_DENIED'])
-/** The two Gmail scopes that let an app change a thread's labels (archive, read, star); the connection asks for neither (lib/oauth/config.ts). */
-export const GMAIL_MODIFY_SCOPES = ['https://www.googleapis.com/auth/gmail.modify', 'https://mail.google.com/'] as const
-
 const providerName = (provider: 'google' | 'microsoft' | null | undefined) => (provider === 'google' ? 'Gmail' : provider === 'microsoft' ? 'Outlook' : 'Your mailbox')
 
 /** A failure in plain words, and its code. */
@@ -148,11 +131,9 @@ export function failureOf(err: unknown, provider: 'google' | 'microsoft'): { err
   if (err instanceof ProviderError) {
     const httpStatus = err.status
     if (httpStatus === 401) return { error: `${name} needs reconnecting in Settings › Connectors.`, reason: 'reconnect', httpStatus, ...(err.code ? { code: err.code } : {}) }
-    if (httpStatus === 403 && err.provider === 'google' && (!err.code || SCOPE_CODES.has(err.code))) {
-      // The Gmail connection is granted reading and drafting only: archive,
-      // read and star need Gmail's modify permission, which it doesn't ask
-      // for (lib/oauth/config.ts). Reconnecting asks for the same.
-      return { error: 'Gmail only lets Native Intelligence read and draft mail, not archive it or mark it read. The Gmail connection needs Gmail’s modify permission.', reason: 'permission', httpStatus, ...(err.code ? { code: err.code } : {}) }
+    if (err.provider === 'google' && isGmailPermissionRefusal(httpStatus, err.code)) {
+      // A connection made before gmail.modify was asked for (./gmail-permission.ts).
+      return { error: GMAIL_NEEDS_PERMISSION, reason: 'permission', httpStatus, ...(err.code ? { code: err.code } : {}) }
     }
     if (httpStatus === 403) return { error: `${name} refused the change: it doesn’t allow Native Intelligence to change this mail. Reconnect ${name} in Settings › Connectors.`, reason: 'permission', httpStatus, ...(err.code ? { code: err.code } : {}) }
     if (httpStatus === 429) return { error: `${name} is busy right now. Try again in a minute.`, reason: 'busy', httpStatus, ...(err.code ? { code: err.code } : {}) }

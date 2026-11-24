@@ -9,6 +9,7 @@ import { makeFakeSupabase, type FakeSupabase } from '@/lib/work/__tests__/fake-s
 
 let fake: FakeSupabase
 vi.mock('@/lib/admin', () => ({ getServiceClient: () => fake }))
+import { GMAIL_NEEDS_PERMISSION } from '@/lib/email/gmail-permission'
 const { firstToken } = vi.hoisted(() => ({ firstToken: vi.fn(async () => ({ token: 'tok-first', email: 'me@gmail.com' })) }))
 vi.mock('@/lib/oauth/token-manager', () => ({
   getValidToken: firstToken,
@@ -85,11 +86,20 @@ describe('thread actions use the thread’s own mailbox', () => {
 
 describe('thread actions only record what the mailbox did', () => {
   it('a Gmail refusal throws and leaves the index row as it was', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 403, json: async () => ({}) }) as unknown as Response))
-    await expect(trashThread(ME, 'thr-work')).rejects.toThrow(/403/)
-    await expect(archiveThread(ME, 'thr-work')).rejects.toThrow(/403/)
-    await expect(toggleThreadRead(ME, 'thr-work', true)).rejects.toThrow(/403/)
-    await expect(toggleThreadStar(ME, 'thr-work', true)).rejects.toThrow(/403/)
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 500, json: async () => ({}) }) as unknown as Response))
+    await expect(trashThread(ME, 'thr-work')).rejects.toThrow(/500/)
+    await expect(archiveThread(ME, 'thr-work')).rejects.toThrow(/500/)
+    await expect(toggleThreadRead(ME, 'thr-work', true)).rejects.toThrow(/500/)
+    await expect(toggleThreadStar(ME, 'thr-work', true)).rejects.toThrow(/500/)
+    expect(row('idx-w')).toMatchObject({ is_starred: false, is_unread: true, folder: 'inbox' })
+  })
+
+  it('Gmail refusing for want of gmail.modify (a connection made before it was asked for) says so, and records nothing', async () => {
+    const refusal = { error: { code: 403, status: 'PERMISSION_DENIED', message: 'Request had insufficient authentication scopes.', details: [{ reason: 'ACCESS_TOKEN_SCOPE_INSUFFICIENT' }] } }
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 403, json: async () => refusal }) as unknown as Response))
+    for (const act of [() => archiveThread(ME, 'thr-work'), () => trashThread(ME, 'thr-work'), () => toggleThreadRead(ME, 'thr-work', true), () => toggleThreadStar(ME, 'thr-work', true)]) {
+      await expect(act()).rejects.toMatchObject({ name: 'GmailPermissionError', code: 'gmail_needs_permission', message: GMAIL_NEEDS_PERMISSION })
+    }
     expect(row('idx-w')).toMatchObject({ is_starred: false, is_unread: true, folder: 'inbox' })
   })
 
