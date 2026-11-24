@@ -107,23 +107,31 @@ beforeEach(() => {
 
 let container: HTMLDivElement
 let right: HTMLDivElement
+/** The card body's top row (card-body.tsx PropertiesRow), the card's whole width. */
+let top: HTMLDivElement
 let root: Root
 
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
   right.remove()
+  top.remove()
   vi.unstubAllGlobals()
 })
 
-async function mount(node: ReactNode, { inCard, withProperties = false }: { inCard: boolean; withProperties?: boolean }) {
+/**
+ * In a card as the card draws it, with its top row (`pageTop`): the sections stand there (Liam, 11-24: "why is
+ * it that on prod the tabs are indented?"). `covered`: a card's page under a record, whose slots have no top row.
+ */
+async function mount(node: ReactNode, { inCard, withProperties = false, covered = false }: { inCard: boolean; withProperties?: boolean; covered?: boolean }) {
   container = document.createElement('div')
   right = document.createElement('div')
-  document.body.append(right, container)
+  top = document.createElement('div')
+  document.body.append(right, top, container)
   root = createRoot(container)
   let tree = node
   if (withProperties) tree = h(WindowPropertiesProvider, null, tree)
-  if (inCard) tree = h(CardHeaderSlotsProvider, { value: { left: null, right } }, tree)
+  if (inCard) tree = h(CardHeaderSlotsProvider, { value: covered ? { left: null, right } : { left: null, right, pageTop: top } }, tree)
   await act(async () => root.render(tree))
   await act(async () => {
     await new Promise((r) => setTimeout(r, 0))
@@ -131,13 +139,18 @@ async function mount(node: ReactNode, { inCard, withProperties = false }: { inCa
 }
 
 const row = () => container.querySelector<HTMLElement>('[data-detail-tabs=""]')!
-const tabs = () => row().querySelector<HTMLElement>('[role="tablist"]')!
+/** The sections, wherever they stand: the card's top row, else the page's own. */
+const tabs = () => (top.querySelector<HTMLElement>('[role="tablist"]') ?? row().querySelector<HTMLElement>('[role="tablist"]'))!
 
 describe('the contact’s sections', () => {
-  it('in a card: the page’s first row, from the far left, with its counts; a press switches the section; none in the header', async () => {
-    await mount(h(ContactDetailPanel, { contactId: 'ct-1', onClose: vi.fn() }), { inCard: true })
+  it('in a card: the card’s top row, from its corner, with its counts; a press switches the section; none in the header, the page’s own row left empty', async () => {
+    await mount(h(ContactDetailPanel, { contactId: 'ct-1', onClose: vi.fn() }), { inCard: true, withProperties: true })
     expect(right.querySelector('[role="tablist"]')).toBeNull()
-    expect(row().className).toContain('px-2.5')
+    expect(top.querySelector('[role="tablist"]')).not.toBeNull()
+    expect(tabs().parentElement!.className).toContain('px-2.5')
+    // The page's own row: nothing left in it (its actions in Properties), so it hides (empty:hidden).
+    expect(row().childElementCount).toBe(0)
+    expect(row().className).toContain('empty:hidden')
     expect(tabs().getAttribute('aria-label')).toBe('Contact')
     expect(Array.from(tabs().querySelectorAll('[data-detail-tab]')).map((b) => b.getAttribute('data-detail-tab'))).toEqual([
       'overview',
@@ -158,9 +171,10 @@ describe('the contact’s sections', () => {
     expect(container.querySelector('[data-details-tab="contact"]')).not.toBeNull()
   })
 
-  it('in a card with a Properties popover: the row keeps its sections (the actions go to the popover)', async () => {
-    await mount(h(ContactDetailPanel, { contactId: 'ct-1', onClose: vi.fn() }), { inCard: true, withProperties: true })
-    expect(tabs().querySelectorAll('[role="tab"]').length).toBe(7)
+  it('covered by a record (its slots have no top row): its sections stay in its own row, so the top row holds only the record’s', async () => {
+    await mount(h(ContactDetailPanel, { contactId: 'ct-1', onClose: vi.fn() }), { inCard: true, withProperties: true, covered: true })
+    expect(top.childElementCount).toBe(0)
+    expect(row().querySelectorAll('[role="tab"]').length).toBe(7)
     expect(right.querySelector('[role="tablist"]')).toBeNull()
   })
 
@@ -175,9 +189,10 @@ describe('the contact’s sections', () => {
 })
 
 describe('the company’s sections', () => {
-  it('in a card: the page’s first row with People counted; a press switches the section', async () => {
+  it('in a card: the card’s top row with People counted; a press switches the section', async () => {
     await mount(h(CompanyDetailPanel, { companyId: 'co-1', onClose: vi.fn() }), { inCard: true })
     expect(right.querySelector('[role="tablist"]')).toBeNull()
+    expect(top.querySelector('[role="tablist"]')).not.toBeNull()
     expect(Array.from(tabs().querySelectorAll('[data-detail-tab]')).map((b) => b.textContent)).toEqual(['Overview', 'Details', 'People1', 'Deals', 'Agents'])
     await act(async () => tabs().querySelector<HTMLButtonElement>('[data-detail-tab="details"]')!.click())
     expect(container.querySelector('[data-details-tab="company"]')).not.toBeNull()

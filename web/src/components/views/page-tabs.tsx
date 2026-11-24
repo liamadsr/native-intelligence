@@ -83,6 +83,7 @@ export function DetailTabs<T extends string>({
   label,
   wrap = false,
   inline = false,
+  after,
   ...data
 }: {
   tabs: ReadonlyArray<DetailTab<T>>
@@ -94,6 +95,8 @@ export function DetailTabs<T extends string>({
   wrap?: boolean
   /** In the page's own row even in a card (not the card's top row). */
   inline?: boolean
+  /** What stands right after the tabs, wherever they are (an action's "Waiting on you"). */
+  after?: React.ReactNode
 } & { [attr: `data-${string}`]: string }) {
   const top = useCardHeaderSlots()?.pageTop ?? null
   const list = (
@@ -126,5 +129,19 @@ export function DetailTabs<T extends string>({
       ))}
     </div>
   )
-  return top && !inline ? createPortal(<div data-card-page-tabs="" className={DETAIL_TAB_ROW}>{list}</div>, top) : list
+  if (top && !inline) {
+    return createPortal(
+      <div data-card-page-tabs="" className={DETAIL_TAB_ROW}>
+        {list}
+        {after}
+      </div>,
+      top,
+    )
+  }
+  return (
+    <>
+      {list}
+      {after}
+    </>
+  )
 }
