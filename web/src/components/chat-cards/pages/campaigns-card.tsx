@@ -1,18 +1,21 @@
 'use client'
 
 /**
- * Campaigns as a card: the real CampaignsView, with its own fetch. It is not
- * a views-system list, so there is nothing of the person's to keep with the
- * card; the editor is the page's own dialog.
+ * Campaigns as a card: the real CampaignsView. Its list is a card list of the
+ * views system (docs/plans/views-everywhere.md), kept with the card; the
+ * editor is the page's own dialog.
  */
 import * as React from 'react'
 import { CampaignsView } from '@/app/account/(dashboard)/views/campaigns-view'
-import type { PageCardProps } from './page-card'
+import { PageCardSurface, usePageCardSurface, type PageCardProps } from './page-card'
 
-export default function CampaignsCard({ onCount }: PageCardProps) {
+export default function CampaignsCard(props: PageCardProps) {
+  const surface = usePageCardSurface(props)
   return (
-    <div className="h-full min-h-0">
-      <CampaignsView onCount={onCount} />
-    </div>
+    <PageCardSurface surface={surface}>
+      <div className="h-full min-h-0">
+        <CampaignsView />
+      </div>
+    </PageCardSurface>
   )
 }

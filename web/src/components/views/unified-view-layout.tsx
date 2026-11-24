@@ -76,7 +76,7 @@ import {
 // applies the same term as a text predicate over the full claim text — so the
 // canvas highlights exactly the nodes the list would have rowed.
 // The Drive kinds search their titles (docs/plans/views-everywhere.md).
-const SEARCHABLE_ENTITY_TYPES: ViewEntityType[] = ['contact', 'company', 'document', 'claim', 'canvas', 'spreadsheet', 'data_table']
+const SEARCHABLE_ENTITY_TYPES: ViewEntityType[] = ['contact', 'company', 'document', 'claim', 'canvas', 'spreadsheet', 'data_table', 'campaign']
 
 /**
  * Should a capture UPDATE evict the row from an open list/board?

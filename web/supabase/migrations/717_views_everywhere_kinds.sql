@@ -3,7 +3,9 @@
 -- Canvases, Spreadsheets and Tables are now lists of the shared views system,
 -- each a view kind of its own (`canvas`, `spreadsheet`, `data_table`), as Docs
 -- is (`document`). Folders lists a folder's subfolders and filed records
--- (`drive_item`, rows read by the page from the folder routes). A saved view
+-- (`drive_item`, rows read by the page from the folder routes). Campaigns
+-- is one too (`campaign`), with a board by its status; and Teams lists the
+-- teams the person can see (`team`, rows read by the page). A saved view
 -- stores its kind in the `view_entity_type` enum (039, widened by 045 … 529),
 -- so each kind needs its value here before a person can save a view of it.
 --
@@ -26,5 +28,7 @@ alter type public.view_entity_type add value if not exists 'canvas';
 alter type public.view_entity_type add value if not exists 'spreadsheet';
 alter type public.view_entity_type add value if not exists 'data_table';
 alter type public.view_entity_type add value if not exists 'drive_item';
+alter type public.view_entity_type add value if not exists 'campaign';
+alter type public.view_entity_type add value if not exists 'team';
 
 notify pgrst, 'reload schema';

@@ -3,27 +3,23 @@
 /**
  * Campaigns — the tab root for the 'campaigns' AccountView.
  *
- * Deliberately the SMALLEST surface that makes the anchor real: a list of the
- * workspace's campaigns and a panel to create or edit one. No analytics, no
- * calendar, no per-channel metrics — a campaign exists here so knowledge can
- * hang off it.
+ * The list is the views system's, as Docs is (docs/plans/views-everywhere.md):
+ * the view kind `campaign`, drawn by UnifiedViewLayout from the views query
+ * route, with saved views and their tabs, the filters (status, owner, tags,
+ * dates), the display settings, search in the header, List, Board (by
+ * status: a drag moves it) and Roadmap (its start to its end), the shared
+ * rows and J/K/Enter. A row opens the page's own editor.
  *
  * A campaign that SENDS (roadmap D2) shows who it reaches (its audience in a
- * line), its sequence, and its sent / replied / opted-out counts; the editor's
- * Outreach section sets the audience, the sequence and whether new matches
- * join each week. Nothing here sends: the agent asks to launch it, and the
- * person's yes on that card (or by text) is what sends.
- *
- * It is NOT wired into the shared views system (UnifiedViewLayout /
- * `ViewEntityType`) the way Sequences and Flows are. That would mean entries in
- * a dozen `Record<ViewEntityType, …>` maps, board grouping, filter fields and
- * a query-engine branch — the full saved-views apparatus, for an entity with
- * eight columns. This owns its own fetch against /api/account/campaigns
- * instead; promoting it later is additive.
+ * line), and its sent / replied / opted-out counts (the query route adds
+ * them); the editor's Outreach section sets the audience, the sequence and
+ * whether new matches join each week. Nothing here sends: the agent asks to
+ * launch it, and the person's yes on that card (or by text) is what sends.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Megaphone, Plus, Repeat } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { UnifiedViewLayout } from '@/components/views/unified-view-layout'
+import { Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
@@ -42,7 +38,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { cn } from '@/lib/utils'
 import {
   CAMPAIGN_STATUSES,
   CAMPAIGN_STATUS_LABELS,
@@ -58,64 +53,18 @@ import { CARD_HEADER_PILL_BUTTON } from '@/components/chat-cards/card-header-but
 
 const NEW_CAMPAIGN_LABEL = 'New campaign'
 
-/** Status → the dot colour that carries the state at a glance. */
-const STATUS_DOT: Record<CampaignStatus, string> = {
-  planned: 'bg-muted-foreground/50',
-  active: 'bg-emerald-500',
-  paused: 'bg-amber-500',
-  completed: 'bg-blue-500',
-  archived: 'bg-muted-foreground/30',
-}
-
-export function CampaignsView({ onCount }: { onCount?: (count: number) => void } = {}) {
-  const [campaigns, setCampaigns] = useState<Campaign[] | null>(null)
-  // How many there are, for a chat card's header (pages in the chat).
-  const onCountRef = useRef(onCount)
-  onCountRef.current = onCount
-  useEffect(() => {
-    if (campaigns) onCountRef.current?.(campaigns.length)
-  }, [campaigns])
-  const [error, setError] = useState<string | null>(null)
+export function CampaignsView() {
   // The campaign the editor is on: a row to edit, '__new__' to create, or null.
   const [editing, setEditing] = useState<Campaign | '__new__' | null>(null)
   // The Create dialog's Campaign (Liam, 11-20): this page's own editor, on a new one.
   usePageCreate('campaign', () => setEditing('__new__'))
   const inCard = useCardHeaderSlots() !== null
 
-  const load = useCallback(async () => {
-    try {
-      const res = await fetch('/api/account/campaigns')
-      if (!res.ok) throw new Error('Could not load campaigns')
-      const json = await res.json()
-      setCampaigns(Array.isArray(json.campaigns) ? json.campaigns : [])
-      setError(null)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load campaigns')
-      setCampaigns([])
-    }
+  // Saved: the list reads again (the shared list listens for its kind).
+  const handleSaved = useCallback((saved: Campaign) => {
+    setEditing(null)
+    window.dispatchEvent(new CustomEvent('ni:entity-created', { detail: { entityType: 'campaign', entity: { id: saved.id } } }))
   }, [])
-
-  useEffect(() => {
-    void load()
-  }, [load])
-
-  const handleSaved = useCallback(
-    (saved: Campaign) => {
-      setEditing(null)
-      // Replace in place when it already exists so an edit doesn't reorder the
-      // list under the user's cursor; a create goes to the top (the list is
-      // most-recently-updated first).
-      setCampaigns((prev) => {
-        if (!prev) return [saved]
-        const idx = prev.findIndex((c) => c.id === saved.id)
-        if (idx === -1) return [saved, ...prev]
-        const next = [...prev]
-        next[idx] = saved
-        return next
-      })
-    },
-    [],
-  )
 
   return (
     <div className="flex h-full flex-col">
@@ -140,24 +89,8 @@ export function CampaignsView({ onCount }: { onCount?: (count: number) => void }
         />
       )}
 
-      <div className={cn('min-h-0 flex-1 overflow-y-auto pb-6', inCard ? 'pl-[18px] pr-5 pt-2' : 'px-5')}>
-        {campaigns === null ? (
-          <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>
-        ) : error ? (
-          <p className="py-10 text-center text-sm text-destructive">{error}</p>
-        ) : campaigns.length === 0 ? (
-          <EmptyState onCreate={() => setEditing('__new__')} />
-        ) : (
-          <ul className="divide-y divide-border">
-            {campaigns.map((campaign) => (
-              <CampaignRow
-                key={campaign.id}
-                campaign={campaign}
-                onOpen={() => setEditing(campaign)}
-              />
-            ))}
-          </ul>
-        )}
+      <div className="min-h-0 flex-1" data-campaign-list="">
+        <UnifiedViewLayout entityType="campaign" onItemSelect={(_id, _title, _event, item) => item && setEditing(item as unknown as Campaign)} />
       </div>
 
       {editing !== null && (
@@ -169,104 +102,6 @@ export function CampaignsView({ onCount }: { onCount?: (count: number) => void }
       )}
     </div>
   )
-}
-
-function EmptyState({ onCreate }: { onCreate: () => void }) {
-  return (
-    <div className="flex flex-col items-center justify-center gap-3 py-20 text-center">
-      <Megaphone className="h-7 w-7 text-muted-foreground/60" />
-      <div>
-        <p className="text-sm font-medium text-foreground">No campaigns yet</p>
-        <p className="mt-1 text-sm text-muted-foreground">
-          A campaign is what your marketing meetings, notes and decisions hang off.
-        </p>
-      </div>
-      <Button size="sm" variant="outline" onClick={onCreate}>
-        <Plus className="h-3.5 w-3.5" />
-        {NEW_CAMPAIGN_LABEL}
-      </Button>
-    </div>
-  )
-}
-
-function CampaignRow({
-  campaign,
-  onOpen,
-}: {
-  campaign: Campaign
-  onOpen: () => void
-}) {
-  const dates = useMemo(() => formatWindow(campaign.starts_on, campaign.ends_on), [
-    campaign.starts_on,
-    campaign.ends_on,
-  ])
-
-  return (
-    <li>
-      <button
-        type="button"
-        onClick={onOpen}
-        className="flex w-full items-center gap-3 py-2.5 text-left hover:bg-muted/40"
-      >
-        <span
-          className={cn('h-1.5 w-1.5 shrink-0 rounded-full', STATUS_DOT[campaign.status])}
-          aria-hidden
-        />
-        <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-1.5">
-            <span className="truncate text-sm font-medium text-foreground">{campaign.name}</span>
-            {campaign.rolling && campaign.sequence_id && (
-              <Repeat className="h-3 w-3 shrink-0 text-muted-foreground" aria-label="Adds new matches weekly" />
-            )}
-          </span>
-          {campaign.sequence_id && campaign.audience ? (
-            <span className="block truncate text-xs text-muted-foreground">
-              {describeAudience(campaign.audience)}
-            </span>
-          ) : (
-            campaign.objective && (
-              <span className="block truncate text-xs text-muted-foreground">
-                {campaign.objective}
-              </span>
-            )
-          )}
-        </span>
-        {hasSent(campaign) && (
-          <span className="hidden shrink-0 text-xs tabular-nums text-muted-foreground sm:block">
-            {campaign.counts.sent} sent · {campaign.counts.replied} replied · {campaign.counts.opted_out} opted out
-          </span>
-        )}
-        {!hasSent(campaign) && campaign.channels.length > 0 && (
-          <span className="hidden shrink-0 truncate text-xs text-muted-foreground sm:block">
-            {campaign.channels.join(', ')}
-          </span>
-        )}
-        {dates && (
-          <span className="hidden shrink-0 text-xs text-muted-foreground md:block">{dates}</span>
-        )}
-        <span className="shrink-0 text-xs text-muted-foreground">
-          {CAMPAIGN_STATUS_LABELS[campaign.status]}
-        </span>
-      </button>
-    </li>
-  )
-}
-
-/** "Mar 1 – Apr 15", one-sided, or null when neither date is set. */
-function formatWindow(startsOn: string | null, endsOn: string | null): string | null {
-  const fmt = (iso: string) => {
-    // Parse the calendar date as-is: `new Date('2026-03-01')` is UTC midnight,
-    // which renders as the PREVIOUS day west of Greenwich.
-    const [y, m, d] = iso.split('-').map(Number)
-    return new Date(y, m - 1, d).toLocaleDateString(undefined, {
-      month: 'short',
-      day: 'numeric',
-    })
-  }
-  if (startsOn && endsOn) return `${fmt(startsOn)} – ${fmt(endsOn)}`
-  if (startsOn) return `From ${fmt(startsOn)}`
-  if (endsOn) return `Until ${fmt(endsOn)}`
-  return null
 }
 
 function CampaignEditor({
