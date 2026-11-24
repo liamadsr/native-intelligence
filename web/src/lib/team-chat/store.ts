@@ -19,11 +19,13 @@ import { MEETING_RECENT_MS } from '@/lib/meeting-links/section'
 import {
   TEAM_CHAT_MESSAGE_COLUMNS,
   TEAM_CHAT_MESSAGE_COLUMNS_BEFORE_703,
+  TEAM_CHAT_MESSAGE_COLUMNS_BEFORE_715,
   TEAM_CHAT_PAGE_SIZE,
   TEAM_CHAT_THREAD_MAX,
   dmOtherMember,
   type TeamChatAttachment,
   type TeamChatChannel,
+  type TeamChatChannelKind,
   type TeamChatMessage,
   type TeamChatReaction,
   type TeamChatRecordMention,
@@ -63,19 +65,26 @@ export function teamChatErrorOf(error: { code?: string; message?: string } | nul
 }
 
 /**
- * The columns a message is read with: with poll_id once migration 703 is
- * there, without it before (so a deploy that lands ahead of 703 still reads
- * team chat). Asked once per server process and kept once it is there; a
- * "not yet" is asked again after a minute.
+ * The columns a message is read with: every one once migrations 703 (poll_id)
+ * and 715 (the support_* columns) are there, without the ones that aren't
+ * yet (so a deploy that lands ahead of either still reads team chat). Asked
+ * once per server process and kept once both are there; a "not yet" is asked
+ * again after a minute.
  */
-let pollColumn: { at: number; there: boolean } | null = null
+let pollColumn: { at: number; columns: string } | null = null
 export async function messageColumns(supabase: SupabaseClient, now: number = Date.now()): Promise<string> {
-  if (pollColumn?.there) return TEAM_CHAT_MESSAGE_COLUMNS
-  if (pollColumn && now - pollColumn.at < 60_000) return TEAM_CHAT_MESSAGE_COLUMNS_BEFORE_703
-  const { error } = await supabase.from('team_chat_message').select('poll_id').limit(0)
-  const there = !(error && isMissingColumnError(error, 'poll_id'))
-  pollColumn = { at: now, there }
-  return there ? TEAM_CHAT_MESSAGE_COLUMNS : TEAM_CHAT_MESSAGE_COLUMNS_BEFORE_703
+  if (pollColumn?.columns === TEAM_CHAT_MESSAGE_COLUMNS) return TEAM_CHAT_MESSAGE_COLUMNS
+  if (pollColumn && now - pollColumn.at < 60_000) return pollColumn.columns
+  // Postgres names the first missing column: poll_id (703) first, then 715's.
+  const { error } = await supabase.from('team_chat_message').select('poll_id, support_name').limit(0)
+  const columns =
+    error && isMissingColumnError(error, 'poll_id')
+      ? TEAM_CHAT_MESSAGE_COLUMNS_BEFORE_703
+      : error && isMissingColumnError(error, 'support_name')
+        ? TEAM_CHAT_MESSAGE_COLUMNS_BEFORE_715
+        : TEAM_CHAT_MESSAGE_COLUMNS
+  pollColumn = { at: now, columns }
+  return columns
 }
 
 /** Tests only. */
@@ -85,7 +94,7 @@ export function resetMessageColumns(): void {
 
 interface ChannelRow {
   id: string
-  kind: 'channel' | 'dm' | 'meeting'
+  kind: TeamChatChannelKind
   /** Who made it (474: the member; a meeting's host, 574/585). Read by listChannels only. */
   created_by?: string | null
   name: string | null
@@ -178,12 +187,16 @@ export async function listChannels(
 /**
  * Whether to offer the person Edit (and, on a meeting chat, Delete): 714's
  * team_chat_can_manage, as far as the list knows it. A channel or meeting
- * chat they made, or any of them for an owner or admin; never a DM. The
+ * chat they made, or any of them for an owner or admin; never a DM or a
+ * support conversation (715). The
  * listed rows are already ones they may read and not archived. The database
  * decides again on every change.
  */
 export function canManageChannel(row: { kind: ChannelRow['kind']; created_by?: string | null }, scope: { memberId: string; role?: string | null }): boolean {
-  if (row.kind === 'dm') return false
+  // A support conversation (715) is never edited this way, not even by the workspace's owner (who is its
+  // customer): 714's team_chat_can_manage takes channels and meeting chats only, and its delete is
+  // support_chat_remove's.
+  if (row.kind === 'dm' || row.kind === 'support') return false
   if (scope.role === 'owner' || scope.role === 'admin') return true
   return !!row.created_by && row.created_by === scope.memberId
 }
