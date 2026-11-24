@@ -24,6 +24,7 @@ import { useCustomFieldDefinitions } from './hooks/use-custom-field-definitions'
  *  built-in "All …" tab and the search box's placeholder. */
 export const ENTITY_PLURAL: Record<ViewEntityType, string> = {
   agent: 'agents', skill: 'skills', github_pr: 'pull requests',
+  canvas: 'canvases', spreadsheet: 'spreadsheets', data_table: 'tables', drive_item: 'items',
   action: 'issues', capture: 'captures', contact: 'contacts',
   company: 'companies', email_thread: 'threads', document: 'documents',
   initiative: 'initiatives',

@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import { memoryDb } from '@/test/memory-db'
 import { listSharingByRecord } from '../store'
-import { canvasRowChip } from '@/components/chat-cards/pages/canvases-card'
+import { listSharingText } from '../list-sharing'
 
 const WS = 'ws-1'
 const g = (id: string, entity_id: string, entity_type = 'canvas') => ({ id, workspace_id: WS, entity_type, entity_id })
@@ -34,11 +34,12 @@ describe('listSharingByRecord', () => {
   })
 })
 
-describe('a canvas row’s chip', () => {
-  it('says shared with you, shared with how many, private, or nothing', () => {
-    expect(canvasRowChip({ visibility: 'private', sharing: { shared_count: 0, shared_with_me: true } })).toBe('Shared with you')
-    expect(canvasRowChip({ visibility: 'private', sharing: { shared_count: 2, shared_with_me: false } })).toBe('Shared · 2')
-    expect(canvasRowChip({ visibility: 'private', sharing: { shared_count: 0, shared_with_me: false } })).toBe('Private')
-    expect(canvasRowChip({ visibility: 'workspace' })).toBeNull()
+// A list row's chip (the shared rows' `sharing` cell; a private row's privacy is the eye after its title).
+describe('a list row’s sharing chip', () => {
+  it('says shared with you, shared with how many, or nothing', () => {
+    expect(listSharingText({ shared_count: 0, shared_with_me: true })).toBe('Shared with you')
+    expect(listSharingText({ shared_count: 2, shared_with_me: false })).toBe('Shared · 2')
+    expect(listSharingText({ shared_count: 0, shared_with_me: false })).toBeNull()
+    expect(listSharingText(undefined)).toBeNull()
   })
 })

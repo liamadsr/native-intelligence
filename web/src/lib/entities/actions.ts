@@ -191,6 +191,11 @@ async function writeArchived(ref: EntityRef, archived: boolean, ctx: ArchiveCont
   if (a.kind === 'flag') {
     fields = { [a.column]: archived }
     res = await send(deps, ref, recordPath(a.route, ref.id), 'PATCH', fields)
+  } else if (a.kind === 'stamp') {
+    fields = { archived_at: archived ? new Date().toISOString() : null }
+    res = archived
+      ? await send(deps, ref, recordPath(a.route, ref.id), 'DELETE')
+      : await send(deps, ref, recordPath(a.route, ref.id), 'PATCH', { archived: false })
   } else if (archived) {
     fields = { status: a.archived }
     res = a.via === 'delete'

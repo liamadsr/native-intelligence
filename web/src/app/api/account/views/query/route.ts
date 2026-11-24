@@ -32,6 +32,7 @@ import { isCustomFieldPath } from '@/lib/views/custom-field-columns'
 import { countEntriesByList, emptyEntryCounts } from '@/lib/prospecting/lists'
 import { fetchAllRows, inChunks } from '@/lib/supabase/paging'
 import { flowRowForViewer } from '@/lib/flows/types'
+import { listSharingByRecord } from '@/lib/entity-access/store'
 import { NextResponse, type NextRequest } from 'next/server'
 import { normalizeCompletedFilter } from '@/lib/views/completed-window'
 import {
@@ -322,6 +323,19 @@ export async function POST(request: NextRequest) {
     let items = (data || []) as Record<string, unknown>[]
     // Another member's mail or chat loop shows without its sender filter or channel.
     if (entity_type === 'flow') items = items.map((row) => flowRowForViewer(row, user.id))
+    // A Drive row's sharing (688; docs/plans/views-everywhere.md): how many its
+    // owner shared it with, or that it was shared with the viewer, as the
+    // canvases and spreadsheets routes send it for their own lists.
+    if ((entity_type === 'canvas' || entity_type === 'spreadsheet') && items.length > 0) {
+      const ownerKey = entity_type === 'canvas' ? 'owner_member_id' : 'created_by'
+      const sharing = await listSharingByRecord(
+        supabase,
+        { workspaceId, memberId: member.id },
+        entity_type,
+        items.map((r) => ({ id: r.id as string, owner: (r[ownerKey] as string | null) ?? null, visibility: (r.visibility as string) ?? 'workspace' })),
+      )
+      items = items.map((r) => ({ ...r, sharing: sharing.get(r.id as string) ?? { shared_count: 0, shared_with_me: false } }))
+    }
 
     // Enrich items with project names when not already joined
     // (captures don't have a FK join to projects, so resolve separately)

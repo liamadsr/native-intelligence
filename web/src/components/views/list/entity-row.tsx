@@ -2,7 +2,9 @@
 
 import { isTagKind, type TagKind } from '@/lib/tags/kinds'
 import { companyCrmCell } from '@/components/crm/company-crm-fields'
-import { ENTITY_IDENTITIES } from '@/lib/entities/entity-identity'
+import { ENTITY_IDENTITIES, entityIdentity } from '@/lib/entities/entity-identity'
+import { listSharingText, type RowSharing } from '@/lib/entity-access/list-sharing'
+import { useRowMenuItems } from './row-menu-items'
 import { EntityIcon } from '@/components/entities/entity-icon'
 import { LIST_FOCUS_RING, LIST_ROW_ATTR, PROPERTY_FIELD_ATTR, useIsListFocused } from '../list-keyboard'
 import * as React from 'react'
@@ -17,6 +19,7 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuSeparator,
   ContextMenuShortcut,
   ContextMenuSub,
   ContextMenuSubContent,
@@ -355,7 +358,10 @@ function EntityRowImpl({
   // Contact rows carry an "Add to sequence" item (the mounted contact list —
   // unified-view-layout — listens for the event and opens the shared picker).
   const hasSequenceItem = entityType === 'contact'
-  const hasMenu = !!reminderEntityType || hasSequenceItem || hasEntityActions
+  // A page's own verbs for a kind the registry doesn't know (row-menu-items.tsx).
+  const pageMenuItemsOf = useRowMenuItems()
+  const pageMenuItems = React.useMemo(() => pageMenuItemsOf?.(item) ?? [], [pageMenuItemsOf, item])
+  const hasMenu = !!reminderEntityType || hasSequenceItem || hasEntityActions || pageMenuItems.length > 0
 
   /**
    * THE MENU MOUNTS ON THE FIRST RIGHT-CLICK, NOT WITH THE ROW.
@@ -510,12 +516,12 @@ function EntityRowImpl({
             (migrations 223 and 369), so this is a reminder, not an access
             signal. `visibility` is optional on the row: a list fetched before
             the column shipped simply has no badge. */}
-        {(entityType === 'capture' || entityType === 'document') && item.visibility === 'private' && (
+        {PRIVATE_ICON_KINDS.has(entityType) && item.visibility === 'private' && (
           <EyeOff
             className="ml-1.5 inline h-3 w-3 shrink-0 align-middle text-muted-foreground"
-            aria-label={`Only you can see this ${entityType}`}
+            aria-label={privateLabel(entityType, item)}
           >
-            <title>{`Only you can see this ${entityType}`}</title>
+            <title>{privateLabel(entityType, item)}</title>
           </EyeOff>
         )}
         {/* Where this row lives, when that isn't where the user is. Draws
@@ -610,6 +616,19 @@ function EntityRowImpl({
             from="list_row"
           />
         )}
+        {pageMenuItems.length > 0 && (!!reminderEntityType || hasSequenceItem || hasEntityActions) && <ContextMenuSeparator />}
+        {pageMenuItems.map((m) => (
+          <ContextMenuItem
+            key={m.key}
+            data-row-menu-item={m.key}
+            onSelect={m.onSelect}
+            className={m.destructive ? 'text-destructive focus:text-destructive' : undefined}
+          >
+            {m.icon && <m.icon className="mr-2 h-3.5 w-3.5 text-muted-foreground" />}
+            {m.label}
+            {m.shortcut && <ContextMenuShortcut>{m.shortcut}</ContextMenuShortcut>}
+          </ContextMenuItem>
+        ))}
       </ContextMenuContent>
     </ContextMenu>
     {renameDialog}
@@ -630,6 +649,18 @@ const ROW_OMIT = ['open'] as const
  */
 export const EntityRow = React.memo(EntityRowImpl)
 
+/** The kinds whose private rows carry the eye-off glyph after the title, as a doc's does. */
+const PRIVATE_ICON_KINDS: ReadonlySet<ViewEntityType> = new Set(['capture', 'document', 'canvas', 'spreadsheet', 'data_table'])
+
+const PRIVATE_NOUN: Partial<Record<ViewEntityType, string>> = { data_table: 'table' }
+
+/** "Only you can see this canvas", or, for one shared with the reader, that it is private and shared with them. */
+function privateLabel(entityType: ViewEntityType, item: Record<string, unknown>): string {
+  const noun = PRIVATE_NOUN[entityType] ?? entityType
+  const sharedWithMe = (item.sharing as { shared_with_me?: boolean } | null | undefined)?.shared_with_me === true
+  return sharedWithMe ? `This ${noun} is private and shared with you` : `Only you can see this ${noun}`
+}
+
 /** A loop row's bot name (its embedded teammate), or null when it has none the reader can see. */
 function flowBotName(item: Record<string, unknown>): string | null {
   const name = (item.bot as { name?: unknown } | null | undefined)?.name
@@ -642,6 +673,11 @@ export function getTitle(entityType: ViewEntityType, item: Record<string, unknow
     case 'skill':
       return (item.name as string) || 'Untitled'
     case 'github_pr': return (item.title as string) || 'Untitled pull request'
+    // The Drive kinds (docs/plans/views-everywhere.md), with their own words for no title.
+    case 'canvas': return (item.title as string) || 'Untitled canvas'
+    case 'spreadsheet': return (item.title as string) || 'Untitled spreadsheet'
+    case 'data_table': return (item.name as string) || 'Untitled table'
+    case 'drive_item': return (item.title as string) || 'Untitled'
     case 'action': return (item.title as string) || 'Untitled'
     case 'capture': return (item.title as string) || 'Untitled Capture'
     case 'contact': return (item.full_name as string) || 'Unknown'
@@ -789,6 +825,16 @@ function EntityLeading({
       return <EntityIcon kind="capture" />
     case 'document':
       return <EntityIcon kind="document" />
+    case 'canvas':
+    case 'spreadsheet':
+      return <EntityIcon kind={entityType} />
+    case 'data_table':
+      // Its own emoji where it set one; a pipeline of companies or contacts (679) wears its record's glyph, a deal pipeline the deal's.
+      if (typeof item.icon === 'string' && isEmoji(item.icon)) return <span className="text-sm shrink-0">{item.icon}</span>
+      return <EntityIcon kind={item.table_kind === 'pipeline' ? ((item.record_kind as string | null) ?? 'deal') : 'data_table'} />
+    // A folder's row: a subfolder or a record of its own kind.
+    case 'drive_item':
+      return <EntityIcon kind={(item.item_type as string) === 'folder' ? 'drive_folder' : (item.item_type as string)} />
     case 'project':
       return <ProjectIcon icon={item.icon as string | null} size="sm" />
     case 'initiative': {
@@ -2908,6 +2954,27 @@ function PropertyCell({ item, property, entityType, onPatch, pickerContext, canE
         </span>
       )
     }
+    // ── The Drive kinds' cells (docs/plans/views-everywhere.md) ──
+    // Sharing (688): "Shared with you", or "Shared · N" on its owner's row; nothing otherwise.
+    case 'sharing': {
+      const text = listSharingText(item.sharing as RowSharing | null | undefined)
+      return text ? <span className={chipClass} data-row-sharing="">{text}</span> : null
+    }
+    // A workbook's sheets, only when there is more than one.
+    case 'sheets': {
+      const n = Array.isArray(item.sheet_names) ? item.sheet_names.length : 0
+      return n > 1 ? <span className="text-[11px] text-muted-foreground whitespace-nowrap">{n} sheets</span> : null
+    }
+    // A table's kind: only a pipeline says so (a plain table is the default).
+    case 'table_kind':
+      if (item.table_kind !== 'pipeline') return null
+      return <span className={chipClass}>{item.is_default ? 'Pipeline · Default' : 'Pipeline'}</span>
+    // A folder's row: what it is (Folder, Doc, Table, Sheet, Canvas, File).
+    case 'item_type': {
+      const t = item.item_type as string | undefined
+      const label = t === 'folder' ? 'Folder' : t ? (entityIdentity(t)?.label ?? null) : null
+      return label ? <span className="text-[10px] uppercase tracking-wide text-muted-foreground whitespace-nowrap">{label}</span> : null
+    }
     case 'priority': {
       const p = (item.priority as string) || 'none'
       if (p === 'none') return null
@@ -3040,7 +3107,7 @@ function PropertyCell({ item, property, entityType, onPatch, pickerContext, canE
       const v = item[property] as string | null
       return v ? <span className={cn(chipClass, 'capitalize')}>{v.replace(/_/g, ' ')}</span> : null
     }
-    case 'last_interaction_at': case 'last_message_at': case 'created_at': case 'updated_at': case 'started_at': {
+    case 'last_interaction_at': case 'last_message_at': case 'created_at': case 'updated_at': case 'started_at': case 'filed_at': {
       const v = item[property] as string | null
       if (!v) return null
       return <span className={cn(chipClass)}>{formatRelative(v)}</span>

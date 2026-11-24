@@ -1,11 +1,23 @@
 // @vitest-environment jsdom
 /**
  * The Tables page (phase 1): the list, making a table, and one table open as
- * its grid (phase 3) with its History and Undo. Fetch is stubbed.
+ * its grid (phase 3) with its History and Undo. Fetch is stubbed. The list is
+ * the views system's (docs/plans/views-everywhere.md), stubbed here: the page
+ * mounts it on `data_table` (the Deals page pinned to pipelines) and opens the
+ * row it picks; the shared layout's own tests cover the list.
  */
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
+
+const listed: Array<Record<string, unknown>> = []
+vi.mock('@/components/views/unified-view-layout', () => ({
+  UnifiedViewLayout: (props: { entityType: string; scopeFilters?: unknown; onItemSelect: (id: string, title: string) => void }) => {
+    listed.push(props as unknown as Record<string, unknown>)
+    return <button type="button" data-stub-row="" onClick={() => props.onItemSelect('33333333-3333-4333-8333-333333333333', 'Fernhill orders')}>Fernhill orders</button>
+  },
+}))
+
 import { TablesView } from '../tables-view'
 import { CardHeaderSlotsProvider, type CardHeaderBack } from '@/components/chat-cards/card-header-slot'
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -41,6 +53,7 @@ let container: HTMLDivElement
 let root: Root
 beforeEach(() => {
   calls.length = 0
+  listed.length = 0
   canEdit = true
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     calls.push({ url, init })
@@ -65,11 +78,11 @@ const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0))
 const button = (text: string) => [...container.querySelectorAll('button')].find((b) => b.textContent?.includes(text))!
 
 it('lists the tables and opens one: its columns, its rows, its history with Undo where it can be taken back', async () => {
-  const counts: number[] = []
-  await act(async () => root.render(<TablesView onCount={(n) => counts.push(n)} />))
+  await act(async () => root.render(<TablesView />))
   await flush()
-  expect(container.textContent).toContain('Fernhill orders')
-  expect(counts.at(-1)).toBe(1)
+  // The views list of tables, every kind (no pin).
+  expect(listed.at(-1)).toMatchObject({ entityType: 'data_table', scopeFilters: undefined })
+  expect(container.querySelector('[data-table-list]')).not.toBeNull()
 
   await act(async () => button('Fernhill orders').click())
   await flush()
@@ -107,7 +120,14 @@ it('shows no Undo to a reader who can’t change the table', async () => {
   expect([...document.querySelectorAll('button')].filter((b) => b.textContent?.trim() === 'Undo')).toHaveLength(0)
 })
 
-it('New table opens the Create composer on Table, and takes in a table made there', async () => {
+it('the Deals page lists the pipelines only, a pin the person can’t take off', async () => {
+  await act(async () => root.render(<TablesView pipelines />))
+  await flush()
+  expect(listed.at(-1)).toMatchObject({ entityType: 'data_table', scopeFilters: [{ field: 'table_kind', operator: 'is', value: 'pipeline' }] })
+  expect(button('New pipeline')).toBeDefined()
+})
+
+it('New table opens the Create composer on Table', async () => {
   const asked: unknown[] = []
   const onAsk = (e: Event) => asked.push((e as CustomEvent).detail)
   document.addEventListener('open-create', onAsk)
@@ -117,12 +137,6 @@ it('New table opens the Create composer on Table, and takes in a table made ther
   document.removeEventListener('open-create', onAsk)
   expect(asked).toEqual([{ type: 'table' }])
   expect(calls.some((c) => c.init?.method === 'POST')).toBe(false)
-  const reads = calls.filter((c) => c.url === '/api/account/tables').length
-  await act(async () => {
-    window.dispatchEvent(new CustomEvent('ni:entity-created', { detail: { entityType: 'table', entity: { id: 'new' } } }))
-  })
-  await flush()
-  expect(calls.filter((c) => c.url === '/api/account/tables').length).toBe(reads + 1)
 })
 
 it('in a card: New table, then the table’s breadcrumb and its actions are the card header’s, no title row in the page (Liam, 11-22)', async () => {

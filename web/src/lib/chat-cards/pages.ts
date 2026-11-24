@@ -209,6 +209,8 @@ export const PAGE_KINDS: Record<PageKind, PageKindDef> = {
     view: 'docs',
     target: { types: ['data_table', 'data_row'] },
     tabs: ['grid', 'board', 'calendar', 'gallery'],
+    // Its top level is a views list of tables (docs/plans/views-everywhere.md).
+    rootEntity: 'data_table',
   },
   // Spreadsheets (migration 675): workbooks with formulas. Gated with Docs,
   // as Tables are. `target` is one spreadsheet: the card opens on its editor.
@@ -217,6 +219,7 @@ export const PAGE_KINDS: Record<PageKind, PageKindDef> = {
     rows: 'spreadsheets',
     view: 'docs',
     target: { types: ['spreadsheet'] },
+    rootEntity: 'spreadsheet',
   },
   // Deals (Tables, phase 7): the pipelines, each a table whose rows are
   // deals. It opens on the default pipeline's board; `target` is a pipeline,
@@ -238,6 +241,7 @@ export const PAGE_KINDS: Record<PageKind, PageKindDef> = {
     rows: 'canvases',
     view: 'docs',
     target: { types: ['canvas'] },
+    rootEntity: 'canvas',
   },
   // Drive folders (migration 690; docs/plans/create-everything.md): the top
   // folders, or one folder (`target`) with its subfolders and the docs,

@@ -70,6 +70,11 @@ export const BULK_ACTIONS: Record<ViewEntityType, BulkActionDefinition[]> = {
   agent: [],
   skill: [],
   github_pr: [],
+  // The Drive kinds: their own verbs are each row's menu (rename, archive, share).
+  canvas: [],
+  spreadsheet: [],
+  data_table: [],
+  drive_item: [],
   action: [
     { id: 'change_status', label: 'Change status...', icon: 'Circle', requiresValue: true, valueType: 'status', shortcut: 'S' },
     { id: 'assign_to', label: 'Assign to...', icon: 'User', requiresValue: true, valueType: 'member', shortcut: 'A' },

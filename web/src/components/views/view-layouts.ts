@@ -19,6 +19,9 @@ const LIST: LayoutOption = { value: 'list', label: 'List', Icon: List }
 const BOARD: LayoutOption = { value: 'board', label: 'Board', Icon: Columns2 }
 const ROADMAP: LayoutOption = { value: 'roadmap', label: 'Roadmap', Icon: ChartGantt }
 
+/** Kinds drawn as a list only. */
+const LIST_ONLY: ReadonlySet<ViewEntityType> = new Set(['canvas', 'spreadsheet', 'data_table', 'drive_item'])
+
 /** A table's rows: four layouts of their own. */
 const TABLE_LAYOUTS: LayoutOption[] = [
   { value: 'grid', label: 'Table', Icon: Table2 },
@@ -36,5 +39,7 @@ const TABLE_LAYOUTS: LayoutOption[] = [
 export function layoutOptions(entityType: ViewEntityType, graphAvailable = false): LayoutOption[] {
   if (entityType === 'agent' || entityType === 'skill') return []
   if (entityType === 'data_row') return TABLE_LAYOUTS
+  // The Drive kinds have no status to group a board by (docs/plans/views-everywhere.md): a list.
+  if (LIST_ONLY.has(entityType)) return [LIST]
   return [...(graphAvailable ? [GRAPH] : []), LIST, BOARD, ...(supportsRoadmap(entityType) ? [ROADMAP] : [])]
 }

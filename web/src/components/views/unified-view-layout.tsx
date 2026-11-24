@@ -75,7 +75,8 @@ import {
 // tsvector and its GIN index rather than an unindexed ilike, and the map
 // applies the same term as a text predicate over the full claim text — so the
 // canvas highlights exactly the nodes the list would have rowed.
-const SEARCHABLE_ENTITY_TYPES: ViewEntityType[] = ['contact', 'company', 'document', 'claim']
+// The Drive kinds search their titles (docs/plans/views-everywhere.md).
+const SEARCHABLE_ENTITY_TYPES: ViewEntityType[] = ['contact', 'company', 'document', 'claim', 'canvas', 'spreadsheet', 'data_table']
 
 /**
  * Should a capture UPDATE evict the row from an open list/board?
@@ -819,7 +820,8 @@ export function UnifiedViewLayout({
       // Map create dialog entity types to view entity types
       const created = detail.entityType
       const viewing = entityTypeRef.current
-      if (created === viewing || (created === 'contact' && viewing === 'company')) {
+      // The Create composer names a table `table` (lib/create); its list is `data_table`.
+      if (created === viewing || (created === 'contact' && viewing === 'company') || (created === 'table' && viewing === 'data_table')) {
         scheduleRefetch()
       }
     }

@@ -158,6 +158,28 @@ const DOCUMENT_VIEW_SELECT = `
   team:team!team_id(id, name)
 `
 
+// The Drive kinds (docs/plans/views-everywhere.md). `creator` is the row's
+// owner or maker as a member, so the shared "Created by" cell draws it as it
+// does a doc's. Never a spreadsheet's workbook: a list does not need the cells.
+const CANVAS_VIEW_SELECT = `
+  id, title, visibility, project_id, owner_member_id, archived_at,
+  created_at, updated_at, workspace_id,
+  project:projects!project_id(id, name),
+  creator:member!owner_member_id(id, display_name, avatar_url)
+`
+
+const SPREADSHEET_VIEW_SELECT = `
+  id, title, created_by, last_edited_by, visibility, status, sheet_names,
+  created_at, updated_at, workspace_id,
+  creator:member!created_by(id, display_name, avatar_url)
+`
+
+const DATA_TABLE_VIEW_SELECT = `
+  id, name, icon, description, owner_member_id, visibility, table_kind, is_default, record_kind,
+  archived_at, created_at, updated_at, workspace_id,
+  creator:member!owner_member_id(id, display_name, avatar_url)
+`
+
 const INITIATIVE_VIEW_SELECT = `
   id, name, description, status, icon, color, owner_id, target_date,
   custom_fields, created_at, updated_at, workspace_id,
@@ -438,6 +460,24 @@ function buildUnfencedEntityQuery(
       throw new Error('Library views use the agents and skills endpoints')
     case 'github_pr':
       throw new Error('Pull requests are read from GitHub by the Reviews page (/api/account/github/reviews)')
+    case 'drive_item':
+      throw new Error("A folder's rows are read by the Folders page (/api/account/folders)")
+    // The Drive kinds: RLS decides who reads a private one (676, 675, 520, and 688's grants).
+    case 'canvas':
+      return supabase
+        .from('canvas')
+        .select(CANVAS_VIEW_SELECT, { count: 'exact' })
+        .eq('workspace_id', workspaceId)
+    case 'spreadsheet':
+      return supabase
+        .from('spreadsheet')
+        .select(SPREADSHEET_VIEW_SELECT, { count: 'exact' })
+        .eq('workspace_id', workspaceId)
+    case 'data_table':
+      return supabase
+        .from('data_table')
+        .select(DATA_TABLE_VIEW_SELECT, { count: 'exact' })
+        .eq('workspace_id', workspaceId)
     case 'action': {
       // Personal scope (all of the user's workspaces) or the active one. The
       // ids come from the `member` table, never from the caller — see
@@ -726,6 +766,10 @@ const JUNCTION_FIELDS: Record<ViewEntityType, string[]> = {
   eval_run: [],
   claim: [],
   data_row: [],
+  canvas: [],
+  spreadsheet: [],
+  data_table: [],
+  drive_item: [],
 }
 
 // Label (tag) junction table per entity type, and the column naming the
@@ -788,6 +832,10 @@ const ARRAY_FIELDS: Record<ViewEntityType, string[]> = {
   // touches another project.
   claim: ['project_ids'],
   data_row: [],
+  canvas: [],
+  spreadsheet: [],
+  data_table: [],
+  drive_item: [],
 }
 
 function isJunctionField(entityType: ViewEntityType, field: string): boolean {
@@ -966,6 +1014,14 @@ export async function applyFilters(
       }
     }
 
+    // Archived (a canvas, a table): whether it carries an archived_at stamp.
+    if ((entityType === 'canvas' || entityType === 'data_table') && field === 'archived') {
+      const want = operator === 'is_not' ? value !== true && value !== 'true' : value === true || value === 'true'
+      if (want) query.not('archived_at', 'is', null)
+      else query.is('archived_at', null)
+      continue
+    }
+
     // Sequence internal scope field: "sequences having an enrollment for this
     // contact" (contact detail panel → Sequences embed). Deliberately absent
     // from FILTERABLE_FIELDS — a fixed scope filter, never a user pick.
@@ -1038,6 +1094,14 @@ export function applyEntityDefaults(
   // list shows docs only unless a filter names `kind` ("Kind is report"). A
   // query scoped by `id` already names the documents it wants (a delivered
   // report opened by id, a scope filter): every kind of them.
+  // The Drive kinds hide what was archived unless a filter asks for it, as
+  // their pages always did (listCanvases, listTables, the spreadsheets list).
+  if (entityType === 'canvas' || entityType === 'data_table') {
+    if (!filters.some((f) => f.field === 'archived' || f.field === 'id')) query.is('archived_at', null)
+  }
+  if (entityType === 'spreadsheet') {
+    if (!filters.some((f) => f.field === 'status' || f.field === 'id')) query.eq('status', 'active')
+  }
   if (entityType === 'document') {
     const explicitKind = filters.some((f) => f.field === 'kind' || f.field === 'id')
     if (!explicitKind) query.eq('kind', 'doc')
@@ -2104,7 +2168,12 @@ export function applySearch(
     case 'capture':
     case 'document':
     case 'action':
+    case 'canvas':
+    case 'spreadsheet':
       query.ilike('title', `%${term}%`)
+      break
+    case 'data_table':
+      query.ilike('name', `%${term}%`)
       break
     case 'flow':
     case 'sequence':
