@@ -21,7 +21,7 @@ import { LabelPickerContent, flattenGroups } from '@/components/labels/label-pic
 import { EntityTitleInput } from '@/components/views/entity-title-input'
 import { usePropertiesVisible } from '@/components/views/use-properties-visible'
 import { WindowProperties, WindowActions, useShowWindowProperties } from '@/components/views/window-properties'
-import { DetailTabsInHeader, useDetailTabsInHeader, type DetailTab } from '@/components/chat-cards/detail-tabs'
+import { DETAIL_TAB_ROW, DetailTabs, type DetailTab } from '@/components/views/page-tabs'
 import { SubActionComposer, type SubActionDraft } from '@/components/views/sub-action-composer'
 import { PropertyGroup } from '@/components/views/property-group'
 import { OptionalProperty, PropertyRow, PropertyRows } from '@/components/views/property-layout'
@@ -677,8 +677,6 @@ export function ActionDetailPanel({
     },
     [onSectionChange],
   )
-  // In a card the views are a capsule in the card's header (DetailTabsInHeader below).
-  const tabsInHeader = useDetailTabsInHeader()
   // True once we've observed at least one workspace-kind (Loops v3) run for this
   // action. A work-run action ALWAYS has such a run (the Start route inserts it),
   // so this is the durable signal that this action's Cloud tab must stay
@@ -1709,148 +1707,67 @@ export function ActionDetailPanel({
       )}
       {/* Sub-header toolbar — action buttons (matches left panel toolbar height) */}
       {/* A container: the Start's "with" label shortens when the toolbar is tight. */}
-      {/* In the page's own column (the body's 736px, px-8, below): its tabs
-          start on the title's line and its buttons end on the body's right
-          edge (Liam, 11-20: "when you click into an action item that header
-          section needs to be cleaned up too"). Its pills start 22px left of
-          that line (10px in), where the header island's icon stands over the
-          title's (Liam, 11-21: "the pills should be more to the left";
-          view-toolbar.tsx alignToContent), and 48px tall, as every page's
-          first row. */}
-      {/* In a card, Details / Cloud run / the Mac / Agents are a capsule in
-          the card's header, and this row keeps only what is left in it (the
-          "Waiting on you" chip; Liam, 11-23: "these details view pages …
-          that show the different pages at the top … feel out of place");
-          empty (the actions in the Properties popover), it is gone. */}
-      {action && (
-        <DetailTabsInHeader<PanelView>
-          label="Action"
-          tabs={[
-            { id: 'details', label: 'Details' },
-            ...(canShowCloudTab
-              ? [{
-                  id: 'cloud',
-                  title: 'Cloud run',
-                  label: (
-                    <span className="inline-flex items-center gap-1">
-                      <Cloud className="h-3 w-3" />
-                      Cloud run
-                      {/* Exactly one status marker, chosen in cloud-run-gate.ts. */}
-                      {cloudRunMarker === 'needs_input' && <MessageCircleQuestion className="h-3 w-3 animate-pulse text-amber-500" />}
-                      {cloudRunMarker === 'live' && <Loader2 className="h-3 w-3 animate-spin" />}
-                      {cloudRunMarker === 'failed' && <AlertCircle className="h-3 w-3 text-destructive" />}
-                    </span>
-                  ),
-                } satisfies DetailTab<PanelView>]
-              : []),
-            ...(macJob
-              ? [{
-                  id: 'mac',
-                  title: macJob.worker ? workerLabel(macJob.worker) : 'On your Mac',
-                  data: { 'data-action-mac-tab': '' },
-                  label: (
-                    <span className="inline-flex items-center gap-1">
-                      <Laptop className="h-3 w-3" />
-                      {macJob.worker ? workerLabel(macJob.worker) : 'On your Mac'}
-                      {(macJob.status === 'starting' || macJob.status === 'running') && <Loader2 data-action-mac-tab-working="" className="h-3 w-3 animate-spin" />}
-                    </span>
-                  ),
-                } satisfies DetailTab<PanelView>]
-              : []),
-            {
-              id: 'agents',
-              title: 'Agents',
-              label: (
-                <span className="inline-flex items-center gap-1">
-                  <Boxes className="h-3 w-3" />
-                  Agents
-                </span>
-              ),
-            },
-          ]}
-          value={panelView}
-          onChange={setPanelView}
-        />
-      )}
-      <div data-action-toolbar="" className="@container/actiontoolbar mx-auto flex h-12 w-full max-w-[736px] shrink-0 items-center pl-2.5 pr-8 empty:hidden">
+      {/* The page's first row, from the card's corner as a list's view tabs,
+          whatever column the body keeps below (Liam, 11-23: "it should start
+          to the far left even though the page content is indented";
+          components/views/page-tabs.tsx), and 48px tall, as every page's first
+          row. In a card too. */}
+      <div data-action-toolbar="" className={cn('@container/actiontoolbar', DETAIL_TAB_ROW)}>
         {/* View switcher — pill tabs matching the project detail panel. Offered
             whenever this action can carry a server-side run: an AI assignee
             (coding run), a workspace-kind run (Loops v3 work run — reachable even
             after it completes), or a currently-live run status. */}
-        {action && !tabsInHeader && (
-          // The tabs keep their labels whole (the Start's "with" collapses to an icon
-          // first); only then do they scroll, never pushing the toolbar's icons out.
-          <div className="flex min-w-0 shrink items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            <button
-              onClick={() => setPanelView('details')}
-              className={cn(
-                'inline-flex shrink-0 items-center px-3 py-1 text-xs rounded-full border transition-colors whitespace-nowrap',
-                panelView === 'details'
-                  ? 'bg-foreground text-background border-foreground font-medium'
-                  : 'bg-transparent text-muted-foreground border-border hover:bg-muted hover:text-foreground',
-              )}
-            >
-              Details
-            </button>
-            {canShowCloudTab && (
-            <button
-              onClick={() => setPanelView('cloud')}
-              className={cn(
-                'inline-flex shrink-0 items-center gap-1.5 px-3 py-1 text-xs rounded-full border transition-colors whitespace-nowrap',
-                panelView === 'cloud'
-                  ? 'bg-foreground text-background border-foreground font-medium'
-                  : 'bg-transparent text-muted-foreground border-border hover:bg-muted hover:text-foreground',
-              )}
-            >
-              <Cloud className="h-3 w-3" />
-              Cloud run
-              {/* Exactly one status marker, chosen in cloud-run-gate.ts. */}
-              {cloudRunMarker === 'needs_input' && (
-                <MessageCircleQuestion className="h-3 w-3 animate-pulse text-amber-500" />
-              )}
-              {cloudRunMarker === 'live' && <Loader2 className="h-3 w-3 animate-spin" />}
-              {cloudRunMarker === 'failed' && (
-                <AlertCircle
-                  className={cn(
-                    'h-3 w-3',
-                    // The selected tab has a foreground-coloured fill, where
-                    // text-destructive is close to unreadable.
-                    panelView === 'cloud' ? 'text-background' : 'text-destructive',
-                  )}
-                />
-              )}
-            </button>
-            )}
-            {macJob && (
-              <button
-                onClick={() => setPanelView('mac')}
-                data-action-mac-tab=""
-                className={cn(
-                  'inline-flex shrink-0 items-center gap-1.5 px-3 py-1 text-xs rounded-full border transition-colors whitespace-nowrap',
-                  panelView === 'mac'
-                    ? 'bg-foreground text-background border-foreground font-medium'
-                    : 'bg-transparent text-muted-foreground border-border hover:bg-muted hover:text-foreground',
-                )}
-              >
-                <Laptop className="h-3 w-3" />
-                {macJob.worker ? workerLabel(macJob.worker) : 'On your Mac'}
-                {/* Only a job that is starting or running spins; one idle for a message doesn't. */}
-                {(macJob.status === 'starting' || macJob.status === 'running') && <Loader2 data-action-mac-tab-working="" className="h-3 w-3 animate-spin" />}
-              </button>
-            )}
-            <button
-              onClick={() => setPanelView('agents')}
-              className={cn(
-                'inline-flex shrink-0 items-center gap-1.5 px-3 py-1 text-xs rounded-full border transition-colors whitespace-nowrap',
-                panelView === 'agents'
-                  ? 'bg-foreground text-background border-foreground font-medium'
-                  : 'bg-transparent text-muted-foreground border-border hover:bg-muted hover:text-foreground',
-              )}
-            >
-              <Boxes className="h-3 w-3" />
-              Agents
-            </button>
-          </div>
+        {/* The tabs keep their labels whole (the Start's "with" collapses to an icon
+            first); only then do they scroll, never pushing the row's icons out. */}
+        {action && (
+          <DetailTabs<PanelView>
+            label="Action"
+            tabs={[
+              { id: 'details', label: 'Details' },
+              ...(canShowCloudTab
+                ? [{
+                    id: 'cloud',
+                    title: 'Cloud run',
+                    label: (
+                      <span className="inline-flex items-center gap-1">
+                        <Cloud className="h-3 w-3" />
+                        Cloud run
+                        {/* Exactly one status marker, chosen in cloud-run-gate.ts. */}
+                        {cloudRunMarker === 'needs_input' && <MessageCircleQuestion className="h-3 w-3 animate-pulse text-amber-500" />}
+                        {cloudRunMarker === 'live' && <Loader2 className="h-3 w-3 animate-spin" />}
+                        {cloudRunMarker === 'failed' && <AlertCircle className="h-3 w-3 text-destructive" />}
+                      </span>
+                    ),
+                  } satisfies DetailTab<PanelView>]
+                : []),
+              ...(macJob
+                ? [{
+                    id: 'mac',
+                    title: macJob.worker ? workerLabel(macJob.worker) : 'On your Mac',
+                    data: { 'data-action-mac-tab': '' },
+                    label: (
+                      <span className="inline-flex items-center gap-1">
+                        <Laptop className="h-3 w-3" />
+                        {macJob.worker ? workerLabel(macJob.worker) : 'On your Mac'}
+                        {(macJob.status === 'starting' || macJob.status === 'running') && <Loader2 data-action-mac-tab-working="" className="h-3 w-3 animate-spin" />}
+                      </span>
+                    ),
+                  } satisfies DetailTab<PanelView>]
+                : []),
+              {
+                id: 'agents',
+                title: 'Agents',
+                label: (
+                  <span className="inline-flex items-center gap-1">
+                    <Boxes className="h-3 w-3" />
+                    Agents
+                  </span>
+                ),
+              },
+            ]}
+            value={panelView}
+            onChange={setPanelView}
+          />
         )}
         {/* Work-run parked on a question (Loops v3): a "Waiting on you" chip that
             jumps to the in-panel Cloud-run view, where the question picker lives.
@@ -1860,7 +1777,7 @@ export function ActionDetailPanel({
           <button
             type="button"
             onClick={() => setPanelView('cloud')}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-500/20 disabled:opacity-60 dark:text-amber-400"
+            className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-3 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-500/20 disabled:opacity-60 dark:text-amber-400"
             title="The agent asked a question — open the run to answer"
           >
             <MessageCircleQuestion className="h-3 w-3 animate-pulse" />
@@ -2105,13 +2022,13 @@ export function ActionDetailPanel({
       ) : panelView === 'agents' ? (
         <div className="min-h-0 flex-1 overflow-y-auto">
           {/* The same inset as Details' reading column and the toolbar above. */}
-          <div className={cn('mx-auto w-full max-w-[736px] px-8', tabsInHeader && 'pt-4')}>
+          <div className="mx-auto w-full max-w-[736px] px-8">
             <EntityActivitySection entityType="action" entityId={actionId} />
           </div>
         </div>
       ) : panelView === 'mac' && macJob ? (
         // The same inset as Details' reading column.
-        <div data-action-mac-job={macJob.sessionId} className={cn('mx-auto flex min-h-0 w-full max-w-[736px] flex-1 flex-col px-8 pb-4', tabsInHeader && 'pt-4')}>
+        <div data-action-mac-job={macJob.sessionId} className="mx-auto flex min-h-0 w-full max-w-[736px] flex-1 flex-col px-8 pb-4">
           <LocalAgentPanel key={macJob.sessionId} sessionId={macJob.sessionId} />
         </div>
       ) : panelView === 'cloud' && canShowCloudTab ? (

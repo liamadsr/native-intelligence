@@ -20,6 +20,8 @@ export interface CardHeaderSlots {
   right: HTMLElement | null
   /** After the title and a chevron (CardHeaderTrail). */
   trail?: HTMLElement | null
+  /** In the title's place: a page whose name is what it shows (CardHeaderTitle; the calendar's dates). */
+  title?: HTMLElement | null
   /** The title's press while a trail shows: back to the page. Set by CardHeaderTrail. */
   setBack?: (back: CardHeaderBack | null) => void
 }
@@ -42,6 +44,16 @@ export function useCardHeaderSlots(): CardHeaderSlots | null {
 export function CardHeaderSlot({ side, children }: { side: 'left' | 'right'; children: React.ReactNode }) {
   const slots = useCardHeaderSlots()
   const host = slots?.[side] ?? null
+  return host ? createPortal(children, host) : null
+}
+
+/**
+ * The page's own title in the card header, in place of its name (Liam, 11-23: "lets move the current date into
+ * the page title"): what it holds stands where the name stood, the name hidden while it is there.
+ */
+export function CardHeaderTitle({ children }: { children: React.ReactNode }) {
+  const slots = useCardHeaderSlots()
+  const host = slots?.title ?? null
   return host ? createPortal(children, host) : null
 }
 

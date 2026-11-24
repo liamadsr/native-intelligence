@@ -272,8 +272,8 @@ describe('ActionDetailPanel — the job on the person’s Mac', () => {
 // Liam, 11-23: "these details view pages … that show the different pages at
 // the top … feel out of place": in a card, the action's views are a capsule
 // in the card's header, the Mac tab among them; the page's row is left empty.
-describe('ActionDetailPanel — its views in a card’s header', () => {
-  it('a capsule in the right slot (Details, Cloud run, the Mac, Agents); a press opens the Mac job; no row of pills in the page', async () => {
+describe('ActionDetailPanel — its views on the page’s first row, in a card too', () => {
+  it('a tablist from the far left (Details, Cloud run, the Mac, Agents), none in the header; a press opens the Mac job', async () => {
     job = { sessionId: SID, status: 'running', worker: 'claude-code', deviceName: 'Studio Mac', folderLabel: 'site', live: true }
     const right = document.createElement('div')
     document.body.appendChild(right)
@@ -284,16 +284,17 @@ describe('ActionDetailPanel — its views in a card’s header', () => {
         )
       })
       for (let i = 0; i < 3; i++) await act(async () => { await vi.advanceTimersByTimeAsync(20) })
-      const capsule = right.querySelector<HTMLElement>('[data-detail-tabs="header"]')!
-      expect(capsule).not.toBeNull()
-      expect(Array.from(capsule.querySelectorAll('[data-detail-tab]')).map((b) => b.getAttribute('data-detail-tab'))).toEqual(['details', 'cloud', 'mac', 'agents'])
-      expect(capsule.querySelector('[data-detail-tab="details"]')!.getAttribute('aria-selected')).toBe('true')
-      const mac = capsule.querySelector<HTMLButtonElement>('[data-action-mac-tab]')!
+      expect(right.querySelector('[role="tablist"]')).toBeNull()
+      const row = q('[data-action-toolbar]')!
+      // From the far left, not in the body's 736px column (Liam, 11-23).
+      expect(row.className).toContain('px-2.5')
+      expect(row.className).not.toContain('max-w-[736px]')
+      const tabs = row.querySelector<HTMLElement>('[role="tablist"]')!
+      expect(Array.from(tabs.querySelectorAll('[data-detail-tab]')).map((b) => b.getAttribute('data-detail-tab'))).toEqual(['details', 'cloud', 'mac', 'agents'])
+      expect(tabs.querySelector('[data-detail-tab="details"]')!.getAttribute('aria-selected')).toBe('true')
+      const mac = tabs.querySelector<HTMLButtonElement>('[data-action-mac-tab]')!
       expect(mac.textContent).toContain('Claude Code')
       expect(mac.querySelector('[data-action-mac-tab-working]')).not.toBeNull()
-      // The page's own row holds nothing now (its actions are in the Properties popover).
-      expect(q('[data-action-toolbar]')!.childNodes.length).toBe(0)
-      expect(container.querySelector('[data-action-mac-tab]')).toBeNull()
       await act(async () => mac.click())
       await act(async () => { await vi.advanceTimersByTimeAsync(50) })
       expect(mac.getAttribute('aria-selected')).toBe('true')

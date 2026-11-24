@@ -3,17 +3,17 @@
 /**
  * One tracked business (the Local card's `seo_local_business` place): the
  * crumb back to the businesses and its name (in a card, its header's
- * breadcrumb, with the menu at the header's right), a quiet line of where it
- * is and how it is rated, then three tabs, the card's tabs:
+ * breadcrumb, with the menu at the header's right), then three tabs, the
+ * card's tabs, as the page's first row (DETAIL_TAB_ROW: in the card's corner,
+ * as a project's sections; Liam, 11-23: "everything looks the same as the
+ * projects page"), a quiet line of where it is and how it is rated, and the
+ * tab in force:
  *
  *   Map rankings  its rank grids: where it shows on Google Maps across the
  *                 town, point by point (./grid-tab.tsx)
  *   Profile       the stored Google Business Profile read (./profile-tab.tsx)
  *   Reviews       its Google reviews, read on request (./reviews-tab.tsx);
  *                 what was read stays while the tabs change
- *
- * In a card the three tabs are its header's, a capsule before the spend
- * line and the menu (Liam, 11-23: "all the SEO pages").
  *
  * The "…" menu removes the business (ConfirmDialog, never window.confirm).
  * A spend limit or lookups turning out to be off is a neutral banner under
@@ -24,6 +24,7 @@ import { Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { DETAIL_TAB_ROW } from '@/components/views/page-tabs'
 import { PageTitle } from '@/components/views/page-title'
 import type { GoogleBusinessReviewsResult } from '@/lib/seo/local/view'
 import { cn } from '@/lib/utils'
@@ -166,22 +167,6 @@ export function BusinessDetail({
   const name = business?.title ?? label ?? 'Business'
   const activeTab: BusinessTab = tab && (BUSINESS_TABS as readonly string[]).includes(tab) ? (tab as BusinessTab) : BUSINESS_TABS[0]
 
-  // Drawn with the business, as the page's body is (a reply without it shows the loader).
-  const tabs = detail && business ? (
-    <TabPills
-      header={inCard}
-      className={inCard ? undefined : 'mt-1'}
-      label="Business"
-      tabs={[
-        { id: 'grid', label: 'Map rankings', count: detail.grids.length > 1 ? detail.grids.length : undefined },
-        { id: 'profile', label: 'Profile' },
-        { id: 'reviews', label: 'Reviews', count: reviews?.data?.reviews.length },
-      ]}
-      value={activeTab}
-      onChange={onTab}
-    />
-  ) : null
-
   const header = (
     <ViewHeader
       className="gap-3"
@@ -200,7 +185,6 @@ export function BusinessDetail({
       actions={
         business ? (
           <>
-            {inCard && tabs}
             {/* The header gives way by truncating the name, so the spend line stays there; the page's own row hides it when narrow. */}
             <SeoSpendLine view={seo.view} className={inCard ? 'mr-1' : 'mr-1 hidden @lg/local:inline'} />
             <Popover open={menuOpen} onOpenChange={setMenuOpen}>
@@ -239,19 +223,30 @@ export function BusinessDetail({
 
   const line = businessLine(business)
   return (
-    <div data-seo-business={business.id} className={cn('@container/local flex h-full min-h-0 flex-col', inCard && 'pt-2')}>
+    <div data-seo-business={business.id} className="@container/local flex h-full min-h-0 flex-col">
       {header}
-      {/* In a card no header row stands above it: the page starts under the card's header. */}
+      {/* The first row, in a card and outside it: the tabs from the card's corner. */}
+      <div data-seo-tab-row="" className={DETAIL_TAB_ROW}>
+        <TabPills
+          label="Business"
+          tabs={[
+            { id: 'grid', label: 'Map rankings', count: detail.grids.length > 1 ? detail.grids.length : undefined },
+            { id: 'profile', label: 'Profile' },
+            { id: 'reviews', label: 'Reviews', count: reviews?.data?.reviews.length },
+          ]}
+          value={activeTab}
+          onChange={onTab}
+        />
+      </div>
       {line && (
-        <p data-seo-business-line="" className={cn('truncate px-5 pb-2 text-xs tabular-nums text-muted-foreground', !inCard && '-mt-1')} title={line}>
+        <p data-seo-business-line="" className="truncate px-5 pb-2 text-xs tabular-nums text-muted-foreground" title={line}>
           {line}
         </p>
       )}
       {notice && <NoticeBanner text={notice} className="mx-5 mb-2" />}
 
       <div className="@container min-h-0 flex-1 overflow-y-auto px-5 pb-6">
-        {!inCard && tabs}
-        <div className={inCard ? 'mt-1' : 'mt-4'}>
+        <div className="mt-1">
           {activeTab === 'profile' ? (
             <ProfileTab profile={detail.profile} blocked={blocked} busy={refreshing} onRead={() => void readProfile()} />
           ) : activeTab === 'reviews' ? (

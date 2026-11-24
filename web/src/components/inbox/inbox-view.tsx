@@ -40,8 +40,7 @@ import { EmailLayout, type MailCardOptions } from '@/components/email/email-layo
 import { setRightPanelOpen, setSidePanelView } from '@/app/account/(dashboard)/side-panels/side-panel-store'
 import { HOLD_CHOICES, INBOX_FILTERS, holdChoiceLabel, holdUntil, type HoldChoice, type InboxFilter, type InboxItem } from '@/lib/inbox/items'
 import type { CardRecordType } from '@/lib/chat-cards/kinds'
-import { CardHeaderSlot, useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
-import { CARD_HEADER_CAPSULE, CARD_HEADER_SEGMENT } from '@/components/chat-cards/card-header-button'
+import { DETAIL_TAB_ROW, DetailTabs, PAGE_TAB_COUNT, pageTabClass } from '@/components/views/page-tabs'
 import { keepFocusAfterFlip } from '@/app/account/(dashboard)/page-panel/hub-open'
 import {
   closeInboxItem,
@@ -66,7 +65,7 @@ export const FILTER_LABELS: Record<InboxFilter, string> = {
   mail: 'Mail',
   held: 'Held',
 }
-/** In a card's header or the panel, where room is short: the long one shortened (its full name is the tooltip). */
+/** In the panel, or the list beside an open item, where room is short: the long one shortened (its full name is the tooltip). */
 const SHORT_LABELS: Partial<Record<InboxFilter, string>> = { mentions: 'Mentions' }
 
 /** The keys' hint under the list. */
@@ -89,13 +88,15 @@ type OpenOpts = Parameters<typeof inboxOpen>[1]
  * Enter or O opens, E done, H hold until tomorrow (Held: brings it back),
  * Esc closes the item. Never from a field, a menu, a dialog, or the item's
  * own pane (`[data-inbox-pane]`: the conversation's and the thread's keys
- * are their own), nor a control portalled out of `e.currentTarget` (the card
- * header's filter: its Enter presses it).
+ * are their own), nor the filter (`[data-inbox-filters]`: its Enter presses
+ * it, and e or h would settle a row), nor a control portalled out of
+ * `e.currentTarget` (the card header's: the conversation's Copy invite link,
+ * call, bell).
  */
 export function inboxKeyDown(e: KeyboardEvent<HTMLElement>, s: InboxState, opts: OpenOpts = {}): void {
   if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || typing(e.target)) return
   const inHeader = !e.currentTarget.contains(e.target as Node)
-  if (inHeader || (e.target as Element).closest?.('[data-inbox-pane]')) {
+  if (inHeader || (e.target as Element).closest?.('[data-inbox-pane], [data-inbox-filters]')) {
     if (e.key === 'Escape' && s.openKey) {
       e.preventDefault()
       closeInboxItem()
@@ -132,59 +133,37 @@ export function inboxKeyDown(e: KeyboardEvent<HTMLElement>, s: InboxState, opts:
 }
 
 /**
- * The filter: a capsule of segments (the card's header, Liam, 11-23 "Into
- * the header"; and the panel), or the row of pills over the list on its own.
+ * The filter, in the pill every page's tabs wear (components/views/page-tabs.tsx; Liam, 11-23: "can you make
+ * sure it's updated everywhere? and everything looks the same as the projects page"): the page's first row,
+ * from the card's corner (`row`), or in the panel beside the rail, where room is short, pills that wrap with
+ * the long one shortened (`panel`, its full name the tooltip). Never in the card's header.
  */
-export function InboxFilters({ s, variant }: { s: InboxState; variant: 'header' | 'panel' | 'row' }) {
+export function InboxFilters({ s, variant, narrow = false }: { s: InboxState; variant: 'panel' | 'row'; narrow?: boolean }) {
   const counts = useMemo(() => inboxCounts(s.data), [s.data])
   if (variant === 'row') {
+    // Narrow (the list beside an open item, 22rem): the long one shortened and the pills onto a second line, so
+    // Mail and Held stay in reach (a review, 11-23: scrolled sideways, they sat out of sight).
     return (
-      <div className="flex shrink-0 flex-wrap gap-1 px-4 pb-2 pt-3" role="tablist" aria-label="Show">
-        {INBOX_FILTERS.map((f) => (
-          <button
-            key={f}
-            type="button"
-            role="tab"
-            aria-selected={s.filter === f}
-            data-inbox-filter={f}
-            onClick={() => setInboxFilter(f)}
-            // As every page's pills (Reviews, Drive): the chosen one tinted, the rest clear (Liam, 11-20: unselected pills are transparent).
-            className={cn('h-7 rounded-full px-3 text-xs transition-colors', s.filter === f ? 'bg-foreground/[0.08] font-medium text-foreground' : 'text-muted-foreground hover:bg-foreground/[0.05] hover:text-foreground')}
-          >
-            {FILTER_LABELS[f]}
-            {counts[f] > 0 && <span className="ml-1 tabular-nums opacity-70">{counts[f]}</span>}
-          </button>
-        ))}
-      </div>
-    )
-  }
-  if (variant === 'panel') {
-    // The panel is narrow: small pills that wrap, the long one shortened (its full name the tooltip).
-    return (
-      <div role="tablist" aria-label="Show" data-inbox-filters="panel" className="flex flex-wrap gap-1">
-        {INBOX_FILTERS.map((f) => (
-          <button
-            key={f}
-            type="button"
-            role="tab"
-            aria-selected={s.filter === f}
-            data-inbox-filter={f}
-            title={FILTER_LABELS[f]}
-            onClick={() => setInboxFilter(f)}
-            className={cn(
-              'h-6 rounded-full px-2 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none',
-              s.filter === f ? 'bg-foreground/[0.08] font-medium text-foreground' : 'text-muted-foreground hover:bg-foreground/[0.05] hover:text-foreground',
-            )}
-          >
-            {SHORT_LABELS[f] ?? FILTER_LABELS[f]}
-            {counts[f] > 0 && <span className="ml-1 tabular-nums opacity-60">{counts[f]}</span>}
-          </button>
-        ))}
+      <div className={cn(DETAIL_TAB_ROW, narrow && 'h-auto min-h-12 py-2.5')}>
+        <DetailTabs
+          label="Show"
+          data-inbox-filters="page"
+          wrap={narrow}
+          tabs={INBOX_FILTERS.map((f) => ({
+            id: f,
+            label: narrow ? (SHORT_LABELS[f] ?? FILTER_LABELS[f]) : FILTER_LABELS[f],
+            title: FILTER_LABELS[f],
+            count: counts[f],
+            data: { 'data-inbox-filter': f },
+          }))}
+          value={s.filter}
+          onChange={setInboxFilter}
+        />
       </div>
     )
   }
   return (
-    <div role="tablist" aria-label="Show" data-inbox-filters="header" className={CARD_HEADER_CAPSULE}>
+    <div role="tablist" aria-label="Show" data-inbox-filters="panel" className="flex flex-wrap gap-1">
       {INBOX_FILTERS.map((f) => (
         <button
           key={f}
@@ -194,17 +173,10 @@ export function InboxFilters({ s, variant }: { s: InboxState; variant: 'header' 
           data-inbox-filter={f}
           title={FILTER_LABELS[f]}
           onClick={() => setInboxFilter(f)}
-          className={CARD_HEADER_SEGMENT}
+          className={pageTabClass(s.filter === f)}
         >
-          {SHORT_LABELS[f] ? (
-            <>
-              <span className="@[52rem]:hidden">{SHORT_LABELS[f]}</span>
-              <span className="hidden @[52rem]:inline">{FILTER_LABELS[f]}</span>
-            </>
-          ) : (
-            FILTER_LABELS[f]
-          )}
-          {counts[f] > 0 && <span className="ml-1 tabular-nums opacity-60">{counts[f]}</span>}
+          {SHORT_LABELS[f] ?? FILTER_LABELS[f]}
+          {counts[f] > 0 && <span className={PAGE_TAB_COUNT}>{counts[f]}</span>}
         </button>
       ))}
     </div>
@@ -370,8 +342,6 @@ export function InboxView({
   onBeside?: () => void
 }) {
   const s = useInbox(true)
-  // In a card its filter goes up into the card's header (CardHeaderSlot); on its own, a row over the list.
-  const inCard = useCardHeaderSlots() !== null
   const opts = useMemo(() => ({ onOpenRecord, beside: onBeside }), [onOpenRecord, onBeside])
   const opened = inboxOpened(s)
   const pane = opened && (opened.open.kind === 'team_chat' || opened.open.kind === 'mail') ? opened : null
@@ -398,15 +368,10 @@ export function InboxView({
 
   return (
     <div className="flex h-full min-h-0" data-inbox-view="" onKeyDown={(e) => inboxKeyDown(e, s, opts)} tabIndex={-1}>
-      {/* In a card: the filter in its header, a capsule of segments as Calendar's views are (Liam, 11-23: "Into the header"); the page starts with the list. */}
-      {inCard && (
-        <CardHeaderSlot side="right">
-          <InboxFilters s={s} variant="header" />
-        </CardHeaderSlot>
-      )}
       <div className={cn('flex min-h-0 flex-col', pane ? 'hidden w-[22rem] shrink-0 md:flex' : 'flex-1')}>
-        {!inCard && <InboxFilters s={s} variant="row" />}
-        <div className={cn('min-h-0 flex-1 overflow-y-auto px-2 pb-4', inCard && 'pt-2')} role="listbox" aria-label="Inbox" tabIndex={0} data-inbox-list="">
+        {/* The page's first row, from the card's corner; narrowed beside an open conversation, the pills scroll. */}
+        <InboxFilters s={s} variant="row" narrow={!!pane} />
+        <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4" role="listbox" aria-label="Inbox" tabIndex={0} data-inbox-list="">
           <InboxList s={s} forYouCount={forYouCount} opts={opts} />
         </div>
         <p className="hidden shrink-0 px-4 pb-2 text-[11px] text-muted-foreground md:block">{INBOX_KEYS_HINT}</p>

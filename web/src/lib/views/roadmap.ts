@@ -52,18 +52,21 @@ export function supportsRoadmap(entityType: ViewEntityType): boolean {
 
 // ── Zoom ────────────────────────────────────────────────────
 
-export type RoadmapZoom = 'week' | 'month' | 'quarter'
+export type RoadmapZoom = 'day' | 'week' | 'month' | 'quarter'
 
-export const ROADMAP_ZOOMS: readonly RoadmapZoom[] = ['week', 'month', 'quarter']
+/** Closest first. Day: one day wide enough for its weekday (Liam, 11-23: "lets add a day view"). */
+export const ROADMAP_ZOOMS: readonly RoadmapZoom[] = ['day', 'week', 'month', 'quarter']
 
 /** Pixels one day takes at each zoom. */
 export const PX_PER_DAY: Record<RoadmapZoom, number> = {
+  day: 96,
   week: 36,
   month: 12,
   quarter: 4,
 }
 
 export const ROADMAP_ZOOM_LABELS: Record<RoadmapZoom, string> = {
+  day: 'Day',
   week: 'Week',
   month: 'Month',
   quarter: 'Quarter',
@@ -284,8 +287,10 @@ export interface AxisTick {
 /**
  * The header's two rows. Top: months ("October 2026" on the first shown and
  * on each January, the month name otherwise), or quarters at quarter zoom.
- * Bottom: each day at week zoom, each week's Monday at month zoom (its day
- * number), each month at quarter zoom. `lines` are where the grid draws its
+ * Bottom: each day with its weekday at day zoom ("Mon 24"; the month's name
+ * on its 1st, "Tue Dec 1", as the month above may be off screen), each day at
+ * week zoom, each week's Monday at month zoom (its day number), each month at
+ * quarter zoom. `lines` are where the grid draws its
  * faint verticals: the bottom row's ticks.
  */
 export function axisTicks(start: Date, end: Date, zoom: RoadmapZoom): { major: AxisTick[]; minor: AxisTick[] } {
@@ -308,7 +313,9 @@ export function axisTicks(start: Date, end: Date, zoom: RoadmapZoom): { major: A
     major.push({ x: x(at), date: at, label: first || m.getMonth() === 0 ? format(m, 'MMMM yyyy') : format(m, 'MMMM') })
     first = false
   }
-  if (zoom === 'week') {
+  if (zoom === 'day') {
+    for (let d = start; d <= end; d = addDays(d, 1)) minor.push({ x: x(d), date: d, label: format(d, d.getDate() === 1 ? 'EEE MMM d' : 'EEE d') })
+  } else if (zoom === 'week') {
     for (let d = start; d <= end; d = addDays(d, 1)) minor.push({ x: x(d), date: d, label: format(d, 'd') })
   } else {
     let w = startOfISOWeek(start)

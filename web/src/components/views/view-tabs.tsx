@@ -5,7 +5,6 @@ import {
   ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger,
 } from '@/components/ui/context-menu'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
-import { cn } from '@/lib/utils'
 import { Plus, Copy, Trash2, Pencil, Filter as FilterIcon, Users, Lock, Save } from 'lucide-react'
 import {
   FILTERABLE_FIELDS, operatorLabel as describeOperator,
@@ -19,6 +18,7 @@ import {
 import { customFieldFilterFields, isCustomFieldPath } from '@/lib/views/custom-field-columns'
 import { ACTION_SCOPE_TAB_ORDER, actionScopeLabel } from '@/lib/views/action-scopes'
 import { useCustomFieldDefinitions } from './hooks/use-custom-field-definitions'
+import { PAGE_TAB_ADD, PAGE_TAB_COUNT, pageTabClass } from './page-tabs'
 
 /** What a collection of these is CALLED, in the user's words. Drives the
  *  built-in "All …" tab and the search box's placeholder. */
@@ -177,12 +177,8 @@ export function ViewTabs({
 }: ViewTabsProps) {
   const isEditing = editMode !== null
 
-  const tabClass = (active: boolean) => cn(
-    'inline-flex shrink-0 items-center gap-1.5 px-3 py-1 text-xs rounded-full border transition-colors whitespace-nowrap',
-    active
-      ? 'bg-foreground text-background border-foreground font-medium'
-      : 'bg-transparent text-muted-foreground border-border hover:bg-muted hover:text-foreground',
-  )
+  // One look with a detail page's sections (page-tabs.tsx; Liam, 11-23: "like linear does").
+  const tabClass = pageTabClass
 
   return (
     <TooltipProvider delayDuration={800} skipDelayDuration={300}>
@@ -284,7 +280,7 @@ export function ViewTabs({
                 >
                   {PROSPECT_STAGE_TAB_LABELS[tab]}
                   {count !== undefined && (
-                    <span className={cn('tabular-nums', active ? 'text-background/70' : 'text-muted-foreground/70')}>
+                    <span className={PAGE_TAB_COUNT}>
                       {count}
                     </span>
                   )}
@@ -386,7 +382,7 @@ export function ViewTabs({
             aria-label="Create view"
             title="Create view"
             onClick={() => onStartCreate?.()}
-            className="inline-flex shrink-0 items-center justify-center h-[26px] w-[26px] rounded-full text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            className={PAGE_TAB_ADD}
           >
             <Plus className="h-3.5 w-3.5" />
           </button>

@@ -13,7 +13,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as React from 'react'
 import { act } from 'react'
 import { makeStore, mountRoot } from './page-card-harness'
-import { seoHeaderHosts } from './seo-header-hosts'
+import { pageTabRow, seoHeaderHosts } from './seo-header-hosts'
+import { DETAIL_TAB_ROW } from '@/components/views/page-tabs'
 import { stubAppFetch } from '@/test/app-fetch-stub'
 
 const hoisted = vi.hoisted(() => ({
@@ -552,14 +553,19 @@ describe('SeoSearchCard: in a card’s header', () => {
   })
   afterEach(() => hosts.remove())
 
-  it('no title row of its own; the period and the … menu are at the header’s right', async () => {
+  it('no title row of its own; the tabs and the period are the page’s first row, the … menu at the header’s right', async () => {
+    // Liam, 11-23: "everything looks the same as the projects page".
     await mount.render(hosts.wrap(React.createElement(SeoSearchCard, { toolCallId: 'seo-s', spec, store, fullScreen: true })))
     await settle()
     await settle()
     expect(mount.container.querySelector('[data-seo-search-site]')).not.toBeNull()
     expect(mount.container.querySelector('h1')).toBeNull()
     expect(mount.container.querySelector('[data-seo-search-menu]')).toBeNull()
-    expect(hosts.right.querySelector('[data-seo-filter="last_28_days"]')!.getAttribute('aria-checked')).toBe('true')
+    const row = pageTabRow(mount.container.querySelector('[data-seo-search-page]'))!
+    expect(row.className).toContain(DETAIL_TAB_ROW)
+    expect(row.querySelector('[data-seo-tab="queries"]')!.getAttribute('aria-selected')).toBe('true')
+    expect(row.querySelector('[data-seo-filter="last_28_days"]')!.getAttribute('aria-checked')).toBe('true')
+    expect(hosts.right.querySelector('[data-seo-tab], [data-seo-filter]')).toBeNull()
     await act(async () => hosts.right.querySelector<HTMLElement>('[data-seo-search-menu]')!.click())
     await settle()
     expect(q('[data-seo-search-change-site]')).not.toBeNull()
