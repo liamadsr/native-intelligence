@@ -18,6 +18,7 @@ import { useWorkspaceTransition } from './workspace-transition'
 import { cn } from '@/lib/utils'
 import { LiquidPill, LiquidPillCard, LiquidPillFace, useLiquidPillHover } from '@/components/ui/liquid-pill'
 import { toast } from 'sonner'
+import { recordingBusy, stopRecording } from '@/lib/studio/recording-bus'
 import { isDesktopApp } from '@/lib/platform'
 import { useModKeyLabel } from '@/lib/hotkeys'
 import { setClientWorkspaceId, getClientWorkspaceId, patchFetch } from '@/lib/workspace-fetch'
@@ -63,6 +64,9 @@ import {
   type EditionId,
   type FeatureOverrides,
 } from '@/lib/editions'
+
+/** How long Stop and switch (or sign out) waits for a Studio take to be saved. */
+const STOP_AND_SAVE_MS = 60_000
 
 export interface WorkspaceItem {
   id: string
@@ -591,11 +595,28 @@ export function useSwitchWorkspace() {
   const recordingCtx = useOptionalRecordingStable()
   const { beginTransition } = useWorkspaceTransition()
 
-  return useCallback(
+  const again = useRef<(workspaceId: string, opts?: { curtain?: boolean }) => boolean>(() => false)
+  const switchTo = useCallback(
     (workspaceId: string, { curtain = true }: { curtain?: boolean } = {}): boolean => {
       if (workspaceId === currentId) return false
       if (recordingCtx?.isRecording) {
         toast.error('Stop the active capture before switching workspaces')
+        return false
+      }
+      // A Studio take belongs to the workspace it started in: stop it (and let it be saved) first.
+      if (recordingBusy()) {
+        toast.error('A recording is running in the Studio. Stop it to switch workspaces.', {
+          id: 'studio-recording-switch',
+          action: {
+            label: 'Stop and switch',
+            onClick: () => {
+              void stopRecording(STOP_AND_SAVE_MS).then(() => {
+                if (recordingBusy()) toast.error('The recording is still being saved. Switch again in a moment.', { id: 'studio-recording-switch' })
+                else again.current(workspaceId, { curtain })
+              })
+            },
+          },
+        })
         return false
       }
       const target = workspaces.find((w) => w.id === workspaceId)
@@ -646,6 +667,8 @@ export function useSwitchWorkspace() {
     },
     [currentId, workspaces, setCurrentId, refreshWithRetry, recordingCtx?.isRecording, beginTransition],
   )
+  again.current = switchTo
+  return switchTo
 }
 
 export function WorkspaceSwitcher({
@@ -1321,7 +1344,26 @@ function WorkspacePanelContent({
       <a
         role="menuitem"
         href="/sign-out"
-        onClick={beginPersistedTabStateWipe}
+        onClick={(event) => {
+          // A Studio take is stopped and saved first (then forgotten: the next account sees none of it).
+          if (recordingBusy()) {
+            event.preventDefault()
+            toast.error('A recording is running in the Studio. Stop it to sign out.', {
+              id: 'studio-recording-sign-out',
+              action: {
+                label: 'Stop and sign out',
+                onClick: () => {
+                  void stopRecording(STOP_AND_SAVE_MS, { reset: true }).finally(() => {
+                    beginPersistedTabStateWipe()
+                    window.location.assign('/sign-out')
+                  })
+                },
+              },
+            })
+            return
+          }
+          beginPersistedTabStateWipe()
+        }}
         className="flex w-full items-center gap-2.5 rounded-2xl px-2 py-1.5 text-sm transition-colors hover:bg-accent/60"
       >
         <LogOut className="h-4 w-4" />

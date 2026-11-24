@@ -79,6 +79,7 @@ vi.mock('@/lib/notifications', () => ({
 
 const {
   workspaceIsDormant,
+  workspaceDormancy,
   dormantSkipActionResults,
   DORMANCY_WINDOW_DAYS,
   FLOW_TRIGGER_MAX_DEPTH,
@@ -276,6 +277,13 @@ describe('workspaceIsDormant', () => {
     expect(await workspaceIsDormant(chatErr.client, 'ws-1')).toBe(false)
     const draftErr = makeActivitySupabase({ draftError: { message: 'boom' } })
     expect(await workspaceIsDormant(draftErr.client, 'ws-1')).toBe(false)
+  })
+
+  it('workspaceDormancy says when it could not tell (a caller that fails closed, the Dreamer, skips on it)', async () => {
+    expect(await workspaceDormancy(makeActivitySupabase({ captureCount: 0, actionCount: 0 }).client, 'ws-1')).toBe('dormant')
+    expect(await workspaceDormancy(makeActivitySupabase({ captureCount: 1 }).client, 'ws-1')).toBe('active')
+    expect(await workspaceDormancy(makeActivitySupabase({ captureError: { message: 'boom' } }).client, 'ws-1')).toBe('unknown')
+    expect(await workspaceDormancy(makeActivitySupabase({ captureCount: 0, actionCount: 0, chatCount: 0, draftCount: 0, reviewError: { message: 'boom' } }).client, 'ws-1')).toBe('unknown')
   })
 })
 

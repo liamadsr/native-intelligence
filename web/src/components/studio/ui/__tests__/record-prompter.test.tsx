@@ -7,7 +7,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { handoffKey } from '@/lib/studio/prompter/channel'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -16,6 +15,7 @@ vi.mock('@/lib/tauri-bridge', () => ({ studioRecorder: { hasControlPanel: bridge
 vi.mock('@tauri-apps/api/event', () => ({ emit: async () => {}, listen: async () => () => {} }))
 
 import { prompterWhere, RecordDialog } from '../RecordDialog'
+import { recordingController } from '../../record/controller'
 
 const SESSION = '11111111-2222-4333-8444-555555555555'
 const KEPT = { script: 'First, open the deals board from the sidebar.\nEvery column is a stage.', items: [{ id: 'a', text: 'Open the deals board' }] }
@@ -92,15 +92,29 @@ describe('while a browser take records', () => {
 describe('while a desktop take records', () => {
   const desktop = (over: Record<string, unknown>) => recording({ recorderState: { state: 'desktop', desktopShell: true }, targets: { displays: [{ displayId: 1, name: 'Built-in', width: 1512, height: 982, scale: 2, isMain: true }], apps: [], cameras: [], microphones: [] }, permissions: null, ...over })
 
-  it('hands the content to the floating control and removes the copy when the take ends', async () => {
-    await render(desktop({ active: recordingNow, takeLive: { sessionId: SESSION, following: 'on' } }))
-    const copy = JSON.parse(localStorage.getItem(handoffKey(SESSION)) ?? 'null')
-    expect(copy).toMatchObject({ sessionId: SESSION, following: 'on', items: KEPT.items })
-    expect(copy.lines.map((l: { text: string }) => l.text)).toEqual(KEPT.script.split('\n'))
-    // Not shown in this window: a display take would have it in the picture.
-    expect(document.querySelector('[data-testid="prompter-panel"]')).toBeNull()
-    await rerender(desktop({ active: { ...recordingNow, status: 'finalizing', step: 'Uploading' }, takeLive: { sessionId: SESSION, following: 'on' } }))
-    expect(localStorage.getItem(handoffKey(SESSION))).toBeNull()
+  it('hands the content to the page’s recording controller (which answers the floating control), and gets out of the way', async () => {
+    const handOff = vi.spyOn(recordingController(), 'handOff').mockImplementation(() => {})
+    const close = vi.fn()
+    host = document.createElement('div'); document.body.appendChild(host)
+    await act(async () => { root = createRoot(host!); root.render(<RecordDialog title="New recording" close={close} recording={desktop({ active: { ...recordingNow, id: 'desk-1' }, takeLive: { sessionId: SESSION, following: 'on' } }) as never} start={anoop} open={noop} />) })
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)) })
+    const handed = handOff.mock.calls.at(-1)![0]
+    expect(handed).toMatchObject({ sessionId: SESSION, following: 'on', items: KEPT.items })
+    expect(handed.lines.map((l) => l.text)).toEqual(KEPT.script.split('\n'))
+    // Recording: the dialog closed itself (the whole app is free), once only: "Show" opens it again for good.
+    expect(close).toHaveBeenCalledTimes(1)
+    act(() => root!.unmount()); root = null
+    await render(desktop({ active: { ...recordingNow, id: 'desk-1' }, takeLive: { sessionId: SESSION, following: 'on' } }))
+    expect(dialog()).not.toBeNull()
+    handOff.mockRestore()
+  })
+
+  it('stays open for a browser take that shows its script here', async () => {
+    const close = vi.fn()
+    host = document.createElement('div'); document.body.appendChild(host)
+    await act(async () => { root = createRoot(host!); root.render(<RecordDialog title="New recording" close={close} recording={recording({ share: tabShare, active: recordingNow }) as never} start={anoop} open={noop} />) })
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)) })
+    expect(close).not.toHaveBeenCalled()
   })
 })
 

@@ -80,6 +80,16 @@ const RUNS: Record<
   'run-1': { workspace_id: 'ws-1', kind: 'workspace', status: 'running' },
   // A server-started helper writes for one person (migration 369).
   'run-prep': { workspace_id: 'ws-1', kind: 'workspace', status: 'running', server_helper: 'meeting_prep' },
+  // The Dreamer (docs/plans/dreamer.md, migration 720): its own tools, inside its recorded bound.
+  'run-dreamer': {
+    workspace_id: 'ws-1', kind: 'workspace', status: 'running', origin: 'chat', origin_depth: 0, server_helper: 'dreamer',
+    chat_ceiling: ['notify_parent', 'write_agent_notes', 'read_agent_notes', 'get_document', 'create_document'],
+  },
+  // Another chat helper whose stored bound names them: not enough without the Dreamer's kind.
+  'run-helper-naming-notes': {
+    workspace_id: 'ws-1', kind: 'workspace', status: 'running', origin: 'chat', origin_depth: 0, server_helper: 'home_turn',
+    chat_ceiling: ['notify_parent', 'write_agent_notes', 'read_agent_notes', 'get_document'],
+  },
   // Sequence step 3: an ATTEMPTED run drafts (plan A.3), and a delegated child sits deeper.
   'run-attempt': { workspace_id: 'ws-1', kind: 'workspace', status: 'running', origin: 'attempt', origin_depth: 0 },
   'run-attempt-completed': { workspace_id: 'ws-1', kind: 'workspace', status: 'completed', origin: 'attempt', origin_depth: 0 },
@@ -191,6 +201,9 @@ vi.mock('@/lib/ai/tools', async () => {
         create_skill: stubTool,
         accept_proposal: stubTool,
         start_eval_run: stubTool,
+        notify_parent: stubTool,
+        write_agent_notes: stubTool,
+        read_agent_notes: stubTool,
         // Resolves an entity id via the REAL strict-aware resolver and echoes the
         // outcome, so a foreign id under strict comes back as not-found.
         update_action: {
@@ -218,7 +231,7 @@ vi.mock('@/lib/ai/tool-discovery', async (importOriginal) => {
 })
 
 import { POST } from '@/app/api/internal/work-run/tool/route'
-import { TOOL_CATEGORIES, WORK_RUN_ADMITTED_SIDE_EFFECTS, isAttendedOnlyTool, isChatNativeTool } from '@/lib/ai/tool-registry'
+import { TOOL_CATEGORIES, WORK_RUN_ADMITTED_SIDE_EFFECTS, isAttendedOnlyTool, isChatNativeTool, isParentNotesTool } from '@/lib/ai/tool-registry'
 import {
   mintAgentRunToken,
   AGENT_RUN_SECRET_HEADER,
@@ -419,8 +432,9 @@ describe('work-run tool route — ceiling', () => {
     // lookup and 404s as unknown. Either way it was NOT refused by the ceiling.
     // Minus the attended-only tools (bots v3 Phase 5) and the chat-native ones
     // (bots-v4 Phase A3: wait_for_bot_reply is a read): out of a work run by name.
+    // And the Dreamer's notes tools (docs/plans/dreamer.md): a Dreamer run's alone.
     const admitted = TOOL_CATEGORIES.flatMap((c) => c.tools).filter(
-      (t) => WORK_RUN_ADMITTED_SIDE_EFFECTS.has(t.sideEffect) && !isAttendedOnlyTool(t.name) && !isChatNativeTool(t.name),
+      (t) => WORK_RUN_ADMITTED_SIDE_EFFECTS.has(t.sideEffect) && !isAttendedOnlyTool(t.name) && !isChatNativeTool(t.name) && !isParentNotesTool(t.name),
     )
     expect(admitted.length).toBeGreaterThan(0)
     for (const t of admitted) {
@@ -472,6 +486,32 @@ describe('work-run tool route — strict workspace fence', () => {
     createToolsArgs.last = undefined
     await POST(toolReq({ secret: SECRET, token: token(), toolName: 'create_document' }))
     expect((createToolsArgs.last?.[4] as { defaultDocumentVisibility?: string } | undefined)?.defaultDocumentVisibility).toBeUndefined()
+  })
+
+  it("the Dreamer's own tools reach a Dreamer run's handler with its run id; no other run, and no follow-up chat turn, gets them", async () => {
+    createToolsArgs.last = undefined
+    executeSpy.mockClear()
+    const dreamer = mintAgentRunToken({ ...CLAIMS, agentRunId: 'run-dreamer' })
+    for (const toolName of ['notify_parent', 'write_agent_notes', 'read_agent_notes']) {
+      const res = await POST(toolReq({ secret: SECRET, token: dreamer, toolName }))
+      expect(res.status, toolName).toBe(200)
+    }
+    expect((createToolsArgs.last?.[4] as { dreamerRun?: unknown } | undefined)?.dreamerRun).toEqual({ agentRunId: 'run-dreamer' })
+    // Its profile holds no review-pile write even where its row's bound names one: a Dreamer drafts nothing for the person.
+    expect((await POST(toolReq({ secret: SECRET, token: dreamer, toolName: 'create_document' }))).status).toBe(403)
+
+    for (const token of [mintAgentRunToken({ ...CLAIMS, agentRunId: 'run-helper-naming-notes' }), mintAgentRunToken({ ...CLAIMS, agentRunId: 'run-1' })]) {
+      for (const toolName of ['notify_parent', 'write_agent_notes', 'read_agent_notes']) {
+        const res = await POST(toolReq({ secret: SECRET, token, toolName }))
+        expect(res.status, toolName).toBe(403)
+        expect((await res.json()).code, toolName).toBe('TOOL_OUT_OF_CEILING')
+      }
+    }
+    // A follow-up chat turn on the Dreamer's run is the person: never its own four tools.
+    const chatTurn = mintAgentRunToken({ ...CLAIMS, agentRunId: 'run-dreamer', chat: true })
+    const refused = await POST(toolReq({ secret: SECRET, token: chatTurn, toolName: 'notify_parent' }))
+    expect(refused.status).toBe(403)
+    executeSpy.mockClear()
   })
 
   it('a run with nobody watching files actions as suggested (the promotion guard), and its own action goes to review', async () => {

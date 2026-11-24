@@ -60,6 +60,7 @@ import { toolInputIssues } from '@/lib/ai/tool-input-issues'
 import { withoutToolImage } from '@/lib/ai/tools/tool-image'
 import {
   ceilingForWorkRunTurn,
+  isDreamerRun,
   statusChangeDepthForWorkRun,
   WORK_RUN_ROW_SELECT,
   type WorkRunRow,
@@ -166,7 +167,11 @@ export async function POST(request: Request) {
   const granted = caller === 'agent_unattended' && ATTENDED_ONLY_TOOL_NAMES.has(toolName)
     ? (await resolveFollowThrough(supabase, { workspaceId: claims.workspaceId, teammateId: run.ai_team_member_id })).has(toolName)
     : false
-  if (!callerMayCall(caller, toolName, { granted })) {
+  // The Dreamer (docs/plans/dreamer.md): its own tools run on its own turns
+  // alone, from what this route verified (the run's row and the token: never
+  // a follow-up chat turn), never from anything a model wrote.
+  const dreamerRun = !claims.chat && isDreamerRun(run.origin, run.server_helper)
+  if (!callerMayCall(caller, toolName, { granted, dreamerRun })) {
     return NextResponse.json({ error: callerRefusalMessage(toolName), code: 'CALLER_NOT_ALLOWED', caller }, { status: 403 })
   }
 
@@ -193,6 +198,9 @@ export async function POST(request: Request) {
       // one person: what it creates is theirs alone unless it says otherwise
       // (migration 369). Every other run writes for the workspace.
       ...(run.server_helper ? { defaultDocumentVisibility: 'private' as const } : {}),
+      // The Dreamer's own tools get their execute on its own turns (and each
+      // re-reads this run's row before it does anything).
+      ...(dreamerRun ? { dreamerRun: { agentRunId: claims.agentRunId } } : {}),
       // Its own turns draft for nobody who asked: the shared cap and the
       // open-draft check hold (a follow-up chat turn has the person there).
       automaticDrafts: !claims.chat,

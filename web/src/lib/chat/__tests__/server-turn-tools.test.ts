@@ -86,7 +86,7 @@ describe('serverTurnMayCall (away helpers, Liam 2026-10-15; acting on its own, 2
       expect(serverTurnMayCall('ask_agent', 'home_turn', reason)).toBe(true)
       expect(serverTurnMayCall('start_helper', 'home_turn', reason)).toBe(true)
     }
-    expect([...HOME_TURN_ACTING_REASONS].sort()).toEqual(['agent_answer', 'approval', 'event', 'helper_report'])
+    expect([...HOME_TURN_ACTING_REASONS].sort()).toEqual(['agent_answer', 'approval', 'dreamer', 'event', 'helper_report'])
   })
 
   it('a helper’s report never starts another helper (no report-helper chains); other home turns may', () => {

@@ -152,14 +152,28 @@ export interface NowLinesRender {
  * section and a refused update show it: " 1 ## Focus". A note past `maxChars`
  * (a person's long edit) is cut there, with a line saying so. Pure.
  */
-export function renderNowLines(content: string | null | undefined, maxChars: number = NOW_MAX_CHARS): NowLinesRender {
+export function renderNowLines(
+  content: string | null | undefined,
+  maxChars: number = NOW_MAX_CHARS,
+  /**
+   * The tracks to show beside their lines' numbers (" 3 [work:<id>] - …"),
+   * matched to their lines by text hash as the check-in matches them
+   * (trackedLines): the Dreamer's /action_items.md (docs/plans/dreamer.md),
+   * whose line numbers change with each revision while a track's key stays.
+   * Absent: numbers only, as the now section shows the note.
+   */
+  tracks?: readonly Pick<NowTrack, 'kind' | 'id' | 'hash'>[],
+): NowLinesRender {
   const lines = nowLines(content)
   const width = Math.max(2, String(lines.length).length)
+  const keysByHash = new Map<string, string[]>()
+  for (const t of tracks ?? []) keysByHash.set(t.hash, [...(keysByHash.get(t.hash) ?? []), `${t.kind}:${t.id}`])
   const out: string[] = []
   let used = 0
   let truncated = false
   for (let i = 0; i < lines.length; i++) {
-    const row = `${String(i + 1).padStart(width)} ${lines[i]}`
+    const keys = keysByHash.size > 0 && lines[i].trim() && !HEADING_LINE_RE.test(lines[i]) ? keysByHash.get(nowLineHash(lines[i])) : undefined
+    const row = `${String(i + 1).padStart(width)} ${keys?.length ? `[${keys.join(', ')}] ` : ''}${lines[i]}`
     if (used + row.length + 1 > maxChars) {
       truncated = true
       out.push(`[… cut here: the note runs past ${maxChars.toLocaleString('en-US')} characters, so lines ${i + 1}–${lines.length} are not shown]`)
