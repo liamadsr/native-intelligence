@@ -9,6 +9,13 @@ import { request } from './client';
 import { Modal, StudioSelect } from './controls';
 import type { ManualRecording, RecordingSession, RecordingStart } from './useManualRecording';
 import { plainStep } from './record-steps';
+import { studioRecorder } from '@/lib/tauri-bridge';
+import { answerHellos, dropHandoff, sendContent, writeHandoff, type PrompterHandoff } from '@/lib/studio/prompter/channel';
+import { linesOf, type ScriptLine } from '@/lib/studio/prompter/follow';
+import { NOTHING_HEARD } from '@/lib/studio/prompter/live-words';
+import { PrompterPanel } from '../prompter/PrompterPanel';
+import { PrompterSetup } from '../prompter/PrompterSetup';
+import { usePrompterContent, type PrompterStore } from '../prompter/usePrompterContent';
 
 /*
  * The Record dialog: what to record, then the take while it records, then the take while it is saved.
@@ -24,6 +31,15 @@ import { plainStep } from './record-steps';
 export type PunchTarget = { projectId: string; fromFrame: number; toFrame: number; label: string; deckId?: string;
   /** Recording into storyboard beats: their ids, and their lines for the teleprompter. */
   beatIds?: string[]; prompter?: { text: string; seconds?: number; label?: string }[] };
+/** What the dialog adds for its two steps: the prompter's content, and whether the floating control can show it. */
+type Extra = { store: PrompterStore; panel: boolean | null };
+/** Whether this desktop build shows the script and checklist in the floating control (null while asking). */
+function useControlPanel(desktop: boolean): boolean | null {
+  const [has, setHas] = useState<boolean | null>(null);
+  useEffect(() => { if (!desktop) return; let alive = true; void studioRecorder.hasControlPanel().then(v => { if (alive) setHas(v); }); return () => { alive = false; }; }, [desktop]);
+  return desktop ? has : false;
+}
+
 type Props = {
   /** The open project's Storyboard inputs: the dialog shows and changes the same main camera (one source of truth). */
   cameraInputs?: { main: string | null; extras: string[] } | null;
@@ -129,7 +145,11 @@ function Uploads({ items }: { items: ReadonlyArray<{ role?: string; label?: stri
 }
 
 /** The dialog. `title` and `close` are the dialog's; the rest is the recorder's. */
-export function RecordDialog({ title, close, ...props }: Props & { title: string; close: () => void }) {
+export function RecordDialog({ title, close, ...outer }: Props & { title: string; close: () => void }) {
+  // The script and checklist, shared by the setup and the take (kept on the Studio for the next take).
+  const store = usePrompterContent(outer.punch?.projectId);
+  const panel = useControlPanel(outer.recording.recorderState.state === 'desktop');
+  const props: Props & Extra = { ...outer, store, panel };
   const rec = props.recording, kind = rec.recorderState.state, session = rec.active ?? rec.selected;
   const live = !!session && !terminal(session);
   const description = live ? undefined : kind === 'browser' ? 'Record a tab, a window or your whole screen, with your camera and voice.' : kind === 'desktop' ? 'Record a window or a display, with your camera and voice, in one take.' : undefined;
@@ -165,26 +185,32 @@ export const UNSENT_OK_SECONDS = 5;
 const uploadsDone = (uploads: ReadonlyArray<{ done?: boolean; fraction?: number }>) => uploads.every(item => item.done || (item.fraction ?? 0) >= 1);
 
 /** Whether a teleprompter can show in this window without being in the picture, and its lines. */
-function usePrompter(props: Props, option: ScreenOption | undefined, scriptId: string) {
+function usePrompter(props: Props & Extra, option: ScreenOption | undefined) {
   const rec = props.recording, kind = rec.recorderState.state;
   const [scripts, setScripts] = useState<ScriptSummary[]>([]);
   useEffect(() => { void request<{ scripts: ScriptSummary[] }>('/api/account/studio/scripts').then(result => setScripts(result.scripts ?? [])).catch(() => {}); }, []);
   const [appTitle] = useState(() => typeof document === 'undefined' ? '' : document.title);
   const allowed = kind === 'desktop' ? !!option && option.choice.kind === 'window' && !option.ownApp
     : kind === 'browser' && !!rec.share && (rec.share.surface === 'browser' || rec.share.surface === 'window' && (!appTitle || !rec.share.label.includes(appTitle)));
-  const script = scripts.find(item => item.id === scriptId) ?? null;
-  const lines = props.punch?.prompter?.length ? props.punch.prompter : script?.beats ?? [];
-  return { scripts, script, lines, allowed };
+  const content = props.store.content;
+  const beats = !!props.punch?.prompter?.length;
+  const lines: ScriptLine[] = useMemo(() => beats ? props.punch!.prompter! : linesOf(content.script), [beats, props.punch, content.script]);
+  return { scripts, lines, items: content.items, allowed, beats };
 }
 
-function LiveTake({ session, close, ...props }: Props & { session: RecordingSession; close: () => void }) {
+function LiveTake({ session, close, ...props }: Props & Extra & { session: RecordingSession; close: () => void }) {
   const rec = props.recording, kind = rec.recorderState.state;
   // The teleprompter's script is the one chosen while setting up (remembered with the other choices).
   const [prefs] = useState(readPrefs);
   const options = useMemo(() => rec.targets ? screenOptions(rec.targets.displays, rec.targets.apps) : [], [rec.targets]);
   const option = rec.targets ? options.find(item => item.key === rememberedKey(options, rec.targets!.apps, prefs.screenKey)) : undefined;
-  const prompter = usePrompter(props, option, prefs.scriptId);
+  const prompter = usePrompter(props, option);
   const recording = session.status === 'recording', finishing = session.status === 'finalizing';
+  useHandoff(recording ? rec.takeLive : null, prompter.lines, prompter.items);
+  // Shown in this window (it is not in the picture): a browser's tab or window share, or a desktop window take on a
+  // build whose floating control can't show it. A beats take keeps its one-line prompter, whose Next marks the beats.
+  const following = kind === 'browser' ? 'browser' as const : rec.takeLive?.following === 'old-app' || props.panel === false ? 'old-app' as const : null;
+  const inPage = prompter.allowed && !prompter.beats && following !== null && (prompter.lines.length > 0 || prompter.items.length > 0);
   const uploads = rec.uploads as ReadonlyArray<{ role?: string; label?: string; fraction?: number; done?: boolean }>;
   // Finishing has two parts: the last of the files go up (short when they went up while recording), then the Studio
   // makes them a video, which it finishes on its own whether or not anyone watches.
@@ -211,7 +237,8 @@ function LiveTake({ session, close, ...props }: Props & { session: RecordingSess
     {saved ? <p className={cn('rd-saved', `rd-saved-${saved.tone}`)}><Icon name={saved.tone === 'warn' ? 'warning' : saved.tone === 'ok' ? 'check' : 'refresh'} size={14} />{saved.text}</p> : null}
     <p className="rd-live-says">{says}</p>
     {finishing && session.note ? <p className="rd-saved rd-saved-warn"><Icon name="warning" size={14} />{session.note}</p> : null}
-    {prompter.allowed && prompter.lines.length && (recording || session.status === 'countdown') ? <Prompter lines={prompter.lines} recording={recording} mark={rec.mark} /> : null}
+    {prompter.allowed && prompter.beats && prompter.lines.length && (recording || session.status === 'countdown') ? <Prompter lines={prompter.lines} recording={recording} mark={rec.mark} /> : null}
+    {inPage && following && (recording || session.status === 'countdown') ? <div className="rec-prompter rd-prompter-live"><PrompterPanel lines={prompter.lines} items={prompter.items} heard={NOTHING_HEARD} following={following} /></div> : null}
     {uploading && uploads.length ? <Uploads items={uploads} /> : null}
     {uploading ? null : <div className="rd-foot rd-foot-live">
       <div className="rd-foot-actions">
@@ -298,7 +325,7 @@ function PreparingElsewhere({ open }: { open: (session: RecordingSession) => voi
   </li>)}</ul>;
 }
 
-function Setup(props: Props) {
+function Setup(props: Props & Extra) {
   const rec = props.recording, kind = rec.recorderState.state;
   const [prefs, setPrefsState] = useState<Prefs>(defaults);
   useEffect(() => { const saved = readPrefs(), inputs = props.cameraInputs;
@@ -319,7 +346,7 @@ function Setup(props: Props) {
   const chooseScreen = (key: string) => { const picked = options.find(item => item.key === key); const app = picked?.choice.kind === 'window' ? rec.targets?.apps.find(item => item.windows.some(w => w.windowId === (picked.choice as { windowId: number }).windowId)) : undefined;
     setPrefs({ screenKey: app ? `app:${app.bundleId}` : key }); };
   const groups = useMemo(() => [...new Set(options.map(item => item.group))], [options]);
-  const prompter = usePrompter(props, option, prefs.scriptId);
+  const prompter = usePrompter(props, option);
   // Permissions (desktop): the screen always; Accessibility and Input Monitoring for the input trace; camera and mic when on.
   const allowed = rec.permissions;
   // Accessibility or Input Monitoring makes the trace precise (either one is enough); a take never needs them.
@@ -423,12 +450,10 @@ function Setup(props: Props) {
             {!locked ? <CameraPreview deviceId={cameraId || null} /> : null}
           </div> : null}
         </SourceRow>
-        {prompter.allowed ? <SourceRow icon="prompter" name="Teleprompter" off={!prompter.lines.length} state={prompter.lines.length ? `${prompter.lines.length} lines, shown here while you record` : 'Optional'}>
-          {props.punch?.prompter?.length ? <small className="rd-note">The beats’ own lines, one at a time. Next line marks where each beat starts in the take.</small>
-            : prompter.scripts.length ? <StudioSelect size="normal" aria-label="Teleprompter script" value={prompter.script?.id ?? ''} disabled={locked} onChange={v => setPrefs({ scriptId: v })}>
-              <option value="">No teleprompter</option>{prompter.scripts.map(item => <option key={item.id} value={item.id}>{item.title} · {item.beats.length} lines</option>)}
-            </StudioSelect> : <small className="rd-note">Ask the agent to write a script for this video. It shows up here.</small>}
-        </SourceRow> : null}
+        <SourceRow icon="prompter" name="Script & checklist" off={!prompter.lines.length && !prompter.items.length}
+          state={prompterWhere(kind, props.panel, prompter.allowed, prompter.lines.length + prompter.items.length > 0)}>
+          <PrompterSetup store={props.store} scripts={prompter.scripts} beatLines={prompter.beats ? prompter.lines : null} disabled={locked} />
+        </SourceRow>
       </ul>
     </> : null}
 
@@ -440,4 +465,36 @@ function Setup(props: Props) {
       </div>
     </div>
   </div>;
+}
+
+/** Where the script and checklist will show while recording, said in the setup row. */
+export function prompterWhere(kind: string, panel: boolean | null, allowedHere: boolean, has: boolean): string {
+  if (!has) return 'Optional. Read it while you record, never in the picture.';
+  if (kind === 'desktop') {
+    if (panel === true) return 'In the floating control while you record. Never in the picture.';
+    if (panel === null) return 'Shown while you record.';
+    return allowedHere ? 'Shown here while you record.' : 'Update the app to see it while you record a display or this app.';
+  }
+  if (kind === 'browser') return allowedHere ? 'Shown here while you record.' : 'Shown here when you share a tab or a window, not your whole screen.';
+  return 'Shown while you record.';
+}
+
+/** While a desktop take records: hand its script and checklist to the floating control, and remove the copy left for
+ *  it when the take ends. */
+function useHandoff(live: { sessionId: string; following: PrompterHandoff['following'] } | null, lines: ScriptLine[], items: PrompterHandoff['items']) {
+  const latest = useRef<PrompterHandoff | null>(null);
+  const sessionId = live?.sessionId ?? null, following = live?.following ?? null;
+  useEffect(() => {
+    if (!sessionId || !following) { latest.current = null; return; }
+    const handoff: PrompterHandoff = { sessionId, following, lines, items };
+    latest.current = handoff;
+    if (!lines.length && !items.length) return;
+    writeHandoff(handoff);
+    void sendContent(handoff);
+  }, [sessionId, following, lines, items]);
+  useEffect(() => {
+    if (!sessionId) return;
+    const off = answerHellos(sessionId, () => latest.current);
+    return () => { off(); dropHandoff(sessionId); };
+  }, [sessionId]);
 }

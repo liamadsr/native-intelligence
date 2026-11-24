@@ -5,7 +5,7 @@ import { nativeDraftStore, provisionalRecord, type Draft, type DraftBridge, type
 import { Filer, localTracks, settleRecording, type FilingApi, type Settled } from '../record/filing';
 import { inUseReason, keptFor, listedTakes, localTakeActions, localTakeRows, takeOverFromSession, takesInFlight, type LocalTakeRow } from '../record/local-takes';
 import { normalizeStop, takesBeingSent } from '../record/desktop';
-import type { TakeWord } from '../record/types';
+import type { TakeLiveInfo, TakeWord } from '../record/types';
 import { request } from './client';
 
 /** One take in this tab, from Start until it is a video (or failed). Shaped like the session the editor's follow-ups read. */
@@ -33,6 +33,8 @@ const api: FilingApi = { get: <T,>(url: string) => request<T>(url), post: <T,>(u
 export function useManualRecording(notify: (text: string, error?: boolean) => void) {
   const [recorderState, setRecorderState] = useState<RecorderState>({ state: 'checking' });
   const recorder = useRef<Recorder | null>(null);
+  /** The take recording now, for its prompter: the Mac's session and whether words come live (desktop only). */
+  const [takeLive, setTakeLive] = useState<TakeLiveInfo | null>(null);
   const [targets, setTargets] = useState<RecorderTargets | null>(null);
   const [permissions, setPermissions] = useState<RecorderPermissions | null>(null);
   const [browserDevices, setBrowserDevices] = useState<{ cameras: DeviceOption[]; microphones: DeviceOption[] } | null>(null);
@@ -233,6 +235,7 @@ export function useManualRecording(notify: (text: string, error?: boolean) => vo
       };
       await rec.start({ onStatus: status => { if (current.current !== id) return; patch(id, { elapsedMs: status.elapsedMs, level: status.level }); if (status.tracks && mounted.current) setLiveTracks(status.tracks); }, onEnded: reason => endedRef.current(reason) });
       screenStart.current = performance.now();
+      if (mounted.current) setTakeLive(rec.liveInfo?.() ?? null);
       patch(id, { status: 'recording', countdownRemaining: undefined, elapsedMs: 0 });
       return { ...session, status: 'recording' };
     } catch (cause) {
@@ -411,6 +414,6 @@ export function useManualRecording(notify: (text: string, error?: boolean) => vo
   return { recorderState, targets, permissions, browserDevices, share, sessions, selected, active, selectedId, setSelectedId, loadingTargets, working, error, uploads, liveTracks, savedTakes, filing, filed,
     drafts, heard, openElsewhere, records: () => filer.current?.records ?? null, localTakes, localBusy, refreshLocalTakes, retryLocal, discardLocal, adoptWith, inUseWith,
     wordsSettled: (projectId: string, limitMs: number) => filer.current ? filer.current.wordsSettled(projectId, limitMs) : Promise.resolve(true),
-    refreshTargets, refreshSessions, checkPermissions, requestPermissions, unlockDevices, chooseShare, clearShare, start, stop, cancel, retry, mark, openPartial, refreshSavedTakes, recoverSaved, discardSaved, refile, adopted, releaseTake, wordsTaken, takeKey };
+    takeLive, refreshTargets, refreshSessions, checkPermissions, requestPermissions, unlockDevices, chooseShare, clearShare, start, stop, cancel, retry, mark, openPartial, refreshSavedTakes, recoverSaved, discardSaved, refile, adopted, releaseTake, wordsTaken, takeKey };
 }
 export type ManualRecording = ReturnType<typeof useManualRecording>;
