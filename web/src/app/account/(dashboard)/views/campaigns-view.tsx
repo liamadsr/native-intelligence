@@ -5,7 +5,7 @@
  *
  * The list is the views system's, as Docs is (docs/plans/views-everywhere.md):
  * the view kind `campaign`, drawn by UnifiedViewLayout from the views query
- * route, with saved views and their tabs, the filters (status, owner, tags,
+ * route, with saved views and their tabs, the filters (status, owner,
  * dates), the display settings, search in the header, List, Board (by
  * status: a drag moves it) and Roadmap (its start to its end), the shared
  * rows and J/K/Enter. A row opens the page's own editor.

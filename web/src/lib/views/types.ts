@@ -607,7 +607,6 @@ export const FILTERABLE_FIELDS: Record<ViewEntityType, FilterFieldDefinition[]> 
   campaign: [
     { field: 'status', label: 'Status', type: 'enum', options: ['planned', 'active', 'paused', 'completed', 'archived'] },
     { field: 'owner_member_id', label: 'Owner', type: 'member', allowEmpty: true },
-    { field: 'tags', label: 'Tags', type: 'text', isArray: true },
     { field: 'starts_on', label: 'Starts', type: 'date' },
     { field: 'ends_on', label: 'Ends', type: 'date' },
     { field: 'name', label: 'Name', type: 'text' },
@@ -1526,7 +1525,7 @@ export const FIELD_CATEGORIES: Record<ViewEntityType, { label: string; fields: s
   ],
   team: [{ label: '', fields: ['is_private', 'name', 'issue_prefix', 'created_at'] }],
   campaign: [
-    { label: '', fields: ['status', 'owner_member_id', 'tags'] },
+    { label: '', fields: ['status', 'owner_member_id'] },
     { label: 'Dates', fields: ['starts_on', 'ends_on', 'created_at', 'updated_at'] },
     { label: 'Content', fields: ['name'] },
   ],
