@@ -1,3 +1,4 @@
+import { REDUCED_MOTION_QUERY, prefersReducedMotion, subscribeMedia } from '@/lib/media-query'
 /**
  * When the sky may move. It drifts unless the person is using the app:
  * scrolling, clicking, typing or touch-scrolling freezes it at once, and it
@@ -179,9 +180,8 @@ export function createSkyActivity(options: SkyActivityOptions = {}): SkyActivity
     document.addEventListener('visibilitychange', onVisibility)
     onVisibility()
 
-    const motion = typeof window.matchMedia === 'function' ? window.matchMedia('(prefers-reduced-motion: reduce)') : null
-    const onMotion = () => setHold('reduced-motion', !!motion?.matches)
-    motion?.addEventListener?.('change', onMotion)
+    const onMotion = () => setHold('reduced-motion', prefersReducedMotion())
+    const offMotion = subscribeMedia(REDUCED_MOTION_QUERY, onMotion)
     onMotion()
 
     return () => {
@@ -189,7 +189,7 @@ export function createSkyActivity(options: SkyActivityOptions = {}): SkyActivity
       window.removeEventListener('scroll', markActive, scrollOpts)
       window.removeEventListener('pointermove', wake, opts)
       document.removeEventListener('visibilitychange', onVisibility)
-      motion?.removeEventListener?.('change', onMotion)
+      offMotion()
     }
   }
 

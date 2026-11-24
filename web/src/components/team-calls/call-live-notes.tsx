@@ -42,6 +42,7 @@ import {
   type SummaryBlock,
   type LiveNotes,
 } from '@/lib/team-calls/live-notes'
+import { mediaMatches } from '@/lib/media-query'
 
 /** The agent's notes as drawn: headings, bullets and lines of words. */
 function SummaryBlocks({ blocks }: { blocks: SummaryBlock[] }) {
@@ -267,7 +268,7 @@ export function GuestCallNotesView({
  * its notes are over): nothing drawn.
  */
 export function GuestCallNotes({ base, pad = false, embedded = false, className }: { base: string; pad?: boolean; embedded?: boolean; className?: string }) {
-  const [state, setState] = useState<GuestNotesState>(() => (embedded || (pad && typeof window !== 'undefined' && window.matchMedia?.('(min-width: 1024px)').matches) ? 'loading' : 'closed'))
+  const [state, setState] = useState<GuestNotesState>(() => (embedded || (pad && mediaMatches('(min-width: 1024px)')) ? 'loading' : 'closed'))
   const [lines, setLines] = useState<GuestNoteLine[]>([])
   const [summary, setSummary] = useState<SummaryBlock[]>([])
   const [refused, setRefused] = useState(false)

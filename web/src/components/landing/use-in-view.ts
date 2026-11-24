@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { IN_VIEW_MARGIN } from './motion'
+import { REDUCED_MOTION_QUERY, prefersReducedMotion, subscribeMedia } from '@/lib/media-query'
 
 /**
  * Whether the element is on screen right now, so a looping scene runs only
@@ -29,12 +30,9 @@ export function useInView<T extends Element>(): [React.RefObject<T | null>, bool
 export function useReducedMotion(): boolean {
   const [reduced, setReduced] = useState(false)
   useEffect(() => {
-    const query = window.matchMedia?.('(prefers-reduced-motion: reduce)')
-    if (!query) return
-    const read = () => setReduced(query.matches)
+    const read = () => setReduced(prefersReducedMotion())
     read()
-    query.addEventListener('change', read)
-    return () => query.removeEventListener('change', read)
+    return subscribeMedia(REDUCED_MOTION_QUERY, read)
   }, [])
   return reduced
 }

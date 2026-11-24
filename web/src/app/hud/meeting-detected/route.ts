@@ -6,6 +6,7 @@
  *
  * Uses window.__TAURI__ (requires withGlobalTauri: true in tauri.conf.json).
  */
+import { MATCH_MEDIA_SHIM_SCRIPT } from '@/lib/media-query'
 
 export async function GET() {
   const html = `<!DOCTYPE html>
@@ -14,10 +15,10 @@ export async function GET() {
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Meeting HUD</title>
-<script>
+<script>${MATCH_MEDIA_SHIM_SCRIPT}
   try {
     var theme = localStorage.getItem('theme')
-    if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+    if (theme === 'dark' || (!theme && !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)') || {}).matches)) {
       document.documentElement.classList.add('dark')
     }
   } catch(e) {}

@@ -1,5 +1,5 @@
 diff --git a/node_modules/metal-fx/dist/index.es.js b/node_modules/metal-fx/dist/index.es.js
-index 5602e03..048180d 100644
+index 5602e03..c106e1c 100644
 --- a/node_modules/metal-fx/dist/index.es.js
 +++ b/node_modules/metal-fx/dist/index.es.js
 @@ -957,10 +957,51 @@ function Er(t) {
@@ -55,3 +55,33 @@ index 5602e03..048180d 100644
    const a = t.canvas.style;
    e > 0 ? (a.left = `${-e}px`, a.top = `${-e}px`, a.width = `calc(100% + ${2 * e}px)`, a.height = `calc(100% + ${2 * e}px)`, a.borderRadius = "0") : a.left !== "" && (a.left = "", a.top = "", a.width = "100%", a.height = "100%", a.borderRadius = "");
  }
+@@ -1291,7 +1332,7 @@ function Gr() {
+ function Wr() {
+   De = Math.max(0, De - 1), De === 0 && $r();
+ }
+-const Ne = (t) => typeof window.matchMedia == "function" && window.matchMedia(t).matches;
++const Ne = (t) => typeof window.matchMedia == "function" && !!window.matchMedia(t)?.matches;
+ function Eo() {
+   if (Zn || performance.now() < Jn || !Qt || !_e || Ne("(prefers-reduced-motion: reduce)") || Ne("(forced-colors: active)") || !Ne("(pointer: fine)") || !Ne("(hover: hover)")) return !1;
+   const t = window.visualViewport;
+@@ -2644,15 +2685,17 @@ Er((t, e) => {
+   return n ? bi(n.handles, t, e, t.opacityMul * t.glowGain, n.themeRef.current) : !1;
+ });
+ function ls(t) {
+-  const [e, n] = sa(() => t !== "auto" ? t : typeof window > "u" || !window.matchMedia || window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
++  const [e, n] = sa(() => t !== "auto" ? t : typeof window > "u" || !window.matchMedia || (window.matchMedia("(prefers-color-scheme: dark)")?.matches ?? !0) ? "dark" : "light");
+   return _t(() => {
+     if (t !== "auto") {
+       n(t);
+       return;
+     }
+     if (typeof window > "u" || !window.matchMedia) return;
+-    const o = window.matchMedia("(prefers-color-scheme: dark)"), a = () => n(o.matches ? "dark" : "light");
+-    return a(), o.addEventListener("change", a), () => o.removeEventListener("change", a);
++    const o = window.matchMedia("(prefers-color-scheme: dark)");
++    if (!o) return;
++    const a = () => n(o.matches ? "dark" : "light");
++    return a(), o.addEventListener?.("change", a), () => o.removeEventListener?.("change", a);
+   }, [t]), e;
+ }
+ const no = Xa(function({

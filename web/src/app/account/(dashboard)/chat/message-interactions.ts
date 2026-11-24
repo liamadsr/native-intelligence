@@ -18,6 +18,7 @@ import type { UIMessage } from '@ai-sdk/react'
 import type { MessageReplyRef } from '@/lib/chat/message-reply'
 import type { MessageReactionsStore } from '@/hooks/use-message-reactions'
 import type { SessionLimitChoice } from './session-limit-card'
+import { prefersReducedMotion } from '@/lib/media-query'
 
 export interface MessageInteractions {
   /**
@@ -53,7 +54,7 @@ export function messageRow(messageId: string): HTMLElement | null {
 export function jumpToMessage(messageId: string): boolean {
   const row = messageRow(messageId)
   if (!row) return false
-  const reduce = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+  const reduce = prefersReducedMotion()
   row.scrollIntoView({ block: 'center', behavior: reduce ? 'auto' : 'smooth' })
   if (reduce || typeof row.animate !== 'function') return true
   for (const bubble of row.querySelectorAll<HTMLElement>('.chat-message-bubble')) {

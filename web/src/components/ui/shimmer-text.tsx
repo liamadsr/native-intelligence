@@ -3,6 +3,7 @@
 import type { ReactNode } from 'react'
 import { useSyncExternalStore } from 'react'
 import { cn } from '@/lib/utils'
+import { REDUCED_MOTION_QUERY, mediaMatches, subscribeMedia } from '@/lib/media-query'
 
 /**
  * Muted text with a band of light sweeping across it (after React Bits'
@@ -26,19 +27,12 @@ import { cn } from '@/lib/utils'
  *    drops here, and the stylesheet turns the animation off as well).
  */
 
-const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)'
-
 function subscribeReducedMotion(onChange: () => void): () => void {
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return () => {}
-  const media = window.matchMedia(REDUCED_MOTION_QUERY)
-  media.addEventListener('change', onChange)
-  return () => media.removeEventListener('change', onChange)
+  return subscribeMedia(REDUCED_MOTION_QUERY, onChange)
 }
 
 function readReducedMotion(): boolean {
-  return typeof window !== 'undefined'
-    && typeof window.matchMedia === 'function'
-    && window.matchMedia(REDUCED_MOTION_QUERY).matches
+  return mediaMatches(REDUCED_MOTION_QUERY)
 }
 
 function serverReducedMotion(): boolean {

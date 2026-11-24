@@ -16,6 +16,7 @@
  */
 import { ComposerVoiceGlow } from '@/app/account/(dashboard)/chat/composer-voice-glow'
 import { useCallback, useEffect, useRef } from 'react'
+import { prefersReducedMotion } from '@/lib/media-query'
 
 export type TalkRingState = 'listening' | 'thinking' | 'speaking' | 'waiting'
 
@@ -41,7 +42,7 @@ export function TalkRing({ state, level }: { state: TalkRingState; level: () => 
   useEffect(() => {
     let frame = 0
     let last = performance.now()
-    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+    const reduced = prefersReducedMotion()
     const tick = (now: number) => {
       const dt = Math.min(0.1, (now - last) / 1000)
       last = now
