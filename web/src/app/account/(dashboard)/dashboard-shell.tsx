@@ -1,5 +1,6 @@
 'use client'
 
+import { useSupportChatDue } from '@/lib/support-chat/use-support-chat-due'
 import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { usePostHog } from 'posthog-js/react'
 import { cn } from '@/lib/utils'
@@ -73,6 +74,7 @@ import { FadingBlur } from '@/components/ui/fading-blur'
 import { APP_RAIL_ATTR, AppRail } from './rail/app-rail'
 import { EmptyPressMinimizes, MinimizedCardTile } from './minimized-card-tile'
 import { isWithinAppDomain } from '@/lib/app-url'
+import { checkPreviousOpen } from '@/lib/spreadsheets/open-marker'
 
 /** The top bar — always fully visible. The workspace switcher and the action
  *  buttons float over the chat, which scrolls on under them (Liam's
@@ -487,6 +489,14 @@ export function DashboardShell({
   avatarUrl: string | null
 }) {
   useBodyScrollLock()
+  // Support chat (715, 719): the person's conversation with our team, started in the background
+  // once per browser session if it is due (an account from before gets theirs as they come back).
+  useSupportChatDue()
+  // A page that died opening a spreadsheet (the desktop's WebContent process lost) left a marker:
+  // report it now, whichever page this boot shows (lib/spreadsheets/open-marker.ts).
+  useEffect(() => {
+    checkPreviousOpen()
+  }, [])
 
   const posthog = usePostHog()
   useEffect(() => {

@@ -224,3 +224,25 @@ describe('714’s Edit, Rename and Delete never reach a support conversation', (
     expect(body.slice(0, 2000)).toMatch(/kind in \('channel', 'meeting'\)/)
   })
 })
+
+describe('the dashboard asks once per browser session (719)', () => {
+  it('claims the ask once, and asks anyway where storage fails', async () => {
+    const { claimSupportDueAsk, SUPPORT_DUE_SESSION_KEY } = await import('../use-support-chat-due')
+    const store = new Map<string, string>()
+    const storage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) }
+    expect(claimSupportDueAsk(storage)).toBe(true)
+    expect(store.get(SUPPORT_DUE_SESSION_KEY)).toBe('1')
+    expect(claimSupportDueAsk(storage)).toBe(false)
+    const broken = { getItem: () => { throw new Error('blocked') }, setItem: () => undefined }
+    expect(claimSupportDueAsk(broken)).toBe(true)
+    expect(claimSupportDueAsk(null)).toBe(true)
+  })
+
+  it('the existing accounts’ default welcome reads as for someone who has been here a while', async () => {
+    const { DEFAULT_EXISTING_WELCOME } = await import('../welcome')
+    expect(welcomeWords(DEFAULT_EXISTING_WELCOME, 'Ana Ruiz')).toBe('Hi @Ana Ruiz, you can now reach our team directly here. Ask us anything, and tell us about bugs or ideas any time.')
+    // 719 seeds the same words.
+    const { migrationsInOrder } = await import('@/test/migration-sql')
+    expect(migrationsInOrder().find((m) => m.file === '719_support_chat_existing.sql')?.sql).toContain(`'${DEFAULT_EXISTING_WELCOME}'`)
+  })
+})

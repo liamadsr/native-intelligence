@@ -26,7 +26,8 @@ import { EntityActionsMenu, PANEL_OMIT } from '@/components/entities/entity-acti
 import { LinksPanel } from './links-panel'
 import { parseRange, rangeName } from '@/lib/spreadsheets/a1'
 import { WorkbookController } from '@/lib/spreadsheets/controller'
-import { openModel } from '@/lib/spreadsheets/engine-client'
+import { loadEngine, openModel } from '@/lib/spreadsheets/engine-client'
+import { checkPreviousOpen, clearOpening, heldAfterDeath, installPagehideClear, markOpening, markPhase, releaseHold } from '@/lib/spreadsheets/open-marker'
 import { appendStructure, readExtras, type ExtrasChange, type StructureEntry, type WorkbookExtras } from '@/lib/spreadsheets/extras'
 import { droppedNote, mergeExtras, rebaseWithLog } from '@/lib/spreadsheets/sync'
 import type { SpreadsheetRecord, SpreadsheetSummary } from '@/lib/spreadsheets/types'
@@ -81,39 +82,76 @@ export function SpreadsheetEditor({ spreadsheetId, onBack, onOpen }: Spreadsheet
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
+  // A spreadsheet that took the page down while opening (lib/spreadsheets/open-marker.ts) waits
+  // for the person on the next boot instead of opening itself and dying again.
+  const [held, setHeld] = useState(() => {
+    checkPreviousOpen()
+    return heldAfterDeath(spreadsheetId)
+  })
 
   useEffect(() => {
+    if (held) return
     let live = true
     let made: WorkbookController | null = null
     setLoaded(null)
     setError(null)
+    installPagehideClear()
+    markOpening(spreadsheetId)
     void (async () => {
       try {
         const res = await fetch(`/api/account/spreadsheets/${spreadsheetId}`)
         const json = (await res.json().catch(() => ({}))) as { spreadsheet?: SpreadsheetRecord; member_id?: string; can_edit?: boolean; sharing?: RecordSharing; error?: string }
         if (!res.ok || !json.spreadsheet) throw new Error(json.error || 'Could not load the spreadsheet')
+        if (!live) return
+        markPhase(spreadsheetId, 'engine', { workbookChars: json.spreadsheet.workbook?.length ?? 0 })
+        await loadEngine()
+        if (!live) return
+        markPhase(spreadsheetId, 'workbook')
         const model = await openModel(json.spreadsheet.workbook, json.spreadsheet.title)
         if (!live) {
           model.free()
           return
         }
+        markPhase(spreadsheetId, 'drawing')
         // View only when archived, or when it was shared with this person to view (688's
         // spreadsheet_editable_by, the GET's can_edit): nothing typed, pasted, imported or saved.
         const canEdit = json.can_edit !== false
         made = new WorkbookController(model, { readOnly: json.spreadsheet.status === 'archived' || !canEdit, extras: readExtras(json.spreadsheet.extras) })
         setLoaded({ record: json.spreadsheet, workbook: made, memberId: json.member_id ?? '', canEdit, sharing: json.sharing ?? null })
       } catch (e) {
+        // An error shown is an open that ended, not a death.
+        clearOpening(spreadsheetId)
         if (live) setError(e instanceof Error ? e.message : 'Could not load the spreadsheet')
       }
     })()
     return () => {
       live = false
+      clearOpening(spreadsheetId)
       // After the editor under it has unmounted: its own cleanup still reads the workbook (the last save).
       const gone = made
       if (gone) setTimeout(() => gone.dispose(), 0)
     }
-  }, [spreadsheetId, attempt])
+  }, [spreadsheetId, attempt, held])
 
+  if (held) {
+    return (
+      <div data-spreadsheet-held="" className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+        <p className="max-w-sm text-sm text-muted-foreground">This spreadsheet closed the window the last time it opened, so it waits for you this time.</p>
+        <div className="flex gap-2">
+          {onBack && <Button size="sm" variant="outline" onClick={onBack}>Back</Button>}
+          <Button
+            size="sm"
+            onClick={() => {
+              releaseHold(spreadsheetId)
+              setHeld(false)
+            }}
+          >
+            Open it
+          </Button>
+        </div>
+      </div>
+    )
+  }
   if (error) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
@@ -184,6 +222,11 @@ function OpenSpreadsheet({ loaded, onBack, onOpen, onReload }: { loaded: Loaded;
   onReloadRef.current = onReload
   const { workbook } = loaded
   useWorkbook(workbook)
+  // Drawn: the open is over (lib/spreadsheets/open-marker.ts), a frame after the grid's first commit.
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => clearOpening(loaded.record.id))
+    return () => cancelAnimationFrame(frame)
+  }, [loaded.record.id])
   const [record, setRecord] = useState<SpreadsheetSummary>(loaded.record)
   const [save, setSave] = useState<SaveState>('saved')
   const [menu, setMenu] = useState<GridMenuState | null>(null)

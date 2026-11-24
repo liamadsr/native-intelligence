@@ -46,6 +46,8 @@ export interface InboxMailRow {
   is_unread: boolean
   needs_reply: boolean
   auto_classified: string | null
+  /** How many messages the thread holds (the sync's count): a new one arriving is news, a re-index is not. */
+  message_count?: number | null
   subject?: string | null
   from_name?: string | null
   from_email?: string | null
@@ -87,6 +89,8 @@ export interface InboxItem {
   count: number
   /** The notifications Done archives and opening reads. */
   notificationIds: string[]
+  /** A mail thread's message count, when the index knows it: what says a new message arrived (inbox-store.ts, Done). */
+  messages?: number
   actor: { id: string; name: string; avatarUrl: string | null } | null
   open: InboxOpen
   /** The type behind it ('team_chat_message', 'mentioned', 'mail', …): its icon. */
@@ -177,6 +181,7 @@ export function mailItems(rows: readonly InboxMailRow[]): InboxItem[] {
         actor: null,
         open: { kind: 'mail', threadIndexId: r.id, providerThreadId: r.provider_thread_id, accountId: r.account_id },
         type: r.needs_reply ? 'mail_to_respond' : 'mail_important',
+        ...(typeof r.message_count === 'number' && r.message_count > 0 ? { messages: r.message_count } : {}),
       }),
     )
     .sort(byNewest)

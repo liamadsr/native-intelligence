@@ -10,9 +10,10 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { TeamChatError, teamChatErrorOf } from '@/lib/team-chat/store'
 import type { TeamChatChannel } from '@/lib/team-chat/types'
+import { isMissingColumnError } from '@/lib/mcp-client/public-row'
 import type { SupportChatSettings, SupportStaffRow } from './welcome'
 
-export { SUPPORT_WELCOME_MAX, tidyWelcomeTemplate, welcomeWords, type SupportChatSettings, type SupportStaffRow } from './welcome'
+export { DEFAULT_EXISTING_WELCOME, SUPPORT_WELCOME_MAX, tidyWelcomeTemplate, welcomeWords, type SupportChatSettings, type SupportStaffRow } from './welcome'
 
 /** One row of 715's support_chat_inbox. */
 export interface SupportInboxRow {
@@ -135,10 +136,12 @@ export function resetSupportDue(): void {
 }
 
 /**
- * An account made since support chat began with no conversation (its
- * sign-up came before anyone was on the team, or the start failed) gets it
- * now (715's support_chat_start_if_due). Asked from the person's own team
- * chat list when it has none, at most once per DUE_EVERY_MS per process.
+ * An account with no conversation that is due gets it now (715's
+ * support_chat_start_if_due, 719's rule): one made since support chat began,
+ * or, while the owner's switch is on, any account (never staff, never one
+ * that deleted theirs). Asked once per browser session from the dashboard
+ * (/api/account/support-chat/due) and from the person's own team chat list
+ * when it has none, at most once per DUE_EVERY_MS per process.
  * True when one was started. Never throws.
  */
 export async function startSupportChatIfDue(svc: SupabaseClient, userId: string, now: number = Date.now()): Promise<boolean> {
@@ -154,10 +157,23 @@ export async function startSupportChatIfDue(svc: SupabaseClient, userId: string,
   }
 }
 
+/** The settings row, with 719's columns once they are there (before 719: 715's, no switch). */
+async function readSettingsRow(svc: SupabaseClient) {
+  const full = await svc
+    .from('support_chat_settings')
+    .select('welcome_template, sender_user_id, updated_at, existing_accounts, welcome_existing_template')
+    .eq('id', true)
+    .maybeSingle<SupportChatSettings>()
+  if (full.error && isMissingColumnError(full.error, 'existing_accounts')) {
+    return svc.from('support_chat_settings').select('welcome_template, sender_user_id, updated_at').eq('id', true).maybeSingle<SupportChatSettings>()
+  }
+  return full
+}
+
 /** The settings and the team (service role). */
 export async function readSupportSettings(svc: SupabaseClient): Promise<{ settings: SupportChatSettings | null; staff: SupportStaffRow[] }> {
   const [settings, staff] = await Promise.all([
-    svc.from('support_chat_settings').select('welcome_template, sender_user_id, updated_at').eq('id', true).maybeSingle<SupportChatSettings>(),
+    readSettingsRow(svc),
     svc.from('support_staff').select('user_id, display_name, avatar_url, added_at').order('added_at', { ascending: true }),
   ])
   if (settings.error) throw teamChatErrorOf(settings.error, 'support settings read')
@@ -168,13 +184,24 @@ export async function readSupportSettings(svc: SupabaseClient): Promise<{ settin
 /** Save the welcome and its sender (service role). The sender must be on the team (or null: the longest-standing). */
 export async function saveSupportSettings(
   svc: SupabaseClient,
-  input: { welcomeTemplate: string; senderUserId: string | null; updatedBy: string },
+  input: {
+    welcomeTemplate: string
+    senderUserId: string | null
+    updatedBy: string
+    /** 719: the switch, and the existing accounts' welcome (null: they get the new-account one). Left out: unchanged. */
+    existingAccounts?: boolean
+    welcomeExistingTemplate?: string | null
+  },
 ): Promise<void> {
-  const { error } = await svc
-    .from('support_chat_settings')
-    .upsert(
-      { id: true, welcome_template: input.welcomeTemplate, sender_user_id: input.senderUserId, updated_by: input.updatedBy, updated_at: new Date().toISOString() },
-      { onConflict: 'id' },
-    )
+  const row: Record<string, unknown> = {
+    id: true,
+    welcome_template: input.welcomeTemplate,
+    sender_user_id: input.senderUserId,
+    updated_by: input.updatedBy,
+    updated_at: new Date().toISOString(),
+  }
+  if (input.existingAccounts !== undefined) row.existing_accounts = input.existingAccounts
+  if (input.welcomeExistingTemplate !== undefined) row.welcome_existing_template = input.welcomeExistingTemplate
+  const { error } = await svc.from('support_chat_settings').upsert(row, { onConflict: 'id' })
   if (error) throw teamChatErrorOf(error, 'support settings save')
 }
