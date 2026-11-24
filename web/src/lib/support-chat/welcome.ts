@@ -10,7 +10,17 @@ export interface SupportChatSettings {
   welcome_template: string
   sender_user_id: string | null
   updated_at: string | null
+  /**
+   * Accounts made before support chat began get one too (migration 719), the
+   * next time they use the app. Absent before 719: false (715's rule).
+   */
+  existing_accounts?: boolean
+  /** Their welcome (719); null: they get welcome_template. Absent before 719. */
+  welcome_existing_template?: string | null
 }
+
+/** The existing accounts' welcome, when the admin has written none (719's seed). */
+export const DEFAULT_EXISTING_WELCOME = 'Hi {name}, you can now reach our team directly here. Ask us anything, and tell us about bugs or ideas any time.'
 
 export interface SupportStaffRow {
   user_id: string
