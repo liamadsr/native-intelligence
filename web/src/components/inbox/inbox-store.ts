@@ -124,6 +124,38 @@ function subscribe(listener: () => void): () => void {
   }
 }
 
+/**
+ * Items marked done here, by key, with the newest moment they had then (Liam,
+ * 11-24: "I click the check box and the emails or notification goes away then
+ * after a few second it reappears"). A read already on its way when Done was
+ * pressed, or one that lands before the write, still lists the item: it stays
+ * hidden unless something newer arrived in it since (a new message in the
+ * conversation, a new mail in the thread), until a read no longer lists it
+ * (the write landed) or DONE_HOLD_MS passes. A Done the server refuses takes
+ * its key back out, and the row returns with an error (inboxDone).
+ */
+const doneKeys = new Map<string, { at: string; since: number }>()
+/** How long a done item is kept hidden while reads still list it. */
+export const DONE_HOLD_MS = 10 * 60_000
+
+const ms = (iso: string | null | undefined): number => {
+  const t = iso ? Date.parse(iso) : NaN
+  return Number.isNaN(t) ? -Infinity : t
+}
+
+function notDone(item: InboxItem): boolean {
+  const done = doneKeys.get(item.key)
+  return !done || ms(item.at) > ms(done.at)
+}
+
+/** Done keys a read no longer lists (the write landed), or held too long, are forgotten. */
+function forgetConfirmedDone(listed: readonly InboxItem[]): void {
+  if (!doneKeys.size) return
+  const keys = new Set(listed.map((i) => i.key))
+  const now = Date.now()
+  for (const [key, done] of doneKeys) if (!keys.has(key) || now - done.since > DONE_HOLD_MS) doneKeys.delete(key)
+}
+
 export async function loadInbox(): Promise<void> {
   let res: Response | null = null
   try {
@@ -140,7 +172,11 @@ export async function loadInbox(): Promise<void> {
   }
   if (!raw || typeof raw !== 'object') return set({ failed: true })
   // Each list an array, whatever came back.
-  const json: InboxData = { items: Array.isArray(raw.items) ? raw.items : [], held: Array.isArray(raw.held) ? raw.held : [], mail: Array.isArray(raw.mail) ? raw.mail : [] }
+  const items = Array.isArray(raw.items) ? raw.items : []
+  const held = Array.isArray(raw.held) ? raw.held : []
+  // What was just marked done stays gone, whatever a read that crossed it says (doneKeys).
+  forgetConfirmedDone([...items, ...held])
+  const json: InboxData = { items: items.filter(notDone), held: held.filter(notDone), mail: Array.isArray(raw.mail) ? raw.mail : [] }
   set({ failed: false, data: json })
   if (json.mail.length > 0) void fillHeaders(json.mail).then(() => set({ headers: state.headers + 1 }))
 }
@@ -268,6 +304,7 @@ function markRead(item: InboxItem): void {
 }
 
 export async function inboxDone(item: InboxItem): Promise<void> {
+  doneKeys.set(item.key, { at: item.at, since: Date.now() })
   removeLocally(item.key)
   if (state.openKey === item.key) set({ openKey: null })
   let ok = false
@@ -275,20 +312,36 @@ export async function inboxDone(item: InboxItem): Promise<void> {
   if (item.source === 'mail' && item.open.kind === 'mail') {
     const threadIds = [item.open.providerThreadId]
     const res = await post('/api/account/email/threads/triage', { thread_ids: threadIds, change: { archive: true } }).catch(() => null)
-    ok = !!res?.ok
+    // A 200 is not a yes: the thread's own outcome is (a mailbox that refused,
+    // or holds no such thread, answers 200 with that thread's status).
+    const body = res?.ok ? ((await res.json().catch(() => null)) as { threads?: Array<{ status?: string }> } | null) : null
+    const status = body?.threads?.[0]?.status
+    ok = status === 'changed' || status === 'unchanged'
     undo = () => post('/api/account/email/threads/triage', { thread_ids: threadIds, change: { archive: false } })
   } else {
     const ids = item.notificationIds.slice(0, 200)
     const res = await post('/api/account/inbox/notifications', { action: 'done', ids }).catch(() => null)
-    ok = !!res?.ok
+    // As many notifications archived as asked for none: nothing was written.
+    const body = res?.ok ? ((await res.json().catch(() => null)) as { updated?: number } | null) : null
+    ok = typeof body?.updated === 'number' && body.updated > 0
     undo = () => post('/api/account/inbox/notifications', { action: 'undone', ids })
   }
   if (!ok) {
-    toast.error('That could not be marked done')
+    // Never silently: the row comes back, and says why.
+    doneKeys.delete(item.key)
+    toast.error(item.source === 'mail' ? 'That email could not be archived. It’s back in the list.' : 'That could not be marked done. It’s back in the list.')
     return void loadInbox()
   }
   toast.success(item.source === 'mail' ? 'Archived' : 'Done', {
-    action: undo ? { label: 'Undo', onClick: () => void undo!().then(() => loadInbox()) } : undefined,
+    action: undo
+      ? {
+          label: 'Undo',
+          onClick: () => {
+            doneKeys.delete(item.key)
+            void undo!().then(() => loadInbox())
+          },
+        }
+      : undefined,
   })
 }
 
@@ -333,6 +386,7 @@ export async function inboxOpen(item: InboxItem, opts: { beside?: () => void; on
 
 /** Tests: nothing read, nothing chosen. */
 export function __resetInboxStoreForTests(): void {
+  doneKeys.clear()
   state = INITIAL
   filterRead = false
   listeners.clear()
