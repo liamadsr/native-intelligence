@@ -5,6 +5,9 @@ import { companyCrmCell } from '@/components/crm/company-crm-fields'
 import { ENTITY_IDENTITIES, entityIdentity } from '@/lib/entities/entity-identity'
 import { listSharingText, type RowSharing } from '@/lib/entity-access/list-sharing'
 import { useRowMenuItems } from './row-menu-items'
+import { LibraryItemIcon } from '@/components/library-item-icon'
+import { BuiltInBadge, VisibilityBadge } from '@/app/account/(dashboard)/views/agents/library-badges'
+import type { LibraryVisibility } from '@/app/account/(dashboard)/views/agents/library-types'
 import { formatFileSize } from '@/lib/attachments/workspace-files-model'
 import { CAMPAIGN_STATUS_LABELS, describeAudience, type CampaignAudience, type CampaignStatus } from '@/lib/campaigns/shape'
 import { EntityIcon } from '@/components/entities/entity-icon'
@@ -880,6 +883,10 @@ function EntityLeading({
       return <EntityIcon kind="campaign" />
     case 'team':
       return <EntityIcon kind="team" />
+    // An agent or a skill: its own coloured mark, as the library always drew it.
+    case 'agent':
+    case 'skill':
+      return <LibraryItemIcon color={(item.color as string | null) ?? null} size="sm" seed={(item.id as string) || (item.name as string)} />
     // A file: its kind's glyph (a PDF, a sheet, an image…), as the Files page drew it.
     case 'file': {
       const Glyph = FILE_TYPE_GLYPH[(item.file_type as string) ?? 'other'] ?? FileGlyph
@@ -3043,6 +3050,27 @@ function PropertyCell({ item, property, entityType, onPatch, pickerContext, canE
       return item.file_where ? <span className="max-w-[220px] truncate text-[11px] text-muted-foreground" title={item.file_where as string}>{item.file_where as string}</span> : null
     case 'file_size':
       return typeof item.file_size === 'number' ? <span className="whitespace-nowrap text-[11px] tabular-nums text-muted-foreground">{formatFileSize(item.file_size)}</span> : null
+    // ── The library's cells (agents and skills) ──
+    case 'library_slug':
+      return item.slug ? <span className="font-mono text-[11px] text-muted-foreground">/{item.slug as string}</span> : null
+    case 'library_description':
+      return item.description ? <span className="max-w-[320px] truncate text-[11px] text-muted-foreground" title={item.description as string}>{item.description as string}</span> : null
+    case 'library_provenance': {
+      if (item.is_system) return <BuiltInBadge />
+      const scope = item.library_scope as string | undefined
+      const author = (scope === 'workspace' && !item.is_mine) || scope === 'discover' ? (item.author_name as string | null) : null
+      return (
+        <span className="flex items-center gap-1.5">
+          {author && <span className="max-w-[140px] truncate text-[11px] text-muted-foreground">{author}</span>}
+          {item.visibility ? <VisibilityBadge visibility={item.visibility as LibraryVisibility} /> : null}
+        </span>
+      )
+    }
+    case 'library_installs': {
+      const n = typeof item.fork_count === 'number' ? item.fork_count : 0
+      if (n <= 0) return null
+      return <span className="whitespace-nowrap text-[11px] tabular-nums text-muted-foreground">{n} {n === 1 ? 'install' : 'installs'}</span>
+    }
     // ── A team's cells ──
     case 'issue_prefix':
       return item.issue_prefix ? <span className="font-mono text-[11px] text-muted-foreground">{item.issue_prefix as string}</span> : null

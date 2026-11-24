@@ -889,8 +889,9 @@ export const FILTERABLE_FIELDS: Record<ViewEntityType, FilterFieldDefinition[]> 
 
 export const DEFAULT_DISPLAY_PROPERTIES: Record<ViewEntityType, string[]> = {
   github_pr: ['repo', 'author', 'review', 'checks', 'size', 'linked', 'updated_at'],
-  agent: [],
-  skill: [],
+  // The library's rows (views-everywhere): what it is, whose, how widely added.
+  agent: ['library_description', 'library_provenance', 'library_installs'],
+  skill: ['library_slug', 'library_description', 'library_provenance', 'library_installs'],
   // Ordered left (rare) → right (always present)
   action: ['labels', 'project', 'priority', 'due_at', 'assignee', 'status', 'identifier'],
   capture: ['action_count', 'participant_count', 'recipe', 'project', 'started_at', 'status'],
@@ -1029,8 +1030,17 @@ export const DISPLAY_PROPERTIES: Record<ViewEntityType, DisplayPropertyDefinitio
     { field: 'updated_at', label: 'Updated' },
     { field: 'created_at', label: 'Created' },
   ],
-  agent: [],
-  skill: [],
+  agent: [
+    { field: 'library_description', label: 'Description' },
+    { field: 'library_provenance', label: 'Built-in, visibility and author' },
+    { field: 'library_installs', label: 'Installs' },
+  ],
+  skill: [
+    { field: 'library_slug', label: 'Command' },
+    { field: 'library_description', label: 'Description' },
+    { field: 'library_provenance', label: 'Built-in, visibility and author' },
+    { field: 'library_installs', label: 'Installs' },
+  ],
   action: [
     { field: 'identifier', label: 'ID' },
     { field: 'status', label: 'Status', editable: { picker: 'status', apiField: 'status_id' } },

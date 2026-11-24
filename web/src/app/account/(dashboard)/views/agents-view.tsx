@@ -37,7 +37,7 @@ import { cn } from '@/lib/utils'
 import { useLibraryItems } from './agents/use-library-items'
 import { myIdSet } from './agents/library-filter'
 import { LibraryCollection } from './agents/library-collection'
-import { LibraryRow } from './agents/library-row'
+import { LibraryList } from './agents/library-list'
 import {
   DetailDialog,
   EditorDialog,
@@ -465,10 +465,11 @@ export function AgentsView({
         search={search}
         onScopeChange={setScope}
       >
-        {({ scope: collectionScope, displayedItems, resolvingView, scopeForItem }) => (
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-8 pt-1">
-            {/* Content — list rows only; the card grid was cut by design decision
-                (2026-07-12): one density, matching the app's browse convention. */}
+        {({ scope: collectionScope, displayedItems, resolvingView, scopeForItem, config }) => (
+          <div className="min-h-0 flex-1 pb-2 pt-1">
+            {/* The shared list and rows (docs/plans/views-everywhere.md): one
+                density, the app's own, with J/K/Enter; the toolbar above is
+                LibraryCollection's (saved views, filters, display). */}
             {isLoading || resolvingView ? (
               <div className="space-y-2">
                 {Array.from({ length: 6 }).map((_, i) => (
@@ -484,28 +485,23 @@ export function AgentsView({
                 onCreate={openCreateDialog}
               />
             ) : (
-              <div className="space-y-2">
-                {displayedItems.map((item) => (
-                  <LibraryRow
-                    key={item.id}
-                    item={item}
-                    scope={scopeForItem(item)}
-                    isMine={myIds.has(item.id)}
-                    onView={() => {
-                      if (opensInAgentEditor(item)) {
-                        setAgentEditor({ agentId: item.id })
-                        return
-                      }
-                      setScope(scopeForItem(item))
-                      setViewingItem(item)
-                    }}
-                    onEdit={() => openEditDialog(item)}
-                    onFork={() => fork(item.id)}
-                    onDelete={() => remove(item)}
-                    forking={forking === item.id}
-                  />
-                ))}
-              </div>
+              <LibraryList
+                category={activeType}
+                config={config}
+                rows={displayedItems.map((item) => ({ ...item, library_scope: scopeForItem(item), is_mine: myIds.has(item.id) }))}
+                forking={forking}
+                onView={(item) => {
+                  if (opensInAgentEditor(item)) {
+                    setAgentEditor({ agentId: item.id })
+                    return
+                  }
+                  setScope(scopeForItem(item))
+                  setViewingItem(item)
+                }}
+                onEdit={(item) => openEditDialog(item)}
+                onFork={(item) => fork(item.id)}
+                onDelete={(item) => remove(item)}
+              />
             )}
           </div>
         )}
