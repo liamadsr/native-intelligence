@@ -8,6 +8,7 @@ import { createNoteTakerTools } from './note-taker'
 import { createMeetingGoalTools } from './meeting-goal'
 import { createVocabularyTools } from './vocabulary'
 import { createSnippetTools } from './snippets'
+import { createDreamerNotesTools, type DreamerToolContext } from './dreamer-notes'
 import { createDocumentTools } from './documents'
 import { createCanonTools, type CanonToolContext } from './canon'
 import { createContentTools } from './content'
@@ -362,6 +363,15 @@ export interface CreateToolsOptions {
    * Slice 2's check-in passes writer 'check_in' and no `readable`.
    */
   nowContext?: NowToolContext
+  /**
+   * The Dreamer (docs/plans/dreamer.md): the calling run, set only by the
+   * work-run tool route, for a run whose row says server_helper 'dreamer' and
+   * only on its own turns (never a follow-up chat turn). With it, the
+   * Dreamer's own tools (read_parent_thread, write_agent_notes,
+   * delete_agent_notes, notify_parent) get their execute; without it they
+   * are schema twins (src/lib/ai/tools/dreamer-notes.ts).
+   */
+  dreamerRun?: DreamerToolContext
   // NO `includeEvalCaptures` HERE, deliberately.
   //
   // Eval captures (`captures.is_eval`, migration 252) are synthetic mock
@@ -670,6 +680,11 @@ export function createTools(
     // update_now. Attended only, like remember, and written only where the
     // route says who writes (nowContext.writer). See ./now.ts.
     ...createNowTools(userId, supabase, workspaceId, options?.nowContext),
+    // The Dreamer's notes (docs/plans/dreamer.md): three reads for the main
+    // agent and the Dreamer, and the Dreamer's own four, which run only with
+    // `dreamerRun`. Every other ceiling leaves all seven out
+    // (PARENT_NOTES_TOOL_NAMES). See ./dreamer-notes.ts.
+    ...createDreamerNotesTools(userId, supabase, workspaceId, options?.dreamerRun),
     // The person's getting started (docs/plans/getting-started-skill.md):
     // finish_getting_started. Attended only. See ./getting-started.ts.
     ...createGettingStartedTools(userId, supabase, workspaceId),

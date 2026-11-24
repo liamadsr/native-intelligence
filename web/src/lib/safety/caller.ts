@@ -58,7 +58,7 @@
  *
  * Pure: no I/O, no server-only imports, safe in any runtime.
  */
-import { ATTENDED_ONLY_TOOL_NAMES, CHAT_NATIVE_TOOL_NAMES, getToolSideEffect, type ToolSideEffect } from '@/lib/ai/tool-registry'
+import { ATTENDED_ONLY_TOOL_NAMES, CHAT_NATIVE_TOOL_NAMES, DREAMER_ONLY_TOOL_NAMES, PARENT_NOTES_TOOL_NAMES, getToolSideEffect, type ToolSideEffect } from '@/lib/ai/tool-registry'
 import { GUEST_ONLY_TOOL_NAMES } from '@/lib/guests/tools'
 import { bareToolName as withoutMcpPrefix } from '@/lib/mcp/tool-names'
 
@@ -287,6 +287,15 @@ export interface DecideOptions {
    * caller and only for 'outward'.
    */
   homeTurn?: boolean
+  /**
+   * The call is a DREAMER run's own turn (docs/plans/dreamer.md: a work run
+   * whose row says server_helper 'dreamer'), set only by the work-run tool
+   * route from that row and the verified run token (not a follow-up chat
+   * turn), never from anything a model wrote. The Dreamer's own tools
+   * (DREAMER_ONLY_TOOL_NAMES) run there and nowhere else. Read only for an
+   * unattended caller.
+   */
+  dreamerRun?: boolean
 }
 
 /** A tool's effect for the policy (its registry class, else 'unclassified'). */
@@ -314,6 +323,11 @@ function bareToolName(toolName: string): string {
  *   guest             run    run / ASK**                    ask       deny
  *   unknown           deny   deny                           deny      deny
  *
+ *   The Dreamer's own tools (DREAMER_ONLY_TOOL_NAMES: read_parent_thread,
+ *   write_agent_notes, delete_agent_notes, notify_parent) run only for
+ *   agent_unattended on a Dreamer run's own turn (options.dreamerRun), and are
+ *   denied to every other caller; its notes' reads are never another person's
+ *   or a guest's.
  *   * agent_unattended on a FLOW STEP (options.flowStep, F4) or a HOME TURN
  *     (options.homeTurn): outward is ASK, the owner's card (the loop parks on
  *     it; a home turn carries on without it). Every other unattended path (a
@@ -337,9 +351,12 @@ export function decideAction(caller: CallerClass, effect: PolicyEffect, toolName
   if (!isCallerClass(caller) || caller === 'unknown') return 'deny'
   const name = bareToolName(toolName)
   if (GUEST_ONLY_TOOL_NAMES.has(name)) return caller === 'guest' ? 'run' : 'deny'
+  // The Dreamer's own tools (docs/plans/dreamer.md) run on its own turns alone.
+  if (DREAMER_ONLY_TOOL_NAMES.has(name)) return caller === 'agent_unattended' && options.dreamerRun === true ? 'run' : 'deny'
   if (caller === 'guest') return decideForGuest(effect, name, options.guest)
   if (caller === 'other_person') {
-    const ownersOnly = name.startsWith('mcp__') || ATTENDED_ONLY_TOOL_NAMES.has(name) || CHAT_NATIVE_TOOL_NAMES.has(name)
+    // The Dreamer's notes are the owner's private research: never another person's read.
+    const ownersOnly = name.startsWith('mcp__') || ATTENDED_ONLY_TOOL_NAMES.has(name) || CHAT_NATIVE_TOOL_NAMES.has(name) || PARENT_NOTES_TOOL_NAMES.has(name)
     return effect === 'read' && !ownersOnly ? 'run' : 'deny'
   }
   if (effect === 'outward') {
@@ -357,7 +374,8 @@ export function decideAction(caller: CallerClass, effect: PolicyEffect, toolName
 
 /** The guest row of the policy table (see decideAction). */
 function decideForGuest(effect: PolicyEffect, name: string, guest: DecideOptions['guest']): ActionDecision {
-  if (name.startsWith('mcp__') || ATTENDED_ONLY_TOOL_NAMES.has(name) || CHAT_NATIVE_TOOL_NAMES.has(name)) return 'deny'
+  // Nor the Dreamer's notes (the owner's private research, docs/plans/dreamer.md).
+  if (name.startsWith('mcp__') || ATTENDED_ONLY_TOOL_NAMES.has(name) || CHAT_NATIVE_TOOL_NAMES.has(name) || PARENT_NOTES_TOOL_NAMES.has(name)) return 'deny'
   if (effect === 'read') return 'run'
   if (effect === 'unclassified' || effect === 'automation-write') return 'deny'
   const askBefore = guest?.askBefore

@@ -752,6 +752,20 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       { name: 'connect_link', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Connect Link', description: "Make a single-use link (15 minutes) that connects the person's Google, Microsoft or GitHub account from their phone, to put in a text" },
       // The owner's confirmed answers as workspace lines of the knowledge memory; renames the workspace; ends setup by text.
       { name: 'save_business_profile', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Save Business Profile', description: "Save what the owner confirmed about their business (name, services, area, pickup days, prices) to the business memory and end setup by text" },
+      // The Dreamer (docs/plans/dreamer.md, migration 720): the main agent's background researcher and its private
+      // notes. The three reads are the main agent's and the Dreamer's (PARENT_NOTES_TOOL_NAMES); the other four are the
+      // Dreamer's alone (DREAMER_ONLY_TOOL_NAMES). Every other ceiling leaves all seven out.
+      { name: 'list_agent_notes', sideEffect: 'read', label: 'List Agent Notes', description: "List the background researcher's notes for the person (/agent_notes/), and the read-only /user_notes/profile.md and /action_items.md, in path order, a page at a time" },
+      { name: 'search_agent_notes', sideEffect: 'read', label: 'Search Agent Notes', description: "Search the background researcher's notes (and the read-only profile and action items) for a word or phrase: paths and a short excerpt" },
+      { name: 'read_agent_notes', sideEffect: 'read', label: 'Read Agent Notes', description: "Read up to 10 of the background researcher's notes by path, each whole, with when it was last written" },
+      // Dreamer only: the home thread as text, for the run's own research.
+      { name: 'read_parent_thread', sideEffect: 'read', label: 'Read Parent Thread', description: "Read the recent messages of the person's conversation with their main assistant, as quoted text" },
+      // Dreamer only: an internal write on its own notes (agent_note rows), never anything the person sees.
+      { name: 'write_agent_notes', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Write Agent Notes', description: 'Write one note file under /agent_notes/, replacing the whole file' },
+      // Dreamer only: hard-deletes exact note files (agent_note rows), so a delete like every delete_* tool.
+      { name: 'delete_agent_notes', sideEffect: 'delete', label: 'Delete Agent Notes', description: 'Delete exact note files under /agent_notes/, never a folder' },
+      // Dreamer only: stores the run's one report (dreamer_report) and starts a background update for the main agent.
+      { name: 'notify_parent', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Notify Parent', description: "Report this run's findings to the person's main assistant, once per run" },
     ],
   },
   {
@@ -1148,6 +1162,56 @@ export function isChatNativeTool(name: string): boolean {
 }
 
 /**
+ * The Dreamer's own tools (docs/plans/dreamer.md): the main agent's background
+ * researcher, a work run of server kind 'dreamer' (agent_run.server_helper,
+ * migration 720). Nothing else holds them, the main chat included:
+ *
+ *   read_parent_thread   the home thread's recent messages, as quoted text;
+ *   write_agent_notes    replace one file of its notes (/agent_notes/);
+ *   delete_agent_notes   delete exact files of its notes, never a folder;
+ *   notify_parent        its one report per run (dreamer_report), which
+ *                        starts a background update in the home thread
+ *                        (home turn reason 'dreamer').
+ *
+ * Three fences, each enough alone:
+ *   - the ceilings: every work run's (WORK_RUN_EXCLUDED_TOOLS) but the
+ *     Dreamer's (ceilingForWorkRun adds them back for its own turns), every
+ *     chat token's (chat-ceiling.ts isToolExcludedForSurface, the main chat
+ *     included), a server turn's, a teammate's, a skill run's, the Mac body's
+ *     and MCP's;
+ *   - the trust authority (caller.ts decideAction): denied to every caller
+ *     but the Dreamer's own unattended turns (DecideOptions.dreamerRun, set
+ *     only by the work-run tool route from the run's row);
+ *   - their execute exists only on a Dreamer run's tools (createTools'
+ *     `dreamerRun`, src/lib/ai/tools/dreamer-notes.ts): anywhere else they are
+ *     schema twins, like the chat-native tools, so no bridge can run them.
+ */
+export const DREAMER_ONLY_TOOL_NAMES: ReadonlySet<string> = new Set(['read_parent_thread', 'write_agent_notes', 'delete_agent_notes', 'notify_parent'])
+
+/**
+ * The three reads of the Dreamer's notes (and of the read-only profile and
+ * action items it is served): the main agent's in the person's own chat and
+ * its home turns (so the parent can open what a report links to), and the
+ * Dreamer's. The notes are private research about the person, so no other
+ * surface holds them: not a teammate's chat, a skill or work run whose output
+ * others may see, team chat, a guest, the Mac body or MCP.
+ */
+export const AGENT_NOTES_READ_TOOL_NAMES: ReadonlySet<string> = new Set(['list_agent_notes', 'search_agent_notes', 'read_agent_notes'])
+
+/** Every tool of the Dreamer's notes: what only the main agent and the Dreamer may hold (see the two sets above). */
+export const PARENT_NOTES_TOOL_NAMES: ReadonlySet<string> = new Set([...AGENT_NOTES_READ_TOOL_NAMES, ...DREAMER_ONLY_TOOL_NAMES])
+
+/** True for a tool only the Dreamer holds (DREAMER_ONLY_TOOL_NAMES). */
+export function isDreamerOnlyTool(name: string): boolean {
+  return DREAMER_ONLY_TOOL_NAMES.has(name)
+}
+
+/** True for one of the Dreamer's notes tools, its reads included (PARENT_NOTES_TOOL_NAMES). */
+export function isParentNotesTool(name: string): boolean {
+  return PARENT_NOTES_TOOL_NAMES.has(name)
+}
+
+/**
  * Registry tools only an ATTENDED chat may hold (bots v3 Phase 5, "tell it what
  * to do next", docs/plans/bots-v3.md): the writes that let a bot act on what
  * its run did, at the person's word, in the conversation about it.
@@ -1362,11 +1426,11 @@ export function isAttendedOnlyTool(name: string): boolean {
 
 /**
  * The registry an UNATTENDED runtime may hold: ALL_TOOL_NAMES minus the
- * chat-native tools and the attended-only ones. What "inherit-all" means for a
- * skill run.
+ * chat-native tools, the attended-only ones and the Dreamer's notes tools
+ * (PARENT_NOTES_TOOL_NAMES). What "inherit-all" means for a skill run.
  */
 export const NON_CHAT_TOOL_NAMES: readonly string[] = ALL_TOOL_NAMES.filter(
-  (name) => !isChatNativeTool(name) && !isAttendedOnlyTool(name),
+  (name) => !isChatNativeTool(name) && !isAttendedOnlyTool(name) && !isParentNotesTool(name),
 )
 
 /**
@@ -1539,6 +1603,10 @@ const NON_PREFIX_MUTATING_TOOLS: string[] = [
   'ask_agent',
   // Saves a line to an area's memory; `remember` is no write verb, but a write.
   'remember',
+  // The Dreamer (docs/plans/dreamer.md): replaces one of its note files, and stores its report and starts a
+  // background update. Neither `write_` nor `notify_` is a write verb. (delete_agent_notes matches `delete_`.)
+  'write_agent_notes',
+  'notify_parent',
   // Ends the person's getting started (writes their onboarding progress); `finish_` is no write verb.
   'finish_getting_started',
   'push_action_to_asana',

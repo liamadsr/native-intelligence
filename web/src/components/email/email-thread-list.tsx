@@ -9,6 +9,8 @@ import type { ThreadUpdate } from './email-thread-detail'
 import { fillHeaders, withCachedHeaders } from '@/lib/email/header-cache'
 import { getJsonOnce } from '@/lib/email/inflight-get'
 import { ensureIndexed } from '@/lib/email/ensure-indexed'
+import { archiveFailure } from '@/lib/email/archive-failure'
+import { toast } from 'sonner'
 
 /**
  * The list once per provider_thread_id, first (most recent) one kept. The
@@ -255,7 +257,11 @@ export function EmailThreadList({
         const res = await fetch(`/api/account/email/threads/${thread.provider_thread_id}/archive`, {
           method: 'POST',
         })
-        if (!res.ok) throw new Error(`archive failed: ${res.status}`)
+        if (!res.ok) {
+          // Said, then put back (Gmail without permission to change mail says so: lib/email/archive-failure.ts).
+          toast.error(await archiveFailure(res, 'Could not archive the email'))
+          throw new Error(`archive failed: ${res.status}`)
+        }
         onThreadAction?.()
       } catch {
         // Revert — re-fetch
@@ -276,7 +282,11 @@ export function EmailThreadList({
         const res = await fetch(`/api/account/email/threads/${thread.provider_thread_id}/trash`, {
           method: 'POST',
         })
-        if (!res.ok) throw new Error(`trash failed: ${res.status}`)
+        if (!res.ok) {
+          // Said, then put back (Gmail without permission to change mail says so: lib/email/archive-failure.ts).
+          toast.error(await archiveFailure(res, 'Could not delete the email'))
+          throw new Error(`trash failed: ${res.status}`)
+        }
         onThreadAction?.()
       } catch {
         // Revert — re-fetch

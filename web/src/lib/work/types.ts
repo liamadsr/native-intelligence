@@ -142,6 +142,12 @@ export interface WorkSource {
    * person's own run's (item-run-chat.ts `own`), never the bot speaking.
    */
   teammate_routed?: boolean
+  /**
+   * A Dreamer run's row (agent_run.server_helper 'dreamer', migration 720;
+   * docs/plans/dreamer.md): born muted, and it never writes a teammate report
+   * (recorder.ts). Set by agent-run-mirror.ts from the run's row.
+   */
+  server_helper?: 'dreamer'
   [k: string]: unknown
 }
 

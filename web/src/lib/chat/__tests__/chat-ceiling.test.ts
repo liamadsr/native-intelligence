@@ -427,6 +427,14 @@ describe('composeTeammateChatCeiling', () => {
       'ask_agent',
       'ask_user',
       'mcp_confirm_call',
+      // The Dreamer's notes and its own tools (docs/plans/dreamer.md): never a bot's.
+      'list_agent_notes',
+      'search_agent_notes',
+      'read_agent_notes',
+      'read_parent_thread',
+      'write_agent_notes',
+      'delete_agent_notes',
+      'notify_parent',
     ])
     // A bot never calls back into the main agent or another bot (bots-v4 Phase A3).
     // The edition imposes no ceiling (every feature on), so these reach the
