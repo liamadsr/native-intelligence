@@ -3,9 +3,10 @@
  * The inbox's filter (../inbox-view.tsx InboxFilterButton; Liam, 11-24: "the
  * same type of filter for the incoming view with the different notifications
  * we support with all being the default"): the same button and menu as
- * Recent's. In a card, in its header (Liam, 11-23: "Into the header"), the
- * page starting with the list; on its own, at the top right of the list.
- * F opens it from the list. Fixtures are made up.
+ * Recent's, on the page's first row from the card's corner, in a card and on
+ * its own, never in the card's header (#263; Liam, 11-23: "everything looks
+ * the same as the projects page"). F opens it from the list. Fixtures are
+ * made up.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createRoot, type Root } from 'react-dom/client'
@@ -56,20 +57,22 @@ const press = async (el: Element) => {
 }
 
 describe('the inbox’s filter', () => {
-  it('in a card: one filter button in its header, nothing over the list; All by default', async () => {
+  it('in a card: one filter button on the page’s first row from the card’s corner, none in the header; All by default', async () => {
     await act(async () => root.render(<CardHeaderSlotsProvider value={{ left: null, right }}><InboxView /></CardHeaderSlotsProvider>))
-    const button = right.querySelector<HTMLButtonElement>('[data-inbox-filter]')!
+    expect(right.querySelector('[data-inbox-filter]')).toBeNull()
+    const button = container.querySelector<HTMLButtonElement>('[data-inbox-filters="page"]')!
     expect(button).not.toBeNull()
+    expect(button.parentElement!.className).toContain('px-2.5')
+    expect(button.parentElement!.className).toContain('h-12')
     expect(button.getAttribute('aria-label')).toBe('Filter')
     expect(button.getAttribute('title')).toBe('Filter (F)')
-    expect(container.querySelector('[data-inbox-filter]')).toBeNull()
     expect(container.querySelector('[role="tablist"]')).toBeNull()
     expect(inboxState().filter).toEqual({ status: 'all', kinds: [] })
   })
 
-  it('on its own (no card): the button over the list, at its right', async () => {
+  it('on its own (no card): the same row', async () => {
     await act(async () => root.render(<InboxView />))
-    expect(container.querySelector('[data-inbox-filter]')).not.toBeNull()
+    expect(container.querySelector('[data-inbox-filters="page"]')).not.toBeNull()
     expect(right.childElementCount).toBe(0)
   })
 
@@ -96,7 +99,7 @@ describe('the inbox’s filter', () => {
     expect(inboxState().filter.status).toBe('held')
   })
 
-  it('a key on a header control is that control’s, not the list’s: Enter presses it, e and h never touch a row', async () => {
+  it('a key on the filter is the filter’s, not the list’s: Enter presses it, e and h never touch a row', async () => {
     data = { items: [note('n1', 'other')], held: [], mail: [] }
     await act(async () => root.render(<CardHeaderSlotsProvider value={{ left: null, right }}><InboxView /></CardHeaderSlotsProvider>))
     await act(async () => {})
@@ -105,11 +108,11 @@ describe('the inbox’s filter', () => {
     const before = calls()
     for (const key of ['e', 'h', 'j']) {
       const ev = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
-      await act(async () => void right.querySelector<HTMLButtonElement>('[data-inbox-filter]')!.dispatchEvent(ev))
+      await act(async () => void container.querySelector<HTMLButtonElement>('[data-inbox-filter]')!.dispatchEvent(ev))
       expect(ev.defaultPrevented).toBe(false)
     }
     // Enter is the button's own: it opens the filter's menu, and opens no row.
-    await act(async () => void right.querySelector<HTMLButtonElement>('[data-inbox-filter]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })))
+    await act(async () => void container.querySelector<HTMLButtonElement>('[data-inbox-filter]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })))
     expect(menu()).not.toBeNull()
     expect(calls()).toBe(before)
   })

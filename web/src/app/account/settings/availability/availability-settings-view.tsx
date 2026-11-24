@@ -36,8 +36,7 @@ import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
-import { CardHeaderSlot, useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
-import { CARD_HEADER_CAPSULE, CARD_HEADER_SEGMENT } from '@/components/chat-cards/card-header-button'
+import { DETAIL_TAB_ROW, DetailTabs } from '@/components/views/page-tabs'
 import { BookingLinksSection } from './booking-links-section'
 import { LinkBookingsPanel } from './link-bookings-panel'
 import { LinkInsightsPanel } from './link-insights-panel'
@@ -195,10 +194,11 @@ export function AvailabilitySettingsView() {
   const dated = useMemo(() => Object.entries(hours?.overrides ?? {}).sort(([a], [b]) => a.localeCompare(b)), [hours])
 
   return (
-    <div className="h-full overflow-y-auto" data-availability-view="">
-      {/* No heading: the page card's header names it. */}
+    <div className="flex h-full min-h-0 flex-col" data-availability-view="">
+      {/* No heading: the page card's header names it. Its tabs are the page's first row, from the card's corner. */}
+      <AvailabilityTabs tab={tab} onTab={setTab} />
+      <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto max-w-2xl px-5 pt-3 pb-6">
-        <AvailabilityTabs tab={tab} onTab={setTab} />
         {tab === 'bookings' && <LinkBookingsPanel />}
         {tab === 'insights' && <LinkInsightsPanel />}
         {tab === 'setup' && (
@@ -378,6 +378,7 @@ export function AvailabilitySettingsView() {
           </>
         )}
       </div>
+      </div>
     </div>
   )
 }
@@ -391,38 +392,14 @@ const TABS: Array<{ id: AvailabilityTab; label: string }> = [
 ]
 
 /**
- * Availability, and what your booking links made: their bookings (./link-bookings-panel.tsx) and insights (./link-insights-panel.tsx).
- * In a card, a capsule in its header (Liam, 11-23: the page "still need[s] to be updated", as the inbox's filters went up); on
- * its own (Settings), the underlined row over the page.
+ * Availability, and what your booking links made: their bookings (./link-bookings-panel.tsx) and insights
+ * (./link-insights-panel.tsx). The page's first row, from the card's corner, as a project's sections (Liam, 11-23:
+ * "can you make sure it's updated everywhere? and everything looks the same as the projects page").
  */
 function AvailabilityTabs({ tab, onTab }: { tab: AvailabilityTab; onTab: (tab: AvailabilityTab) => void }) {
-  const inCard = useCardHeaderSlots() !== null
-  if (inCard) {
-    return (
-      <CardHeaderSlot side="right">
-        <div role="tablist" aria-label="Availability" data-availability-tabs="header" className={CARD_HEADER_CAPSULE}>
-          {TABS.map((t) => (
-            <button key={t.id} type="button" role="tab" aria-selected={tab === t.id} onClick={() => onTab(t.id)} className={CARD_HEADER_SEGMENT}>
-              {t.label}
-            </button>
-          ))}
-        </div>
-      </CardHeaderSlot>
-    )
-  }
   return (
-    <div role="tablist" aria-label="Availability" className="mb-5 flex gap-4 border-b">
-      {TABS.map((t) => (
-        <button
-          key={t.id}
-          role="tab"
-          aria-selected={tab === t.id}
-          onClick={() => onTab(t.id)}
-          className={cn('-mb-px border-b-2 pb-2 text-sm', tab === t.id ? 'border-foreground font-medium text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}
-        >
-          {t.label}
-        </button>
-      ))}
+    <div className={DETAIL_TAB_ROW}>
+      <DetailTabs label="Availability" data-availability-tabs="page" tabs={TABS} value={tab} onChange={onTab} />
     </div>
   )
 }

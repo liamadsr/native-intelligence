@@ -61,6 +61,7 @@
  * (TeammateChat over useTeammateChat), with the main chat's composer. In the desktop app it has
  * the mic and the bot's own voice.
  */
+import { DETAIL_TAB_ROW, pageTabClass } from '@/components/views/page-tabs'
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { cn } from '@/lib/utils'
 import { useAgentWorkShared } from '@/components/work/agent-work-provider'
@@ -411,7 +412,8 @@ export function TeammateChatPage({
       ) : (
         <div className={cn('flex min-h-0 flex-1', tabs ? 'flex-col' : 'flex-row')}>
           {tabs && (
-            <div role="tablist" aria-label={`${name}’s page`} data-bot-page-tabs="" className={cn('flex shrink-0 gap-1 px-4 pb-2', inCard && 'pt-2')}>
+            // The page's first row, from the card's corner, as a project's sections (Liam, 11-23: "everything looks the same as the projects page").
+            <div role="tablist" aria-label={`${name}’s page`} data-bot-page-tabs="" className={cn(DETAIL_TAB_ROW, 'gap-1')}>
               {PARTS.map(({ part: p, label }) => (
                 <button
                   key={p}
@@ -426,10 +428,7 @@ export function TeammateChatPage({
                   tabIndex={part === p ? 0 : -1}
                   onClick={() => setPart(p)}
                   onKeyDown={onTabKey}
-                  className={cn(
-                    'inline-flex h-7 items-center rounded-full px-3 text-xs font-medium transition-colors',
-                    part === p ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-                  )}
+                  className={pageTabClass(part === p)}
                 >
                   {label}
                 </button>

@@ -3,8 +3,11 @@
 /**
  * One AI visibility tracker (the card's `seo_ai_tracker` place): the crumb
  * back to the trackers and the brand (in a card, its header's breadcrumb,
- * with Check now and the menu at the header's right), a quiet line of what
- * it asks and how often, then
+ * with Check now and the menu at the header's right), then its three tabs,
+ * Results, Questions and Sources (the card's tabs), as the page's first row
+ * (DETAIL_TAB_ROW: in the card's corner, as a project's sections; Liam,
+ * 11-23: "everything looks the same as the projects page"), a quiet line of
+ * what it asks and how often, then
  *
  *   while a check runs   the run rail ("Asking the assistants · 18 of 30
  *                        answers in") with Stop, polled at the route's pace,
@@ -16,7 +19,7 @@
  *                        answers that cite your site, assistants, questions;
  *                        each rate's change only when the trend says the two
  *                        periods compare fairly
- *   three tabs           Results, Questions and Sources, as the card's tabs
+ *   the tab in force     Results, Questions or Sources
  *
  * "Check now" is the one press here that spends. When the tracker's
  * estimate says a check needs a yes (or the route answers
@@ -37,6 +40,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { DETAIL_TAB_ROW } from '@/components/views/page-tabs'
 import { PageTitle } from '@/components/views/page-title'
 import { DEFAULT_TREND_DAYS } from '@/lib/seo/ai-visibility/limits'
 import { isLiveRun, type AiCostEstimate, type AiRunView, type AiTrackerSummary, type AiTrend } from '@/lib/seo/ai-visibility/view'
@@ -463,10 +467,22 @@ export function TrackerDetail({
   const completedCount = summary.recent_runs.filter((r) => r.status === 'completed').length
 
   return (
-    <div data-seo-tracker={tracker.id} className={cn('flex h-full min-h-0 flex-col', inCard && 'pt-2')}>
+    <div data-seo-tracker={tracker.id} className="flex h-full min-h-0 flex-col">
       {header}
-      {/* In a card no header row stands above it: the page starts under the card's header. */}
-      <p data-seo-tracker-settings="" className={cn('truncate px-5 pb-2 text-xs text-muted-foreground', !inCard && '-mt-1')}>
+      {/* The first row, in a card and outside it: the tabs from the card's corner. */}
+      <div data-seo-tab-row="" className={DETAIL_TAB_ROW}>
+        <TabPills
+          label="Tracker"
+          tabs={[
+            { id: 'results', label: 'Results' },
+            { id: 'prompts', label: 'Questions', count: summary.prompts.length },
+            { id: 'sources', label: 'Sources' },
+          ]}
+          value={activeTab}
+          onChange={onTab}
+        />
+      </div>
+      <p data-seo-tracker-settings="" className="truncate px-5 pb-2 text-xs text-muted-foreground">
         {trackerSettingsLine(tracker)}
       </p>
       {rail && (
@@ -503,19 +519,7 @@ export function TrackerDetail({
       <div className="@container min-h-0 flex-1 overflow-y-auto px-5 pb-6">
         <StatTiles tiles={tiles} className="mt-1" />
 
-        <TabPills
-          className="mt-5"
-          label="Tracker"
-          tabs={[
-            { id: 'results', label: 'Results' },
-            { id: 'prompts', label: 'Questions', count: summary.prompts.length },
-            { id: 'sources', label: 'Sources' },
-          ]}
-          value={activeTab}
-          onChange={onTab}
-        />
-
-        <div className="mt-3">
+        <div className="mt-5">
           {activeTab === 'prompts' ? (
             <QuestionsTab
               tracker={tracker}

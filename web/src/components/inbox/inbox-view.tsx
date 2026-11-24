@@ -62,7 +62,7 @@ import {
   type InboxStatus,
 } from '@/lib/inbox/items'
 import type { CardRecordType } from '@/lib/chat-cards/kinds'
-import { CardHeaderSlot, useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
+import { DETAIL_TAB_ROW } from '@/components/views/page-tabs'
 import { keepFocusAfterFlip } from '@/app/account/(dashboard)/page-panel/hub-open'
 import {
   closeInboxItem,
@@ -100,13 +100,15 @@ type OpenOpts = Parameters<typeof inboxOpen>[1]
  * Enter or O opens, E done, H hold until tomorrow (Held: brings it back),
  * Esc closes the item. Never from a field, a menu, a dialog, or the item's
  * own pane (`[data-inbox-pane]`: the conversation's and the thread's keys
- * are their own), nor a control portalled out of `e.currentTarget` (the card
- * header's filter: its Enter presses it).
+ * are their own), nor the filter (`[data-inbox-filters]`: its Enter presses
+ * it, and e or h would settle a row), nor a control portalled out of
+ * `e.currentTarget` (the card header's: the conversation's Copy invite link,
+ * call, bell).
  */
 export function inboxKeyDown(e: KeyboardEvent<HTMLElement>, s: InboxState, opts: OpenOpts = {}): void {
   if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || typing(e.target)) return
   const inHeader = !e.currentTarget.contains(e.target as Node)
-  if (inHeader || (e.target as Element).closest?.('[data-inbox-pane]')) {
+  if (inHeader || (e.target as Element).closest?.('[data-inbox-pane], [data-inbox-filters]')) {
     if (e.key === 'Escape' && s.openKey) {
       e.preventDefault()
       closeInboxItem()
@@ -161,9 +163,11 @@ const STATUSES: ReadonlyArray<{ key: InboxStatus; label: string }> = [
  * per kind of notification the list has (lib/inbox/items.ts INBOX_KINDS),
  * with how many; Reset filters. A filter on: the button says how many. F
  * opens it while the list has the focus (openInboxFilter). Drawn where the
- * list is: beside Home's switch, or in the Inbox card's header.
+ * list is: beside Home's switch (`panel`), or on the page's first row, from
+ * the card's corner (`page`; never in the card's header, as #263 put it:
+ * Liam, 11-23, "everything looks the same as the projects page").
  */
-export function InboxFilterButton({ s, className }: { s: InboxState; className?: string }) {
+export function InboxFilterButton({ s, className, variant = 'panel' }: { s: InboxState; className?: string; variant?: 'panel' | 'page' }) {
   const [open, setOpen] = useState(false)
   // F, from the list's keys (inboxKeyDown): this one, the one on screen, opens.
   const asked = useRef(s.filterAsk)
@@ -182,6 +186,7 @@ export function InboxFilterButton({ s, className }: { s: InboxState; className?:
       <DropdownMenuTrigger asChild>
         <button
           type="button"
+          data-inbox-filters={variant}
           data-inbox-filter=""
           data-inbox-filter-on={on ? String(on) : undefined}
           aria-label={on ? `Filter (${on} on)` : 'Filter'}
@@ -392,8 +397,6 @@ export function InboxView({
   onBeside?: () => void
 }) {
   const s = useInbox(true)
-  // In a card its filter goes up into the card's header (CardHeaderSlot); on its own, a row over the list.
-  const inCard = useCardHeaderSlots() !== null
   const opts = useMemo(() => ({ onOpenRecord, beside: onBeside }), [onOpenRecord, onBeside])
   const opened = inboxOpened(s)
   const pane = opened && (opened.open.kind === 'team_chat' || opened.open.kind === 'mail') ? opened : null
@@ -420,19 +423,12 @@ export function InboxView({
 
   return (
     <div className="flex h-full min-h-0" data-inbox-view="" onKeyDown={(e) => inboxKeyDown(e, s, opts)} tabIndex={-1}>
-      {/* In a card: the filter in its header (Liam, 11-23: "Into the header"), the same button as beside Home's switch (11-24); the page starts with the list. */}
-      {inCard && (
-        <CardHeaderSlot side="right">
-          <InboxFilterButton s={s} />
-        </CardHeaderSlot>
-      )}
       <div className={cn('flex min-h-0 flex-col', pane ? 'hidden w-[22rem] shrink-0 md:flex' : 'flex-1')}>
-        {!inCard && (
-          <div className="flex shrink-0 items-center justify-end px-3 pb-1 pt-2">
-            <InboxFilterButton s={s} />
-          </div>
-        )}
-        <div className={cn('min-h-0 flex-1 overflow-y-auto px-2 pb-4', inCard && 'pt-2')} role="listbox" aria-label="Inbox" tabIndex={0} data-inbox-list="">
+        {/* The page's first row, from the card's corner (#263), its one filter at the right (Liam, 11-24: Recent's kind of filter). */}
+        <div className={cn(DETAIL_TAB_ROW, 'justify-end')}>
+          <InboxFilterButton s={s} variant="page" />
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4" role="listbox" aria-label="Inbox" tabIndex={0} data-inbox-list="">
           <InboxList s={s} forYouCount={forYouCount} opts={opts} />
         </div>
         <p className="hidden shrink-0 px-4 pb-2 text-[11px] text-muted-foreground md:block">{INBOX_KEYS_HINT}</p>

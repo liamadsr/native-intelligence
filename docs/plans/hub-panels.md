@@ -209,8 +209,9 @@ move).
   - None chosen is every kind. Today's pills (All, Messages, Mentions & assignments, Mail, Held)
     are all choices in this one filter. Comments are their own Type now (they used to count under
     Mentions).
-  - The Inbox card's header, where the card draws its own list (panel closed, a phone), carries the
-    same button instead of the pills.
+  - Where the Inbox card draws its own list (panel closed, a phone), the same button sits on the
+    page's first row, from the card's corner, never in the card's header (as #263 put the pills
+    that replaced the header's: "everything looks the same as the projects page").
 - Both sides are Home's, a hub's (`data-hub-place="home"`): what either opens keeps Home selected,
   opens alone and flips, as before.
 - Which side shows lives in `page-panel/home-side.ts`. The Inbox card covers its list while Home's
@@ -259,5 +260,6 @@ move).
   pills; S goes back to Recent.
 - `lib/inbox/__tests__/inbox-filter.test.ts`: every real notification type has a kind; Status and
   Type narrow the list together; a saved filter reads back.
-- `components/inbox/__tests__/inbox-filters-header.test.tsx`: the filter button in the card's
-  header or over the list, F opens it, a Type narrows and is kept, Held.
+- `components/inbox/__tests__/inbox-filters-row.test.tsx` (#263's, rewritten): the filter button on
+  the page's first row, none in the header; F opens it, a Type narrows and is kept, Held; the
+  filter's own keys are never the list's.

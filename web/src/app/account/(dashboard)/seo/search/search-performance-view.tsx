@@ -12,16 +12,18 @@
  *              loader shows meanwhile): connect Search Console, choose a
  *              site (the one matching the workspace's website preselected),
  *              or the connection it reads through needs signing in again.
- *   Ready      "<site> · chosen by <name>", then four tabs (the card's):
- *              Queries, Pages (./performance-tab.tsx), Opportunities
- *              (./opportunities-tab.tsx) and Analytics (./analytics-tab.tsx,
- *              optional, with its own small setup block).
- *   Header     the period (7 days to 12 months, default 28) and the "…" menu
- *              (in a card, at the card header's right): change the site,
- *              change the Analytics property, stop reading this site
- *              (ConfirmDialog). In a card the four tabs are the header's
- *              too, a capsule before the period's (Liam, 11-23: "all the
- *              SEO pages"), and the page starts with the site's line.
+ *   Ready      the page's first row (DETAIL_TAB_ROW, in the card's corner
+ *              and outside a card alike, as a project's sections; Liam,
+ *              11-23: "everything looks the same as the projects page"):
+ *              four tabs (the card's), Queries, Pages (./performance-tab.tsx),
+ *              Opportunities (./opportunities-tab.tsx) and Analytics
+ *              (./analytics-tab.tsx, optional, with its own small setup
+ *              block), and at its end the period (7 days to 12 months,
+ *              default 28; its short words where the row is narrow); then
+ *              "<site> · chosen by <name>" and the tab in force.
+ *   Header     the "…" menu (in a card, at the card header's right): change
+ *              the site, change the Analytics property, stop reading this
+ *              site (ConfirmDialog).
  *
  * Connecting goes through the app's one connect flow (useConnectProvider);
  * its return re-reads the status. A read that finds the choice gone
@@ -32,6 +34,7 @@ import { ArrowLeftRight, BarChart3, Unplug } from 'lucide-react'
 import { toast } from 'sonner'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { DETAIL_TAB_ROW } from '@/components/views/page-tabs'
 import { PageTitle } from '@/components/views/page-title'
 import { useConnectProvider } from '@/lib/integrations/use-connect-provider'
 import type { GoogleProduct, GoogleSeoStatus } from '@/lib/seo/google/view'
@@ -71,8 +74,8 @@ const MENU_ITEM =
   'flex w-full items-center gap-1.5 rounded-2xl px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent'
 
 export function SearchPerformancePage({ tab, onTab, onCount }: SearchPerformanceViewProps) {
-  // In a card its header names the page and takes the period and the menu
-  // (Liam, 11-22): no row of the page's own above it.
+  // In a card its header names the page and takes the menu (Liam, 11-22):
+  // no row of the page's own above the tabs.
   const inCard = useInCard()
   const [status, setStatus] = React.useState<GoogleSeoStatus | null>(null)
   const [loading, setLoading] = React.useState(true)
@@ -145,53 +148,49 @@ export function SearchPerformancePage({ tab, onTab, onCount }: SearchPerformance
       title={<PageTitle label="Search performance" as="h1" />}
       actions={
         ready && status && !picking ? (
-          <>
-            {inCard && <TabPills header label="Search performance" tabs={SEARCH_TAB_ITEMS} value={activeTab} onChange={onTab} />}
-            <FilterChips options={SEARCH_PERIODS} value={period} onChange={setPeriod} label="Period" header={inCard} className={inCard ? undefined : 'flex-nowrap'} />
-            <Popover open={menuOpen} onOpenChange={setMenuOpen}>
-              <PopoverTrigger asChild>
-                <SeoHeaderMore data-seo-search-menu="" />
-              </PopoverTrigger>
-              <PopoverContent align="end" className="w-56 p-1.5">
-                <button
-                  type="button"
-                  data-seo-search-change-site=""
-                  onClick={() => {
-                    setMenuOpen(false)
-                    setPicking('search_console')
-                  }}
-                  className={`${MENU_ITEM} text-foreground`}
-                >
-                  <ArrowLeftRight className="h-3 w-3 shrink-0" />
-                  Change site
-                </button>
-                <button
-                  type="button"
-                  data-seo-search-change-property=""
-                  onClick={() => {
-                    setMenuOpen(false)
-                    setPicking('analytics')
-                  }}
-                  className={`${MENU_ITEM} text-foreground`}
-                >
-                  <BarChart3 className="h-3 w-3 shrink-0" />
-                  {status.analytics.source ? 'Change Analytics property' : 'Choose Analytics property'}
-                </button>
-                <button
-                  type="button"
-                  data-seo-search-disconnect=""
-                  onClick={() => {
-                    setMenuOpen(false)
-                    setConfirmDisconnect(true)
-                  }}
-                  className={`${MENU_ITEM} text-destructive`}
-                >
-                  <Unplug className="h-3 w-3 shrink-0" />
-                  Disconnect this site
-                </button>
-              </PopoverContent>
-            </Popover>
-          </>
+          <Popover open={menuOpen} onOpenChange={setMenuOpen}>
+            <PopoverTrigger asChild>
+              <SeoHeaderMore data-seo-search-menu="" />
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-56 p-1.5">
+              <button
+                type="button"
+                data-seo-search-change-site=""
+                onClick={() => {
+                  setMenuOpen(false)
+                  setPicking('search_console')
+                }}
+                className={`${MENU_ITEM} text-foreground`}
+              >
+                <ArrowLeftRight className="h-3 w-3 shrink-0" />
+                Change site
+              </button>
+              <button
+                type="button"
+                data-seo-search-change-property=""
+                onClick={() => {
+                  setMenuOpen(false)
+                  setPicking('analytics')
+                }}
+                className={`${MENU_ITEM} text-foreground`}
+              >
+                <BarChart3 className="h-3 w-3 shrink-0" />
+                {status.analytics.source ? 'Change Analytics property' : 'Choose Analytics property'}
+              </button>
+              <button
+                type="button"
+                data-seo-search-disconnect=""
+                onClick={() => {
+                  setMenuOpen(false)
+                  setConfirmDisconnect(true)
+                }}
+                className={`${MENU_ITEM} text-destructive`}
+              >
+                <Unplug className="h-3 w-3 shrink-0" />
+                Disconnect this site
+              </button>
+            </PopoverContent>
+          </Popover>
         ) : null
       }
     />
@@ -205,6 +204,15 @@ export function SearchPerformancePage({ tab, onTab, onCount }: SearchPerformance
       </div>
     )
   }
+
+  // The tabs and the period, once there is a site to read and no picker open.
+  const tabRow =
+    ready && !picking ? (
+      <div data-seo-tab-row="" className={cn(DETAIL_TAB_ROW, '@container')}>
+        <TabPills label="Search performance" tabs={SEARCH_TAB_ITEMS} value={activeTab} onChange={onTab} />
+        <FilterChips className="ml-auto shrink-0" options={SEARCH_PERIODS} value={period} onChange={setPeriod} label="Period" />
+      </div>
+    ) : null
 
   let body: React.ReactNode
   if (picking) {
@@ -239,8 +247,7 @@ export function SearchPerformancePage({ tab, onTab, onCount }: SearchPerformance
           <span className="text-foreground">{siteLabel(sc.source.site_url)}</span>
           {by ? ` · chosen by ${by}` : ''}
         </p>
-        {!inCard && <TabPills className="mt-3" label="Search performance" tabs={SEARCH_TAB_ITEMS} value={activeTab} onChange={onTab} />}
-        <div className={inCard ? 'mt-3' : 'mt-4'}>
+        <div className="mt-3">
           {activeTab === 'opportunities' ? (
             <OpportunitiesTab
               period={period}
@@ -269,9 +276,10 @@ export function SearchPerformancePage({ tab, onTab, onCount }: SearchPerformance
   }
 
   return (
-    <div data-seo-search-page="" data-seo-search-state={picking ? `pick-${picking}` : sc.state} className={cn('flex h-full min-h-0 flex-col', inCard && 'pt-2')}>
+    <div data-seo-search-page="" data-seo-search-state={picking ? `pick-${picking}` : sc.state} className={cn('flex h-full min-h-0 flex-col', inCard && !tabRow && 'pt-2')}>
       {header}
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6">{body}</div>
+      {tabRow}
+      <div className={cn('min-h-0 flex-1 overflow-y-auto px-5 pb-6', tabRow && 'pt-1')}>{body}</div>
       {sc.source && (
         <ConfirmDialog
           open={confirmDisconnect}

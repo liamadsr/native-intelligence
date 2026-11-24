@@ -115,16 +115,17 @@ describe('AvailabilitySettingsView', () => {
     expect(bodies().at(-1)).toEqual(['/api/account/availability', { weekly: [[], ...WEEK.slice(1, 6), [{ start: '09:00', end: '17:00' }]] }])
   })
 
-  it('in a card, its tabs are a capsule in the card\'s header (Liam, 11-23), not a row over the page', async () => {
+  it('in a card, its tabs are the page\'s first row from the card\'s corner, none in the header (Liam, 11-23: "everything looks the same as the projects page")', async () => {
     const right = document.createElement('div')
     document.body.append(right)
     const { CardHeaderSlotsProvider } = await import('@/components/chat-cards/card-header-slot')
     act(() => root.render(h(CardHeaderSlotsProvider, { value: { left: null, right } }, h(AvailabilitySettingsView))))
     await flush()
-    const capsule = right.querySelector<HTMLElement>('[data-availability-tabs="header"]')!
-    expect(capsule.getAttribute('role')).toBe('tablist')
-    expect(Array.from(capsule.querySelectorAll('[role="tab"]')).map((t) => t.textContent)).toEqual(['Availability', 'Bookings', 'Insights'])
-    expect(container.querySelector('[role="tablist"]')).toBeNull()
+    expect(right.querySelector('[role="tablist"]')).toBeNull()
+    const tabs = container.querySelector<HTMLElement>('[data-availability-tabs="page"]')!
+    expect(tabs.getAttribute('role')).toBe('tablist')
+    expect(tabs.parentElement!.className).toContain('px-2.5')
+    expect(Array.from(tabs.querySelectorAll('[role="tab"]')).map((t) => t.textContent)).toEqual(['Availability', 'Bookings', 'Insights'])
     // The week still shows under it.
     expect(container.querySelectorAll('[data-testid="availability-day"]').length).toBe(7)
     right.remove()

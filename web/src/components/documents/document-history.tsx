@@ -26,6 +26,7 @@
  * a new document" copies a version into a new document in the original's
  * project, folder and visibility.
  */
+import { pageTabClass } from '@/components/views/page-tabs'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Bot, ChevronDown, ChevronRight, GitFork, Globe, History, Loader2, RotateCcw, Undo2, User } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -390,10 +391,8 @@ export function DocumentHistory({
                   key={v}
                   type="button"
                   onClick={() => setView(v)}
-                  className={cn(
-                    'rounded-full border px-2.5 py-0.5 transition-colors',
-                    view === v ? 'border-foreground bg-foreground text-background' : 'border-border text-muted-foreground hover:bg-muted',
-                  )}
+                  aria-pressed={view === v}
+                  className={pageTabClass(view === v)}
                 >
                   {v === 'changes' ? 'Changes' : 'Full text'}
                 </button>
