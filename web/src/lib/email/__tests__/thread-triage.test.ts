@@ -169,7 +169,8 @@ describe('effectiveChange', () => {
 
 describe('changeEmailThreads on Gmail', () => {
   it('archives and marks read in one thread call, and the index row follows', async () => {
-    db.seed('email_thread_index', [{ id: 'r1', user_id: 'u-1', provider_thread_id: 'amazon', account_id: 'acct-g', folder: 'inbox', is_unread: true }])
+    db.seed('email_thread_index', [{ id: 'r1', user_id: 'u-1', provider_thread_id: 'amazon', account_id: 'acct-g', folder: 'inbox', is_unread: true, synced_at: '2026-11-24T09:00:00.000Z' }])
+    const before = new Date().toISOString()
     const [outcome] = await changeEmailThreads('u-1', 'ws-1', ['amazon'], { archive: true, read: true })
     expect(outcome).toMatchObject({ threadId: 'amazon', status: 'changed', applied: { archive: true, read: true }, undo: { archive: false, read: false } })
     expect(calls.filter((c) => c.method === 'POST')).toEqual([
@@ -177,6 +178,8 @@ describe('changeEmailThreads on Gmail', () => {
     ])
     expect(gmailThreads.amazon.every((m) => !m.labelIds.includes('INBOX') && !m.labelIds.includes('UNREAD'))).toBe(true)
     expect(db.rows('email_thread_index')[0]).toMatchObject({ folder: 'archive', is_unread: false })
+    // Stamped: a sync that read Gmail before this doesn't put the inbox back (email-sync.ts writeThreadCopies).
+    expect(String(db.rows('email_thread_index')[0].synced_at) >= before).toBe(true)
   })
 
   it('its undo puts the thread back in the inbox, unread on the newest message', async () => {

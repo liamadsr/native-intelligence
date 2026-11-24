@@ -252,7 +252,7 @@ export async function fetchFullEmailThreadForClient(
     }
     await supabaseAdmin
       .from('email_thread_index')
-      .update({ is_unread: false })
+      .update({ is_unread: false, synced_at: new Date().toISOString() })
       .eq('id', threadIndex.id)
   }
 
@@ -1127,10 +1127,14 @@ async function threadMailboxToken(
   return null
 }
 
-/** The person's index rows for the thread, in the mailbox the action ran on when it is known. */
+/**
+ * The person's index rows for the thread, in the mailbox the action ran on
+ * when it is known, stamped `synced_at`: a sync that read the mailbox before
+ * this change doesn't put the old state back (email-sync.ts writeThreadCopies).
+ */
 function threadRows(userId: string, providerThreadId: string, accountId: string | null) {
   return (patch: Record<string, unknown>) => {
-    let query = getServiceClient().from('email_thread_index').update(patch).eq('user_id', userId).eq('provider_thread_id', providerThreadId)
+    let query = getServiceClient().from('email_thread_index').update({ ...patch, synced_at: new Date().toISOString() }).eq('user_id', userId).eq('provider_thread_id', providerThreadId)
     if (accountId) query = query.eq('account_id', accountId)
     return query
   }
@@ -1224,7 +1228,7 @@ async function followMovedNewest(userId: string, providerThreadId: string, accou
     for (const old of named) {
       let update = db
         .from('email_thread_index')
-        .update({ provider_message_id: moved.get(old) })
+        .update({ provider_message_id: moved.get(old), synced_at: new Date().toISOString() })
         .eq('user_id', userId)
         .eq('provider_thread_id', providerThreadId)
         .eq('provider_message_id', old)

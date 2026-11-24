@@ -232,8 +232,8 @@ function cellEquals(cell: unknown, v: unknown): boolean {
 
 /**
  * One `.or()` filter as a row predicate: any alternative matches. An
- * alternative is `col.op.value` (eq, neq, is.null, gt, gte, in, not.in,
- * not.ilike) or a group, `and(a,b)` / `or(a,b)`.
+ * alternative is `col.op.value` (eq, neq, is.null, gt, gte, lt, lte, in,
+ * not.in, not.ilike) or a group, `and(a,b)` / `or(a,b)`.
  */
 function orPredicate(filter: string): (r: Row) => boolean {
   const alts = topLevel(filter).map(altPredicate)
@@ -261,13 +261,15 @@ function altPredicate(alt: string): (r: Row) => boolean {
     // `col.ilike.%text%` (the mail search).
     v = v.replace(/\*/g, '%')
   }
-  const known = ['eq', 'neq', 'gt', 'gte', 'in', 'not.in', 'ilike', 'not.ilike'].includes(opName) || (opName === 'is' && v === 'null')
-  if (!known) throw new Error(`fake or(): only eq, neq, is.null, gt, gte, in, not.in, ilike, not.ilike and and()/or() groups are supported (${alt})`)
+  const known = ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'in', 'not.in', 'ilike', 'not.ilike'].includes(opName) || (opName === 'is' && v === 'null')
+  if (!known) throw new Error(`fake or(): only eq, neq, is.null, gt, gte, lt, lte, in, not.in, ilike, not.ilike and and()/or() groups are supported (${alt})`)
   return (r) => {
     const cell = colValue(r, k)
     if (opName === 'is') return cell === null || cell === undefined
     if (opName === 'gt') return typeof cell === 'string' && cell > v
     if (opName === 'gte') return typeof cell === 'string' && cell >= v
+    if (opName === 'lt') return typeof cell === 'string' && cell < v
+    if (opName === 'lte') return typeof cell === 'string' && cell <= v
     // A NULL is neither equal nor unequal, nor like anything (Postgres).
     if (opName === 'neq') return cell !== null && cell !== undefined && String(cell) !== v
     if (opName === 'not.ilike') return typeof cell === 'string' && !likeRegex(v).test(cell)
