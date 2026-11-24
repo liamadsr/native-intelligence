@@ -206,8 +206,13 @@ out until the owner rolls it out.
       (`src/lib/views/__tests__/view-entity-type-enum.test.ts`).
 - [x] Deals' pipelines list: the Tables list, pinned to pipelines (a scope
       filter, so no tabs of its own).
+- [x] Campaigns: view kind `campaign`, with List, Board by status (dragging
+      a card changes its status) and Roadmap from its start to its end. The
+      query route adds a sending campaign's counts. A row opens the editor.
+- [x] Teams: through `LocalViewList` (`components/views/local-view-list.tsx`),
+      the shared toolbar, list, rows, keys and row menu over rows a page reads
+      itself (view-only kind `team`). A row opens its settings, and its menu
+      also opens its board.
 - [ ] Files
-- [ ] Campaigns
-- [ ] Teams
 - [ ] Agents & skills
 - [ ] Library
