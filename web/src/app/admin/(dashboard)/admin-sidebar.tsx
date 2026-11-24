@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Mail, Monitor, Cpu, Layers, FileText, Lightbulb, UserPlus, Gauge, FlaskConical } from 'lucide-react'
+import { LayoutDashboard, Mail, Monitor, Cpu, Layers, FileText, Lightbulb, UserPlus, Gauge, FlaskConical, LifeBuoy } from 'lucide-react'
 import {
   Sidebar,
   SidebarContent,
@@ -32,6 +32,7 @@ const navItems = [
   { href: '/admin/evals', label: 'Evals', icon: FlaskConical },
   { href: '/admin/ai-plans', label: 'AI Plans', icon: Layers },
   { href: '/admin/feature-requests', label: 'Feature Requests', icon: Lightbulb },
+  { href: '/admin/support-chat', label: 'Support Chat', icon: LifeBuoy },
 ]
 
 export function AdminSidebar({

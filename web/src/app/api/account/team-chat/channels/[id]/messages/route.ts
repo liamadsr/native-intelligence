@@ -58,6 +58,17 @@
  *        (src/lib/flows/emit-chat-message.ts), after the answer too.
  * Reads and the post run as the person, under RLS; only the agent's turn,
  * the link preview and the loop check run with the service role.
+ *
+ * Support conversations (migration 715, kind 'support'):
+ *   - our staff (src/lib/support-chat/access.ts) read one of another
+ *     workspace's here (RLS lets them, for support conversations only), and
+ *     post into it as themselves through 715's support_chat_post: words only
+ *     (no files, mentions, records or threads), and its notification goes
+ *     to the customer;
+ *   - the customer posts as in a DM, minus what would reach past the
+ *     conversation or into our side: no call on their agent, no record
+ *     mentions or shares (715 refuses a grant to one), no email share, no
+ *     thread (715 refuses one), no loops.
  */
 import { inngest } from '@/lib/inngest/client'
 import { hasIndexableChatFiles, TEAM_CHAT_FILES_POSTED } from '@/lib/drive/chat-file-text'
@@ -91,6 +102,8 @@ import { emailShareLinkTokens } from '@/lib/email-share/links'
 import { bindEmailShareLinks, defaultBindDeps } from '@/lib/email-share/bind'
 import { shareMentionedRecords } from '@/lib/entity-access/share'
 import { dmOtherMember, isUuid, mentionsAssistantName, tidyBody, tidyMentionIds, TEAM_CHAT_MESSAGE_MAX } from '@/lib/team-chat/types'
+import { isCustomerSupportView, isStaffSupportView } from '@/lib/support-chat/access'
+import { postSupportMessage } from '@/lib/support-chat/store'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -123,7 +136,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   if (thread !== null && !isUuid(thread)) return badRequest('thread must be a message id')
   try {
     const channel = await getChannel(auth.supabase, id)
-    if (!channel || channel.workspace_id !== auth.workspaceId) return notFound()
+    if (!channel || (channel.workspace_id !== auth.workspaceId && !isStaffSupportView(channel, auth))) return notFound()
     if (thread) {
       const root = await getMessage(auth.supabase, thread)
       if (!root || root.channel_id !== id || root.thread_root_id) return notFound()
@@ -178,7 +191,20 @@ export async function POST(request: NextRequest, { params }: Params) {
   if (clientId !== null && !isUuid(clientId)) return badRequest('clientId must be a uuid')
   try {
     const channel = await getChannel(auth.supabase, id)
+    if (channel && isStaffSupportView(channel, auth)) {
+      // Our staff, in a customer's support conversation: words only, as themselves (715's support_chat_post).
+      if (files.length > 0 || !body) return badRequest('Write a message (files aren’t sent from our side yet)')
+      if (threadRootId !== null) return badRequest('A support conversation has no threads')
+      const messageId = await postSupportMessage(auth.supabase, { channelId: id, body, clientId: clientId as string | null })
+      const message = await getMessage(auth.supabase, messageId)
+      if (!message) return notFound()
+      if (firstLink(message.body)) after(() => requestLinkPreview(message))
+      after(() => requestTeamChatNotify(message.id))
+      return NextResponse.json({ message, shared: [], shared_with: null }, { status: 201 })
+    }
     if (!channel || channel.workspace_id !== auth.workspaceId) return notFound()
+    const support = isCustomerSupportView(channel, auth)
+    if (support && threadRootId !== null) return badRequest('A support conversation has no threads')
     const attachments = await attachmentsFromStorage(auth.supabase, files)
     if (attachments.length < files.length) return badRequest('A file didn’t finish uploading. Try attaching it again.')
     const mentions = await workspaceMemberIds(auth.supabase, auth.workspaceId, tidyMentionIds(input.mentions))
@@ -186,9 +212,10 @@ export async function POST(request: NextRequest, { params }: Params) {
     // "@Joseph Lee" is a teammate, not an agent called Joseph: the name check skips a member's name.
     const { data: names } = await auth.supabase.from('member').select('display_name').eq('workspace_id', auth.workspaceId)
     const memberNames = ((names ?? []) as Array<{ display_name: string | null }>).map((m) => m.display_name)
-    const mentionsAgent = !!body && (input.mentionsAgent === true || mentionsAssistantName(body, agentName, memberNames))
+    // A support conversation never calls on the person's agent, and carries no records (715: nothing of theirs reaches our side).
+    const mentionsAgent = !support && !!body && (input.mentionsAgent === true || mentionsAssistantName(body, agentName, memberNames))
     const scope = { workspaceId: auth.workspaceId, userId: auth.user.id }
-    const recordMentions = await fenceRecordMentions(auth.supabase, scope, input.records, body)
+    const recordMentions = support ? [] : await fenceRecordMentions(auth.supabase, scope, input.records, body)
     const { message, replayed } = await postMessage(auth.supabase, {
       workspaceId: auth.workspaceId,
       channelId: id,
@@ -215,7 +242,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     // other replay reuses what the first try made. The answer says why any of
     // the author's own links made no share (`email_share_unbound`).
     let emailShareUnbound: string[] = []
-    if (emailShareLinkTokens(message.body).length > 0 && !(replayed && message.edited_at)) {
+    if (!support && emailShareLinkTokens(message.body).length > 0 && !(replayed && message.edited_at)) {
       const bound = await bindEmailShareLinks(defaultBindDeps(), {
         workspaceId: auth.workspaceId,
         authorUserId: auth.user.id,
@@ -231,15 +258,19 @@ export async function POST(request: NextRequest, { params }: Params) {
     if (stored.length > 0) {
       await syncMessageMentions(auth.supabase, { ...scope, messageId: message.id, memberId: auth.member.id, records: stored })
     }
-    const { shared, shared_with } = await shareMentionedRecords(auth.supabase, {
-      ...scope,
-      memberId: auth.member.id,
-      channel,
-      records: stored,
-      source: input.share === true ? 'channel_share' : 'mention',
-    })
+    const { shared, shared_with } = support
+      ? { shared: [], shared_with: null }
+      : await shareMentionedRecords(auth.supabase, {
+          ...scope,
+          memberId: auth.member.id,
+          channel,
+          records: stored,
+          source: input.share === true ? 'channel_share' : 'mention',
+        })
     if (firstLink(message.body)) after(() => requestLinkPreview(message))
-    if (message.mentions_agent) {
+    // Never in a support conversation (mentionsAgent is false there, 715).
+    const agentChannel = channel.kind !== 'support' ? { ...channel, kind: channel.kind } : null
+    if (message.mentions_agent && agentChannel) {
       const userId = auth.user.id
       const memberId = auth.member.id
       after(async () => {
@@ -251,7 +282,7 @@ export async function POST(request: NextRequest, { params }: Params) {
             const { data } = await svc.from('member').select('display_name').eq('id', other).eq('workspace_id', channel.workspace_id).maybeSingle<{ display_name: string | null }>()
             dmWith = other === memberId ? 'yourself (a note to self)' : (data?.display_name ?? null)
           }
-          const outcome = await deliverTeamChatMention(svc, { message, channel, userId, dmWith })
+          const outcome = await deliverTeamChatMention(svc, { message, channel: agentChannel, userId, dmWith })
           console.info(`[team-chat] mention channel=${channel.id} message=${message.id} outcome=${outcome}`)
         } catch (err) {
           console.error(`[team-chat] mention channel=${channel.id} message=${message.id} failed:`, err instanceof Error ? err.message : 'unknown')
@@ -265,7 +296,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     // the message's too), and only when the workspace has such a loop.
     after(async () => {
       await requestTeamChatNotify(message.id)
-      await requestChatMessageLoops(auth.workspaceId, message)
+      if (!support) await requestChatMessageLoops(auth.workspaceId, message)
     })
     // The words inside its files, for search and agents (migration 710): read
     // in the background, for the channel's readers only.
