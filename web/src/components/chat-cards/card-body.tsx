@@ -59,6 +59,7 @@ import type { CardOpenRecord } from './card-storage'
 import { useEditorSelectionRelay } from './editor-selection'
 import { useCardNav, useCardNavStoreSync } from './card-history'
 import { CardHeaderSlot } from './card-header-slot'
+import { CardErrorBoundary } from './card-error-boundary'
 import { WindowPropertiesButton, WindowPropertiesProvider, WindowPropertiesSidebar, useWindowPropertiesSidebarShown, type PropertiesFrame } from '@/components/views/window-properties'
 import { cn } from '@/lib/utils'
 import { CardOverlay, CardCovered } from './card-covered'
@@ -610,7 +611,8 @@ export default function CardBody(props: CardBodyProps) {
   const page = (
     <WindowFocusProvider isFocused={props.fullScreen}>
       <CardProperties focused={props.fullScreen || !!props.focused} fullScreen={props.fullScreen}>
-        {body}
+        {/* A crash in the card stays in the card, reported with its kind (./card-error-boundary.tsx). */}
+        <CardErrorBoundary kind={props.spec.kind}>{body}</CardErrorBoundary>
       </CardProperties>
     </WindowFocusProvider>
   )
