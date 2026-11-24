@@ -125,35 +125,128 @@ function subscribe(listener: () => void): () => void {
 }
 
 /**
- * Items marked done here, by key, with the newest moment they had then (Liam,
- * 11-24: "I click the check box and the emails or notification goes away then
- * after a few second it reappears"). A read already on its way when Done was
- * pressed, or one that lands before the write, still lists the item: it stays
- * hidden unless something newer arrived in it since (a new message in the
- * conversation, a new mail in the thread), until a read no longer lists it
- * (the write landed) or DONE_HOLD_MS passes. A Done the server refuses takes
- * its key back out, and the row returns with an error (inboxDone).
+ * What was marked done, by item key (Liam, 11-24: "I click the check box and
+ * the emails or notification goes away then after a few second it reappears";
+ * then "I just archived a bunch of calendar invite then I open another mail
+ * and it all came back"). Once the server has said yes, a done item stays
+ * gone whatever a later read says, until something genuinely new arrives in
+ * it: a notification in the conversation that wasn't in it when it was done,
+ * or a new message in the mail thread (more messages than then; by its time
+ * when the index has no count). Nothing else brings it back:
+ *
+ *   - a read already on its way, or one that crossed the write;
+ *   - a read that leaves it out for another reason (mail that couldn't be
+ *     read this time, a page boundary) and a later one that lists it again;
+ *   - the index lagging or rewritten behind the archive (a mailbox sync that
+ *     read the thread just before it was archived and wrote it just after,
+ *     the index still saying "inbox"), or the row's time moving with no new
+ *     message in it;
+ *   - a reload, a remount, the desktop app's window coming back: the record is
+ *     kept on this device (DONE_STORAGE_KEY), DONE_KEEP_MS at most.
+ *
+ * Undo, or a Done the server refused, takes the record back out.
  */
-const doneKeys = new Map<string, { at: string; since: number }>()
-/** How long a done item is kept hidden while reads still list it. */
-export const DONE_HOLD_MS = 10 * 60_000
+interface DoneRecord {
+  /** The item's newest moment when it was done. */
+  at: string
+  /** A notification item's rows then. */
+  ids?: string[]
+  /** A mail thread's message count then, when known. */
+  messages?: number
+  /** When it was done (ms). */
+  since: number
+}
+
+/** On this device: `{ [item key]: DoneRecord }`. */
+export const DONE_STORAGE_KEY = 'ni:inbox:done'
+/** How long a done record is kept at most (the inbox lists a month of mail at most). */
+export const DONE_KEEP_MS = 30 * 24 * 60 * 60_000
+/** The most records kept (the oldest go first). */
+const DONE_MAX = 500
+
+let doneKeys: Map<string, DoneRecord> | null = null
 
 const ms = (iso: string | null | undefined): number => {
   const t = iso ? Date.parse(iso) : NaN
   return Number.isNaN(t) ? -Infinity : t
 }
 
-function notDone(item: InboxItem): boolean {
-  const done = doneKeys.get(item.key)
-  return !done || ms(item.at) > ms(done.at)
+function isRecord(v: unknown): v is DoneRecord {
+  const r = v as DoneRecord | null
+  return !!r && typeof r === 'object' && typeof r.at === 'string' && typeof r.since === 'number' && (r.ids === undefined || (Array.isArray(r.ids) && r.ids.every((id) => typeof id === 'string'))) && (r.messages === undefined || typeof r.messages === 'number')
 }
 
-/** Done keys a read no longer lists (the write landed), or held too long, are forgotten. */
-function forgetConfirmedDone(listed: readonly InboxItem[]): void {
-  if (!doneKeys.size) return
-  const keys = new Set(listed.map((i) => i.key))
+function done(): Map<string, DoneRecord> {
+  if (doneKeys) return doneKeys
+  doneKeys = new Map()
+  try {
+    const raw = typeof window === 'undefined' ? null : window.localStorage.getItem(DONE_STORAGE_KEY)
+    const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : null
+    const now = Date.now()
+    if (parsed && typeof parsed === 'object') for (const [key, rec] of Object.entries(parsed)) if (isRecord(rec) && now - rec.since < DONE_KEEP_MS) doneKeys.set(key, rec)
+  } catch {
+    // Unreadable or blocked: this page's memory only.
+  }
+  return doneKeys
+}
+
+function saveDone(): void {
+  const map = done()
   const now = Date.now()
-  for (const [key, done] of doneKeys) if (!keys.has(key) || now - done.since > DONE_HOLD_MS) doneKeys.delete(key)
+  for (const [key, rec] of map) if (now - rec.since >= DONE_KEEP_MS) map.delete(key)
+  if (map.size > DONE_MAX) for (const key of [...map.keys()].slice(0, map.size - DONE_MAX)) map.delete(key)
+  try {
+    if (map.size) window.localStorage.setItem(DONE_STORAGE_KEY, JSON.stringify(Object.fromEntries(map)))
+    else window.localStorage.removeItem(DONE_STORAGE_KEY)
+  } catch {
+    // Storage blocked or full: it holds in memory.
+  }
+}
+
+function markDone(item: InboxItem): void {
+  const map = done()
+  map.delete(item.key)
+  map.set(item.key, {
+    at: item.at,
+    since: Date.now(),
+    ...(item.source === 'mail' ? (typeof item.messages === 'number' ? { messages: item.messages } : {}) : { ids: [...item.notificationIds] }),
+  })
+  saveDone()
+}
+
+function unmarkDone(key: string): void {
+  if (done().delete(key)) saveDone()
+}
+
+/** Something genuinely new in it since it was done. */
+function newSinceDone(item: InboxItem, rec: DoneRecord): boolean {
+  if (item.source === 'mail') {
+    if (typeof item.messages === 'number' && typeof rec.messages === 'number') return item.messages > rec.messages
+    return ms(item.at) > ms(rec.at)
+  }
+  // A notification item: a row it didn't have then (its time can move without one: a row read, regrouped).
+  if (!rec.ids) return ms(item.at) > ms(rec.at)
+  const had = new Set(rec.ids)
+  return item.notificationIds.some((id) => !had.has(id))
+}
+
+/** The items a read lists that weren't done here, or have news since; a done item with news is done no more. */
+function withoutDone(items: readonly InboxItem[]): InboxItem[] {
+  const map = done()
+  if (!map.size) return [...items]
+  let changed = false
+  const out = items.filter((item) => {
+    const rec = map.get(item.key)
+    if (!rec) return true
+    if (Date.now() - rec.since >= DONE_KEEP_MS || newSinceDone(item, rec)) {
+      map.delete(item.key)
+      changed = true
+      return true
+    }
+    return false
+  })
+  if (changed) saveDone()
+  return out
 }
 
 export async function loadInbox(): Promise<void> {
@@ -174,9 +267,8 @@ export async function loadInbox(): Promise<void> {
   // Each list an array, whatever came back.
   const items = Array.isArray(raw.items) ? raw.items : []
   const held = Array.isArray(raw.held) ? raw.held : []
-  // What was just marked done stays gone, whatever a read that crossed it says (doneKeys).
-  forgetConfirmedDone([...items, ...held])
-  const json: InboxData = { items: items.filter(notDone), held: held.filter(notDone), mail: Array.isArray(raw.mail) ? raw.mail : [] }
+  // What was marked done stays gone, whatever a later read says, until there is news in it (DoneRecord).
+  const json: InboxData = { items: withoutDone(items), held: withoutDone(held), mail: Array.isArray(raw.mail) ? raw.mail : [] }
   set({ failed: false, data: json })
   if (json.mail.length > 0) void fillHeaders(json.mail).then(() => set({ headers: state.headers + 1 }))
 }
@@ -304,7 +396,7 @@ function markRead(item: InboxItem): void {
 }
 
 export async function inboxDone(item: InboxItem): Promise<void> {
-  doneKeys.set(item.key, { at: item.at, since: Date.now() })
+  markDone(item)
   removeLocally(item.key)
   if (state.openKey === item.key) set({ openKey: null })
   let ok = false
@@ -328,7 +420,7 @@ export async function inboxDone(item: InboxItem): Promise<void> {
   }
   if (!ok) {
     // Never silently: the row comes back, and says why.
-    doneKeys.delete(item.key)
+    unmarkDone(item.key)
     toast.error(item.source === 'mail' ? 'That email could not be archived. It’s back in the list.' : 'That could not be marked done. It’s back in the list.')
     return void loadInbox()
   }
@@ -337,7 +429,7 @@ export async function inboxDone(item: InboxItem): Promise<void> {
       ? {
           label: 'Undo',
           onClick: () => {
-            doneKeys.delete(item.key)
+            unmarkDone(item.key)
             void undo!().then(() => loadInbox())
           },
         }
@@ -385,8 +477,16 @@ export async function inboxOpen(item: InboxItem, opts: { beside?: () => void; on
 }
 
 /** Tests: nothing read, nothing chosen. */
-export function __resetInboxStoreForTests(): void {
-  doneKeys.clear()
+export function __resetInboxStoreForTests(opts: { keepDevice?: boolean } = {}): void {
+  // keepDevice: as a reload does (what this device kept stays).
+  doneKeys = null
+  if (!opts.keepDevice) {
+    try {
+      window.localStorage.removeItem(DONE_STORAGE_KEY)
+    } catch {
+      // No storage here.
+    }
+  }
   state = INITIAL
   filterRead = false
   listeners.clear()
