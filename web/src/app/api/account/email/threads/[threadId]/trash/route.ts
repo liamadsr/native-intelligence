@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { trashThread } from '@/lib/crm/email-client'
+import { GmailPermissionError } from '@/lib/email/gmail-permission'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function POST(
@@ -16,6 +17,8 @@ export async function POST(
     await trashThread(user.id, threadId)
     return NextResponse.json({ success: true })
   } catch (e) {
+    // Gmail without gmail.modify (lib/email/gmail-permission.ts): the page says so, in these words.
+    if (e instanceof GmailPermissionError) return NextResponse.json({ error: e.message, code: e.code }, { status: 403 })
     const message = e instanceof Error ? e.message : 'Failed to trash'
     return NextResponse.json({ error: message }, { status: 500 })
   }

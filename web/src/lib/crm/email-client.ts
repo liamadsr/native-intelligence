@@ -1,4 +1,5 @@
 import { attachmentMimePart, graphFileAttachment, type ComposeAttachment } from '@/lib/email/compose-attachments'
+import { GmailPermissionError, isGmailPermissionRefusal, providerErrorCode } from '@/lib/email/gmail-permission'
 import { parseCalendarInvite, type CalendarInvite } from '@/lib/email/calendar-invite'
 import { getValidToken, getValidTokenForAccount } from '@/lib/oauth/token-manager'
 import { isDemoWorkspace } from '@/lib/demo/demo-mode'
@@ -1146,7 +1147,8 @@ function threadRows(userId: string, providerThreadId: string, accountId: string 
  * mailbox did not make.
  */
 async function gmailThreadCall(token: string, providerThreadId: string, action: 'modify' | 'trash', body?: unknown): Promise<void> {
-  const res = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/threads/${providerThreadId}/${action}`, {
+  // Gmail ids are URL-safe, but an id is never put in a path raw.
+  const res = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/threads/${encodeURIComponent(providerThreadId)}/${action}`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -1154,7 +1156,11 @@ async function gmailThreadCall(token: string, providerThreadId: string, action: 
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   })
-  if (!res.ok) throw new Error(`Gmail thread ${action} error: ${res.status}`)
+  if (!res.ok) {
+    // A connection without gmail.modify (lib/email/gmail-permission.ts): said so, in words the page shows.
+    if (res.status === 403 && isGmailPermissionRefusal(res.status, await providerErrorCode(res))) throw new GmailPermissionError()
+    throw new Error(`Gmail thread ${action} error: ${res.status}`)
+  }
 }
 
 /**

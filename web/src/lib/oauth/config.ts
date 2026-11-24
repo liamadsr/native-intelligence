@@ -11,9 +11,17 @@ export const OAUTH_CONFIG = {
         'https://www.googleapis.com/auth/calendar.events',
         'https://www.googleapis.com/auth/userinfo.email',
       ],
+      // gmail.modify: archive, read, star, labels, mute and trash (threads
+      // and messages modify / trash), which readonly and compose never
+      // allowed (Liam, 11-24: every Gmail archive answered 403). A connection
+      // granted before it shows "Update access" (scope-diff.ts), and Gmail's
+      // refusal says so (lib/email/gmail-permission.ts). readonly and compose
+      // stay, so nothing granted changes meaning. gmail.modify is a
+      // RESTRICTED scope: the Google Cloud consent screen must list it.
       email: [
         'https://www.googleapis.com/auth/gmail.readonly',
         'https://www.googleapis.com/auth/gmail.compose',
+        'https://www.googleapis.com/auth/gmail.modify',
         'https://www.googleapis.com/auth/userinfo.email',
       ],
       // Bringing the owner's Google Contacts into the CRM (roadmap track G2):

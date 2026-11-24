@@ -84,12 +84,16 @@ describe('getScopesForCapability — google search_console / analytics (the SEO 
     ])
   })
 
-  it('leaves every earlier Google capability asking for exactly what it did', () => {
+  it('Gmail asks for gmail.modify too (archive, read, star: Liam, 11-24), keeping what it asked before', () => {
     expect(getScopesForCapability('google', 'email')).toEqual([
       'https://www.googleapis.com/auth/gmail.readonly',
       'https://www.googleapis.com/auth/gmail.compose',
+      'https://www.googleapis.com/auth/gmail.modify',
       'https://www.googleapis.com/auth/userinfo.email',
     ])
+  })
+
+  it('leaves every other earlier Google capability asking for exactly what it did', () => {
     expect(getScopesForCapability('google', 'calendar')).toEqual([
       'https://www.googleapis.com/auth/calendar.readonly',
       'https://www.googleapis.com/auth/calendar.events',
