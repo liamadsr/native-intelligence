@@ -130,7 +130,7 @@ export function fileRowOf(item: DriveItem, members: readonly DriveMember[]): Fil
     file_type: item.type,
     source: item.source,
     created_by: creator?.id ?? null,
-    ...(creator ? { creator: { id: creator.id, display_name: creator.display_name, avatar_url: creator.avatar_url ?? null } } : item.creator.label ? { created_by_name: item.creator.label } : {}),
+    ...(creator ? { creator: { id: creator.id, display_name: creator.display_name } } : item.creator.label ? { created_by_name: item.creator.label } : {}),
     file_where: item.where,
     file_size: item.size,
     updated_at: item.modifiedAt,
