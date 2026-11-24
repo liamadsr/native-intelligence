@@ -10,7 +10,9 @@ import { CARD_PAGES, pagesFor } from '@/lib/chat-cards/page-menu'
 import type { CardSpec } from '@/lib/chat-cards/kinds'
 import { cardForTarget } from '@/lib/chat-cards/open-card'
 import {
+  HOME_PAGES,
   HUB_PLACES,
+  homeSideOfCard,
   isHubPlace,
   NESTED_RAIL_PAGES,
   RAIL_PAGES,
@@ -39,7 +41,8 @@ describe('the rail pages', () => {
 
   it('are every `/` page (Liam, 11-09: "all available pages"), so a new page needs its place in the rail: on the bar, or nested under a rail page', () => {
     for (const page of CARD_PAGES) {
-      const placed = RAIL_PAGES.some((d) => d.slug === page.slug || !!d.members?.includes(page.slug)) || Object.hasOwn(NESTED_RAIL_PAGES, page.slug)
+      // Or in Home (Inbox, Liam, 11-24: Home's Inbox side).
+      const placed = RAIL_PAGES.some((d) => d.slug === page.slug || !!d.members?.includes(page.slug)) || Object.hasOwn(NESTED_RAIL_PAGES, page.slug) || Object.hasOwn(HOME_PAGES, page.slug)
       expect(placed, page.slug).toBe(true)
     }
   })
@@ -59,7 +62,7 @@ describe('the rail pages', () => {
 
   it('keep the reference order first, then the customers and the agents (Liam, 11-11: Drive and Agents took the plans section’s pages)', () => {
     expect(RAIL_PAGES.map((d) => d.id)).toEqual([
-      'drive', 'mail', 'team-chat', 'actions', 'reviews', 'calendar', 'inbox',
+      'drive', 'mail', 'team-chat', 'actions', 'reviews', 'calendar',
       'contacts', 'outreach', 'seo',
       'agents',
     ])
@@ -74,7 +77,7 @@ describe('the rail pages', () => {
     expect(offered().map((p) => p.def.id)).toEqual(RAIL_PAGES.map((d) => d.id))
     const onSlugs = new Set(pagesFor(full, { desktop: false, now: NOW }).map((p) => p.slug))
     const reached = offered().flatMap((p) => (p.members ?? [p.page]).map((m) => m.slug))
-    expect(reached.sort()).toEqual([...onSlugs].filter((slug) => !Object.hasOwn(NESTED_RAIL_PAGES, slug)).sort())
+    expect(reached.sort()).toEqual([...onSlugs].filter((slug) => !Object.hasOwn(NESTED_RAIL_PAGES, slug) && !Object.hasOwn(HOME_PAGES, slug)).sort())
   })
 
   it('leave out a page that is off in the workspace', () => {
@@ -165,18 +168,22 @@ describe('the selected place', () => {
     expect(nextSelectedPlace({ place: 'home', frontId: 'r1' }, { id: 'tc', spec: teamChat }, false, NOW, 'home')).toBe('home')
     // Mail's own card from a hub too.
     expect(nextSelectedPlace({ place: 'home', frontId: null }, { id: 'm1', spec: own('mail') }, false, NOW, 'home')).toBe('home')
-    // Inbox's list: Inbox stays selected for what it opens (an event's card, the page's own team chat card).
-    expect(nextSelectedPlace({ place: 'inbox', frontId: 'in1' }, { id: 'ev', spec: own('calendar') }, false, NOW, 'inbox')).toBe('inbox')
-    expect(nextSelectedPlace({ place: 'inbox', frontId: 'in1' }, { id: 'tc', spec: teamChat }, false, NOW, 'inbox')).toBe('inbox')
+    const inboxSpec = CARD_PAGES.find((p) => p.slug === 'inbox')!.spec(NOW) as CardSpec
+    // Inbox is Home's Inbox side since 11-24: its page's own card selects Home, however it came (`/`, G J, a press inside a page).
+    expect(nextSelectedPlace({ place: 'home', frontId: null }, { id: 'in1', spec: inboxSpec }, false, NOW)).toBe('home')
+    expect(nextSelectedPlace({ place: 'mail', frontId: 'm1' }, { id: 'in1', spec: inboxSpec }, true, NOW)).toBe('home')
+    expect(homeSideOfCard(inboxSpec)).toBe('inbox')
+    expect(homeSideOfCard(own('mail'))).toBeNull()
+    // From Home's Inbox side: Home stays selected for what it opens (an event's card, Team chat's own card).
+    expect(nextSelectedPlace({ place: 'home', frontId: 'in1' }, { id: 'ev', spec: own('calendar') }, false, NOW, 'home')).toBe('home')
     // The rail (no hub press): the page's own card selects the page, as before.
     expect(nextSelectedPlace({ place: 'home', frontId: null }, { id: 'tc', spec: teamChat }, false, NOW, null)).toBe('team-chat')
-    expect(nextSelectedPlace({ place: 'home', frontId: null }, { id: 'in1', spec: own('inbox') }, false, NOW)).toBe('inbox')
     // Not a hub: ignored.
     expect(nextSelectedPlace({ place: 'home', frontId: null }, { id: 'tc', spec: teamChat }, false, NOW, 'actions')).toBe('team-chat')
     // Nothing in front is home, whatever the press.
-    expect(nextSelectedPlace({ place: 'inbox', frontId: 'in1' }, null, false, NOW, 'inbox')).toBe('home')
-    expect(HUB_PLACES).toEqual(['home', 'inbox'])
-    expect(isHubPlace('inbox')).toBe(true)
+    expect(nextSelectedPlace({ place: 'home', frontId: 'in1' }, null, false, NOW, 'home')).toBe('home')
+    expect(HUB_PLACES).toEqual(['home'])
+    expect(isHubPlace('inbox')).toBe(false)
     expect(isHubPlace('mail')).toBe(false)
   })
 
@@ -222,10 +229,10 @@ describe('the person’s bar (railLayout)', () => {
   it('puts a page the prefs don’t mention (new, or just turned on) in its default place, pinned', () => {
     // Saved before Calendar and Captures existed: calendar lands after actions, captures after it.
     const order = ['mail', 'drive', 'team-chat', 'actions', ...ids.filter((id) => !['mail', 'drive', 'team-chat', 'actions', 'calendar', 'captures'].includes(id))]
-    expect(all({ order, hidden: [] }).slice(0, 7)).toEqual(['mail', 'drive', 'team-chat', 'actions', 'reviews', 'calendar', 'inbox'])
+    expect(all({ order, hidden: [] }).slice(0, 7)).toEqual(['mail', 'drive', 'team-chat', 'actions', 'reviews', 'calendar', 'contacts'])
     // Each after the page before it by default, wherever that one stands: Drive (first) first, Contacts after Calendar.
     const partial = all({ order: ['calendar', 'mail'], hidden: [] })
-    expect(partial.slice(0, 4)).toEqual(['drive', 'calendar', 'inbox', 'contacts'])
+    expect(partial.slice(0, 3)).toEqual(['drive', 'calendar', 'contacts'])
     expect(partial.slice(partial.indexOf('mail'), partial.indexOf('mail') + 3)).toEqual(['mail', 'team-chat', 'actions'])
     expect(partial).toHaveLength(ids.length)
     expect(shown({ order: ['calendar', 'mail'], hidden: [] })).toContain('agents')
@@ -234,7 +241,7 @@ describe('the person’s bar (railLayout)', () => {
   it('skips saved ids the workspace doesn’t offer (a page turned off, one that is gone)', () => {
     const noMail = offered(withEffectiveSurface(full, { email: 'off' }))
     const layout = railLayout(noMail, { order: ['gone-page', 'mail', 'calendar', 'docs'], hidden: ['mail', 'gone-page'] })
-    expect(layout.all.map((p) => p.def.id).slice(0, 3)).toEqual(['calendar', 'inbox', 'contacts'])
+    expect(layout.all.map((p) => p.def.id).slice(0, 3)).toEqual(['calendar', 'contacts', 'outreach'])
     expect(layout.all).toHaveLength(noMail.length)
     expect(layout.shown).toHaveLength(noMail.length)
     expect(all({ order: ['gone-page', 'mail', 'calendar', 'docs'], hidden: [] }, noMail)).not.toContain('mail')
@@ -258,7 +265,7 @@ describe('a bar saved while Projects and Initiatives had icons (Liam, 11-11: the
       'knowledge', 'flows', 'companies', 'contacts', 'deals', 'prospecting', 'sequences', 'campaigns', 'agents', 'evals', 'teams',
     ]
     // SEO is newer than that order: it takes its default place (after Outreach).
-    expect(railLayout(pages, { order: oldDefault, hidden: [] }).all.map((p) => p.def.id)).toEqual(['drive', 'mail', 'team-chat', 'actions', 'reviews', 'calendar', 'inbox', 'agents', 'contacts', 'outreach', 'seo'])
+    expect(railLayout(pages, { order: oldDefault, hidden: [] }).all.map((p) => p.def.id)).toEqual(['drive', 'mail', 'team-chat', 'actions', 'reviews', 'calendar', 'agents', 'contacts', 'outreach', 'seo'])
     // Teams had an icon too (Liam, 11-11: it nests under My Actions now): its id is skipped, shown or hidden.
     expect(railLayout(pages, { order: oldDefault, hidden: ['teams'] }).shown.map((p) => p.def.id)).not.toContain('teams')
     expect(railLayout(pages, { order: oldDefault, hidden: ['teams'] }).shown).toHaveLength(pages.length)
@@ -490,7 +497,7 @@ describe('a bar saved before the page groups (Liam, 11-11)', () => {
     expect(moved.order).not.toContain('deals')
     expect(moved.hidden).toEqual(['calendar', 'availability', 'captures'])
     // Moving past a hidden group counts it hidden.
-    expect(moveRailPageBy({ order: [], hidden: ['calendar', 'availability', 'captures'] }, ids, 'inbox', -1)!.order.slice(0, 6)).toEqual(['drive', 'mail', 'team-chat', 'actions', 'inbox', 'reviews'])
+    expect(moveRailPageBy({ order: [], hidden: ['calendar', 'availability', 'captures'] }, ids, 'contacts', -1)!.order.slice(0, 6)).toEqual(['drive', 'mail', 'team-chat', 'actions', 'contacts', 'reviews'])
   })
 })
 

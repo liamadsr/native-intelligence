@@ -102,7 +102,6 @@ import { ReviewsPanel } from './reviews-panel'
 import { TasksPanel } from './tasks-panel'
 import { MailPanel } from './mail-panel'
 import { TeamChatPanel } from './team-chat-panel'
-import { InboxPanel } from './inbox-panel'
 import { PAGE_GROUP_PANELS } from './page-group-panel'
 import { PagePanelHeldContext, PagePanelSwapContext, pagePanelReserve } from './page-panel-frame'
 import type { PageKey, PagePanelProps } from './page-panel-types'
@@ -147,10 +146,8 @@ export const PAGE_PANELS: Readonly<{ home: PagePanel } & Partial<Record<RailPage
   'team-chat': TeamChatPanel,
   // Reviews' sub-nav (docs/plans/github-reviews.md): reviews-panel.tsx.
   reviews: ReviewsPanel,
-  // Inbox's (Liam, 11-23: "the inbox page doesn't have a sub-menu panel";
-  // Inbox "Like Home", docs/plans/hub-panels.md): its filter and list, what
-  // it opens just that item beside it (inbox-panel.tsx).
-  inbox: InboxPanel,
+  // Inbox has none of its own since 11-24: it is Home's Inbox side
+  // (home-recents.tsx, inbox-panel.tsx; docs/plans/hub-panels.md "One Home").
   ...PAGE_GROUP_PANELS,
 }
 

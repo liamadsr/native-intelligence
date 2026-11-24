@@ -49,7 +49,8 @@
  */
 import { useSyncExternalStore } from 'react'
 import { frontCard, subscribeFrontCard } from '@/components/chat-cards/front-card'
-import { isHubPlace, nextSelectedPlace, ownPageOfCard, type SelectedPlace } from './rail-pages'
+import { homeSideOfCard, isHubPlace, nextSelectedPlace, ownPageOfCard, type SelectedPlace } from './rail-pages'
+import { setHomeSide } from '../page-panel/home-side'
 import { GROUP_OF_PAGE, rememberGroupPage } from './page-groups'
 import { useRailShown } from './rail-media'
 
@@ -107,6 +108,9 @@ function settle(): void {
   if (front && front.id !== frontId) {
     const own = ownPageOfCard(front.spec)
     if (own && GROUP_OF_PAGE.has(own.slug)) rememberGroupPage(own.slug)
+    // The Inbox page's card come in front (`/`, Search, G J, a link, Home's Inbox side): Home on its Inbox side (Liam, 11-24).
+    const side = homeSideOfCard(front.spec)
+    if (side) setHomeSide(side)
   }
   frontId = front?.id ?? null
   if (next === place) return

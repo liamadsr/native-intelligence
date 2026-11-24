@@ -12,6 +12,7 @@ import { cardForTarget } from '@/lib/chat-cards/open-card'
 import { CARD_PAGES } from '@/lib/chat-cards/page-menu'
 import type { CardSpec } from '@/lib/chat-cards/kinds'
 import { HUB_PLACE_ATTR, __resetSelectedPlaceForTests, selectedPlace, subscribeSelectedPlace } from '../selected-place'
+import { __resetHomeSideForTests, homeSide, setHomeSide } from '../../page-panel/home-side'
 
 const settle = () => new Promise<void>((r) => queueMicrotask(r))
 const pageSpec = (slug: string) => CARD_PAGES.find((p) => p.slug === slug)!.spec(new Date()) as CardSpec
@@ -32,6 +33,8 @@ function front(id: string, spec: CardSpec) {
 
 beforeEach(() => {
   __resetSelectedPlaceForTests()
+  __resetHomeSideForTests()
+  window.localStorage.clear()
   off = subscribeSelectedPlace(() => {})
   hub = document.createElement('aside')
   rail = document.createElement('nav')
@@ -66,16 +69,19 @@ describe('the selected place, from a hub', () => {
     expect(selectedPlace()).toBe('home')
   })
 
-  it('Inbox’s list keeps Inbox for what it opens', async () => {
+  it('the Inbox page’s card, however it comes (`/`, G J, a press inside a page), selects Home on its Inbox side (Liam, 11-24)', async () => {
+    setHomeSide('recent')
     press(rail)
     front('in1', pageSpec('inbox'))
     await settle()
-    expect(selectedPlace()).toBe('inbox')
-    hub.setAttribute(HUB_PLACE_ATTR, 'inbox')
+    expect(selectedPlace()).toBe('home')
+    expect(homeSide()).toBe('inbox')
+    // From Home's Inbox side, Home stays selected for what it opens.
+    hub.setAttribute(HUB_PLACE_ATTR, 'home')
     press(hub)
     front('tc', teamChatChannel())
     await settle()
-    expect(selectedPlace()).toBe('inbox')
+    expect(selectedPlace()).toBe('home')
   })
 
   it('a rail press selects the page, as before', async () => {
