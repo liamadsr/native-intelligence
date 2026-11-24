@@ -67,7 +67,12 @@ beforeEach(() => {
   window.localStorage.clear()
   opened.length = 0
   window.addEventListener(OPEN_CARD_EVENT, onOpen)
-  fetchMock = vi.fn(async (url: string) => new Response(JSON.stringify(String(url).includes('/api/account/inbox') && !String(url).includes('/notifications') && !String(url).includes('/hold') ? DATA : { ok: true }), { status: 200 }))
+  // Each route's own answer: the list, a done's count of notifications archived (inbox-store.ts reads it), a hold's ok.
+  fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    const u = String(url)
+    if (u.includes('/notifications')) return new Response(JSON.stringify({ updated: (JSON.parse(String(init?.body ?? '{}')).ids ?? []).length }), { status: 200 })
+    return new Response(JSON.stringify(u.includes('/hold') ? { ok: true } : DATA), { status: 200 })
+  })
   vi.stubGlobal('fetch', fetchMock)
   container = document.createElement('div')
   document.body.appendChild(container)

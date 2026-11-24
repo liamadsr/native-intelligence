@@ -195,6 +195,16 @@ describe('changeEmailThreads on Gmail', () => {
     expect(calls.some((c) => c.method === 'POST')).toBe(false)
   })
 
+  // Liam, 11-24: "I click the check box and the emails … goes away then after a few second it reappears". The
+  // mailbox had the thread archived already (elsewhere), the index still read it "inbox", and the Inbox lists the index.
+  it('a thread already archived in the mailbox but still "inbox" in the index: the index follows the mailbox', async () => {
+    db.seed('email_thread_index', [{ id: 'r9', user_id: 'u-1', provider_thread_id: 'archived', account_id: 'acct-g', folder: 'inbox', is_unread: false }])
+    const [outcome] = await changeEmailThreads('u-1', 'ws-1', ['archived'], { archive: true })
+    expect(outcome).toMatchObject({ status: 'unchanged' })
+    expect(calls.some((c) => c.method === 'POST')).toBe(false)
+    expect(db.rows('email_thread_index')[0]).toMatchObject({ folder: 'archive' })
+  })
+
   it('adds an existing label by name and makes a missing one', async () => {
     const [outcome] = await changeEmailThreads('u-1', 'ws-1', ['amazon'], { addLabels: ['receipts', 'Shopping'] })
     expect(outcome).toMatchObject({ status: 'changed', applied: { addLabels: ['receipts', 'Shopping'] }, createdLabels: ['Shopping'] })

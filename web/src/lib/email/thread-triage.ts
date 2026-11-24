@@ -628,7 +628,18 @@ async function changeInMailbox(
   if (muted === null) return { threadId, status: 'failed', account: mailbox.email, error: MUTE_UNAVAILABLE }
   const { applied, undo } = effectiveChange({ ...state, muted }, change)
   const known = unknownLabels.length ? { unknownLabels } : {}
-  if (isEmptyChange(applied)) return { threadId, status: 'unchanged', account: mailbox.email, ...known }
+  if (isEmptyChange(applied)) {
+    // Nothing to change in the mailbox, but the index (what Mail and the
+    // Inbox list) may lag behind it: a thread archived elsewhere (a phone,
+    // Gmail itself) still reads "inbox" there until the next sync. Archiving
+    // it again was a no-op, so the Inbox's Done came back on its next read
+    // (Liam, 11-24: "I click the check box and the emails … goes away then
+    // after a few second it reappears"). The index follows the mailbox now.
+    const archive = change.mute === true ? true : change.archive
+    if (archive === true && !state.inInbox) await updateIndexRows(userId, threadId, mailbox.accountId, { archive: true }, null)
+    else if (archive === false && state.inInbox) await updateIndexRows(userId, threadId, mailbox.accountId, { archive: false }, null)
+    return { threadId, status: 'unchanged', account: mailbox.email, ...known }
+  }
 
   // The mute row first: a failed mailbox change takes it back.
   if (applied.mute !== undefined) await setMuted(userId, mailbox, threadId, applied.mute)
