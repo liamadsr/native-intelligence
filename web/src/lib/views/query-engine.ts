@@ -475,6 +475,8 @@ function buildUnfencedEntityQuery(
       throw new Error('Teams are read by the Teams page (/api/account/teams)')
     case 'file':
       throw new Error('Files are read by the Files page from their own sources')
+    case 'knowledge_package':
+      throw new Error("Packages are read by the Library (/api/account/knowledge-library)")
     // The Drive kinds: RLS decides who reads a private one (676, 675, 520, and 688's grants).
     case 'canvas':
       return supabase
@@ -792,6 +794,7 @@ const JUNCTION_FIELDS: Record<ViewEntityType, string[]> = {
   campaign: [],
   team: [],
   file: [],
+  knowledge_package: [],
 }
 
 // Label (tag) junction table per entity type, and the column naming the
@@ -861,6 +864,7 @@ const ARRAY_FIELDS: Record<ViewEntityType, string[]> = {
   campaign: ['tags', 'channels'],
   team: [],
   file: [],
+  knowledge_package: [],
 }
 
 function isJunctionField(entityType: ViewEntityType, field: string): boolean {

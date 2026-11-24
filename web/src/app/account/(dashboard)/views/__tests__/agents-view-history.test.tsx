@@ -19,7 +19,7 @@ vi.mock('../agents/use-library-items', () => ({ useLibraryItems: () => ({
   workspaceItems: library.items, myItems: library.items, discoverItems: library.items,
   isLoading: false, fork: vi.fn(), remove: vi.fn(), save: vi.fn(), refetchOwned: vi.fn(),
 }) }))
-vi.mock('../agents/library-row', () => ({ LibraryRow: () => null }))
+vi.mock('../agents/library-list', () => ({ LibraryList: () => null }))
 vi.mock('../agents/item-dialogs', () => ({
   defaultForm: () => ({}),
   DetailDialog: ({ item, onClose }: { item: { name: string } | null; onClose: () => void }) => item

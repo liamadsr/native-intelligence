@@ -30,7 +30,6 @@ import { cn } from '@/lib/utils'
 import {
   Archive,
   BookOpen,
-  Boxes,
   ChevronDown,
   ChevronRight,
   Download,
@@ -52,6 +51,8 @@ import { useEntityListSync } from '@/hooks/use-entity-sync'
 import { CardHeaderSlot, CardHeaderTrail, useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
 import { CARD_HEADER_ICON_BUTTON, CARD_HEADER_PILL_BUTTON } from '@/components/chat-cards/card-header-button'
 import type { OpenEntity } from './knowledge-view'
+import { PackageVisibilityBadge } from './knowledge-package-badge'
+import { PackageList } from './knowledge-package-list'
 
 /**
  * The Library page (Liam, 11-21: once Knowledge's library tab, its own page
@@ -162,24 +163,7 @@ function timeAgo(iso: string | null): string {
   return new Date(iso).toLocaleDateString()
 }
 
-const VISIBILITY_META: Record<
-  LibraryPackage['visibility'],
-  { label: string; icon: React.ReactNode }
-> = {
-  personal: { label: 'Private', icon: <Lock className="h-3 w-3" /> },
-  team: { label: 'Team', icon: <Users className="h-3 w-3" /> },
-  workspace: { label: 'Workspace', icon: <Boxes className="h-3 w-3" /> },
-}
-
-function VisibilityBadge({ visibility }: { visibility: LibraryPackage['visibility'] }) {
-  const meta = VISIBILITY_META[visibility]
-  return (
-    <span className="border-border text-muted-foreground inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px]">
-      {meta.icon}
-      {meta.label}
-    </span>
-  )
-}
+const VisibilityBadge = PackageVisibilityBadge
 
 // ─── Main component ──────────────────────────────────────────────────────────
 
@@ -343,37 +327,14 @@ export function KnowledgeLibrary({
                 export its knowledge as a unit.
               </p>
             ) : (
-              <div className="space-y-2">
-                {data.packages.map((pkg) => (
-                  <button
-                    key={pkg.id}
-                    type="button"
-                    onClick={() => {
-                      setOpenPackageId(pkg.id)
-                      onPackageChange?.({ id: pkg.id, name: pkg.name })
-                    }}
-                    className={cn(GLASS_PANEL, 'hover:border-foreground/30 flex w-full items-center gap-3 rounded-md border p-3 text-left transition-colors')}
-                  >
-                    <EntityIcon kind="knowledge_package" />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-foreground truncate text-sm font-medium">
-                          {pkg.name}
-                        </span>
-                        <VisibilityBadge visibility={pkg.visibility} />
-                      </div>
-                      {pkg.description && (
-                        <p className="text-muted-foreground truncate text-xs">
-                          {pkg.description}
-                        </p>
-                      )}
-                    </div>
-                    <span className="text-muted-foreground shrink-0 text-[11px]">
-                      {pkg.pinned_items} pinned · updated {timeAgo(pkg.updated_at)}
-                    </span>
-                  </button>
-                ))}
-              </div>
+              <PackageList
+                packages={data.packages}
+                selectedId={openPackageId}
+                onOpen={(pkg) => {
+                  setOpenPackageId(pkg.id)
+                  onPackageChange?.({ id: pkg.id, name: pkg.name })
+                }}
+              />
             )}
           </section>
         </div>

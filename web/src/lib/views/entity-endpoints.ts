@@ -26,6 +26,7 @@ export const ENTITY_ENDPOINTS: Record<ViewEntityType, (id: string) => string | n
   team: () => null,
   // A file is a source's own (an upload, a chat file, a mail attachment): nothing inline.
   file: () => null,
+  knowledge_package: () => null,
   action: id => `/api/account/actions/${id}`,
   project: id => `/api/account/projects/${id}`,
   initiative: id => `/api/account/initiatives/${id}`,

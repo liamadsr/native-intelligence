@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, type ReactNode } from 'react'
 import { ViewToolbar } from '@/components/views/view-toolbar'
-import { useView, useViewConfig } from '@/components/views/hooks/use-view'
+import { useView, useViewConfig, type ViewConfig } from '@/components/views/hooks/use-view'
 import { itemsForScope, libraryScopeForFilters, selectLibraryViewItems, type LibrarySources } from './library-filter'
 import type { LibraryCategory, LibraryRow, LibraryScope } from './library-types'
 
@@ -18,6 +18,8 @@ export function LibraryCollection({ category, sources, search, onScopeChange, ch
     displayedItems: LibraryRow[]
     resolvingView: boolean
     scopeForItem: (item: LibraryRow) => LibraryScope
+    /** The view's config: the shared list draws its rows' properties from it. */
+    config: ViewConfig
   }) => ReactNode
 }) {
   const {
@@ -62,6 +64,7 @@ export function LibraryCollection({ category, sources, search, onScopeChange, ch
         // A combined custom view must keep public items' Add action, even
         // though it doesn't have a single Discover baseline selected.
         scopeForItem: item => scope === 'discover' || !usableIds.has(item.id) ? 'discover' : scope,
+        config,
       })}
     </>
   )

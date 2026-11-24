@@ -35,6 +35,7 @@ const ENTITY_CONTEXT_REQUIREMENTS: Record<ViewEntityType, ContextKey[]> = {
   team: [],
   // The Created by filter and cell.
   file: ['members'],
+  knowledge_package: [],
   action: ['members', 'projects', 'labels', 'workflowStates'],
   project: ['members', 'initiatives', 'labels', 'workflowStates'],
   initiative: ['members', 'labels'],

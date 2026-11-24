@@ -24,7 +24,7 @@ import { PAGE_TAB_ADD, PAGE_TAB_COUNT, pageTabClass } from './page-tabs'
  *  built-in "All …" tab and the search box's placeholder. */
 export const ENTITY_PLURAL: Record<ViewEntityType, string> = {
   agent: 'agents', skill: 'skills', github_pr: 'pull requests',
-  canvas: 'canvases', spreadsheet: 'spreadsheets', data_table: 'tables', drive_item: 'items', campaign: 'campaigns', team: 'teams', file: 'files',
+  canvas: 'canvases', spreadsheet: 'spreadsheets', data_table: 'tables', drive_item: 'items', campaign: 'campaigns', team: 'teams', file: 'files', knowledge_package: 'packages',
   action: 'issues', capture: 'captures', contact: 'contacts',
   company: 'companies', email_thread: 'threads', document: 'documents',
   initiative: 'initiatives',
