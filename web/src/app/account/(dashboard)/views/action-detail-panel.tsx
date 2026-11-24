@@ -1767,22 +1767,24 @@ export function ActionDetailPanel({
             ]}
             value={panelView}
             onChange={setPanelView}
+            // Work-run parked on a question (Loops v3): a "Waiting on you" chip that jumps to the in-panel
+            // Cloud-run view, where the question picker lives. Shown for a work-run action
+            // (agent_run_status='needs_input'), which carries no AI assignee, so the chip is the way in. Right after
+            // the tabs, in the card's top row with them.
+            after={
+              action.agent_run_status === 'needs_input' ? (
+                <button
+                  type="button"
+                  onClick={() => setPanelView('cloud')}
+                  className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-3 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-500/20 disabled:opacity-60 dark:text-amber-400"
+                  title="The agent asked a question — open the run to answer"
+                >
+                  <MessageCircleQuestion className="h-3 w-3 animate-pulse" />
+                  Waiting on you
+                </button>
+              ) : null
+            }
           />
-        )}
-        {/* Work-run parked on a question (Loops v3): a "Waiting on you" chip that
-            jumps to the in-panel Cloud-run view, where the question picker lives.
-            Shown for a work-run action (agent_run_status='needs_input') — these
-            carry no AI assignee, so the chip is the discoverable path in. */}
-        {action?.agent_run_status === 'needs_input' && (
-          <button
-            type="button"
-            onClick={() => setPanelView('cloud')}
-            className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-3 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-500/20 disabled:opacity-60 dark:text-amber-400"
-            title="The agent asked a question — open the run to answer"
-          >
-            <MessageCircleQuestion className="h-3 w-3 animate-pulse" />
-            Waiting on you
-          </button>
         )}
         <WindowActions reveal={reminderOpen} className="ml-auto flex shrink-0 items-center gap-1">
           {saving && <span className="text-xs text-muted-foreground">Saving...</span>}
