@@ -18,7 +18,7 @@
  *     the facts about them) rides in the message under "How they write", and
  *     decides the tone when none was asked for (Liam, 2026-10-17).
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 type Row = Record<string, unknown>
 
@@ -43,6 +43,8 @@ const hoisted = vi.hoisted(() => ({
   memoryLines: [] as Row[],
   profileFacts: [] as Row[],
   supersede: vi.fn(async (..._a: unknown[]) => 0),
+  // The person's calendar, as the meeting pass reads it (src/lib/email/draft-calendar.ts): nothing, unless a test says so.
+  readMeetingWindow: vi.fn(),
 }))
 
 function fakeAdmin() {
@@ -113,6 +115,10 @@ vi.mock('@/lib/integrations/email', () => ({ createEmailDraft: hoisted.createEma
 vi.mock('@/lib/email/email-read-service', () => ({ readEmailThread: hoisted.readEmailThread }))
 vi.mock('@/lib/email/hold', () => ({ holdThread: hoisted.holdThread }))
 vi.mock('@/lib/email/one-draft', () => ({ supersedeOtherDrafts: hoisted.supersede }))
+vi.mock('@/lib/agent-events/upcoming-meetings', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/agent-events/upcoming-meetings')>()),
+  readMeetingWindow: hoisted.readMeetingWindow,
+}))
 
 const {
   generateEmailDrafts,
@@ -174,6 +180,7 @@ beforeEach(() => {
   hoisted.holdThread.mockClear()
   hoisted.supersede.mockClear()
   hoisted.replyGate.mockReset().mockResolvedValue(false)
+  hoisted.readMeetingWindow.mockReset().mockResolvedValue({ meetings: [], cancelled: [], declined: new Set(), completeAccounts: new Set() })
   hoisted.readEmailThread.mockResolvedValue({
     messages: [
       { from: 'Sam <sam@x.com>', to: 'liam@dial8.ai', date: 'Mon, 21 Sep 2026', bodyText: 'Can we lock the price this week?', subject: 'Pricing' },
@@ -994,5 +1001,114 @@ describe('a plan check that cannot be read', () => {
     expect(hoisted.runUtilityTask).not.toHaveBeenCalled()
     warn.mockRestore()
     planCheck.onPlan.mockReset().mockResolvedValue(false)
+  })
+})
+
+/**
+ * The calendar (2026-11-24, made-up people): Dana writes at 10:08 asking
+ * whether the person can still hop on their 10:00 call, while the person is
+ * already on it. The automatic drafter had answered "I'm here and ready for
+ * our call" in their name.
+ */
+describe('the person\'s calendar', () => {
+  const DANA = 'dana@fernhill.example'
+  const CALL = {
+    ref: 'calendar_event', id: 'ev-1', meetingKey: 'k-1', workspaceId: 'ws-1', userId: 'user-1',
+    title: 'Fernhill weekly call', startIso: '2026-11-24T15:00:00.000Z', endIso: '2026-11-24T15:30:00.000Z',
+    attendees: [DANA, 'me@studio.example'], calendarEventId: 'ev-1', captureId: null, organizer: 'me@studio.example',
+  }
+  const asksToHopOn = (dateISO: string, from = `Dana Reyes <${DANA}>`) => ({
+    messages: [
+      { from: 'Me <me@studio.example>', to: DANA, date: 'Mon, 23 Nov 2026', dateISO: '2026-11-23T18:00:00.000Z', bodyText: 'See you at 10 tomorrow.', subject: 'Weekly call' },
+      { from, to: 'me@studio.example', date: 'Tue, 24 Nov 2026', dateISO, bodyText: 'Hi! Are you still able to hop on?', subject: 'Re: Weekly call' },
+    ],
+  })
+
+  // The thread's own mailbox is the person's: its address is never one of "the people on this thread".
+  const MINE = (id: string) => ({ ...THREAD(id), account_id: 'acct-1' })
+
+  beforeEach(() => {
+    vi.useFakeTimers({ now: Date.parse('2026-11-24T15:09:00.000Z'), toFake: ['Date'] })
+    hoisted.threads = [MINE('a')]
+    hoisted.accountEmails = { 'acct-1': 'me@studio.example' }
+    hoisted.readMeetingWindow.mockResolvedValue({ meetings: [CALL], cancelled: [], declined: new Set(), completeAccounts: new Set() })
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('writes no automatic draft for mail that arrived during a meeting with its sender: the thread waits as in_meeting', async () => {
+    hoisted.readEmailThread.mockResolvedValue(asksToHopOn('2026-11-24T15:08:00.000Z'))
+    const onProgress = vi.fn()
+    const result = await generateEmailDrafts('user-1', 'ws-1', { thread_ids: ['pt-a'], replyIntent: 'automatic', onProgress })
+    expect(result).toEqual({ drafts: [], count: 0, skipped: { 'pt-a': 'in_meeting' } })
+    // Nothing written: no model call, no row, no mailbox draft, no hold.
+    expect(hoisted.runUtilityTask).not.toHaveBeenCalled()
+    expect(hoisted.inserts).toHaveLength(0)
+    expect(hoisted.createEmailDraft).not.toHaveBeenCalled()
+    expect(hoisted.holdThread).not.toHaveBeenCalled()
+    expect(onProgress).toHaveBeenLastCalledWith({ kind: 'skipped', index: 0, total: 1 })
+    // The reply gate ran first: mail that needs no reply is still turned away as before.
+    expect(hoisted.replyGate).toHaveBeenCalledTimes(1)
+  })
+
+  it('reads the calendar once per pass, however many threads reach drafting', async () => {
+    hoisted.threads = [MINE('a'), MINE('b')]
+    hoisted.readEmailThread.mockResolvedValue(asksToHopOn('2026-11-24T15:08:00.000Z'))
+    const result = await generateEmailDrafts('user-1', 'ws-1', { thread_ids: ['pt-a', 'pt-b'], replyIntent: 'automatic' })
+    expect(result.skipped).toEqual({ 'pt-a': 'in_meeting', 'pt-b': 'in_meeting' })
+    expect(hoisted.readMeetingWindow).toHaveBeenCalledTimes(1)
+  })
+
+  it('still drafts mail from before the meeting, from someone not on it, and any draft the person asks for, with "Their calendar" in the message', async () => {
+    // Before the call started (9:55): drafted, and the message says the call is now under way.
+    hoisted.readEmailThread.mockResolvedValue(asksToHopOn('2026-11-24T14:55:00.000Z'))
+    expect((await generateEmailDrafts('user-1', 'ws-1', { thread_ids: ['pt-a'], replyIntent: 'automatic' })).count).toBe(1)
+    const message = String(hoisted.runUtilityTask.mock.calls[0][0].message)
+    const calendar = message.slice(message.indexOf('## Their calendar'))
+    expect(message.indexOf('## Workspace Context')).toBeLessThan(message.indexOf('## Their calendar'))
+    expect(calendar).toContain('"Fernhill weekly call" with dana@fernhill.example')
+    expect(calendar).toContain('happening now (it started 9 minutes ago)')
+    // The person's own address is not listed as someone on the thread.
+    expect(calendar.split('\n## ')[0]).not.toContain('me@studio.example')
+
+    // Someone not on the call writes during it: drafted.
+    hoisted.runUtilityTask.mockClear()
+    hoisted.readEmailThread.mockResolvedValue(asksToHopOn('2026-11-24T15:08:00.000Z', 'Rui <rui@elsewhere.example>'))
+    expect((await generateEmailDrafts('user-1', 'ws-1', { thread_ids: ['pt-a'], replyIntent: 'automatic' })).count).toBe(1)
+
+    // The person asks for a draft of Dana's mail: written, calendar included.
+    hoisted.runUtilityTask.mockClear()
+    hoisted.readEmailThread.mockResolvedValue(asksToHopOn('2026-11-24T15:08:00.000Z'))
+    expect((await generateEmailDrafts('user-1', 'ws-1', { thread_ids: ['pt-a'], replyIntent: 'explicit' })).count).toBe(1)
+    expect(String(hoisted.runUtilityTask.mock.calls[0][0].message)).toContain('## Their calendar')
+  })
+
+  it('leaves the section out when no meeting has anyone from the thread, and drafts as before when the calendar can\'t be read', async () => {
+    hoisted.readMeetingWindow.mockResolvedValue({ meetings: [{ ...CALL, attendees: ['rui@elsewhere.example'] }], cancelled: [], declined: new Set(), completeAccounts: new Set() })
+    hoisted.readEmailThread.mockResolvedValue(asksToHopOn('2026-11-24T15:08:00.000Z'))
+    expect((await generateEmailDrafts('user-1', 'ws-1', { thread_ids: ['pt-a'], replyIntent: 'automatic' })).count).toBe(1)
+    expect(String(hoisted.runUtilityTask.mock.calls[0][0].message)).not.toContain('## Their calendar')
+
+    hoisted.runUtilityTask.mockClear()
+    hoisted.readMeetingWindow.mockRejectedValue(new Error('provider down'))
+    expect((await generateEmailDrafts('user-1', 'ws-1', { thread_ids: ['pt-a'], replyIntent: 'automatic' })).count).toBe(1)
+    expect(String(hoisted.runUtilityTask.mock.calls[0][0].message)).not.toContain('## Their calendar')
+  })
+
+  it('tells the drafter never to say where the person is or whether they\'re free, and that a meeting under way or over settles its logistics', () => {
+    const rules = emailDraftReplyInstructions('professional', 'Liam')
+    for (const claim of ['"I\'m here"', '"ready for our call"', '"on my way"', '"joining now"', '"I\'m free then"']) expect(rules, claim).toContain(claim)
+    expect(rules).toContain("Never say where the person is, what they're doing right now, or whether they're free")
+    expect(rules).toContain("[NEEDS INPUT: where they are or when they're free]")
+    expect(rules).toContain('"Their calendar", when the message has it')
+    expect(rules).toContain('If a meeting with the sender is happening now or is over, its logistics are settled')
+  })
+
+  it('puts the calendar between the workspace context and how they write, and leaves it out when empty', () => {
+    const messages = [{ from: 'Dana <dana@fernhill.example>', date: 'Tue', body: 'Still on?' }]
+    const withCalendar = buildDraftReplyPrompt(messages, NO_DRAFT_CONTEXT, 'Short replies', undefined, 'the section')
+    expect(withCalendar).toContain(`## Workspace Context\n${NO_DRAFT_CONTEXT}\n\n## Their calendar\nthe section\n\n## How they write\nShort replies`)
+    expect(buildDraftReplyPrompt(messages, NO_DRAFT_CONTEXT, '', undefined, '  ')).not.toContain('## Their calendar')
   })
 })

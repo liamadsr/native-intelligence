@@ -135,6 +135,8 @@ export function awayLineFor(row: Pick<AgentEventRow, 'kind' | 'facts'> & { occur
       const from = clipLogText(f.from, 120)
       // E3: unsure whether a reply is needed, so the person is asked rather than drafted for.
       if (f.reason === 'unsure') return `Might need a reply (want one drafted?)${from ? `: ${from}` : ''}`
+      // Arrived during the person's meeting with its sender (draft-calendar.ts): not drafted.
+      if (f.reason === 'in_meeting') return `Needs a reply (it came in during your meeting with them)${from ? `: ${from}` : ''}`
       return `Needs a reply (no draft)${from ? `: ${from}` : ''}`
     }
     case 'email.suspicious': {

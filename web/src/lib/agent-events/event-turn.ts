@@ -86,13 +86,17 @@ export async function gatherEventTurn(
 /**
  * Why a thread got no draft, when a limit held it back (the mail seam's
  * templated `reason`): such a thread is never drafted by an event turn's
- * helper either, which would get round the limit.
+ * helper either, which would get round the limit. 'in_meeting' is the
+ * calendar's hold (src/lib/email/draft-calendar.ts): the mail arrived during
+ * the person's meeting with its sender, so a draft could only guess where
+ * the person is.
  */
 export const NO_DRAFT_BECAUSE: Readonly<Record<string, string>> = {
   cap: "today's limit of automatic drafts was reached",
   paused: 'agent work is switched off',
   usage: 'the AI usage limit was reached',
   dormant: 'drafting is paused while the workspace is quiet',
+  in_meeting: 'it arrived while they were in a meeting with the sender, so the meeting answers it',
 }
 
 /**

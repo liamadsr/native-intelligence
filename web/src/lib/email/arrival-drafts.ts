@@ -87,6 +87,13 @@ export interface ArrivalDraftResult {
    * suggest (GEN-1164).
    */
   turnedAway?: string[]
+  /**
+   * Threads left without an automatic draft because their newest message
+   * arrived while the person was in a meeting with its sender
+   * (src/lib/email/draft-calendar.ts), by provider thread id. They wait on
+   * the person as 'in_meeting'.
+   */
+  inMeeting?: string[]
 }
 
 /** The provider thread ids a pass asks the person about (its 'ask' skips). Pure. */
@@ -102,6 +109,23 @@ export function turnedAwayThreads(skipped: Readonly<Record<string, string>> | un
 /** The inbox reasons for asked threads: each one 'unsure' (event-turn.ts tells the agent to ask). Pure. */
 export function unsureReasons(asked: readonly string[] | undefined): Record<string, string> | undefined {
   return asked?.length ? Object.fromEntries(asked.map((id) => [id, 'unsure'])) : undefined
+}
+
+/** The provider thread ids a pass left undrafted because they arrived during a meeting with their sender (its 'in_meeting' skips). Pure. */
+export function inMeetingThreads(skipped: Readonly<Record<string, string>> | undefined): string[] {
+  return Object.entries(skipped ?? {}).filter(([, why]) => why === 'in_meeting').map(([id]) => id)
+}
+
+/**
+ * The inbox reasons for the threads a pass left undrafted on purpose, by
+ * provider thread id. An asked thread is 'unsure' (event-turn.ts tells the
+ * agent to ask). Mail that arrived during the person's meeting with its
+ * sender is 'in_meeting' (a templated reason, NO_DRAFT_BECAUSE). Pure.
+ */
+export function skipReasons(result: { asked?: readonly string[]; inMeeting?: readonly string[] }): Record<string, string> | undefined {
+  const reasons: Record<string, string> = { ...unsureReasons(result.asked) }
+  for (const id of result.inMeeting ?? []) reasons[id] = 'in_meeting'
+  return Object.keys(reasons).length ? reasons : undefined
 }
 
 /**
@@ -232,8 +256,9 @@ export interface ArrivalDraftDeps extends DraftGateDeps {
  * read counts as paused, because this spends money, and a thread skipped this
  * way is still drafted by the safety net once the switch reads 'on'.
  * generateEmailDrafts applies the reply gate and email.trust
- * (shouldSkipAutomaticReply), wraps the mail as untrusted, and skips a thread
- * with an open draft (re-checked just before the insert).
+ * (shouldSkipAutomaticReply), wraps the mail as untrusted, skips a thread
+ * with an open draft (re-checked just before the insert), and skips mail that
+ * arrived while the person was in a meeting with its sender ('in_meeting').
  */
 export async function draftRepliesToNewMail(
   supabase: SupabaseClient,
@@ -270,7 +295,14 @@ export async function draftRepliesToNewMail(
   const capped = result.stoppedBy === 'allowance' || (result.stoppedBy === 'max' && capLimited)
   const asked = askedThreads(result.skipped)
   const turnedAway = turnedAwayThreads(result.skipped)
-  return { drafts, blocked: capped ? 'cap' : null, ...(asked.length ? { asked } : {}), ...(turnedAway.length ? { turnedAway } : {}) }
+  const inMeeting = inMeetingThreads(result.skipped)
+  return {
+    drafts,
+    blocked: capped ? 'cap' : null,
+    ...(asked.length ? { asked } : {}),
+    ...(turnedAway.length ? { turnedAway } : {}),
+    ...(inMeeting.length ? { inMeeting } : {}),
+  }
 }
 
 /**

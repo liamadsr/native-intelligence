@@ -212,12 +212,16 @@ describe('quiet turns never hide what waits (A6 review)', () => {
   })
 
   it('a reply a limit held back is named with why, and the agent is told not to draft it', () => {
-    for (const reason of ['cap', 'paused', 'usage', 'dormant']) {
+    for (const reason of ['cap', 'paused', 'usage', 'dormant', 'in_meeting']) {
       const line = eventTurnLine(r({ kind: 'email.needs_reply', facts: { title: 'Contract', from: 'Dana', known: true, reason }, ref_type: 'email_thread', ref_id: 'pt' }))
       expect(line).toContain('Do not draft it')
       expect(line).not.toContain('No draft yet')
     }
     expect(eventTurnLine(r({ kind: 'email.needs_reply', facts: { title: 'Contract', reason: 'cap' } }))).toContain('limit of automatic drafts was reached')
     expect(eventTurnLine(r({ kind: 'email.needs_reply', facts: { title: 'Contract', reason: 'not_drafted' } }))).toContain('No draft yet')
+    // Mail that arrived during the person's meeting with its sender (2026-11-24).
+    expect(eventTurnLine(r({ kind: 'email.needs_reply', facts: { from: 'Dana', reason: 'in_meeting' } }))).toBe(
+      '- Reply needed from Dana. No draft: it arrived while they were in a meeting with the sender, so the meeting answers it. Do not draft it; tell the person.',
+    )
   })
 })

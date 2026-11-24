@@ -69,6 +69,7 @@ describe('awayLineFor / renderAwaySection', () => {
     expect(awayLineFor({ kind: 'work.needs_input', facts: { title: 'Acme reply' } })).toBe('Waiting on you: Acme reply (it has a question)')
     // A mail row names the sender's address, never a subject (no stored mail; an old row's title is not shown).
     expect(awayLineFor({ kind: 'email.needs_reply', facts: { title: 'Contract', from: 'dana@acme.com' } })).toBe('Needs a reply (no draft): dana@acme.com')
+    expect(awayLineFor({ kind: 'email.needs_reply', facts: { from: 'dana@acme.com', reason: 'in_meeting' } })).toBe('Needs a reply (it came in during your meeting with them): dana@acme.com')
     expect(awayLineFor({ kind: 'email.drafted', facts: { from: 'dana@acme.com' } })).toBe('Draft ready: reply to dana@acme.com')
     expect(awayLineFor({ kind: 'email.drafted', facts: {} })).toBe('Draft ready: a reply to review')
     expect(awayLineFor({ kind: 'email.suspicious', facts: { from: 'x@phish.example' } })).toBe('Suspicious email (not drafted) from x@phish.example')
