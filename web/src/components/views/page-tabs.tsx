@@ -22,7 +22,9 @@
  * they don't start at the same spot like the pages are more indented").
  */
 import * as React from 'react'
+import { createPortal } from 'react-dom'
 import { cn } from '@/lib/utils'
+import { useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
 
 /** A page tab's pill: 28px, round, 13px words. */
 export const PAGE_TAB =
@@ -48,9 +50,11 @@ export const PAGE_TAB_INSET = 'px-2.5'
 
 /**
  * A detail page's first row: its sections from the left, the page's own
- * buttons (WindowActions) at the end; 48px tall, as a list's toolbar row.
+ * buttons (WindowActions) at the end; 48px tall, as a list's toolbar row. In a
+ * card its sections stand in the card's top row instead and its buttons in
+ * Properties, so the row is left empty and hides.
  */
-export const DETAIL_TAB_ROW = `flex h-12 w-full shrink-0 items-center gap-2 ${PAGE_TAB_INSET}`
+export const DETAIL_TAB_ROW = `flex h-12 w-full shrink-0 items-center gap-2 ${PAGE_TAB_INSET} empty:hidden`
 
 export interface DetailTab<T extends string> {
   id: T
@@ -64,9 +68,13 @@ export interface DetailTab<T extends string> {
 }
 
 /**
- * A detail page's sections, for its first row. On a narrow page (the live
- * capture's notepad, a card in the chat) they scroll sideways, never pushing
- * the row's buttons out.
+ * A detail page's sections, for its first row. In a card they stand in the
+ * card body's top row (CardHeaderSlots.pageTop), the card's whole width, from
+ * its left edge: inside the page they started wherever the page did, centred
+ * beside its Properties column (Liam, 11-24: "why is it that on prod the tabs
+ * are indented?"). `inline` keeps them in the page (the Inbox's, over its list
+ * column). On a narrow page (the live capture's notepad, a card in the chat)
+ * they scroll sideways, never pushing the row's buttons out.
  */
 export function DetailTabs<T extends string>({
   tabs,
@@ -74,6 +82,8 @@ export function DetailTabs<T extends string>({
   onChange,
   label,
   wrap = false,
+  inline = false,
+  after,
   ...data
 }: {
   tabs: ReadonlyArray<DetailTab<T>>
@@ -83,8 +93,13 @@ export function DetailTabs<T extends string>({
   label: string
   /** Onto a second line, not sideways, where every tab must stay in reach (the Inbox's beside an open item). */
   wrap?: boolean
+  /** In the page's own row even in a card (not the card's top row). */
+  inline?: boolean
+  /** What stands right after the tabs, wherever they are (an action's "Waiting on you"). */
+  after?: React.ReactNode
 } & { [attr: `data-${string}`]: string }) {
-  return (
+  const top = useCardHeaderSlots()?.pageTop ?? null
+  const list = (
     <div
       role="tablist"
       aria-label={label}
@@ -113,5 +128,20 @@ export function DetailTabs<T extends string>({
         </button>
       ))}
     </div>
+  )
+  if (top && !inline) {
+    return createPortal(
+      <div data-card-page-tabs="" className={DETAIL_TAB_ROW}>
+        {list}
+        {after}
+      </div>,
+      top,
+    )
+  }
+  return (
+    <>
+      {list}
+      {after}
+    </>
   )
 }

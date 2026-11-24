@@ -308,6 +308,14 @@ a:hover .lucide,
   display: contents;
 }
 
+/* With a detail page's sections in the card's top row (page-tabs.tsx
+   DetailTabs), the embedded Properties column starts under that row too: its
+   48px for the page's own tab row would put its first field 48px under the
+   page's title instead of level with it (Liam, 10-19; a review, 11-24). */
+[data-card-page-top]:not(:empty) + [data-card-properties-row] > [data-properties-sidebar] {
+  padding-top: 0;
+}
+
 /* A page that names itself in the header's title slot (CardHeaderTitle: the
    calendar's dates) stands in for its name. Classes, not data attributes: the
    minimize flight's copy of the header keeps classes only. */
