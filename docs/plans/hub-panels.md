@@ -154,3 +154,122 @@ every page's sub-nav does.
   channel's row.
 - `page-panel/__tests__/hub-open.test.ts`: which row is lit for a card that names no record.
 - `components/inbox/__tests__/inbox-filters-header.test.tsx` (existing): the header's filter.
+
+---
+
+# One Home: Recent | Incoming (2026-11-24)
+
+Branch `claude/home-inbox`. No migration. Merged is not live.
+
+## What the owner said
+
+> "okay so I love the new inbox page, I think it's really great and bring you everything you
+> when you need it and I don't want to change anything about the way it works. But it does feel
+> like it overlaps with the Home page. I'm thinking is home's recent is all the things you've
+> interacted with recently like docs you edited, people you chatted with and so on and inbox is
+> where all your notifications are coming in maybe the combined homepage has what we have in
+> team-chat where we have the split between recent and notification or incoming in the
+> sub-navigation"
+
+Then (verbatim, the same day): "I just want to make sure we don't lose the filter options on the
+current home recent view I think it can stay where it is right now and also we can do the same type
+of filter for the incoming view with the different notifications we support with with all being the
+default"
+
+## The design
+
+One Home. Its panel carries a two-way switch at the top, **Recent | Incoming**, drawn as Team chat's
+All | Recent is (`page-panel/panel-switch.tsx`: a radio group, the chosen side raised, arrows
+move).
+
+- **Recent** is what Home's panel was, its filter unchanged: the same button in the same place, F,
+  Status and Type, kept across reloads. The switch sits where the word "Recent" sat, the filter
+  button beside it as before.
+- **Incoming** is the Inbox panel as it was (`page-panel/inbox-panel.tsx`): the same store, rows and
+  keys (E, H, Enter/O, J/K flip, Esc), and the same "just the item beside the panel" (the Inbox card
+  brought in front, the conversation or the thread alone in it).
+- **Incoming's filter is Recent's kind of filter** (`inbox-view.tsx` `InboxFilterButton`): the same
+  button beside the switch, the same F, the same menu, kept on this device (`ni:inbox:filter`). One
+  calm row: no second row of pills.
+  - **Status:** All (the default), Unread, Read, Held for later. Held was a pill before; it is a
+    status now, as the owner suggested.
+  - **Type:** one per kind of notification the list has, with how many, grouped from the real
+    notification types (`lib/notifications.ts`; `lib/inbox/items.ts` `INBOX_KINDS`):
+    - Messages: team chat.
+    - Mentions & assignments: mentioned, assigned/unassigned, shared with you.
+    - Mail: mail that needs you, a scheduled send that failed.
+    - Calls & meetings: a meeting starting soon, someone waiting in a meeting's lobby.
+    - Tasks & projects: status changes, a cycle started, a decision confirmed, a reminder, a
+      contact follow-up due.
+    - Comments: comments and replies.
+    - Reviews: GitHub review asked, PR comment, checks failed.
+    - Your agent: work that needs you or failed, flow output, digests, check-ins, look-aheads,
+      messages.
+    - Other: anything else (today only "another workspace was merged into this one").
+  - None chosen is every kind. Today's pills (All, Messages, Mentions & assignments, Mail, Held)
+    are all choices in this one filter. Comments are their own Type now (they used to count under
+    Mentions).
+  - Where the Inbox card draws its own list (panel closed, a phone), the same button sits on the
+    page's first row, from the card's corner, never in the card's header (as #263 put the pills
+    that replaced the header's: "everything looks the same as the projects page").
+- Both sides are Home's, a hub's (`data-hub-place="home"`): what either opens keeps Home selected,
+  opens alone and flips, as before.
+- Which side shows lives in `page-panel/home-side.ts`. The Inbox card covers its list while Home's
+  panel is beside it (`inbox-card.tsx`: `useOwnSubnavShown('home')`).
+- Home's panel now shows even when nothing is recent ("What you open and work on shows here."), so
+  the switch to Inbox is always there.
+
+## Decisions for the owner (defaults built; each easy to change)
+
+1. **The labels: "Recent | Incoming"**, your word. The alternative, "Inbox", is one string to
+   change (`HOME_SIDES` in `home-recents.tsx`). G J, `/` and Search still call the page "Inbox";
+   they open Home's Incoming side.
+2. **First visit and memory.** A first visit shows Recent. After that, the side last chosen is
+   remembered on this device (`ni:home-panel:side`), as Team chat's switch is.
+3. **The rail's Inbox button is gone; Home is the one place.**
+   - A saved bar that held Inbox drops it cleanly. The id isn't offered, so it isn't drawn, and the
+     next save tidies it out; the rest keeps its saved order.
+   - Every way into Inbox (`/`, Search, G J, the deep link `/account?page=inbox`, any link to the
+     page) opens the Inbox page's card. That card coming in front selects Home and puts it on its
+     Inbox side (`rail/selected-place.ts`, `rail-pages.ts` `HOME_PAGES` / `homeSideOfCard`).
+     A notification's banner opens its item, as before. There was no old `/account/inbox` route to
+     redirect: Inbox only ever opened as a card.
+   - Home's rail icon carries a **dot** (not a count) while anything in the Inbox is unread. A count
+     reads 260 on a busy inbox, which is noise on a 40px icon. The dot is read once, on the window's
+     focus, and when a notification arrives through the notifications' realtime: no timer
+     (`inbox-store.ts` `useInboxUnread`). The switch's Inbox side carries the same dot while you
+     are on Recent.
+4. **Phones (below `md`, no panel).** Home on a phone is the chat; it has no Recent list at all
+   (Recent was only ever the panel), so there is nowhere to put the switch. On a phone, G J, `/` and
+   Search open the Inbox card, which draws its own list and filter in its header, as it did. If you
+   want a Recent | Inbox list on phones too, that is a new phone screen: say so and we'll build it.
+6. **Where Inbox's filter sits, after #263** (in production: "the Inbox's filters on the page's
+   first row" and "stay in reach beside an open item"). Your 11-24 ask, one filter of Recent's kind
+   instead of the pills, replaces #263's row of pills, but keeps #263's place for it:
+   - Inside Home (Incoming), the one filter button sits beside the switch, as Recent's does.
+   - Where the Inbox card draws its own list, the same button sits on the page's first row from the
+     card's corner, never in the card header. It is one button, so it stays in reach beside an open
+     item at any width.
+   - What #263's pills gave and this doesn't: each choice with its count, visible at a glance
+     without opening the menu (the menu shows the counts). If you want the pills back on the card's
+     own first row as well, that is one component to put back. Say so.
+5. **Keys: S switches sides, F opens the side's filter** while either list has the focus (Recent → Inbox, Inbox → Recent). S
+   is free in both lists, and the ? sheet lists it (`lib/shortcuts.ts`, `recents-switch` and
+   `inbox-switch`). The switch itself also takes ← / → when it has the focus. G J still goes to
+   Inbox, now Home's Inbox side.
+
+## Tests
+
+- `rail-pages.test.ts`: no Inbox rail page. The Inbox page's card selects Home, however it came
+  (including from inside another page). Hubs are just Home now.
+- `selected-place-hub.test.ts`: the Inbox card, through the store, selects Home on its Inbox side.
+- `app-rail.test.tsx`: no Inbox icon, Home's dot, and a bar saved with Inbox dropping it.
+- `page-panel.test.tsx`: Home's switch (Recent first, a press or S shows Inbox, remembered), and the
+  panel shown with nothing recent.
+- `inbox-panel.test.tsx`: the Incoming side is Home's (a hub's frame), one filter button and no
+  pills; S goes back to Recent.
+- `lib/inbox/__tests__/inbox-filter.test.ts`: every real notification type has a kind; Status and
+  Type narrow the list together; a saved filter reads back.
+- `components/inbox/__tests__/inbox-filters-row.test.tsx` (#263's, rewritten): the filter button on
+  the page's first row, none in the header; F opens it, a Type narrows and is kept, Held; the
+  filter's own keys are never the list's.

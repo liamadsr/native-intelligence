@@ -2,7 +2,11 @@
 
 /**
  * Inbox's panel (Liam, 11-23: "the inbox page doesn't have a sub-menu
- * panel"; asked how Inbox should work, "Like Home"; docs/plans/hub-panels.md).
+ * panel"; asked how Inbox should work, "Like Home"; docs/plans/hub-panels.md),
+ * since 11-24 Home's Inbox side (Liam: "the combined homepage has what we
+ * have in team-chat where we have the split between recent and notification
+ * or incoming"): home-recents.tsx draws it under Home's Recent | Inbox
+ * switch, as it was in every other way. S goes back to Recent.
  *
  *   What    the inbox's filter (All, Messages, Mentions & assignments,
  *           Mail, Held, with their counts) and its list: the same store and
@@ -25,22 +29,37 @@
  * Flat cost: the store reads the inbox while this is on screen (once a
  * minute and on focus, shared with the card: one read for both).
  */
-import { useLayoutEffect, useMemo, useRef } from 'react'
+import { useLayoutEffect, useMemo, useRef, type ReactNode } from 'react'
 import { openTarget } from '@/lib/chat-cards/open-card'
-import { pageOfCard } from '../rail/rail-pages'
 import { useForYouEntries } from '../chat/for-you-column'
-import { InboxFilters, InboxList, INBOX_KEYS_HINT, inboxKeyDown } from '@/components/inbox/inbox-view'
+import { InboxFilterButton, InboxList, INBOX_KEYS_HINT, inboxKeyDown } from '@/components/inbox/inbox-view'
 import { inboxRows, useInbox } from '@/components/inbox/inbox-store'
 import { PagePanelFrame } from './page-panel-frame'
-import { PAGE_PANEL_LABELS, type PagePanelProps } from './page-panel-types'
+import { type PageKey, type PagePanelProps } from './page-panel-types'
+import { setHomeSide } from './home-side'
 
-export function InboxPanel({ active, mode, front, onContent }: PagePanelProps) {
+export function InboxPanel({
+  active,
+  mode,
+  front,
+  onContent,
+  page = 'home',
+  shown = true,
+  lead,
+}: PagePanelProps & {
+  /** Whose panel it is: Home's Inbox side (home-recents.tsx; Liam, 11-24). */
+  page?: PageKey
+  /** On screen (Home is on its Inbox side). */
+  shown?: boolean
+  /** Over the filter: Home's Recent | Inbox switch. */
+  lead?: ReactNode
+}) {
   const s = useInbox(active)
   const forYou = useForYouEntries()
   // Its filter and list are always there (loading, rows, or all caught up): something to show from its first commit.
   useLayoutEffect(() => {
-    onContent('inbox', true)
-  }, [onContent])
+    onContent(page, true)
+  }, [onContent, page])
   const frontRef = useRef(front)
   frontRef.current = front
   // An item for the Inbox card's pane: that card in front, if another card is (an event the inbox opened).
@@ -48,17 +67,33 @@ export function InboxPanel({ active, mode, front, onContent }: PagePanelProps) {
     () => ({
       beside: () => {
         const now = frontRef.current
-        if (now && pageOfCard(now.spec) === 'inbox') return
+        if (now && now.spec.kind === 'inbox') return
         openTarget({ type: 'page', slug: 'inbox' }, { from: 'inbox', reuse: true, flip: true })
       },
     }),
     [],
   )
+  // Off its side: nothing (the switch swaps the two at once, never a slide).
+  if (!shown) return null
   return (
-    <PagePanelFrame mode={mode} active={active} label={PAGE_PANEL_LABELS.inbox} page="inbox">
-      <div data-inbox-panel="" className="flex min-h-0 flex-col" onKeyDown={(e) => inboxKeyDown(e, s, opts)}>
-        <div className="px-2.5 pb-1.5 pt-2.5">
-          <InboxFilters s={s} variant="panel" />
+    <PagePanelFrame mode={mode} active={active} label="Incoming" page={page}>
+      <div
+        data-inbox-panel=""
+        className="flex min-h-0 flex-col"
+        onKeyDown={(e) => {
+          // S: Home's other side, Recent (home-side.ts).
+          if (e.key.toLowerCase() === 's' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && !(e.target as Element).closest?.('input, textarea, [contenteditable]')) {
+            e.preventDefault()
+            setHomeSide('recent')
+            return
+          }
+          inboxKeyDown(e, s, opts)
+        }}
+      >
+        {/* Home's switch and the filter, one calm row, as Recent's (Liam, 11-24: "the same type of filter"). */}
+        <div className="flex items-center gap-1.5 px-2.5 pb-1.5 pt-2.5">
+          {lead}
+          <InboxFilterButton s={s} className={lead ? undefined : 'ml-auto'} />
         </div>
         <div
           role="listbox"

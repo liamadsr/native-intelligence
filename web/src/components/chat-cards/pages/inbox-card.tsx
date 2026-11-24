@@ -7,8 +7,8 @@
  * page card opens one; For you's count is the side panel's own
  * (useForYouEntries).
  *
- * The Inbox page's card. Full screen from `md` up with the Inbox panel beside
- * the rail (Liam, 11-23, Inbox "Like Home"; docs/plans/hub-panels.md), the
+ * The Inbox page's card. Full screen from `md` up with Home's panel beside
+ * the rail (its Inbox side since 11-24; the Inbox panel before) (Liam, 11-23, Inbox "Like Home"; docs/plans/hub-panels.md), the
  * panel holds the filter and the list, and the card shows just the item open
  * (`covered`), or a quiet note when none is. A record the panel opens comes
  * here too (the store's `record`), this card brought in front for it.
@@ -30,7 +30,8 @@ export default function InboxCard(props: PageCardProps) {
   const openRecord = React.useCallback((record: Parameters<typeof records.open>[0]) => records.open(record), [records])
   // The Inbox panel beside the rail is its filter and list (subnav-on-screen.ts): only while it is really there.
   const railShown = useRailShown()
-  const panelShown = useOwnSubnavShown('inbox')
+  // Home's (Liam, 11-24): the Inbox is Home's Inbox side, so Home's panel beside it covers the list.
+  const panelShown = useOwnSubnavShown('home')
   const covered = !!fullScreen && railShown && panelShown
   const show = React.useCallback(() => {
     if (store.fullScreen() !== toolCallId) store.enterFullScreen(toolCallId)

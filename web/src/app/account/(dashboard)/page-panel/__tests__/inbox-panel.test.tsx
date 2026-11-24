@@ -31,9 +31,9 @@ vi.mock('../../side-panels/side-panels', async () => {
 
 import { PAGE_PANELS } from '../page-panel'
 import { InboxPanel } from '../inbox-panel'
-import { PAGE_PANEL_LABELS } from '../page-panel-types'
+import { HOME_SIDE_KEY, __resetHomeSideForTests, homeSide, setHomeSide } from '../home-side'
 import { HUB_PLACE_ATTR } from '../../rail/selected-place'
-import { __resetInboxStoreForTests, inboxState } from '@/components/inbox/inbox-store'
+import { __resetInboxStoreForTests, inboxState, setInboxFilter } from '@/components/inbox/inbox-store'
 import { OPEN_CARD_EVENT } from '@/lib/chat-cards/open-card'
 
 const at = new Date().toISOString()
@@ -63,6 +63,8 @@ const onOpen = (e: Event) => opened.push((e as CustomEvent).detail)
 
 beforeEach(() => {
   __resetInboxStoreForTests()
+  __resetHomeSideForTests()
+  window.localStorage.clear()
   opened.length = 0
   window.addEventListener(OPEN_CARD_EVENT, onOpen)
   fetchMock = vi.fn(async (url: string) => new Response(JSON.stringify(String(url).includes('/api/account/inbox') && !String(url).includes('/notifications') && !String(url).includes('/hold') ? DATA : { ok: true }), { status: 200 }))
@@ -84,7 +86,7 @@ async function render(front: unknown = null) {
   await act(async () => {})
   return onContent
 }
-const panel = () => container.querySelector<HTMLElement>('[data-page-panel="inbox"]')!
+const panel = () => container.querySelector<HTMLElement>('[data-page-panel="home"]')!
 const rows = () => Array.from(container.querySelectorAll<HTMLElement>('[data-inbox-row]'))
 const key = async (target: HTMLElement, k: string) => {
   const ev = new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true })
@@ -93,20 +95,30 @@ const key = async (target: HTMLElement, k: string) => {
 }
 
 describe('Inbox’s panel', () => {
-  it('is Inbox’s, a hub’s panel: its filter and the one list, something to show from its first commit', async () => {
-    expect(PAGE_PANELS.inbox).toBe(InboxPanel)
-    expect(PAGE_PANEL_LABELS.inbox).toBe('Inbox')
+  it('is Home’s Inbox side (Liam, 11-24), a hub’s panel: its filter and the one list, something to show from its first commit', async () => {
+    expect((PAGE_PANELS as Record<string, unknown>).inbox).toBeUndefined()
     const onContent = await render()
-    expect(onContent).toHaveBeenCalledWith('inbox', true)
-    expect(panel().getAttribute(HUB_PLACE_ATTR)).toBe('inbox')
-    const filters = container.querySelector('[data-inbox-filters="panel"]')!
-    expect(Array.from(filters.querySelectorAll('[data-inbox-filter]')).map((b) => b.getAttribute('data-inbox-filter'))).toEqual(['all', 'messages', 'mentions', 'mail', 'held'])
-    expect(filters.querySelector('[data-inbox-filter="all"]')!.textContent).toContain('3')
+    expect(onContent).toHaveBeenCalledWith('home', true)
+    expect(panel().getAttribute(HUB_PLACE_ATTR)).toBe('home')
+    expect(panel().getAttribute('aria-label')).toBe('Incoming')
+    // One filter, Recent's kind (Liam, 11-24): a button, no row of pills.
+    expect(container.querySelector('[data-inbox-filter]')).not.toBeNull()
+    expect(container.querySelector('[role="tablist"]')).toBeNull()
     expect(rows().map((r) => r.getAttribute('data-inbox-row'))).toEqual(['a', 'b', 'mail:t1'])
     // The filter narrows the one list.
-    await act(async () => filters.querySelector<HTMLButtonElement>('[data-inbox-filter="mail"]')!.click())
+    act(() => setInboxFilter({ status: 'all', kinds: ['mail'] }))
     expect(rows().map((r) => r.getAttribute('data-inbox-row'))).toEqual(['mail:t1'])
-    expect(inboxState().filter).toBe('mail')
+  })
+
+  it('S goes to Home’s Recent side (home-side.ts), kept on this device; off its side it draws nothing', async () => {
+    setHomeSide('inbox')
+    await render()
+    const list = container.querySelector<HTMLElement>('[data-inbox-list="panel"]')!
+    expect((await key(list, 's')).defaultPrevented).toBe(true)
+    expect(homeSide()).toBe('recent')
+    expect(window.localStorage.getItem(HOME_SIDE_KEY)).toBe('recent')
+    await act(async () => root.render(<InboxPanel active mode="room" front={null} onContent={() => {}} shown={false} />))
+    expect(container.querySelector('[data-page-panel]')).toBeNull()
   })
 
   it('opens a mail thread just beside it: the Inbox card brought in front, never the Mail page; the row lit', async () => {

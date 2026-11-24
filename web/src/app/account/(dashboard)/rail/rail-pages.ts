@@ -95,8 +95,7 @@ export const RAIL_PAGES: readonly RailPageDef[] = [
   def('reviews', 'work'),
   // Calendar: Captures (Liam, 11-11).
   groupDef('calendar', 'work'),
-  // One inbox (docs/plans/channels-inbox.md): last of the work group, so a saved bar keeps its places (it can be moved).
-  def('inbox', 'work'),
+  // Inbox has no icon since 11-24: it is Home's Inbox side (HOME_PAGES; docs/plans/hub-panels.md "One Home").
   // Contacts: Companies, Contacts, Deals · Outreach: Prospecting, Sequences, Campaigns (Liam, 11-11),
   // and the Studio (Liam, 11-13: "part of the outreach page").
   groupDef('contacts', 'customers'),
@@ -123,6 +122,20 @@ export const NESTED_RAIL_PAGES: Readonly<Record<NestedRailPageId, RailPageId>> =
   initiatives: 'actions',
   // Liam, 11-11: "Teams should be under action items": on All teams.
   teams: 'actions',
+}
+
+/**
+ * `/` pages that live in Home (Liam, 11-24: "the combined homepage has what we
+ * have in team-chat where we have the split between recent and notification
+ * or incoming"): no icon of their own; their own card in front selects Home,
+ * on that side of its switch (page-panel/home-side.ts, ./selected-place.ts).
+ * A saved bar that held one still loads: its id is dropped (not offered).
+ */
+export const HOME_PAGES: Readonly<Record<string, 'inbox'>> = { inbox: 'inbox' }
+
+/** The Home side a card is the own card of (the Inbox page's), or null. */
+export function homeSideOfCard(spec: CardSpec): 'inbox' | null {
+  return spec.kind === 'inbox' ? 'inbox' : null
 }
 
 /** A rail page (or page group) as this workspace offers it. */
@@ -245,11 +258,12 @@ export function nestedPageOpen(
  * The hubs (Liam, 11-23: "The homepage is supposed to be an easy access place
  * nothing from the home page should open the full page that's so I can flip
  * through the recent things I've looked at"; Inbox "Like Home"): home, with
- * its Recent panel, and Inbox, with its list in its panel. What a hub's panel
+ * its Recent and, since 11-24, its Inbox side (Inbox had its own until then:
+ * one Home now, Liam, 11-24). What a hub's panel
  * opens is just that one item, beside the panel, and the hub stays selected
  * (docs/plans/hub-panels.md).
  */
-export const HUB_PLACES: readonly SelectedPlace[] = ['home', 'inbox']
+export const HUB_PLACES: readonly SelectedPlace[] = ['home']
 
 /** Is `place` a hub (HUB_PLACES)? */
 export const isHubPlace = (place: SelectedPlace | null | undefined): boolean => !!place && HUB_PLACES.includes(place)
@@ -288,6 +302,8 @@ export function nextSelectedPlace(
   if (!front) return 'home'
   if (front.id === was.frontId) return was.place
   if (fromHub && isHubPlace(fromHub)) return fromHub
+  // The Inbox page's own card: Home, on its Inbox side (HOME_PAGES), however it came.
+  if (homeSideOfCard(front.spec)) return 'home'
   const own = pageOfCard(front.spec, now)
   if (own) return own
   return fromInside ? was.place : 'home'
@@ -318,6 +334,7 @@ export interface RailLayout {
 }
 
 const RAIL_INDEX = new Map(RAIL_PAGES.map((d, i) => [d.id, i]))
+/* A saved bar that held `inbox` (before it went into Home, 11-24): not offered, so dropped from the bar (resolveOrder), and tidied out on the next save (tidyOrder / tidyHidden: RAIL_INDEX). */
 
 /** The rail id a saved id stands for now: a group member's, its group (Liam, 11-11); any other, itself. */
 const railIdOf = (id: string): RailPageId => GROUP_OF_PAGE.get(id) ?? id

@@ -91,7 +91,7 @@ export const GO_TO: readonly GoToDef[] = [
   page('a', 'actions', 'My Actions', 'Actions'),
   page('t', 'team-chat', 'Team chat', 'Team chat (on the rail, used daily; Teams takes E)'),
   // The inbox (docs/plans/channels-inbox.md): on the rail, used daily, so it takes Campaigns' leftover J (the owner can swap).
-  page('j', 'inbox', 'Inbox', 'a leftover letter, Campaigns’ until the inbox came: I is the agents and every other letter in the word is taken (the owner can swap)'),
+  page('j', 'inbox', 'Inbox', 'a leftover letter, Campaigns’ until the inbox came: I is the agents and every other letter in the word is taken (the owner can swap); it opens Home on its Inbox side since 11-24'),
   // Drive as a group since Spreadsheets joined it (11-22): 25 letters were taken by 25 pages, so one more page
   // has no letter of its own. G D opens Drive on its page last used (Docs the first time), as the rail does;
   // Knowledge, Files and Tables keep their own letters; Spreadsheets and Canvases are reached through this one.
@@ -182,12 +182,17 @@ export const SHORTCUTS_BESIDES_GO_TO: readonly ShortcutDef[] = [
   { id: 'inbox-done', keys: ['e'], label: 'Done', section: 'Inbox', scope: 'inbox' },
   { id: 'inbox-hold', keys: ['h'], label: 'Hold for later', section: 'Inbox', scope: 'inbox' },
   { id: 'inbox-close', keys: ['escape'], label: 'Close the item', section: 'Inbox', scope: 'inbox', overrides: 'close-page' },
+  // Home's Recent | Inbox (page-panel/home-side.ts; docs/plans/hub-panels.md "One Home"): S for Switch, free in both lists.
+  { id: 'inbox-switch', keys: ['s'], label: 'Switch to Recent', section: 'Inbox', scope: 'inbox' },
+  // The same filter as Recent's (Liam, 11-24): F opens it, Status and Type.
+  { id: 'inbox-filter', keys: ['f'], label: 'Filter', section: 'Inbox', scope: 'inbox' },
   // Home's Recent panel, while it has the focus (page-panel/home-recents.tsx; docs/plans/recent-panel.md).
   // The app has no split view, so Shift+Enter opens as Enter does.
   { id: 'recents-next', keys: ['j', 'arrowdown'], label: 'Next item', section: 'Recent', scope: 'recents' },
   { id: 'recents-previous', keys: ['k', 'arrowup'], label: 'Previous item', section: 'Recent', scope: 'recents' },
   { id: 'recents-open', keys: ['enter', 'shift+enter'], label: 'Open the item', section: 'Recent', scope: 'recents' },
   { id: 'recents-filter', keys: ['f'], label: 'Filter', section: 'Recent', scope: 'recents' },
+  { id: 'recents-switch', keys: ['s'], label: 'Switch to Incoming', section: 'Recent', scope: 'recents' },
   // A document, with the caret in it (components/editor/doc-extras; docs/plans/doc-editor-extras.md).
   // ⌘F stays the browser's (RESERVED_KEYS): find and replace is ⌘⇧F.
   { id: 'doc-find', keys: ['mod+shift+f'], label: 'Find and replace', section: 'Documents', scope: 'editor' },

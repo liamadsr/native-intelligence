@@ -103,6 +103,8 @@ import { CardHistory, CardHistoryButtons } from '@/components/chat-cards/card-hi
 import { COLUMN_CARD_SKIN } from '@/components/attention/card-skin'
 import { isDefaultRailPrefs, type RailPrefs } from '@/lib/rail-prefs'
 import { saveRailPrefs, useRailPrefs } from '@/lib/rail-prefs-store'
+import { useInboxUnread } from '@/components/inbox/inbox-store'
+import { useNotifications } from '@/app/account/notification-context'
 import {
   activeRailItem,
   moveRailPage,
@@ -240,6 +242,20 @@ function RailButton({
         {hint}
       </TooltipContent>
     </Tooltip>
+  )
+}
+
+/**
+ * Home's dot (Liam, 11-24: Inbox lives in Home, its rail icon gone): something
+ * in the Inbox is unread. Read again when a notification arrives (the
+ * notifications' realtime) and on the window's focus; no timer.
+ */
+function HomeInboxDot() {
+  const { notifications } = useNotifications()
+  const unread = useInboxUnread(notifications[0]?.id ?? null)
+  if (!unread) return null
+  return (
+    <span aria-hidden data-app-rail-home-dot="" className="pointer-events-none absolute right-1.5 top-1.5 size-1.5 rounded-full bg-primary ring-2 ring-sidebar" />
   )
 }
 
@@ -607,8 +623,9 @@ export function AppRail() {
                   {/* A hairline between Create and Home (Liam, 11-21). */}
                   <div aria-hidden data-app-rail-create-line="" className={HAIRLINE} />
                   {/* Home (Liam, 11-11), fixed at the top: the chat, every card in front put away. Not one of the person's pages. */}
-                  <RailButton label="Home" hint={<GoToHint home />} active={active === 'home'} onClick={minimizeFrontCards} data={{ 'data-app-rail-item': 'home' }}>
+                  <RailButton label="Home" hint={<GoToHint home />} active={active === 'home'} onClick={minimizeFrontCards} data={{ 'data-app-rail-item': 'home' }} className="relative">
                     <House className="size-[18px]" strokeWidth={1.75} />
+                    <HomeInboxDot />
                   </RailButton>
                   <div aria-hidden data-app-rail-home-line="" className={HAIRLINE} />
                   {groups.map((g, i) => (
