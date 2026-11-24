@@ -23,6 +23,12 @@ vi.mock('../review-queue-dialog', () => ({
 vi.mock('@/components/ui/markdown', () => ({ Markdown: () => h('div', null, 'md') }))
 vi.mock('@/components/ui/confirm-dialog', () => ({ ConfirmDialog: () => null }))
 vi.mock('@/lib/download', () => ({ downloadFile: vi.fn(async () => 'x') }))
+// The package list is the shared virtualized list, which jsdom cannot size:
+// a button per package that opens it, as a row click does.
+vi.mock('../knowledge-package-list', () => ({
+  PackageList: ({ packages, onOpen }: { packages: Array<{ id: string; name: string }>; onOpen: (p: { id: string; name: string }) => void }) =>
+    h('div', null, packages.map((p) => h('button', { key: p.id, type: 'button', onClick: () => onOpen(p) }, p.name))),
+}))
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
 import { KnowledgeLibrary } from '../knowledge-library'

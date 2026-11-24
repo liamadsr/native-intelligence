@@ -76,6 +76,10 @@ export type ViewEntityType =
   // Files page from its own sources (drive-files-data.ts) and filtered there.
   // Saved views: migration 718 adds 'file' to the enum.
   | 'file'
+  // The Library's packages (views-everywhere): read by the Library from
+  // /api/account/knowledge-library and drawn on a fixed list (no toolbar),
+  // so no saved view is made of them and the enum has no value for them.
+  | 'knowledge_package'
 export type LibraryScope = 'all' | 'mine' | 'workspace' | 'discover'
 /**
  * How a view is drawn. `graph` is the knowledge map — a WebGL canvas of claims
@@ -610,6 +614,11 @@ export const FILTERABLE_FIELDS: Record<ViewEntityType, FilterFieldDefinition[]> 
     { field: 'created_at', label: 'Added', type: 'date' },
     { field: 'opened_at', label: 'Opened', type: 'date' },
   ],
+  knowledge_package: [
+    { field: 'visibility', label: 'Visibility', type: 'enum', options: ['personal', 'team', 'workspace'] },
+    { field: 'name', label: 'Name', type: 'text' },
+    { field: 'updated_at', label: 'Updated', type: 'date' },
+  ],
   team: [
     { field: 'is_private', label: 'Private', type: 'boolean' },
     { field: 'name', label: 'Name', type: 'text' },
@@ -908,6 +917,7 @@ export const DEFAULT_DISPLAY_PROPERTIES: Record<ViewEntityType, string[]> = {
   campaign: ['campaign_reach', 'campaign_counts', 'campaign_window', 'status'],
   team: ['issue_prefix', 'team_members'],
   file: ['file_where', 'created_by', 'file_size', 'updated_at'],
+  knowledge_package: ['library_description', 'package_visibility', 'package_pinned', 'updated_at'],
   initiative: ['target_date', 'project', 'status'],
   project: ['labels', 'target_date', 'progress', 'initiative', 'lead', 'status'],
   flow: ['trigger', 'action_target', 'team', 'last_run', 'enabled'],
@@ -1152,6 +1162,12 @@ export const DISPLAY_PROPERTIES: Record<ViewEntityType, DisplayPropertyDefinitio
     { field: 'created_at', label: 'Added' },
     { field: 'opened_at', label: 'Opened' },
   ],
+  knowledge_package: [
+    { field: 'library_description', label: 'Description' },
+    { field: 'package_visibility', label: 'Visibility' },
+    { field: 'package_pinned', label: 'Pinned items' },
+    { field: 'updated_at', label: 'Updated' },
+  ],
   team: [
     { field: 'issue_prefix', label: 'Prefix' },
     { field: 'team_members', label: 'Members' },
@@ -1374,6 +1390,7 @@ export const DEFAULT_ORDERING: Partial<Record<ViewEntityType, SortConfig[]>> = {
   team: [{ field: 'name', direction: 'asc' }],
   // Files: the one changed last first, as the page always opened.
   file: [{ field: 'updated_at', direction: 'desc' }],
+  knowledge_package: [{ field: 'updated_at', direction: 'desc' }],
   spreadsheet: [{ field: 'updated_at', direction: 'desc' }],
   data_table: [{ field: 'updated_at', direction: 'desc' }],
   // A folder: its subfolders first (item_type sorts `folder` ahead), then the newest filed.
@@ -1459,6 +1476,7 @@ export const DEFAULT_BOARD_GROUP_BY: Record<ViewEntityType, string> = {
   campaign: 'status',
   team: 'is_private',
   file: 'file_type',
+  knowledge_package: 'visibility',
   initiative: 'status',
   project: 'status',
   flow: 'enabled',
@@ -1563,6 +1581,7 @@ export const FIELD_CATEGORIES: Record<ViewEntityType, { label: string; fields: s
     { label: 'Dates', fields: ['updated_at', 'created_at', 'opened_at'] },
     { label: 'Content', fields: ['title'] },
   ],
+  knowledge_package: [{ label: '', fields: ['visibility', 'name', 'updated_at'] }],
   campaign: [
     { label: '', fields: ['status', 'owner_member_id'] },
     { label: 'Dates', fields: ['starts_on', 'ends_on', 'created_at', 'updated_at'] },

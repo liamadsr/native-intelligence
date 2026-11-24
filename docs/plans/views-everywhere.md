@@ -223,5 +223,18 @@ out until the owner rolls it out.
       it lives on, or moves one's own Drive upload (M too).
       Saved views are on: migration **718** adds `file` to the enum (apply it
       as 717, before the roll-out).
-- [ ] Agents & skills
-- [ ] Library
+- [x] Agents & skills: the rows are the shared list's (`agents/library-list.tsx`:
+      ViewList and EntityRow, each item's mark, its /command for a skill, its
+      description, Built-in or its author and visibility, its installs). J/K
+      and the arrows move, Enter or O opens. Open, Add (from Discover), Edit
+      and Delete moved from the row's hover buttons to its right-click menu.
+      The toolbar and saved views were already the shared ones.
+- [x] Library: its packages are a list of the view-only kind
+      `knowledge_package` (`views/knowledge-package-list.tsx`): the package
+      mark, name, description, visibility, pinned items and when it changed,
+      newest first; J/K, Enter or O opens its panel. It is a fixed list with no
+      toolbar of its own, under the brief and the projects, so no saved view is
+      made of it and it needs no migration (the enum guard lists it with
+      `github_pr`). The Team filter in the plan above was left out: a package
+      row carries only its team's id. The projects keep their own expandable
+      rows (a brief each, Promote).

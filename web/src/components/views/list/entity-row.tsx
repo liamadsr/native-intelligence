@@ -7,6 +7,7 @@ import { listSharingText, type RowSharing } from '@/lib/entity-access/list-shari
 import { useRowMenuItems } from './row-menu-items'
 import { LibraryItemIcon } from '@/components/library-item-icon'
 import { BuiltInBadge, VisibilityBadge } from '@/app/account/(dashboard)/views/agents/library-badges'
+import { PackageVisibilityBadge, type PackageVisibility } from '@/app/account/(dashboard)/views/knowledge-package-badge'
 import type { LibraryVisibility } from '@/app/account/(dashboard)/views/agents/library-types'
 import { formatFileSize } from '@/lib/attachments/workspace-files-model'
 import { CAMPAIGN_STATUS_LABELS, describeAudience, type CampaignAudience, type CampaignStatus } from '@/lib/campaigns/shape'
@@ -724,6 +725,7 @@ export function getTitle(entityType: ViewEntityType, item: Record<string, unknow
     case 'campaign': return (item.name as string) || 'Untitled campaign'
     case 'team': return (item.name as string) || 'Untitled team'
     case 'file': return (item.title as string) || 'Untitled file'
+    case 'knowledge_package': return (item.name as string) || 'Untitled package'
     case 'action': return (item.title as string) || 'Untitled'
     case 'capture': return (item.title as string) || 'Untitled Capture'
     case 'contact': return (item.full_name as string) || 'Unknown'
@@ -887,6 +889,8 @@ function EntityLeading({
     case 'agent':
     case 'skill':
       return <LibraryItemIcon color={(item.color as string | null) ?? null} size="sm" seed={(item.id as string) || (item.name as string)} />
+    case 'knowledge_package':
+      return <EntityIcon kind="knowledge_package" />
     // A file: its kind's glyph (a PDF, a sheet, an image…), as the Files page drew it.
     case 'file': {
       const Glyph = FILE_TYPE_GLYPH[(item.file_type as string) ?? 'other'] ?? FileGlyph
@@ -3070,6 +3074,13 @@ function PropertyCell({ item, property, entityType, onPatch, pickerContext, canE
       const n = typeof item.fork_count === 'number' ? item.fork_count : 0
       if (n <= 0) return null
       return <span className="whitespace-nowrap text-[11px] tabular-nums text-muted-foreground">{n} {n === 1 ? 'install' : 'installs'}</span>
+    }
+    // ── A knowledge package's cells ──
+    case 'package_visibility':
+      return item.visibility ? <PackageVisibilityBadge visibility={item.visibility as PackageVisibility} /> : null
+    case 'package_pinned': {
+      const n = typeof item.pinned_items === 'number' ? item.pinned_items : 0
+      return <span className="whitespace-nowrap text-[11px] tabular-nums text-muted-foreground">{n} pinned</span>
     }
     // ── A team's cells ──
     case 'issue_prefix':

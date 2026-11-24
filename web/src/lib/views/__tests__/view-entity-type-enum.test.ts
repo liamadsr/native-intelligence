@@ -11,8 +11,8 @@ import { FILTERABLE_FIELDS } from '@/lib/views/types'
 
 const MIGRATIONS = path.resolve(__dirname, '../../../../supabase/migrations')
 
-/** Kinds no saved view is made of (canSaveViews={false}): Reviews' pull requests are GitHub's. */
-const NEVER_SAVED = new Set(['github_pr'])
+/** Kinds no saved view is made of: Reviews' pull requests are GitHub's; the Library's packages sit on a fixed list. */
+const NEVER_SAVED = new Set(['github_pr', 'knowledge_package'])
 
 function enumValues(): Set<string> {
   const values = new Set<string>()
