@@ -157,7 +157,7 @@ every page's sub-nav does.
 
 ---
 
-# One Home: Recent | Inbox (2026-11-24)
+# One Home: Recent | Incoming (2026-11-24)
 
 Branch `claude/home-inbox`. No migration. Merged is not live.
 
@@ -171,18 +171,46 @@ Branch `claude/home-inbox`. No migration. Merged is not live.
 > team-chat where we have the split between recent and notification or incoming in the
 > sub-navigation"
 
+Then (verbatim, the same day): "I just want to make sure we don't lose the filter options on the
+current home recent view I think it can stay where it is right now and also we can do the same type
+of filter for the incoming view with the different notifications we support with with all being the
+default"
+
 ## The design
 
-One Home. Its panel carries a two-way switch at the top, **Recent | Inbox**, drawn as Team chat's
+One Home. Its panel carries a two-way switch at the top, **Recent | Incoming**, drawn as Team chat's
 All | Recent is (`page-panel/panel-switch.tsx`: a radio group, the chosen side raised, arrows
 move).
 
-- **Recent** is what Home's panel was. The switch sits where the word "Recent" sat, with the filter
-  button beside it.
-- **Inbox** is the Inbox panel exactly as it was (`page-panel/inbox-panel.tsx`): the same store,
-  filter, rows and keys (E, H, Enter/O, J/K flip, Esc), and the same "just the item beside the
-  panel" (the Inbox card brought in front, the conversation or the thread alone in it). Nothing
-  about how Inbox works changed.
+- **Recent** is what Home's panel was, its filter unchanged: the same button in the same place, F,
+  Status and Type, kept across reloads. The switch sits where the word "Recent" sat, the filter
+  button beside it as before.
+- **Incoming** is the Inbox panel as it was (`page-panel/inbox-panel.tsx`): the same store, rows and
+  keys (E, H, Enter/O, J/K flip, Esc), and the same "just the item beside the panel" (the Inbox card
+  brought in front, the conversation or the thread alone in it).
+- **Incoming's filter is Recent's kind of filter** (`inbox-view.tsx` `InboxFilterButton`): the same
+  button beside the switch, the same F, the same menu, kept on this device (`ni:inbox:filter`). One
+  calm row: no second row of pills.
+  - **Status:** All (the default), Unread, Read, Held for later. Held was a pill before; it is a
+    status now, as the owner suggested.
+  - **Type:** one per kind of notification the list has, with how many, grouped from the real
+    notification types (`lib/notifications.ts`; `lib/inbox/items.ts` `INBOX_KINDS`):
+    - Messages: team chat.
+    - Mentions & assignments: mentioned, assigned/unassigned, shared with you.
+    - Mail: mail that needs you, a scheduled send that failed.
+    - Calls & meetings: a meeting starting soon, someone waiting in a meeting's lobby.
+    - Tasks & projects: status changes, a cycle started, a decision confirmed, a reminder, a
+      contact follow-up due.
+    - Comments: comments and replies.
+    - Reviews: GitHub review asked, PR comment, checks failed.
+    - Your agent: work that needs you or failed, flow output, digests, check-ins, look-aheads,
+      messages.
+    - Other: anything else (today only "another workspace was merged into this one").
+  - None chosen is every kind. Today's pills (All, Messages, Mentions & assignments, Mail, Held)
+    are all choices in this one filter. Comments are their own Type now (they used to count under
+    Mentions).
+  - The Inbox card's header, where the card draws its own list (panel closed, a phone), carries the
+    same button instead of the pills.
 - Both sides are Home's, a hub's (`data-hub-place="home"`): what either opens keeps Home selected,
   opens alone and flips, as before.
 - Which side shows lives in `page-panel/home-side.ts`. The Inbox card covers its list while Home's
@@ -192,9 +220,9 @@ move).
 
 ## Decisions for the owner (defaults built; each easy to change)
 
-1. **The labels: "Recent | Inbox".** Your alternative word, "Incoming", is one string to change
-   (`HOME_SIDES` in `home-recents.tsx`). We kept "Inbox" because every way in (G J, `/`, Search) still
-   calls the page Inbox.
+1. **The labels: "Recent | Incoming"**, your word. The alternative, "Inbox", is one string to
+   change (`HOME_SIDES` in `home-recents.tsx`). G J, `/` and Search still call the page "Inbox";
+   they open Home's Incoming side.
 2. **First visit and memory.** A first visit shows Recent. After that, the side last chosen is
    remembered on this device (`ni:home-panel:side`), as Team chat's switch is.
 3. **The rail's Inbox button is gone; Home is the one place.**
@@ -214,7 +242,7 @@ move).
    (Recent was only ever the panel), so there is nowhere to put the switch. On a phone, G J, `/` and
    Search open the Inbox card, which draws its own list and filter in its header, as it did. If you
    want a Recent | Inbox list on phones too, that is a new phone screen: say so and we'll build it.
-5. **Keys: S switches sides** while either list has the focus (Recent → Inbox, Inbox → Recent). S
+5. **Keys: S switches sides, F opens the side's filter** while either list has the focus (Recent → Inbox, Inbox → Recent). S
    is free in both lists, and the ? sheet lists it (`lib/shortcuts.ts`, `recents-switch` and
    `inbox-switch`). The switch itself also takes ← / → when it has the focus. G J still goes to
    Inbox, now Home's Inbox side.
@@ -227,4 +255,9 @@ move).
 - `app-rail.test.tsx`: no Inbox icon, Home's dot, and a bar saved with Inbox dropping it.
 - `page-panel.test.tsx`: Home's switch (Recent first, a press or S shows Inbox, remembered), and the
   panel shown with nothing recent.
-- `inbox-panel.test.tsx`: the Inbox side is Home's (a hub's frame); S goes back to Recent.
+- `inbox-panel.test.tsx`: the Incoming side is Home's (a hub's frame), one filter button and no
+  pills; S goes back to Recent.
+- `lib/inbox/__tests__/inbox-filter.test.ts`: every real notification type has a kind; Status and
+  Type narrow the list together; a saved filter reads back.
+- `components/inbox/__tests__/inbox-filters-header.test.tsx`: the filter button in the card's
+  header or over the list, F opens it, a Type narrows and is kept, Held.

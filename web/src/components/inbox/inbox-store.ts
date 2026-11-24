@@ -11,8 +11,11 @@
  *             it (`useInbox(true)`): at once, every REFRESH_MS, and on the
  *             window's focus. Mail subjects are read live (fillHeaders), as
  *             Mail reads them; nothing is stored.
- *   filter    All, Messages, Mentions & assignments, Mail, Held: one filter,
- *             in one place on screen (the panel's, or the card's header).
+ *   filter    Status (All, Unread, Read, Held) and Type (each kind of
+ *             notification, lib/inbox/items.ts INBOX_KINDS), All by default,
+ *             as Recent's filter is (Liam, 11-24); remembered on this device.
+ *             One filter, in one place on screen (the panel's, or the
+ *             card's header).
  *   cursor    the row J / K are on.
  *   openKey   the item open beside the list (a conversation, a mail thread),
  *             drawn by the Inbox card.
@@ -31,7 +34,7 @@ import { fillHeaders, withCachedHeaders } from '@/lib/email/header-cache'
 import { openTarget } from '@/lib/chat-cards/open-card'
 import { notificationCardTarget } from '@/app/account/notification-open'
 import { resolveNotificationDetailPanel } from '@/app/account/notification-panel'
-import { filterItems, type InboxFilter, type InboxItem, type InboxMailRow } from '@/lib/inbox/items'
+import { DEFAULT_INBOX_FILTER, filterInbox, parseInboxFilter, type InboxItem, type InboxListFilter, type InboxMailRow } from '@/lib/inbox/items'
 import { CARD_RECORD_TYPES, type CardRecordType } from '@/lib/chat-cards/kinds'
 
 export type InboxMail = InboxMailRow & {
@@ -60,20 +63,35 @@ export interface InboxRecordAsk {
 export interface InboxState {
   data: InboxData | null
   failed: boolean
-  filter: InboxFilter
+  /** Incoming's filter (Status and Type), remembered on this device (INBOX_FILTER_KEY). */
+  filter: InboxListFilter
   cursor: number
   openKey: string | null
   record: InboxRecordAsk | null
   /** Bumped when live mail headers arrive. */
   headers: number
+  /** Bumped by F (openInboxFilter): the filter button on screen opens its menu. */
+  filterAsk: number
 }
 
 /** How often the list reads itself again while it is on screen. */
 export const REFRESH_MS = 60_000
 
-const INITIAL: InboxState = { data: null, failed: false, filter: 'all', cursor: 0, openKey: null, record: null, headers: 0 }
+const INITIAL: InboxState = { data: null, failed: false, filter: DEFAULT_INBOX_FILTER, cursor: 0, openKey: null, record: null, headers: 0, filterAsk: 0 }
+
+/** Incoming's filter, on this device: `{"status": "all"|"unread"|"read"|"held", "kinds": [...]}`. */
+export const INBOX_FILTER_KEY = 'ni:inbox:filter'
+
+function savedFilter(): InboxListFilter {
+  try {
+    return typeof window === 'undefined' ? DEFAULT_INBOX_FILTER : parseInboxFilter(window.localStorage.getItem(INBOX_FILTER_KEY))
+  } catch {
+    return DEFAULT_INBOX_FILTER
+  }
+}
 
 let state: InboxState = INITIAL
+let filterRead = false
 const listeners = new Set<() => void>()
 let readers = 0
 let stopReading: (() => void) | null = null
@@ -85,6 +103,12 @@ function set(patch: Partial<InboxState>): void {
 }
 
 export function inboxState(): InboxState {
+  // The saved filter, read once (in the browser: never on the server's render).
+  if (!filterRead && typeof window !== 'undefined') {
+    filterRead = true
+    const filter = savedFilter()
+    if (filter !== DEFAULT_INBOX_FILTER) state = { ...state, filter }
+  }
   return state
 }
 
@@ -93,7 +117,10 @@ function subscribe(listener: () => void): () => void {
   return () => {
     listeners.delete(listener)
     // Nothing uses it any more: forgotten, read afresh next time.
-    if (!listeners.size && !readers) state = INITIAL
+    if (!listeners.size && !readers) {
+      state = INITIAL
+      filterRead = false
+    }
   }
 }
 
@@ -169,13 +196,7 @@ export function useInboxUnread(poke: unknown): boolean | null {
 
 /** The rows under the filter. */
 export function inboxRows(s: Pick<InboxState, 'data' | 'filter'>): InboxItem[] {
-  return s.filter === 'held' ? (s.data?.held ?? []) : filterItems(s.data?.items ?? [], s.filter)
-}
-
-/** How many rows each filter has. */
-export function inboxCounts(data: InboxData | null): Record<InboxFilter, number> {
-  const items = data?.items ?? []
-  return { all: items.length, messages: filterItems(items, 'messages').length, mentions: filterItems(items, 'mentions').length, mail: filterItems(items, 'mail').length, held: data?.held.length ?? 0 }
+  return filterInbox(s.data, s.filter)
 }
 
 /** Mail rows with their live headers, by index id. */
@@ -198,8 +219,18 @@ export function inboxOpened(s: Pick<InboxState, 'data' | 'filter' | 'openKey'>):
 
 // ── Moves ────────────────────────────────────────────────────────────────
 
-export function setInboxFilter(filter: InboxFilter): void {
+export function setInboxFilter(filter: InboxListFilter): void {
   set({ filter, cursor: 0 })
+  try {
+    window.localStorage.setItem(INBOX_FILTER_KEY, JSON.stringify({ status: filter.status, kinds: filter.kinds }))
+  } catch {
+    // Storage blocked or full: it holds in memory.
+  }
+}
+
+/** F: open the filter's menu (the button on screen, InboxFilterButton). */
+export function openInboxFilter(): void {
+  set({ filterAsk: state.filterAsk + 1 })
 }
 
 export function setInboxCursor(cursor: number): void {
@@ -303,6 +334,7 @@ export async function inboxOpen(item: InboxItem, opts: { beside?: () => void; on
 /** Tests: nothing read, nothing chosen. */
 export function __resetInboxStoreForTests(): void {
   state = INITIAL
+  filterRead = false
   listeners.clear()
   readers = 0
   stopReading?.()

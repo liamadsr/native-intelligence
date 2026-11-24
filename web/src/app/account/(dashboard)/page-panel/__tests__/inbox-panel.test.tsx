@@ -33,7 +33,7 @@ import { PAGE_PANELS } from '../page-panel'
 import { InboxPanel } from '../inbox-panel'
 import { HOME_SIDE_KEY, __resetHomeSideForTests, homeSide, setHomeSide } from '../home-side'
 import { HUB_PLACE_ATTR } from '../../rail/selected-place'
-import { __resetInboxStoreForTests, inboxState } from '@/components/inbox/inbox-store'
+import { __resetInboxStoreForTests, inboxState, setInboxFilter } from '@/components/inbox/inbox-store'
 import { OPEN_CARD_EVENT } from '@/lib/chat-cards/open-card'
 
 const at = new Date().toISOString()
@@ -100,15 +100,14 @@ describe('Inbox’s panel', () => {
     const onContent = await render()
     expect(onContent).toHaveBeenCalledWith('home', true)
     expect(panel().getAttribute(HUB_PLACE_ATTR)).toBe('home')
-    expect(panel().getAttribute('aria-label')).toBe('Inbox')
-    const filters = container.querySelector('[data-inbox-filters="panel"]')!
-    expect(Array.from(filters.querySelectorAll('[data-inbox-filter]')).map((b) => b.getAttribute('data-inbox-filter'))).toEqual(['all', 'messages', 'mentions', 'mail', 'held'])
-    expect(filters.querySelector('[data-inbox-filter="all"]')!.textContent).toContain('3')
+    expect(panel().getAttribute('aria-label')).toBe('Incoming')
+    // One filter, Recent's kind (Liam, 11-24): a button, no row of pills.
+    expect(container.querySelector('[data-inbox-filter]')).not.toBeNull()
+    expect(container.querySelector('[role="tablist"]')).toBeNull()
     expect(rows().map((r) => r.getAttribute('data-inbox-row'))).toEqual(['a', 'b', 'mail:t1'])
     // The filter narrows the one list.
-    await act(async () => filters.querySelector<HTMLButtonElement>('[data-inbox-filter="mail"]')!.click())
+    act(() => setInboxFilter({ status: 'all', kinds: ['mail'] }))
     expect(rows().map((r) => r.getAttribute('data-inbox-row'))).toEqual(['mail:t1'])
-    expect(inboxState().filter).toBe('mail')
   })
 
   it('S goes to Home’s Recent side (home-side.ts), kept on this device; off its side it draws nothing', async () => {

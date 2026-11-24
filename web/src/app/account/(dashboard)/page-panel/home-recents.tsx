@@ -188,13 +188,14 @@ export function HomeRecentsPanel(props: PagePanelProps) {
 
 const HOME_SIDES = [
   { id: 'recent', label: 'Recent' },
-  { id: 'inbox', label: 'Inbox' },
+  // Liam, 11-24: he calls it "incoming" (the alternative, "Inbox", in docs/plans/hub-panels.md).
+  { id: 'inbox', label: 'Incoming' },
 ] as const
 
 /**
- * Home's Recent | Inbox (home-side.ts; Liam, 11-24: "the split between
+ * Home's Recent | Incoming (home-side.ts; Liam, 11-24: "the split between
  * recent and notification or incoming in the sub-navigation", as Team chat's
- * All | Recent). Inbox carries a dot while something in it is unread.
+ * All | Recent). Incoming carries a dot while something in it is unread.
  */
 export function HomeSideSwitch() {
   const side = useHomeSide()

@@ -32,7 +32,7 @@
 import { useLayoutEffect, useMemo, useRef, type ReactNode } from 'react'
 import { openTarget } from '@/lib/chat-cards/open-card'
 import { useForYouEntries } from '../chat/for-you-column'
-import { InboxFilters, InboxList, INBOX_KEYS_HINT, inboxKeyDown } from '@/components/inbox/inbox-view'
+import { InboxFilterButton, InboxList, INBOX_KEYS_HINT, inboxKeyDown } from '@/components/inbox/inbox-view'
 import { inboxRows, useInbox } from '@/components/inbox/inbox-store'
 import { PagePanelFrame } from './page-panel-frame'
 import { type PageKey, type PagePanelProps } from './page-panel-types'
@@ -76,7 +76,7 @@ export function InboxPanel({
   // Off its side: nothing (the switch swaps the two at once, never a slide).
   if (!shown) return null
   return (
-    <PagePanelFrame mode={mode} active={active} label="Inbox" page={page}>
+    <PagePanelFrame mode={mode} active={active} label="Incoming" page={page}>
       <div
         data-inbox-panel=""
         className="flex min-h-0 flex-col"
@@ -90,9 +90,10 @@ export function InboxPanel({
           inboxKeyDown(e, s, opts)
         }}
       >
-        {lead && <div className="flex items-center px-2.5 pt-2.5">{lead}</div>}
-        <div className="px-2.5 pb-1.5 pt-2.5">
-          <InboxFilters s={s} variant="panel" />
+        {/* Home's switch and the filter, one calm row, as Recent's (Liam, 11-24: "the same type of filter"). */}
+        <div className="flex items-center gap-1.5 px-2.5 pb-1.5 pt-2.5">
+          {lead}
+          <InboxFilterButton s={s} className={lead ? undefined : 'ml-auto'} />
         </div>
         <div
           role="listbox"

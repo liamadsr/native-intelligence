@@ -30,22 +30,42 @@
  * next one in its place), Enter or O opens, Esc closes the item. For you's
  * cards stay in For you: one row says how many wait there and opens it.
  */
-import { useEffect, useMemo, useRef, type KeyboardEvent, type ReactNode } from 'react'
-import { AtSign, Bell, Check, Clock, Inbox as InboxIcon, Mail, MessagesSquare, Sparkles, Undo2, X } from 'lucide-react'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { AtSign, Bell, Check, Clock, Inbox as InboxIcon, ListFilter, Mail, MessagesSquare, Sparkles, Undo2, X } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 import { relativeTime } from '@/lib/work/presentation'
 import { TeamChatView } from '@/app/account/(dashboard)/views/team-chat-view'
 import { EmailLayout, type MailCardOptions } from '@/components/email/email-layout'
 import { setRightPanelOpen, setSidePanelView } from '@/app/account/(dashboard)/side-panels/side-panel-store'
-import { HOLD_CHOICES, INBOX_FILTERS, holdChoiceLabel, holdUntil, type HoldChoice, type InboxFilter, type InboxItem } from '@/lib/inbox/items'
+import {
+  DEFAULT_INBOX_FILTER,
+  HOLD_CHOICES,
+  INBOX_KINDS,
+  holdChoiceLabel,
+  holdUntil,
+  inboxKindCounts,
+  isDefaultInboxFilter,
+  toggleInboxKind,
+  type HoldChoice,
+  type InboxItem,
+  type InboxStatus,
+} from '@/lib/inbox/items'
 import type { CardRecordType } from '@/lib/chat-cards/kinds'
 import { CardHeaderSlot, useCardHeaderSlots } from '@/components/chat-cards/card-header-slot'
-import { CARD_HEADER_CAPSULE, CARD_HEADER_SEGMENT } from '@/components/chat-cards/card-header-button'
 import { keepFocusAfterFlip } from '@/app/account/(dashboard)/page-panel/hub-open'
 import {
   closeInboxItem,
-  inboxCounts,
   inboxDone,
   inboxHold,
   inboxMailById,
@@ -53,21 +73,12 @@ import {
   inboxOpened,
   inboxRows,
   inboxTitleOf,
+  openInboxFilter,
   setInboxCursor,
   setInboxFilter,
   useInbox,
   type InboxState,
 } from './inbox-store'
-
-export const FILTER_LABELS: Record<InboxFilter, string> = {
-  all: 'All',
-  messages: 'Messages',
-  mentions: 'Mentions & assignments',
-  mail: 'Mail',
-  held: 'Held',
-}
-/** In a card's header or the panel, where room is short: the long one shortened (its full name is the tooltip). */
-const SHORT_LABELS: Partial<Record<InboxFilter, string>> = { mentions: 'Mentions' }
 
 /** The keys' hint under the list. */
 export const INBOX_KEYS_HINT = 'J / K to move · Enter to open · E done · H hold until tomorrow'
@@ -119,95 +130,106 @@ export function inboxKeyDown(e: KeyboardEvent<HTMLElement>, s: InboxState, opts:
   } else if ((e.key === 'Enter' || key === 'o') && current) {
     e.preventDefault()
     void inboxOpen(current, opts)
-  } else if (key === 'e' && current && s.filter !== 'held') {
+  } else if (key === 'f' && !e.shiftKey) {
+    // F: the filter (InboxFilterButton), as Recent's.
+    e.preventDefault()
+    openInboxFilter()
+  } else if (key === 'e' && current && s.filter.status !== 'held') {
     e.preventDefault()
     void inboxDone(current)
   } else if (key === 'h' && current) {
     e.preventDefault()
-    void inboxHold(current, s.filter === 'held' ? null : holdUntil('tomorrow'))
+    void inboxHold(current, s.filter.status === 'held' ? null : holdUntil('tomorrow'))
   } else if (e.key === 'Escape' && s.openKey) {
     e.preventDefault()
     closeInboxItem()
   }
 }
 
+const STATUSES: ReadonlyArray<{ key: InboxStatus; label: string }> = [
+  { key: 'all', label: 'All' },
+  { key: 'unread', label: 'Unread' },
+  { key: 'read', label: 'Read' },
+  { key: 'held', label: 'Held for later' },
+]
+
 /**
- * The filter: a capsule of segments (the card's header, Liam, 11-23 "Into
- * the header"; and the panel), or the row of pills over the list on its own.
+ * Incoming's filter (Liam, 11-24: "the same type of filter for the incoming
+ * view with the different notifications we support with all being the
+ * default"): the same button and menu as Recent's (page-panel/home-recents.tsx
+ * RecentsFilterBar). Status (All, Unread, Read, Held for later) and Type, one
+ * per kind of notification the list has (lib/inbox/items.ts INBOX_KINDS),
+ * with how many; Reset filters. A filter on: the button says how many. F
+ * opens it while the list has the focus (openInboxFilter). Drawn where the
+ * list is: beside Home's switch, or in the Inbox card's header.
  */
-export function InboxFilters({ s, variant }: { s: InboxState; variant: 'header' | 'panel' | 'row' }) {
-  const counts = useMemo(() => inboxCounts(s.data), [s.data])
-  if (variant === 'row') {
-    return (
-      <div className="flex shrink-0 flex-wrap gap-1 px-4 pb-2 pt-3" role="tablist" aria-label="Show">
-        {INBOX_FILTERS.map((f) => (
-          <button
-            key={f}
-            type="button"
-            role="tab"
-            aria-selected={s.filter === f}
-            data-inbox-filter={f}
-            onClick={() => setInboxFilter(f)}
-            // As every page's pills (Reviews, Drive): the chosen one tinted, the rest clear (Liam, 11-20: unselected pills are transparent).
-            className={cn('h-7 rounded-full px-3 text-xs transition-colors', s.filter === f ? 'bg-foreground/[0.08] font-medium text-foreground' : 'text-muted-foreground hover:bg-foreground/[0.05] hover:text-foreground')}
-          >
-            {FILTER_LABELS[f]}
-            {counts[f] > 0 && <span className="ml-1 tabular-nums opacity-70">{counts[f]}</span>}
-          </button>
-        ))}
-      </div>
-    )
-  }
-  if (variant === 'panel') {
-    // The panel is narrow: small pills that wrap, the long one shortened (its full name the tooltip).
-    return (
-      <div role="tablist" aria-label="Show" data-inbox-filters="panel" className="flex flex-wrap gap-1">
-        {INBOX_FILTERS.map((f) => (
-          <button
-            key={f}
-            type="button"
-            role="tab"
-            aria-selected={s.filter === f}
-            data-inbox-filter={f}
-            title={FILTER_LABELS[f]}
-            onClick={() => setInboxFilter(f)}
-            className={cn(
-              'h-6 rounded-full px-2 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none',
-              s.filter === f ? 'bg-foreground/[0.08] font-medium text-foreground' : 'text-muted-foreground hover:bg-foreground/[0.05] hover:text-foreground',
-            )}
-          >
-            {SHORT_LABELS[f] ?? FILTER_LABELS[f]}
-            {counts[f] > 0 && <span className="ml-1 tabular-nums opacity-60">{counts[f]}</span>}
-          </button>
-        ))}
-      </div>
-    )
-  }
+export function InboxFilterButton({ s, className }: { s: InboxState; className?: string }) {
+  const [open, setOpen] = useState(false)
+  // F, from the list's keys (inboxKeyDown): this one, the one on screen, opens.
+  const asked = useRef(s.filterAsk)
+  useEffect(() => {
+    if (s.filterAsk !== asked.current) {
+      asked.current = s.filterAsk
+      setOpen(true)
+    }
+  }, [s.filterAsk])
+  const filter = s.filter
+  const counts = useMemo(() => inboxKindCounts(s.data), [s.data])
+  const on = (filter.status === 'all' ? 0 : 1) + filter.kinds.length
+  const kinds = INBOX_KINDS.filter((k) => counts.has(k.key) || filter.kinds.includes(k.key))
   return (
-    <div role="tablist" aria-label="Show" data-inbox-filters="header" className={CARD_HEADER_CAPSULE}>
-      {INBOX_FILTERS.map((f) => (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild>
         <button
-          key={f}
           type="button"
-          role="tab"
-          aria-selected={s.filter === f}
-          data-inbox-filter={f}
-          title={FILTER_LABELS[f]}
-          onClick={() => setInboxFilter(f)}
-          className={CARD_HEADER_SEGMENT}
-        >
-          {SHORT_LABELS[f] ? (
-            <>
-              <span className="@[52rem]:hidden">{SHORT_LABELS[f]}</span>
-              <span className="hidden @[52rem]:inline">{FILTER_LABELS[f]}</span>
-            </>
-          ) : (
-            FILTER_LABELS[f]
+          data-inbox-filter=""
+          data-inbox-filter-on={on ? String(on) : undefined}
+          aria-label={on ? `Filter (${on} on)` : 'Filter'}
+          title="Filter (F)"
+          className={cn(
+            'inline-flex h-6 shrink-0 items-center gap-1 rounded-full px-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none',
+            on > 0 && 'text-foreground',
+            className,
           )}
-          {counts[f] > 0 && <span className="ml-1 tabular-nums opacity-60">{counts[f]}</span>}
+        >
+          <ListFilter aria-hidden className="size-3.5" />
+          {on > 0 && <span className="tabular-nums">{on}</span>}
         </button>
-      ))}
-    </div>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="max-h-[min(70vh,28rem)] w-56 overflow-y-auto">
+        <DropdownMenuLabel className="text-[11px] text-muted-foreground">Status</DropdownMenuLabel>
+        <DropdownMenuRadioGroup value={filter.status} onValueChange={(v) => setInboxFilter({ ...filter, status: v as InboxStatus })}>
+          {STATUSES.map((st) => (
+            <DropdownMenuRadioItem key={st.key} value={st.key} data-inbox-status={st.key}>
+              <span className="flex-1">{st.label}</span>
+              {st.key === 'held' && (s.data?.held.length ?? 0) > 0 && <span className="ml-2 text-xs tabular-nums text-muted-foreground">{s.data!.held.length}</span>}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+        {kinds.length > 0 && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="text-[11px] text-muted-foreground">Type</DropdownMenuLabel>
+            {kinds.map((k) => (
+              <DropdownMenuCheckboxItem
+                key={k.key}
+                data-inbox-kind={k.key}
+                checked={filter.kinds.includes(k.key)}
+                onSelect={(e) => e.preventDefault()}
+                onCheckedChange={() => setInboxFilter(toggleInboxKind(filter, k.key))}
+              >
+                <span className="flex-1">{k.label}</span>
+                {(counts.get(k.key) ?? 0) > 0 && <span className="ml-2 text-xs tabular-nums text-muted-foreground">{counts.get(k.key)}</span>}
+              </DropdownMenuCheckboxItem>
+            ))}
+          </>
+        )}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem data-inbox-reset="" disabled={isDefaultInboxFilter(filter)} onSelect={() => setInboxFilter(DEFAULT_INBOX_FILTER)}>
+          Reset filters
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
@@ -229,7 +251,7 @@ export function InboxList({ s, forYouCount = 0, opts = {}, dense = false }: { s:
   }, [cursor])
   return (
     <>
-      {forYouCount > 0 && s.filter === 'all' && (
+      {forYouCount > 0 && isDefaultInboxFilter(s.filter) && (
         <button
           type="button"
           data-inbox-for-you=""
@@ -250,7 +272,7 @@ export function InboxList({ s, forYouCount = 0, opts = {}, dense = false }: { s:
       ) : rows.length === 0 ? (
         <div className={cn('flex flex-col items-center gap-2 text-center', dense ? 'py-8' : 'py-16')} data-inbox-empty="">
           <InboxIcon className="h-7 w-7 text-muted-foreground/60" />
-          <p className="text-sm text-muted-foreground">{s.filter === 'held' ? 'Nothing held for later.' : 'Nothing needs you. You’re all caught up.'}</p>
+          <p className="text-sm text-muted-foreground">{s.filter.status === 'held' ? 'Nothing held for later.' : isDefaultInboxFilter(s.filter) ? 'Nothing needs you. You’re all caught up.' : 'Nothing matches these filters.'}</p>
         </div>
       ) : (
         <ul ref={listRef}>
@@ -302,7 +324,7 @@ export function InboxList({ s, forYouCount = 0, opts = {}, dense = false }: { s:
                   </span>
                   <span className="shrink-0 text-[11px] text-muted-foreground group-hover:hidden">{relativeTime(item.at)}</span>
                   <span className="hidden shrink-0 items-center gap-0.5 group-hover:flex" onClick={(e) => e.stopPropagation()}>
-                    {s.filter === 'held' ? (
+                    {s.filter.status === 'held' ? (
                       <button type="button" data-inbox-unhold="" title="Bring back now" aria-label="Bring back now" onClick={() => void inboxHold(item, null)} className="rounded p-1 text-muted-foreground hover:bg-background hover:text-foreground">
                         <Undo2 className="h-3.5 w-3.5" />
                       </button>
@@ -398,14 +420,18 @@ export function InboxView({
 
   return (
     <div className="flex h-full min-h-0" data-inbox-view="" onKeyDown={(e) => inboxKeyDown(e, s, opts)} tabIndex={-1}>
-      {/* In a card: the filter in its header, a capsule of segments as Calendar's views are (Liam, 11-23: "Into the header"); the page starts with the list. */}
+      {/* In a card: the filter in its header (Liam, 11-23: "Into the header"), the same button as beside Home's switch (11-24); the page starts with the list. */}
       {inCard && (
         <CardHeaderSlot side="right">
-          <InboxFilters s={s} variant="header" />
+          <InboxFilterButton s={s} />
         </CardHeaderSlot>
       )}
       <div className={cn('flex min-h-0 flex-col', pane ? 'hidden w-[22rem] shrink-0 md:flex' : 'flex-1')}>
-        {!inCard && <InboxFilters s={s} variant="row" />}
+        {!inCard && (
+          <div className="flex shrink-0 items-center justify-end px-3 pb-1 pt-2">
+            <InboxFilterButton s={s} />
+          </div>
+        )}
         <div className={cn('min-h-0 flex-1 overflow-y-auto px-2 pb-4', inCard && 'pt-2')} role="listbox" aria-label="Inbox" tabIndex={0} data-inbox-list="">
           <InboxList s={s} forYouCount={forYouCount} opts={opts} />
         </div>

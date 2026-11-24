@@ -431,20 +431,20 @@ describe('the page panel', () => {
 
   // Liam, 11-24: "the combined homepage has what we have in team-chat where we have the split between recent and
   // notification or incoming in the sub-navigation" (docs/plans/hub-panels.md, "One Home").
-  it('carries Home’s Recent | Inbox switch: Recent first, a press or S shows the Inbox side, remembered on this device', async () => {
+  it('carries Home’s Recent | Incoming switch: Recent first, a press or S shows the Incoming side, remembered on this device', async () => {
     act(() => root.render(<Row />))
     await flush()
     const group = panel()!.querySelector<HTMLElement>('[role="radiogroup"][data-home-side]')!
     expect(group.getAttribute('data-home-side')).toBe('recent')
     expect([...group.querySelectorAll('[role="radio"]')].map((r) => [r.textContent, r.getAttribute('aria-checked')])).toEqual([
       ['Recent', 'true'],
-      ['Inbox', 'false'],
+      ['Incoming', 'false'],
     ])
     act(() => group.querySelector<HTMLButtonElement>('[data-home-side-option="inbox"]')!.click())
     await flush()
     expect(window.localStorage.getItem(HOME_SIDE_KEY)).toBe('inbox')
     expect(container.querySelector('aside[aria-label="Recent"]')).toBeNull()
-    const inboxSide = container.querySelector<HTMLElement>('aside[aria-label="Inbox"]')!
+    const inboxSide = container.querySelector<HTMLElement>('aside[aria-label="Incoming"]')!
     expect(inboxSide.getAttribute('data-page-panel')).toBe('home')
     expect(inboxSide.querySelector('[data-home-side="inbox"]')).not.toBeNull()
     // And back with S, from the Recent side too.
