@@ -69,6 +69,7 @@ import { PANEL_TOP, SLIDE_CLASS, SLIDE_STYLE, useComposerReserve } from '../side
 import { MINIMIZED_TILE_BAND_PX, PAGE_PANEL_HEIGHT_SHARE, PAGE_PANEL_WIDTH_PX, PANEL_GUTTER_PX, type PanelMode } from '../side-panels/space-plan'
 import { topBarLeftInset } from '../top-bar/insets'
 import { PAGE_PANEL_ID } from './page-panel-types'
+import { HUB_PLACE_ATTR, isHubPlace } from '../rail/selected-place'
 
 /**
  * The host says, for the render a page change happens in, that the slot
@@ -183,6 +184,8 @@ export function PagePanelFrame({
       id={active ? PAGE_PANEL_ID : undefined}
       aria-label={label}
       data-page-panel={page}
+      // A hub's panel (home's Recent, Inbox's list): what it opens keeps the hub selected (rail/selected-place.ts).
+      {...(isHubPlace(page) ? { [HUB_PLACE_ATTR]: page } : null)}
       data-page-panel-mode={mode}
       data-page-panel-swap={swapping ? '' : undefined}
       data-page-panel-held={held ? '' : undefined}

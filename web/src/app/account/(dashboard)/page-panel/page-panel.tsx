@@ -47,8 +47,14 @@
  *              sub-nav is the one place; only its button hides it). Off
  *              screen (closed, or no room), a card's layer starts at the
  *              rail as before.
- *   Opening    an item opens exactly as it does today: a record's card full
- *              screen (home-recents.tsx openRecent). The panel persists
+ *   Opening    from a hub (home's Recent, Inbox's list; Liam, 11-23: "nothing
+ *              from the home page should open the full page";
+ *              docs/plans/hub-panels.md) just that one item: a record's
+ *              card full screen (home-recents.tsx openRecent), a team chat
+ *              channel as that one conversation, a mail thread alone, the
+ *              hub still selected (rail/selected-place.ts HUB_PLACE_ATTR),
+ *              and J / K flip it in place, the cards never stacking
+ *              (open-card.ts `flip`). The panel persists
  *              (Liam, 11-11: "I want the panel to persist when you open
  *              something, it should just make room for both things to be
  *              open"): it stays beside the card, the card's layer starting
@@ -96,6 +102,7 @@ import { ReviewsPanel } from './reviews-panel'
 import { TasksPanel } from './tasks-panel'
 import { MailPanel } from './mail-panel'
 import { TeamChatPanel } from './team-chat-panel'
+import { InboxPanel } from './inbox-panel'
 import { PAGE_GROUP_PANELS } from './page-group-panel'
 import { PagePanelHeldContext, PagePanelSwapContext, pagePanelReserve } from './page-panel-frame'
 import type { PageKey, PagePanelProps } from './page-panel-types'
@@ -140,6 +147,10 @@ export const PAGE_PANELS: Readonly<{ home: PagePanel } & Partial<Record<RailPage
   'team-chat': TeamChatPanel,
   // Reviews' sub-nav (docs/plans/github-reviews.md): reviews-panel.tsx.
   reviews: ReviewsPanel,
+  // Inbox's (Liam, 11-23: "the inbox page doesn't have a sub-menu panel";
+  // Inbox "Like Home", docs/plans/hub-panels.md): its filter and list, what
+  // it opens just that item beside it (inbox-panel.tsx).
+  inbox: InboxPanel,
   ...PAGE_GROUP_PANELS,
 }
 

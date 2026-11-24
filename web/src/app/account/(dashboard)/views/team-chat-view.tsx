@@ -196,6 +196,7 @@ export function TeamChatView({
   focus = null,
   cardId,
   onShowCard,
+  single = false,
 }: {
   onCount?: (count: number | null) => void
   compact?: boolean
@@ -212,6 +213,13 @@ export function TeamChatView({
   cardId?: string
   /** Put that card full screen (the sub-nav moves it from behind another card). */
   onShowCard?: () => void
+  /**
+   * Just the one conversation it is focused on, no list (Liam, 11-23: a
+   * channel opened from home or Inbox "opens as that one conversation"):
+   * a hub's card in front (team-chat-card.tsx), or Inbox's opened item
+   * (components/inbox/inbox-view.tsx). Laid out as beside the sub-nav.
+   */
+  single?: boolean
 } = {}) {
   const workspaceId = useWorkspaceId()
   const { teams } = useTeams()
@@ -257,7 +265,8 @@ export function TeamChatView({
   // 11-11), its list is as it always was.
   const railShown = useRailShown()
   const subnavShown = useOwnSubnavShown(cardId ? 'team-chat' : null)
-  const listInPanel = !!cardId && !compact && railShown && subnavShown
+  // Just the one conversation (`single`): no list here either, as beside the sub-nav.
+  const listInPanel = (!!cardId && !compact && railShown && subnavShown) || single
   // In a card its header is the page's (Liam, 11-22): the list has no title
   // row of its own, and the open channel is the header's breadcrumb, "Team
   // chat › #general", with its call and notifications at the header's right.

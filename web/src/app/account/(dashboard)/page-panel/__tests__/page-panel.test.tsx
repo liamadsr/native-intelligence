@@ -29,6 +29,8 @@ import type { FeedEntry } from '@/lib/entities/feed-model'
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const opened = vi.hoisted(() => [] as Array<{ target: unknown; from: string }>)
+/** Each open's `flip` (open-card.ts): a hub's open takes the place of the card it opened before. */
+const flips = vi.hoisted(() => [] as Array<boolean | undefined>)
 const composer = vi.hoisted(() => ({ height: 0 }))
 // The window's workspace, as its requests name it: a test may have it learned only while the first reads are out.
 const windowWs = vi.hoisted(() => ({ id: 'ws-home' as string | null }))
@@ -43,8 +45,9 @@ vi.mock('@/components/files/global-file-viewer', () => ({
 }))
 vi.mock('@/lib/chat-cards/open-card', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/chat-cards/open-card')>()),
-  openTarget: (target: unknown, opts: { from: string }) => {
+  openTarget: (target: unknown, opts: { from: string; flip?: boolean }) => {
     opened.push({ target, from: opts.from })
+    flips.push(opts.flip)
     return true
   },
 }))
@@ -108,6 +111,7 @@ let root: Root
 
 beforeEach(() => {
   opened.length = 0
+  flips.length = 0
   filesOpened.length = 0
   windowWs.id = 'ws-home'
   composer.height = 0
@@ -417,6 +421,53 @@ describe('the page panel', () => {
     expect(lit()).toEqual(['Q4 renewals plan'])
     act(() => releaseDoc())
     expect(lit()).toEqual([])
+    await flush()
+  })
+
+  // Liam, 11-23: "so I can flip through the recent things I've looked at" (docs/plans/hub-panels.md).
+  it('flips with J/K while one of its rows is open: the next row opens in its place (flip), the panel keeps the focus', async () => {
+    act(() => root.render(<Row />))
+    await flush()
+    const keys = panel()!.querySelector<HTMLElement>('[data-recents-keys]')!
+    const press = (key: string, target: HTMLElement = (document.activeElement as HTMLElement) ?? keys) =>
+      act(() => {
+        target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
+      })
+    // Nothing open: J only moves.
+    press('j', keys)
+    expect(opened).toEqual([])
+    let release = () => {}
+    act(() => {
+      release = holdFrontCard({ id: 'card-action', spec: { kind: 'record', title: 'Action', record: { type: 'action', id: ACTION } } as never, close: () => {} })
+    })
+    // The action's row is lit, and the focus on it: J flips to the doc.
+    press('j')
+    expect(document.activeElement).toBe(rows()[1])
+    expect(opened).toEqual([{ target: { type: 'document', id: DOC, title: 'Q4 renewals plan' }, from: 'recents' }])
+    expect(flips).toEqual([true])
+    // At the end: nothing more.
+    press('j')
+    expect(opened).toHaveLength(1)
+    act(() => release())
+    await flush()
+  })
+
+  it('lights a team chat channel’s row while its card is in front (the card names no record)', async () => {
+    const CHANNEL = 'c0000000-0000-4000-8000-000000000001'
+    recent = [entry('team_chat_channel' as FeedEntry['type'], CHANNEL, 'design', ago(5), true), ...recent]
+    act(() => root.render(<Row />))
+    await flush()
+    const channel = rows().find((r) => r.querySelector('[data-recent-title]')?.textContent === 'design')
+    expect(channel).toBeDefined()
+    act(() => channel!.click())
+    expect(opened.at(-1)).toEqual({ target: { type: 'team_chat', channelId: CHANNEL }, from: 'recents' })
+    let release = () => {}
+    act(() => {
+      release = holdFrontCard({ id: 'card-tc', spec: { kind: 'team_chat', title: 'Team chat' } as never, close: () => {} })
+    })
+    expect(channel!.getAttribute('aria-current')).toBe('true')
+    act(() => release())
+    expect(channel!.getAttribute('aria-current')).toBeNull()
     await flush()
   })
 

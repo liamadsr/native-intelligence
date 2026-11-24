@@ -23,7 +23,10 @@
  *           list has), Reset filters; kept per device (use-recents-filter.ts).
  *           A filter that leaves nothing says so, with Reset filters.
  *   Keys    while it has the focus: J/K and the arrows move between rows,
- *           Enter opens (Shift+Enter too: the app has no split view).
+ *           Enter opens (Shift+Enter too: the app has no split view). With
+ *           one of its rows open in front, a step flips it in place: the
+ *           next row's card takes its place (Liam, 11-23; openRecent's
+ *           `flip`), so the cards never stack.
  *           Each section reads as its own block in the one card: a row's
  *           height of space before the next one's small muted heading,
  *           a little room under it. What came to them carries a dot until
@@ -38,7 +41,11 @@
  *           palette's Inbox and Recent rows do (entityOpenTarget +
  *           openTarget): a record's card, full screen in the chat as it
  *           opens today; a team chat message, team chat on it. No viewer
- *           of its own. The panel persists beside the card (Liam, 11-11:
+ *           of its own. Home stays selected, whatever opens (Liam, 11-23:
+ *           "nothing from the home page should open the full page"; the
+ *           frame wears rail/selected-place.ts HUB_PLACE_ATTR): a channel is
+ *           that one conversation, a mail thread that thread alone.
+ *           The panel persists beside the card (Liam, 11-11:
  *           "I want the panel to persist when you open something, it should
  *           just make room for both things to be open"): another row opens
  *           its card in front in that one's place, as any card opened over
@@ -100,6 +107,7 @@ import {
 } from './recents-model'
 import { useRecents } from './use-recents'
 import { useRecentsFilter } from './use-recents-filter'
+import { keepFocusAfterFlip, useOpenedRow } from './hub-open'
 import type { PagePanelProps } from './page-panel-types'
 
 /**
@@ -124,8 +132,12 @@ export function openRecent(item: Pick<RecentItem, 'type' | 'id' | 'title'>): boo
     return true
   }
   const target = entityOpenTarget(item.type, item.id, item.title)
-  return target ? openTarget(target, { from: 'recents' }) : false
+  // `flip`: it takes the place of the card Recent opened last, never stacking (Liam, 11-23).
+  return target ? openTarget(target, { from: 'recents', flip: true }) : false
 }
+
+/** Kinds that open a card in front (not a viewer over the page, nor the Code view): the ones J/K flip through. */
+const flips = (item: Pick<RecentItem, 'type'>): boolean => item.type !== 'attachment' && item.type !== 'conversation' && item.type !== 'code_job'
 
 /** The rows' buttons in a list, in order (the keyboard's J/K walk them). */
 const rowButtons = (root: HTMLElement | null): HTMLButtonElement[] => (root ? [...root.querySelectorAll<HTMLButtonElement>('button[data-recent-item]')] : [])
@@ -166,8 +178,10 @@ function RecentsPanel({ active, mode, front, onContent, shown }: PagePanelProps 
   const { items: all, readAt, markOpened } = useRecents(active, front?.id ?? null)
   const [filter, setFilter] = useRecentsFilter()
   const [filterOpen, setFilterOpen] = useState(false)
-  // The record the card in front shows: its row is lit.
-  const lit = frontRecentKey(front?.spec)
+  // The record the card in front shows: its row is lit. A card that names no
+  // record (team chat on a channel): the row opened for it (hub-open.ts).
+  const [openedLit, noteOpened] = useOpenedRow(front?.id ?? null)
+  const lit = front ? (frontRecentKey(front.spec) ?? openedLit) : null
   // Whether there is anything at all (the filter aside): no panel when there isn't.
   const has = all.length > 0 && readAt !== null
   // Before its first read: not known yet (null), so a page change home holds
@@ -195,7 +209,13 @@ function RecentsPanel({ active, mode, front, onContent, shown }: PagePanelProps 
       markOpened(item)
       return
     }
-    if (openRecent(item)) markOpened(item)
+    // The focus stays on the row (a card's editor would take it as it mounts), so J / K go on flipping.
+    const row = typeof document !== 'undefined' ? document.activeElement : null
+    if (flips(item) && row instanceof HTMLElement && row.dataset.recentItem === item.key) keepFocusAfterFlip(row)
+    if (openRecent(item)) {
+      markOpened(item)
+      noteOpened(item.key)
+    }
   }
   // The panel's keys, while it has the focus (decision 6): J/K and the arrows
   // move between rows, Enter opens (Shift+Enter too: the app has no split),
@@ -225,6 +245,14 @@ function RecentsPanel({ active, mode, front, onContent, shown }: PagePanelProps 
     const next = at < 0 ? (down ? 0 : rows.length - 1) : Math.max(0, Math.min(rows.length - 1, at + (down ? 1 : -1)))
     rows[next].focus()
     rows[next].scrollIntoView?.({ block: 'nearest' })
+    // Something of the list's open in front: the step flips it in place (Liam,
+    // 11-23: "so I can flip through the recent things I've looked at"), the
+    // next card taking this one's place (openRecent's `flip`). A file or an
+    // agent chat (a viewer over the page) is only moved to: Enter opens it.
+    if (lit !== null && next !== at) {
+      const item = windowed.find((i) => i.key === rows[next].dataset.recentItem)
+      if (item && flips(item)) open(item)
+    }
   }
   return (
     <PagePanelFrame mode={mode} active={active} label="Recent" page="home">

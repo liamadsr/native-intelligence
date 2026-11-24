@@ -1805,7 +1805,30 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
     },
     [cardStore],
   )
-  const openCardHere = useCallback(
+  // The cards a hub put in this chat (home's Recent, Inbox's list: `flip`;
+  // Liam, 11-23: "so I can flip through the recent things I've looked at"):
+  // the next hub open takes such a card's place while it is in front, so
+  // flipping through ten records leaves one card in the chat, not ten.
+  const hubCardsRef = useRef<Set<string>>(new Set())
+  /** Take a hub's card out of the thread (flipFrom, below): it was only ever the one item in front. */
+  const dropHubCard = useCallback(
+    (id: string) => {
+      hubCardsRef.current.delete(id)
+      const holds = (m: UIMessage) => m.parts.some((part) => openedCardFromPart(part)?.id === id)
+      if (pendingOpenedRef.current.some(holds)) {
+        pendingOpenedRef.current = pendingOpenedRef.current.filter((m) => !holds(m))
+        setPendingOpened(pendingOpenedRef.current)
+        return
+      }
+      if (!messagesRef.current.some(holds)) return
+      const thread = messagesRef.current.filter((m) => !holds(m))
+      messagesRef.current = thread
+      setMessages(thread)
+      persistNow(thread)
+    },
+    [setMessages, persistNow],
+  )
+  const openCardHereNow = useCallback(
     // The card it opened or brought back here, or null (another chat's, or the dock's).
     (asked: OpenCardRequest): string | null => {
       // Projects, Initiatives and Teams nest under Tasks (Liam, 11-11): their page,
@@ -1860,6 +1883,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
         return held
       }
       const id = crypto.randomUUID()
+      // Put in by a hub (`flip`): the next hub open may take its place.
+      if (request.flip) hubCardsRef.current.add(id)
       const pendingHighest = pendingOpenedRef.current.reduce((max, m) => Math.max(max, openedCardFromPart(m.parts[0])?.number ?? 0), 0)
       const number = nextCardNumber(Math.max(cardStore.highestNumber(), pendingHighest))
       // Its first visit, so a page that never goes full screen (one of several
@@ -1887,6 +1912,20 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
       return docking ? null : id
     },
     [cardStore, setMessages, persistNow, openedCardOf],
+  )
+  const openCardHere = useCallback(
+    // The card it opened or brought back here, or null (another chat's, or the dock's).
+    (asked: OpenCardRequest): string | null => {
+      // A hub's flip: the hub's card in front now, to take out once the next is in (dropHubCard).
+      const front = asked.flip ? cardStore.fullScreen() : null
+      const flipFrom = front && hubCardsRef.current.has(front) ? front : null
+      const opened = openCardHereNow(asked)
+      if (asked.flip && opened) {
+        if (flipFrom && flipFrom !== opened) dropHubCard(flipFrom)
+      }
+      return opened
+    },
+    [cardStore, dropHubCard, openCardHereNow],
   )
   // The dock and the store in step: the capture's card is the docked one
   // while it records; when it ends (the dock sliding away) it is let go, a
