@@ -213,6 +213,16 @@ out until the owner rolls it out.
       the shared toolbar, list, rows, keys and row menu over rows a page reads
       itself (view-only kind `team`). A row opens its settings, and its menu
       also opens its board.
-- [ ] Files
+- [x] Files: through `LocalViewList` (view-only kind `file`). The shared
+      toolbar has its Type, Created by, Modified, Added, Opened and Name
+      filters, grouping, sort and properties, and the shared rows show each
+      file's glyph, where it lives, who made it, its size and a time. Its
+      sources and "Which files" stay the page's own row (they decide what is
+      fetched, as Reviews' sections do). Search still runs on the server.
+      Recent opens on the last opened. Right-click opens it, opens the record
+      it lives on, or moves one's own Drive upload (M too).
+      **No saved views yet:** the view enum has no `file`, and 717 is merged.
+      A later migration adding `file` turns them on (`canSaveViews` in
+      files-card.tsx).
 - [ ] Agents & skills
 - [ ] Library

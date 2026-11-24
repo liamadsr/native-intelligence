@@ -5,6 +5,7 @@ import { companyCrmCell } from '@/components/crm/company-crm-fields'
 import { ENTITY_IDENTITIES, entityIdentity } from '@/lib/entities/entity-identity'
 import { listSharingText, type RowSharing } from '@/lib/entity-access/list-sharing'
 import { useRowMenuItems } from './row-menu-items'
+import { formatFileSize } from '@/lib/attachments/workspace-files-model'
 import { CAMPAIGN_STATUS_LABELS, describeAudience, type CampaignAudience, type CampaignStatus } from '@/lib/campaigns/shape'
 import { EntityIcon } from '@/components/entities/entity-icon'
 import { LIST_FOCUS_RING, LIST_ROW_ATTR, PROPERTY_FIELD_ATTR, useIsListFocused } from '../list-keyboard'
@@ -14,7 +15,7 @@ import { ThinkingOrb } from 'thinking-orbs'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { AlarmClock, Boxes, Check, ChevronRight, ExternalLink, EyeOff, FlaskConical, Loader2, Play, Repeat, Send, Telescope, Users, X, Zap } from 'lucide-react'
+import { AlarmClock, Boxes, Check, ChevronRight, ExternalLink, EyeOff, File as FileGlyph, FileImage, FileSpreadsheet, FileText, Film, FlaskConical, Loader2, Music, Play, Presentation, Repeat, Send, Telescope, Users, X, Zap } from 'lucide-react'
 import { ProjectIcon, isEmoji } from '@/components/ui/emoji-icon-picker'
 import {
   ContextMenu,
@@ -650,6 +651,18 @@ const ROW_OMIT = ['open'] as const
  */
 export const EntityRow = React.memo(EntityRowImpl)
 
+/** A file's glyph by its kind (lib/drive/drive-items.ts DRIVE_TYPES). */
+const FILE_TYPE_GLYPH: Record<string, typeof FileGlyph> = {
+  pdf: FileText,
+  document: FileText,
+  sheet: FileSpreadsheet,
+  slides: Presentation,
+  image: FileImage,
+  video: Film,
+  audio: Music,
+  other: FileGlyph,
+}
+
 /** A campaign's status dot: the state at a glance, as the Campaigns page always drew it. */
 const CAMPAIGN_STATUS_DOT: Record<CampaignStatus, string> = {
   planned: 'bg-muted-foreground/50',
@@ -707,6 +720,7 @@ export function getTitle(entityType: ViewEntityType, item: Record<string, unknow
     case 'drive_item': return (item.title as string) || 'Untitled'
     case 'campaign': return (item.name as string) || 'Untitled campaign'
     case 'team': return (item.name as string) || 'Untitled team'
+    case 'file': return (item.title as string) || 'Untitled file'
     case 'action': return (item.title as string) || 'Untitled'
     case 'capture': return (item.title as string) || 'Untitled Capture'
     case 'contact': return (item.full_name as string) || 'Unknown'
@@ -866,6 +880,11 @@ function EntityLeading({
       return <EntityIcon kind="campaign" />
     case 'team':
       return <EntityIcon kind="team" />
+    // A file: its kind's glyph (a PDF, a sheet, an image…), as the Files page drew it.
+    case 'file': {
+      const Glyph = FILE_TYPE_GLYPH[(item.file_type as string) ?? 'other'] ?? FileGlyph
+      return <Glyph aria-hidden data-entity-icon="file" className="h-4 w-4 shrink-0 text-muted-foreground" />
+    }
     // A folder's row: a subfolder or a record of its own kind.
     case 'drive_item':
       return <EntityIcon kind={(item.item_type as string) === 'folder' ? 'drive_folder' : (item.item_type as string)} />
@@ -3019,6 +3038,11 @@ function PropertyCell({ item, property, entityType, onPatch, pickerContext, canE
       const list = Array.isArray(item.channels) ? (item.channels as string[]) : []
       return list.length ? <span className="max-w-[160px] truncate text-[11px] text-muted-foreground">{list.join(', ')}</span> : null
     }
+    // ── A file's cells ──
+    case 'file_where':
+      return item.file_where ? <span className="max-w-[220px] truncate text-[11px] text-muted-foreground" title={item.file_where as string}>{item.file_where as string}</span> : null
+    case 'file_size':
+      return typeof item.file_size === 'number' ? <span className="whitespace-nowrap text-[11px] tabular-nums text-muted-foreground">{formatFileSize(item.file_size)}</span> : null
     // ── A team's cells ──
     case 'issue_prefix':
       return item.issue_prefix ? <span className="font-mono text-[11px] text-muted-foreground">{item.issue_prefix as string}</span> : null
@@ -3201,7 +3225,7 @@ function PropertyCell({ item, property, entityType, onPatch, pickerContext, canE
       const v = item[property] as string | null
       return v ? <span className={cn(chipClass, 'capitalize')}>{v.replace(/_/g, ' ')}</span> : null
     }
-    case 'last_interaction_at': case 'last_message_at': case 'created_at': case 'updated_at': case 'started_at': case 'filed_at': {
+    case 'last_interaction_at': case 'last_message_at': case 'created_at': case 'updated_at': case 'started_at': case 'filed_at': case 'opened_at': {
       const v = item[property] as string | null
       if (!v) return null
       return <span className={cn(chipClass)}>{formatRelative(v)}</span>
