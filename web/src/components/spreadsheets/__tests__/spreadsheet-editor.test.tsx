@@ -862,3 +862,55 @@ describe('version history', () => {
     expect(container.querySelector('aside[aria-label="Version history"]')?.textContent).not.toContain('Restore this version')
   })
 })
+
+// The owner's crash on 1198be57: the page died while a spreadsheet opened (no error anywhere) and
+// came back on Home. The open leaves a marker until its grid draws (lib/spreadsheets/open-marker.ts).
+describe('an open that takes the page down names itself', () => {
+  const MARKER = 'ni:spreadsheet-opening'
+  beforeEach(async () => {
+    localStorage.clear()
+    const { __resetOpenMarkerForTests } = await import('@/lib/spreadsheets/open-marker')
+    __resetOpenMarkerForTests()
+  })
+  afterEach(() => localStorage.clear())
+
+  it('while it opens, the marker says which spreadsheet and how far it got', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => {})))
+    await open()
+    expect(JSON.parse(localStorage.getItem(MARKER) ?? 'null')).toMatchObject({ id: ID, phase: 'fetching' })
+  })
+
+  it('a normal open leaves no marker once the grid has drawn', async () => {
+    await open()
+    expect(grid()).toBeTruthy()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10)
+    })
+    expect(localStorage.getItem(MARKER)).toBeNull()
+  })
+
+  it('an open that failed with its error shown leaves no marker', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => json({ error: 'Gone' }, 404)))
+    await open()
+    expect(container.textContent).toContain('Gone')
+    expect(localStorage.getItem(MARKER)).toBeNull()
+  })
+
+  it('a marker another page load left: that spreadsheet waits for the person, then opens when asked', async () => {
+    localStorage.setItem(MARKER, JSON.stringify({ page: 'the-page-that-died', id: ID, phase: 'engine', at: Date.now() - 3000, pageAgeMs: 2000 }))
+    await open()
+    expect(container.querySelector('[data-spreadsheet-held]')).not.toBeNull()
+    expect(grid()).toBeFalsy()
+    expect(calls.filter((c) => c.method === 'GET')).toHaveLength(0)
+
+    const openIt = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Open it')!
+    await act(async () => {
+      openIt.click()
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10)
+    })
+    expect(container.querySelector('[data-spreadsheet-held]')).toBeNull()
+    expect(grid()).toBeTruthy()
+  })
+})
