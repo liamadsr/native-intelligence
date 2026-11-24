@@ -85,7 +85,7 @@ export function PrompterPanel({ lines, items, heard, following, variant = 'page'
   const hud = variant === 'hud'
 
   return <div className={cn('flex min-h-0 flex-col gap-2 text-neutral-900 dark:text-neutral-100', className)} data-testid="prompter-panel">
-    {lines.length ? <section aria-label="Script" className="relative flex min-h-0 flex-1 flex-col">
+    {lines.length ? <section aria-label="Script" className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
       <div className="flex items-center gap-1.5 pb-1 text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
         <span className="uppercase tracking-wide">Script</span>
         {live ? <span className={cn('rounded-full px-1.5 py-px', paused ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300' : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300')} role="status">{paused ? 'Paused' : 'Following'}</span> : null}
@@ -95,7 +95,7 @@ export function PrompterPanel({ lines, items, heard, following, variant = 'page'
       </div>
       <div ref={view} tabIndex={0} onWheel={takeOver} onTouchMove={takeOver} onKeyDown={onKey}
         onPointerDown={(e) => { if (e.target === e.currentTarget) takeOver() }}
-        className={cn('min-h-0 flex-1 overflow-y-auto rounded-lg outline-none', hud ? 'pb-[60%]' : 'max-h-72 pb-24')}
+        className={cn('min-h-0 flex-1 overflow-y-auto rounded-lg outline-none', !hud && 'max-h-72')}
         style={{ fontSize: size, lineHeight: 1.35 }} aria-label="Script lines">
         {lines.map((line, i) => <p key={i} ref={(el) => { rows.current[i] = el }} onClick={() => { startAt(i); setPaused(false) }}
           className={cn('cursor-pointer rounded-md px-2 py-1 transition-opacity', i === current ? 'bg-black/[0.04] font-semibold opacity-100 dark:bg-white/[0.06]' : 'opacity-45 hover:opacity-70')}
@@ -103,6 +103,8 @@ export function PrompterPanel({ lines, items, heard, following, variant = 'page'
           {line.label ? <span className="mr-1.5 text-[0.6em] font-medium uppercase tracking-wide text-neutral-500">{line.label}</span> : null}
           {i === current && saidTo > 0 ? <><span className="opacity-50">{line.text.slice(0, saidTo)}</span>{line.text.slice(saidTo)}</> : line.text}
         </p>)}
+        {/* Room under the last line, so it too can sit a third of the way down. */}
+        <div aria-hidden className={hud ? 'h-[60vh]' : 'h-24'} />
       </div>
       {live && paused ? <button type="button" onClick={() => setPaused(false)} className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-neutral-900 px-3 py-1 text-xs font-semibold text-white shadow-md dark:bg-white dark:text-neutral-900">Resume following</button> : null}
     </section> : null}
