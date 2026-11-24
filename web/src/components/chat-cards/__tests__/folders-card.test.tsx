@@ -151,6 +151,8 @@ describe('the Folders card', () => {
     await render({ kind: 'folders', title: 'Folders', target: { type: 'drive_folder', id: CLIENTS, label: 'Clients' } })
     // jsdom lays nothing out: the list counts as on screen (list-keyboard.tsx asks).
     vi.spyOn(Element.prototype, 'getClientRects').mockReturnValue([{}] as unknown as DOMRectList)
+    // Nor has it CSS.escape, which scrolling the row into view uses.
+    vi.stubGlobal('CSS', { escape: (v: string) => v.replace(/["\\]/g, '\\$&') })
     const key = (k: string) => act(async () => void document.body.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true })))
     await key('j')
     await key('j')

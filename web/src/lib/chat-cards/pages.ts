@@ -140,6 +140,16 @@ export interface PageKindDef {
    * read_card re-runs (with the person's filters) and the note diffs.
    */
   rootEntity?: ViewEntityType
+  /**
+   * A views list the page draws at its top level whose rows the SERVER still
+   * reads the page's own way (docs/plans/views-everywhere.md): Canvases,
+   * Spreadsheets and Tables. The card's list reports what it shows and keeps
+   * the header's search, as a `rootEntity` list does, but `show` and
+   * read_card never re-run it: they read as the service role, where RLS
+   * doesn't hide another member's private canvas, table or workbook, so they
+   * keep the page's fenced reads (page-server.ts readPageRows).
+   */
+  drawsEntity?: ViewEntityType
   /** The list drawn inside a place, by `type:tab` first, then `type`. */
   placeEntity?: Partial<Record<string, ViewEntityType>>
   /** Only the desktop app can draw it. */
@@ -210,7 +220,7 @@ export const PAGE_KINDS: Record<PageKind, PageKindDef> = {
     target: { types: ['data_table', 'data_row'] },
     tabs: ['grid', 'board', 'calendar', 'gallery'],
     // Its top level is a views list of tables (docs/plans/views-everywhere.md).
-    rootEntity: 'data_table',
+    drawsEntity: 'data_table',
   },
   // Spreadsheets (migration 675): workbooks with formulas. Gated with Docs,
   // as Tables are. `target` is one spreadsheet: the card opens on its editor.
@@ -219,7 +229,7 @@ export const PAGE_KINDS: Record<PageKind, PageKindDef> = {
     rows: 'spreadsheets',
     view: 'docs',
     target: { types: ['spreadsheet'] },
-    rootEntity: 'spreadsheet',
+    drawsEntity: 'spreadsheet',
   },
   // Deals (Tables, phase 7): the pipelines, each a table whose rows are
   // deals. It opens on the default pipeline's board; `target` is a pipeline,
@@ -241,7 +251,7 @@ export const PAGE_KINDS: Record<PageKind, PageKindDef> = {
     rows: 'canvases',
     view: 'docs',
     target: { types: ['canvas'] },
-    rootEntity: 'canvas',
+    drawsEntity: 'canvas',
   },
   // Drive folders (migration 690; docs/plans/create-everything.md): the top
   // folders, or one folder (`target`) with its subfolders and the docs,
@@ -498,6 +508,7 @@ export function pageEntities(kind: PageKind): Set<ViewEntityType> {
   const def = PAGE_KINDS[kind]
   const out = new Set<ViewEntityType>(Object.values(def.placeEntity ?? {}).filter((x): x is ViewEntityType => !!x))
   if (def.rootEntity) out.add(def.rootEntity)
+  if (def.drawsEntity) out.add(def.drawsEntity)
   return out
 }
 
