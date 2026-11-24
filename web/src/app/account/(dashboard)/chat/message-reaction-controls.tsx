@@ -21,6 +21,7 @@ import { PopoverAnchor } from '@/components/ui/popover'
 import { useMessageReaction } from '@/hooks/use-message-reactions'
 import { MessageInteractionsContext } from './message-interactions'
 import { ReactionPickerPopover } from './reaction-picker'
+import { prefersReducedMotion } from '@/lib/media-query'
 
 export const ReactButton = memo(function ReactButton({
   message,
@@ -81,7 +82,7 @@ export const ReactionBadge = memo(function ReactionBadge({ message, bubble }: { 
     // Its first render is the thread loading with it: no pop.
     if (before === undefined || !emoji || before === emoji) return
     const el = ref.current
-    if (!el || typeof el.animate !== 'function' || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
+    if (!el || typeof el.animate !== 'function' || prefersReducedMotion()) return
     el.animate(
       [
         { transform: 'scale(0.4)', opacity: 0 },

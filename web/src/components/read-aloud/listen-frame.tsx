@@ -69,6 +69,7 @@ import type { BorderBeamProps } from 'border-beam'
 import { useSectionPlayer } from '@/lib/read-aloud/section-player'
 import { useListenMode } from '@/lib/read-aloud/listen-mode'
 import type { ListenTargetAbout } from '@/lib/voice/voice-ask'
+import { prefersReducedMotion } from '@/lib/media-query'
 
 /**
  * The mono glow's brightness (border-beam's `brightness`, a CSS brightness()
@@ -529,7 +530,7 @@ function ListenPulseHalo({ active, isDark }: { active: boolean; isDark: boolean 
   useEffect(() => {
     const el = breatheRef.current
     if (!el || typeof el.animate !== 'function') return
-    if (typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    if (prefersReducedMotion()) return
     const breathe = el.animate([{ opacity: 1 }, { opacity: HALO_LOW_OPACITY }, { opacity: 1 }], {
       duration: HALO_BREATHE_MS,
       iterations: Infinity,

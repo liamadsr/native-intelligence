@@ -1,3 +1,4 @@
+import { prefersReducedMotion } from '@/lib/media-query'
 /**
  * Dragging a side panel card by its ⋮⋮ handle (card-heading.tsx), on native
  * pointer events and no render per move: the dragged card follows the pointer
@@ -64,7 +65,7 @@ export function startCardDrag(
   // tall (open) card still reaches the end slots past a short neighbour.
   const minReach = rects[0].top - centres[from]
   const maxReach = last.bottom - centres[from]
-  const reduce = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const reduce = prefersReducedMotion()
   const shifts = cards.map(() => 0)
   let dragging = false
   let to = from

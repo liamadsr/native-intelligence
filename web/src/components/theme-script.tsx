@@ -10,6 +10,7 @@ import {
   CUSTOM_BG_LIGHT_VAR,
   CUSTOM_BG_DARK_VAR,
 } from '@/lib/custom-background'
+import { MATCH_MEDIA_SHIM_SCRIPT } from '@/lib/media-query'
 
 /**
  * Inline script that runs before React hydration to prevent flash.
@@ -23,7 +24,8 @@ export function ThemeScript() {
     themeMap[t.id] = { light: t.light, dark: t.dark }
   }
 
-  const script = `
+  // First, before anything reads a media query: WebKit's matchMedia can answer null (lib/media-query.ts).
+  const script = `${MATCH_MEDIA_SHIM_SCRIPT}
     try {
       // Desktop (Tauri) stamp — must happen before first paint so the
       // data-desktop CSS scope (select-none chrome, default cursor) never
@@ -33,7 +35,7 @@ export function ThemeScript() {
         document.documentElement.setAttribute('data-desktop', '');
       }
       var isDark = localStorage.theme === 'dark' ||
-        (!localStorage.theme && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        (!localStorage.theme && !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)') || {}).matches);
       if (isDark) {
         document.documentElement.classList.add('dark');
         document.documentElement.style.colorScheme = 'dark';

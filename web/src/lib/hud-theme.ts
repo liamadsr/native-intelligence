@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect } from 'react'
+import { mediaMatches, subscribeMedia } from '@/lib/media-query'
 
 /**
  * Keep a floating window's theme (the agent HUD, the dictation panel) in step
@@ -13,16 +14,11 @@ import { useEffect } from 'react'
  */
 export function useHudTheme() {
   useEffect(() => {
-    let mq: MediaQueryList | null = null
-    try {
-      mq = window.matchMedia('(prefers-color-scheme: dark)')
-    } catch {
-      /* no matchMedia */
-    }
+    const DARK = '(prefers-color-scheme: dark)'
     const apply = () => {
       try {
         const theme = localStorage.getItem('theme')
-        const dark = theme === 'dark' || (!theme && !!mq?.matches)
+        const dark = theme === 'dark' || (!theme && mediaMatches(DARK))
         document.documentElement.classList.toggle('dark', dark)
       } catch {
         /* storage unavailable */
@@ -33,12 +29,12 @@ export function useHudTheme() {
     }
     apply()
     window.addEventListener('storage', onStorage)
-    mq?.addEventListener?.('change', apply)
+    const offMedia = subscribeMedia(DARK, apply)
     document.addEventListener('visibilitychange', apply)
     window.addEventListener('focus', apply)
     return () => {
       window.removeEventListener('storage', onStorage)
-      mq?.removeEventListener?.('change', apply)
+      offMedia()
       document.removeEventListener('visibilitychange', apply)
       window.removeEventListener('focus', apply)
     }

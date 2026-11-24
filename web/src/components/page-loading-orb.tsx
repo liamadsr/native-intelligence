@@ -46,6 +46,7 @@
 
 import { MODE_DRAWS, type ModeOpts } from 'thinking-orbs/engine'
 import { useEffect, useRef, useState } from 'react'
+import { REDUCED_MOTION_QUERY, mediaMatches, prefersReducedMotion, subscribeMedia } from '@/lib/media-query'
 
 /**
  * The size we want when there is room for it, in CSS px.
@@ -220,8 +221,7 @@ function useIsDark(ref: React.RefObject<HTMLElement | null>): boolean {
     }
     resolve()
 
-    const media = typeof matchMedia !== 'undefined' ? matchMedia('(prefers-color-scheme: dark)') : null
-    media?.addEventListener('change', resolve)
+    const unsubscribe = subscribeMedia(DARK_QUERY, resolve)
 
     let observer: MutationObserver | null = null
     if (typeof MutationObserver !== 'undefined') {
@@ -234,7 +234,7 @@ function useIsDark(ref: React.RefObject<HTMLElement | null>): boolean {
     }
 
     return () => {
-      media?.removeEventListener('change', resolve)
+      unsubscribe()
       observer?.disconnect()
     }
   }, [ref])
@@ -256,20 +256,19 @@ function nearestDeclaredTheme(from: HTMLElement | null): boolean | null {
   return null
 }
 
+const DARK_QUERY = '(prefers-color-scheme: dark)'
+
 function prefersDark(): boolean {
-  return typeof matchMedia === 'undefined' || matchMedia('(prefers-color-scheme: dark)').matches
+  return mediaMatches(DARK_QUERY, true)
 }
 
 function usePrefersReducedMotion(): boolean {
   const [reduced, setReduced] = useState(false)
 
   useEffect(() => {
-    if (typeof matchMedia === 'undefined') return
-    const media = matchMedia('(prefers-reduced-motion: reduce)')
-    const sync = () => setReduced(media.matches)
+    const sync = () => setReduced(prefersReducedMotion())
     sync()
-    media.addEventListener('change', sync)
-    return () => media.removeEventListener('change', sync)
+    return subscribeMedia(REDUCED_MOTION_QUERY, sync)
   }, [])
 
   return reduced

@@ -116,6 +116,7 @@ import { EntityIcon } from '@/components/entities/entity-icon'
 import { FINDABLE_GROUP_IDENTITY_KIND } from '@/lib/entities/entity-identity'
 import { PALETTE_ENTRANCE_EASING, PALETTE_ENTRANCE_FROM, PALETTE_ENTRANCE_MS } from '@/lib/motion/palette-entrance'
 import { format, formatDistanceToNowStrict } from 'date-fns'
+import { prefersReducedMotion } from '@/lib/media-query'
 
 /** What the composer's field hands the inline menu: its keys. */
 export interface CommandMenuHandle {
@@ -712,7 +713,7 @@ function Entrance({
   useLayoutEffect(() => {
     const el = ref.current
     if (still || !el || typeof el.animate !== 'function') return
-    if (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    if (prefersReducedMotion()) return
     el.animate([from, { opacity: 1, transform: 'none' }], { duration, easing: PALETTE_ENTRANCE_EASING })
     // Once, as it mounts.
     // eslint-disable-next-line react-hooks/exhaustive-deps

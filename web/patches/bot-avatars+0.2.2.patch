@@ -1,0 +1,22 @@
+diff --git a/node_modules/bot-avatars/dist/index.es.js b/node_modules/bot-avatars/dist/index.es.js
+index 301ff9a..42c8726 100644
+--- a/node_modules/bot-avatars/dist/index.es.js
++++ b/node_modules/bot-avatars/dist/index.es.js
+@@ -3082,7 +3082,7 @@ function q0() {
+   i0.clear();
+   for (const n of t) n.show();
+ }
+-const Ee = () => typeof matchMedia == "function" && matchMedia("(prefers-reduced-motion: reduce)").matches, bi = oc(function({
++const Ee = () => typeof matchMedia == "function" && matchMedia("(prefers-reduced-motion: reduce)")?.matches, bi = oc(function({
+   type: n = "clover",
+   path: o,
+   face: s,
+@@ -3204,7 +3204,7 @@ const Ee = () => typeof matchMedia == "function" && matchMedia("(prefers-reduced
+       if (_t.classList.contains("dark")) return "dark";
+       if (_t.classList.contains("light")) return "light";
+     }
+-    return typeof matchMedia == "function" && matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
++    return typeof matchMedia == "function" && matchMedia("(prefers-color-scheme: light)")?.matches ? "light" : "dark";
+   }, tn = () => {
+     const kt = Jt.current, _t = tt.current;
+     if (!kt || !_t || !_t.path) return;
