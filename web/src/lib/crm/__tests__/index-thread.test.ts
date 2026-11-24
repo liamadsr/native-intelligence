@@ -508,7 +508,7 @@ describe('a sync that read the mailbox before a local change does not undo it', 
     gmailThreads['thr-1'] = { status: 200, body: { id: 'thr-1', messages: [SIMON] } }
     await indexGmailThread(db(), target())
     expect(rows()[0]).toMatchObject({ folder: 'inbox', is_unread: true, label_ids: ['INBOX', 'UNREAD'] })
-    expect(rows()[0].synced_at > '2026-11-24T09:00:00.000Z').toBe(true)
+    expect(String(rows()[0].synced_at) > '2026-11-24T09:00:00.000Z').toBe(true)
   })
 
   it('Gmail: a new message the stale read saw still lands (its id is what says mail arrived)', async () => {
