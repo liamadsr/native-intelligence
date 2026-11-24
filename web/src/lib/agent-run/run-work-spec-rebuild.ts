@@ -29,7 +29,7 @@ import { canonRegistrySection } from '@/lib/documents/canon-registry'
 import { getServiceClient } from '@/lib/admin'
 import { buildSystemPrompt } from '@/lib/ai/system-prompt'
 import { withToolGuide } from '@/lib/ai/tool-guides'
-import { ALL_TOOL_NAMES, ATTENDED_ONLY_TOOL_NAMES, getToolDefinition, getToolNamesForCategories, getToolSideEffect } from '@/lib/ai/tool-registry'
+import { ALL_TOOL_NAMES, ATTENDED_ONLY_TOOL_NAMES, DREAMER_ONLY_TOOL_NAMES, PARENT_NOTES_TOOL_NAMES, getToolDefinition, getToolNamesForCategories, getToolSideEffect } from '@/lib/ai/tool-registry'
 import { resolveWorkspaceEdition, computeEditionToolCeiling, featureGatedRecipeExclusions } from '@/lib/editions'
 import { workspaceWordsSection } from '@/lib/customers/business-words'
 import { isFeatureGatedRecipe } from '@/lib/library/feature-gate'
@@ -138,8 +138,16 @@ export function ceilingForWorkRun(
   origin: string | null | undefined,
   teammate?: TeammateToolBounds | null,
   chatCeiling?: unknown,
+  /** agent_run.server_helper: a Dreamer run ('dreamer', on a chat-origin row) also holds its own tools (DREAMER_RUN_TOOL_NAMES). */
+  serverHelper?: string | null,
 ): Set<string> {
-  const profile = workRunClassProfile(origin)
+  const dreamer = isDreamerRun(origin, serverHelper)
+  // The Dreamer (docs/plans/dreamer.md): the profile's reads only (no draft,
+  // document or other write the person would see, whatever its row's bound
+  // says), plus its notes, its parent's thread and its report, which every
+  // other work run's profile leaves out. Still inside its chat bound
+  // (dreamerChatCeiling), recorded at admission like every server helper's.
+  const profile = dreamer ? dreamerProfile(workRunClassProfile(origin)) : workRunClassProfile(origin)
   const base = !personStarted(origin) && teammate ? narrowToTeammate(profile, teammate) : profile
   const bound = chatBoundForWorkRun(origin, chatCeiling)
   if (!bound) return base
@@ -178,8 +186,11 @@ export async function ceilingForWorkRunTurn(
   run: WorkRunRow,
   claims: Pick<AgentRunTokenClaims, 'workspaceId' | 'chat'> & Partial<Pick<AgentRunTokenClaims, 'userId' | 'skillId'>>,
 ): Promise<Set<string>> {
-  const ceiling = ceilingForWorkRun(run.origin, run.teammate, run.chat_ceiling)
+  const ceiling = ceilingForWorkRun(run.origin, run.teammate, run.chat_ceiling, run.server_helper)
   if (claims.chat !== true) return ceiling
+  // A follow-up chat turn on a Dreamer run is the person (or a relay), never
+  // the Dreamer's own turn: its notes' writes and its report stay the run's.
+  for (const name of DREAMER_ONLY_TOOL_NAMES) ceiling.delete(name)
   const bound = chatBoundForWorkRun(run.origin, run.chat_ceiling)
   const grants = await resolveFollowThrough(supabase, { workspaceId: claims.workspaceId, teammateId: run.ai_team_member_id })
   if (grants.size > 0) {
@@ -336,6 +347,40 @@ export function serverHelperChatCeiling(): string[] {
 }
 
 /**
+ * The Dreamer's own tools (docs/plans/dreamer.md): its parent's thread, its
+ * five notes tools and its report. Every other work run's profile leaves them
+ * out (WORK_RUN_EXCLUDED_TOOLS); ceilingForWorkRun adds them to a Dreamer
+ * run's.
+ */
+export const DREAMER_RUN_TOOL_NAMES: readonly string[] = Object.freeze([...PARENT_NOTES_TOOL_NAMES].sort())
+
+/** A Dreamer run's profile: the reads of `base`, and its own tools. Pure. */
+function dreamerProfile(base: Iterable<string>): Set<string> {
+  const out = new Set<string>()
+  for (const name of base) if (getToolSideEffect(name) === 'read') out.add(name)
+  for (const name of DREAMER_RUN_TOOL_NAMES) out.add(name)
+  return out
+}
+
+/** True for a Dreamer run: agent_run.server_helper 'dreamer' on a chat-origin row (migration 720's shape). Pure. */
+export function isDreamerRun(origin: string | null | undefined, serverHelper: string | null | undefined): boolean {
+  return origin === 'chat' && serverHelper === 'dreamer'
+}
+
+/**
+ * The chat bound a Dreamer run is recorded with (agent_run.chat_ceiling,
+ * docs/plans/dreamer.md "What it may call"): a server helper's reads
+ * (serverHelperChatCeiling minus SERVER_HELPER_WRITE_TOOLS), plus its own
+ * tools (DREAMER_RUN_TOOL_NAMES), sorted. No email draft, document or
+ * proposed edit: it researches and reports to the parent, which decides what
+ * to do; it never writes anything the person sees.
+ */
+export function dreamerChatCeiling(): string[] {
+  const writes = new Set(SERVER_HELPER_WRITE_TOOLS)
+  return [...new Set([...serverHelperChatCeiling().filter((name) => !writes.has(name)), ...DREAMER_RUN_TOOL_NAMES])].sort()
+}
+
+/**
  * The loop-guard depth a work run's status writes carry (flows/types.ts
  * StatusChangeOrigin; the dispatcher skips every flow at depth >= 2 by default).
  * A run a person started is one automated hop from the click: 1, as before. An
@@ -376,7 +421,7 @@ export interface WorkRunRow {
   origin_depth?: number | null
   chat_ceiling?: string[] | null
   ai_team_member_id?: string | null
-  /** A server-started helper's kind (migrations 337, 443): 'meeting_prep', 'home_turn' or 'check_in', else null. */
+  /** A server-started helper's kind (migrations 337, 443, 720): 'meeting_prep', 'home_turn', 'check_in' or 'dreamer', else null. */
   server_helper?: string | null
   teammate?: TeammateToolBounds | null
 }
@@ -425,7 +470,17 @@ export interface RebuiltWorkRunSpec {
  * Start), reads as a person's Start; every other origin reads as an unrequested
  * first pass, so an origin nobody has decided on is told the cautious thing.
  */
-export function runStartSection(origin: string | null | undefined): string {
+export function runStartSection(origin: string | null | undefined, serverHelper?: string | null): string {
+  // The Dreamer (docs/plans/dreamer.md): nobody asked for it, and nothing it
+  // does is reported to the person. Its task carries its whole role.
+  if (isDreamerRun(origin, serverHelper)) {
+    return [
+      '## How this run started',
+      'Native Intelligence started this run on a schedule. Nobody is watching and nobody will answer a question: never ask one.',
+      '- Your task says what to research, what to keep in your notes and how to report: only to your parent, the main assistant, with `notify_parent`, never to the person.',
+      '- Your tools read; your only writes are your own notes and that one report. Finish with `finish_work` and a short summary of what you checked.',
+    ].join('\n')
+  }
   if (!origin || origin === 'user') {
     return [
       '## How this run started',
@@ -530,7 +585,7 @@ export async function rebuildWorkRunSpec(
     chatgptPlanFor(claims.userId),
     resolveWorkspaceEdition(supabase, claims.workspaceId).then((resolved) => workspaceWordsSection(supabase, claims.workspaceId, resolved.edition)),
   ])
-  const systemPrompt = [composeWorkRunSystemPrompt(basePrompt, persona), words, expertise, canon.trim(), aboutPerson, runStartSection(run.origin)]
+  const systemPrompt = [composeWorkRunSystemPrompt(basePrompt, persona), words, expertise, canon.trim(), aboutPerson, runStartSection(run.origin, run.server_helper)]
     .filter((section) => section.length > 0)
     .join('\n\n')
 

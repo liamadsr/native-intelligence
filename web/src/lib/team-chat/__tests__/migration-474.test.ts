@@ -110,7 +110,8 @@ describe('migration 474', () => {
 
   it('the agent’s turn: reason team_chat and a team_chat conversation are allowed, the earlier ones kept', () => {
     const reasons = /home_turn_reason_check check \(reason in \(([^)]*)\)\)/.exec(BODY)?.[1].split(',').map((v) => v.trim().replace(/'/g, ''))
-    expect(reasons).toEqual([...HOME_TURN_REASONS])
+    // 720 adds 'dreamer' after this file (pinned by its own test).
+    expect(reasons).toEqual(HOME_TURN_REASONS.filter((r) => r !== 'dreamer'))
     expect(CHANNEL_SURFACES.has('team_chat')).toBe(true)
     expect(BODY).toContain("or (outside_channel = 'team_chat' and agent_guest_id is null)")
     expect(BODY).toContain("outside_channel = 'slack'")

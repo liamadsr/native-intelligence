@@ -9,7 +9,7 @@
  *   a home turn's written message:           a text or Slack turn's reply
  *     helper_report, event, digest,            (answered in that channel)
  *     check_in, guest_ask, agent_answer,     an approval's result
- *     approval                               a run's batched suggestions
+ *     approval, dreamer                      a run's batched suggestions
  *   the look-ahead, when it has a text and   a teammate's report chip
  *     is still ahead of what it is about     a prep-only report (a banner, no text)
  *   a guest's note, a guest's request        a look-ahead past its shelf life
@@ -50,6 +50,8 @@ export const ROUTED_HOME_TURN_REASONS: ReadonlySet<HomeTurnReason> = new Set<Hom
   'guest_ask',
   'agent_answer',
   'approval',
+  // The parent's words after its Dreamer reported (docs/plans/dreamer.md), never the report itself.
+  'dreamer',
 ])
 
 /**

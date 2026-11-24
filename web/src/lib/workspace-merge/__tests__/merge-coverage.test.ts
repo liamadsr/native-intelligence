@@ -262,6 +262,7 @@ const UNIQUE_SETTLED: Record<string, string> = {
   snippet_shared_shortcut_key: '_wsmerge_one_per_owner folds the same text, else suffixes the shortcut (707)',
   snippet_personal_shortcut_key: '_wsmerge_one_per_owner folds the same text, else suffixes the shortcut (707)',
   workspace_github_repo_unique: 'workspace_github_repo_merge_fold (694): during a merge the destination duplicate gives way',
+  agent_note_owner_path_key: 'agent_note_merge_fold (720): during a merge the moving note at a path the person has there takes a -merged- suffix',
   inbox_hold_pkey: '_wsmerge_one_per_owner joins the hold, the later end (707)',
   drive_file_open_pkey: '_wsmerge_one_per_owner keeps one open, the later (707)',
   crm_source_link_pkey: '_wsmerge_one_per_owner keeps the destination link (707)',

@@ -46,7 +46,7 @@ vi.mock('@/lib/ai/system-prompt', () => ({
 
 import { rebuildEveSpec } from '../skill-run-rebuild'
 import { buildSkillSystemPrompt, computeSkillCeiling } from '../run-skill'
-import { ALL_CATEGORY_IDS, ALL_TOOL_NAMES, ATTENDED_ONLY_TOOL_NAMES, CHAT_NATIVE_TOOL_NAMES, getToolDefinition } from '@/lib/ai/tool-registry'
+import { ALL_CATEGORY_IDS, ALL_TOOL_NAMES, ATTENDED_ONLY_TOOL_NAMES, CHAT_NATIVE_TOOL_NAMES, PARENT_NOTES_TOOL_NAMES, getToolDefinition } from '@/lib/ai/tool-registry'
 import { withToolGuide } from '@/lib/ai/tool-guides'
 import type { RunTokenClaims } from '../skill-run-token'
 
@@ -195,10 +195,11 @@ describe('rebuildEveSpec parity with assembleSkillRun helpers', () => {
     // (only the main chat runs start_helper), the attended-only ones (bots v3
     // Phase 5: nobody is in an unattended run to have asked) and the verdict
     // terminating tool, which is never a registry tool. NOT empty.
-    expect(rebuilt!.ceilingTools.length).toBe(ALL_TOOL_NAMES.length - CHAT_NATIVE_TOOL_NAMES.size - ATTENDED_ONLY_TOOL_NAMES.size)
+    // And the Dreamer's notes tools (docs/plans/dreamer.md): a Dreamer run's alone.
+    expect(rebuilt!.ceilingTools.length).toBe(ALL_TOOL_NAMES.length - CHAT_NATIVE_TOOL_NAMES.size - ATTENDED_ONLY_TOOL_NAMES.size - PARENT_NOTES_TOOL_NAMES.size)
     const advertised = new Set(rebuilt!.ceilingTools.map((t) => t.name))
     for (const name of ALL_TOOL_NAMES) {
-      expect(advertised.has(name), name).toBe(!CHAT_NATIVE_TOOL_NAMES.has(name) && !ATTENDED_ONLY_TOOL_NAMES.has(name))
+      expect(advertised.has(name), name).toBe(!CHAT_NATIVE_TOOL_NAMES.has(name) && !ATTENDED_ONLY_TOOL_NAMES.has(name) && !PARENT_NOTES_TOOL_NAMES.has(name))
     }
     expect(advertised.has('start_helper')).toBe(false)
     expect(advertised.has('submit_run_verdict')).toBe(false)

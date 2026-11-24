@@ -19,7 +19,7 @@ import {
   computeToolCeiling,
   pickPermittedTools,
 } from '@/lib/ai/tool-discovery'
-import { ALL_CATEGORY_IDS, ALL_TOOL_NAMES, ATTENDED_ONLY_TOOL_NAMES, CHAT_NATIVE_TOOL_NAMES, NON_CHAT_TOOL_NAMES, getMutatingToolNames } from '@/lib/ai/tool-registry'
+import { ALL_CATEGORY_IDS, ALL_TOOL_NAMES, ATTENDED_ONLY_TOOL_NAMES, CHAT_NATIVE_TOOL_NAMES, NON_CHAT_TOOL_NAMES, PARENT_NOTES_TOOL_NAMES, getMutatingToolNames } from '@/lib/ai/tool-registry'
 
 type AgentConfig = Parameters<typeof computeSkillCeiling>[0]
 
@@ -56,6 +56,8 @@ function gatewayCeilingInline(
   for (const name of CHAT_NATIVE_TOOL_NAMES) ceiling?.delete(name)
   // Bots v3 Phase 5: an unattended skill run never holds an attended-only tool.
   for (const name of ATTENDED_ONLY_TOOL_NAMES) ceiling?.delete(name)
+  // Nor the Dreamer's notes tools (docs/plans/dreamer.md).
+  for (const name of PARENT_NOTES_TOOL_NAMES) ceiling?.delete(name)
   return ceiling
 }
 

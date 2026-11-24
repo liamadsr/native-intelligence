@@ -66,7 +66,7 @@ import { checkUsageLimits } from '@/lib/ai/auth'
 import { chatModelPolicy, type ChatModelPolicy } from '@/lib/ai/models'
 import { SURFACE_MODELS } from '@/lib/ai/model-defaults'
 import { LIVE_MEETING_TOOL_NAMES } from '@/lib/ai/tool-discovery'
-import { CHAT_NATIVE_TOOL_NAMES, TOOL_CATEGORIES } from '@/lib/ai/tool-registry'
+import { CHAT_NATIVE_TOOL_NAMES, PARENT_NOTES_TOOL_NAMES, TOOL_CATEGORIES } from '@/lib/ai/tool-registry'
 import { toolInputJsonSchema } from '@/lib/ai/tool-schemas'
 import type { ChatSpec } from '@/lib/chat/chat-run-rebuild'
 import type { ChatRunTokenClaims } from '@/lib/chat/chat-run-token'
@@ -297,6 +297,9 @@ export const MAC_EXCLUDED_TOOLS: ReadonlySet<string> = new Set([
   // They call back into the app as the person, with a JWT no session token carries.
   'generate_email_drafts',
   'draft_followup_email',
+  // The Dreamer's notes and its own tools (docs/plans/dreamer.md): the main
+  // agent's private research about the person, and its researcher's writes.
+  ...PARENT_NOTES_TOOL_NAMES,
 ])
 
 /** Everything the Mac body never holds for this caller class. */

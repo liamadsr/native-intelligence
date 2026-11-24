@@ -25,8 +25,8 @@ import {
   type PolicyEffect,
   type VerifiedPrincipal,
 } from '../caller'
-import { ALL_CATEGORY_IDS, ALL_TOOL_NAMES, ATTENDED_ONLY_TOOL_NAMES, NON_CHAT_TOOL_NAMES } from '@/lib/ai/tool-registry'
-import { SURFACE_EXCLUDED_TOOLS, isServerTurnTool, serverTurnMayCall } from '@/lib/chat/chat-ceiling'
+import { ALL_CATEGORY_IDS, ALL_TOOL_NAMES, ATTENDED_ONLY_TOOL_NAMES, DREAMER_ONLY_TOOL_NAMES, NON_CHAT_TOOL_NAMES } from '@/lib/ai/tool-registry'
+import { SURFACE_EXCLUDED_TOOLS, isServerTurnTool, isToolExcludedForSurface, serverTurnMayCall } from '@/lib/chat/chat-ceiling'
 import { computeSkillCeiling } from '@/lib/flows/run-skill'
 import { ceilingForWorkRun } from '@/lib/agent-run/run-work-spec-rebuild'
 import { computeLiveAgentCeiling, LIVE_AGENT_TURN_TYPES } from '@/lib/live-agent/ceiling'
@@ -182,13 +182,14 @@ describe('decideAction: the decision table', () => {
 })
 
 describe('callerMayCall refuses nothing a door’s ceiling admits today (behaviour unchanged)', () => {
-  it('the person (in-app chat, teammate chat, MCP connector, follow-up chat turns): every registry tool', () => {
-    for (const name of [...ALL_TOOL_NAMES, 'search_tools', 'mcp__linear__create_issue']) expect(callerMayCall('person', name)).toBe(true)
+  it('the person (in-app chat, teammate chat, MCP connector, follow-up chat turns): every registry tool but the Dreamer\'s own', () => {
+    // The Dreamer's own tools (docs/plans/dreamer.md) are no person's: every chat ceiling drops them too (isToolExcludedForSurface).
+    for (const name of [...ALL_TOOL_NAMES, 'search_tools', 'mcp__linear__create_issue']) expect(callerMayCall('person', name), name).toBe(!DREAMER_ONLY_TOOL_NAMES.has(name))
   })
 
   it('the device ask: every tool its surface keeps', () => {
     for (const name of ALL_TOOL_NAMES) {
-      if (SURFACE_EXCLUDED_TOOLS.device_ask.has(name)) continue
+      if (SURFACE_EXCLUDED_TOOLS.device_ask.has(name) || isToolExcludedForSurface(name, 'device_ask')) continue
       expect(callerMayCall('person_remote', name)).toBe(true)
     }
   })

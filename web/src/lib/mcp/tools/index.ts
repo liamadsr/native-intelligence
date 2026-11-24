@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { createTools } from '@/lib/ai/tools'
 import { TEXT_TURN_ONLY_TOOL_NAMES } from '@/lib/ai/tools/text-setup'
 import { mcpWithheldAttendedTools } from '@/lib/mcp/attended-tools'
+import { PARENT_NOTES_TOOL_NAMES } from '@/lib/ai/tool-registry'
 import {
   offFeatureDeniedToolNames,
   isFeatureEnabled,
@@ -131,6 +132,11 @@ export async function registerTools(
   // A texted connect link goes only to the person's verified phone, from their
   // own text turn (src/lib/ai/tools/text-setup.ts): never an MCP client's.
   for (const name of TEXT_TURN_ONLY_TOOL_NAMES) {
+    delete (aiTools as Record<string, unknown>)[name]
+  }
+  // The Dreamer's notes and its own tools (docs/plans/dreamer.md): the main
+  // agent's private research and its researcher's writes, never a client's.
+  for (const name of PARENT_NOTES_TOOL_NAMES) {
     delete (aiTools as Record<string, unknown>)[name]
   }
   // A feature that is off loses its chat tools here too, before discovery, so
