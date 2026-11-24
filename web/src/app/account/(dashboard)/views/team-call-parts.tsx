@@ -35,7 +35,9 @@ import { Avatar, memberName, type Member } from './team-chat-message-parts'
 /** The header's call button: start a call here, or open the one this page is in. `className`: its shape where it stands (a card's header: round). */
 export function CallButton({ channel, label, className }: { channel: TeamChatChannel; label: string; className?: string }) {
   const { available, active, startCall, setMinimized } = useTeamCalls()
-  if (!available || channel.archived_at) return null
+  // A support conversation (migration 715) has no calls.
+  if (!available || channel.archived_at || channel.kind === 'support') return null
+  const kind = channel.kind
   const here = active?.channelId === channel.id
   const title = here ? 'Open the call' : channel.kind === 'dm' ? `Call ${label}` : channel.kind === 'meeting' ? `Start ${label}` : `Start a call in ${label}`
   return (
@@ -44,7 +46,7 @@ export function CallButton({ channel, label, className }: { channel: TeamChatCha
       data-team-call-start={here ? 'here' : ''}
       aria-label={title}
       title={title}
-      onClick={() => (here ? setMinimized(false) : void startCall({ id: channel.id, kind: channel.kind, label }))}
+      onClick={() => (here ? setMinimized(false) : void startCall({ id: channel.id, kind, label }))}
       className={cn(
         'shrink-0 rounded-lg p-1.5 hover:bg-accent hover:text-foreground',
         here ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : 'text-muted-foreground',
@@ -190,7 +192,8 @@ export function CallMessage({
   place: { label: string; kind: TeamChatChannel['kind'] } | undefined
 }) {
   const { available, active, joinCall, setMinimized } = useTeamCalls()
-  const kind = place?.kind ?? 'channel'
+  // A support conversation has no calls (715): its kind never reaches here; read as a channel's if it did.
+  const kind = place?.kind && place.kind !== 'support' ? place.kind : 'channel'
 
   if (!call || call.call.status === 'ended') {
     const ended = call?.call

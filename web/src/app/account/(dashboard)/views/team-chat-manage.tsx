@@ -49,7 +49,8 @@ export type TeamChatManageWhat = 'edit' | 'delete'
 
 /** Of a conversation, what its manager is offered: Edit and Delete for a channel; Rename and Delete for a meeting chat; nothing for a DM. Delete is last. */
 export function manageChoices(channel: Pick<TeamChatChannel, 'kind' | 'can_manage'>): Array<{ what: TeamChatManageWhat; label: string }> {
-  if (!channel.can_manage || channel.kind === 'dm') return []
+  // Never a DM, never a support conversation (715: its customer deletes it their own way, support_chat_remove).
+  if (!channel.can_manage || channel.kind === 'dm' || channel.kind === 'support') return []
   if (channel.kind === 'channel')
     return [
       { what: 'edit', label: 'Edit channel…' },

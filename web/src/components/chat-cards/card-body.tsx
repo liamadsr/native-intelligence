@@ -58,7 +58,7 @@ import type { ChatCardStore } from './card-store'
 import type { CardOpenRecord } from './card-storage'
 import { useEditorSelectionRelay } from './editor-selection'
 import { useCardNav, useCardNavStoreSync } from './card-history'
-import { CardHeaderSlot } from './card-header-slot'
+import { CardHeaderSlot, CardHeaderSlotsProvider, useCardHeaderSlots } from './card-header-slot'
 import { CardErrorBoundary } from './card-error-boundary'
 import { WindowPropertiesButton, WindowPropertiesProvider, WindowPropertiesSidebar, useWindowPropertiesSidebarShown, type PropertiesFrame } from '@/components/views/window-properties'
 import { cn } from '@/lib/utils'
@@ -598,10 +598,22 @@ function CardProperties({ focused, fullScreen, children }: { focused: boolean; f
  */
 function PropertiesRow({ rowRef, children }: { rowRef: React.RefObject<HTMLDivElement | null>; children: React.ReactNode }) {
   const shown = useWindowPropertiesSidebarShown()
-  return (
-    <div ref={rowRef} data-card-properties-row="" className={cn('flex h-full min-h-0', shown && 'justify-center')}>
+  // Over both, the card's whole width: a detail page's sections (DetailTabs), from the card's left edge, while
+  // the page and its column stand centred together under them (Liam, 11-24: "why is it that on prod the tabs are
+  // indented?": inside the centred 736px page they started wherever it did).
+  const slots = useCardHeaderSlots()
+  const [pageTop, setPageTop] = React.useState<HTMLElement | null>(null)
+  const withTop = React.useMemo(() => (slots ? { ...slots, pageTop } : null), [slots, pageTop])
+  const row = (
+    <div ref={rowRef} data-card-properties-row="" className={cn('flex min-h-0 flex-1', shown && 'justify-center')}>
       <div className={cn('h-full min-h-0 min-w-0 flex-1', shown && EMBEDDED_PAGE_WIDTH)}>{children}</div>
       <WindowPropertiesSidebar />
+    </div>
+  )
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div ref={setPageTop} data-card-page-top="" className="shrink-0 empty:hidden" />
+      {withTop ? <CardHeaderSlotsProvider value={withTop}>{row}</CardHeaderSlotsProvider> : row}
     </div>
   )
 }

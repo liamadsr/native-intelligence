@@ -29,6 +29,14 @@
  * thread on the message), and each one's person is then handed to the email
  * batcher (./email.ts), which writes to them only while they are away.
  *
+ * A support conversation (migration 715) is every message, as a DM: our
+ * staff's message notifies the customer; the customer's notifies each of our
+ * staff too ({@link supportStaffRecipients}), in their own workspace's inbox
+ * (the notification is theirs; the message stays in the customer's). Staff
+ * are never emailed about it (they aren't members there, so 560's
+ * team_chat_readable_messages never reads it for them, and they are left out
+ * of what is handed to the email batcher).
+ *
  * Privacy: events and step outputs carry ids only; logs carry ids and counts.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -49,7 +57,7 @@ export function isTeamChatNotifyLevel(value: unknown): value is TeamChatNotifyLe
 
 /** A channel's level when the member chose none: mentions only for a channel, every message in a DM. */
 export function defaultNotifyLevel(kind: TeamChatChannelKind): TeamChatNotifyLevel {
-  return kind === 'dm' ? 'all' : 'mentions'
+  return kind === 'dm' || kind === 'support' ? 'all' : 'mentions'
 }
 
 /** The level in effect: the member's own, else the kind's default. */
@@ -125,8 +133,9 @@ export function teamChatRecipients(
 /** The longest snippet a notification shows of the words. */
 export const TEAM_CHAT_NOTICE_CHARS = 140
 
-/** Where a message was said, as a notification says it: "#general", or null for a DM. */
+/** Where a message was said, as a notification says it: "#general", "Support" (migration 715), or null for a DM. */
 export function teamChatPlace(channel: { kind: TeamChatChannelKind; name: string | null }): string | null {
+  if (channel.kind === 'support') return 'Support'
   return channel.kind === 'channel' ? `#${channel.name ?? 'channel'}` : null
 }
 
@@ -194,7 +203,7 @@ interface MessageRow {
   id: string
   channel_id: string
   workspace_id: string
-  author_kind: 'member' | 'agent' | 'guest'
+  author_kind: 'member' | 'agent' | 'guest' | 'support'
   author_member_id: string | null
   agent_for_member_id: string | null
   agent_name: string | null
@@ -202,6 +211,7 @@ interface MessageRow {
   body: string
   attachments: unknown
   deleted_at: string | null
+  support_name?: string | null
 }
 
 /**
@@ -213,9 +223,14 @@ interface MessageRow {
  * out of the email). Throws on a failed read (the step retries).
  */
 export async function notifyTeamChatMessage(svc: SupabaseClient, messageId: string): Promise<{ outcome: TeamChatNotifyOutcome; notified: TeamChatNotified[] }> {
+  const message715Columns = await hasSupportColumns(svc)
   const { data: message, error } = await svc
     .from('team_chat_message')
-    .select('id, channel_id, workspace_id, author_kind, author_member_id, agent_for_member_id, agent_name, thread_root_id, body, attachments, deleted_at')
+    .select(
+      message715Columns
+        ? 'id, channel_id, workspace_id, author_kind, author_member_id, agent_for_member_id, agent_name, thread_root_id, body, attachments, deleted_at, support_name'
+        : 'id, channel_id, workspace_id, author_kind, author_member_id, agent_for_member_id, agent_name, thread_root_id, body, attachments, deleted_at',
+    )
     .eq('id', messageId)
     .maybeSingle<MessageRow>()
   if (error) throw new Error(`team chat notify: message read failed: ${error.message}`)
@@ -232,7 +247,14 @@ export async function notifyTeamChatMessage(svc: SupabaseClient, messageId: stri
 
   const { data: rows, error: candError } = await svc.rpc('team_chat_notify_candidates', { msg: messageId })
   if (candError) throw new Error(`team chat notify: candidates read failed: ${candError.message}`)
-  const recipients = teamChatRecipients(message, channel.kind, (rows ?? []) as TeamChatNotifyCandidate[])
+  const members = teamChatRecipients(message, channel.kind, (rows ?? []) as TeamChatNotifyCandidate[])
+  // A customer's message in their support conversation is for each of our staff too (in their own workspace).
+  const staff = channel.kind === 'support' && message.author_kind === 'member' ? await supportStaffRecipients(svc, channel.id) : []
+  const staffIds = new Set(staff.map((s) => s.memberId))
+  const recipients: Array<TeamChatRecipient & { workspaceId: string }> = [
+    ...members.map((r) => ({ ...r, workspaceId: message.workspace_id })),
+    ...staff.filter((s) => !members.some((r) => r.userId === s.userId)),
+  ]
   if (recipients.length === 0) return { outcome: 'nobody', notified: [] }
 
   // A retry: whoever has theirs already isn't written again (but is handed on below).
@@ -243,6 +265,8 @@ export async function notifyTeamChatMessage(svc: SupabaseClient, messageId: stri
   if (message.author_kind === 'member' && message.author_member_id) {
     const { data: author } = await svc.from('member').select('display_name').eq('id', message.author_member_id).maybeSingle<{ display_name: string | null }>()
     authorName = author?.display_name?.trim() || authorName
+  } else if (message.author_kind === 'support') {
+    authorName = message.support_name?.trim() || 'Support'
   }
   const place = teamChatPlace(channel)
   const copy = teamChatNotificationCopy({
@@ -254,8 +278,8 @@ export async function notifyTeamChatMessage(svc: SupabaseClient, messageId: stri
     files: Array.isArray(message.attachments) ? message.attachments.length : 0,
   })
   const groupKey = teamChatGroupKey(message)
-  const rowFor = (r: TeamChatRecipient) => ({
-    workspace_id: message.workspace_id,
+  const rowFor = (r: TeamChatRecipient & { workspaceId: string }) => ({
+    workspace_id: r.workspaceId,
     recipient_id: r.memberId,
     type: TEAM_CHAT_NOTIFICATION_TYPE,
     title: copy.title,
@@ -272,6 +296,8 @@ export async function notifyTeamChatMessage(svc: SupabaseClient, messageId: stri
       thread_root_id: message.thread_root_id,
       channel_kind: channel.kind,
       reason: r.reason,
+      // Our staff's, about a customer's support conversation (715): the customer's workspace, for the click.
+      ...(staffIds.has(r.memberId) ? { support_workspace_id: message.workspace_id } : {}),
       // What the email says (./email.ts): who wrote it and where, read off the row.
       author_name: message.author_kind === 'agent' ? `${message.agent_name ?? 'Agent'} (your agent)` : authorName,
       place,
@@ -296,8 +322,54 @@ export async function notifyTeamChatMessage(svc: SupabaseClient, messageId: stri
   const told = recipients.filter((r) => have.has(r.memberId))
   return {
     outcome: told.length === 0 ? 'gone' : fresh.length === 0 ? 'already' : 'notified',
-    notified: told.map((r) => ({ memberId: r.memberId, userId: r.userId, workspaceId: message.workspace_id, groupKey })),
+    // Our staff aren't emailed about a support conversation (their notice is in the app).
+    notified: told.filter((r) => !staffIds.has(r.memberId)).map((r) => ({ memberId: r.memberId, userId: r.userId, workspaceId: message.workspace_id, groupKey })),
   }
+}
+
+/** Whether migration 715's columns are there (asked once per process once they are). */
+let supportColumns: boolean | null = null
+async function hasSupportColumns(svc: SupabaseClient): Promise<boolean> {
+  if (supportColumns) return true
+  const { error } = await svc.from('team_chat_message').select('support_name').limit(0)
+  supportColumns = !error
+  return supportColumns
+}
+
+/** Tests only. */
+export function resetSupportColumns(): void {
+  supportColumns = null
+}
+
+/**
+ * Each of our support staff (migration 715's support_staff), as who a
+ * customer's support message notifies: their first workspace's member row
+ * (where their inbox is). Someone on the team with no workspace is skipped,
+ * and so is anyone who muted this conversation (715's support_chat_mute).
+ * Empty before 715, or when nobody is on the team.
+ */
+export async function supportStaffRecipients(svc: SupabaseClient, channelId?: string): Promise<Array<TeamChatRecipient & { workspaceId: string }>> {
+  const { data: staff, error } = await svc.from('support_staff').select('user_id')
+  if (error || !staff?.length) return []
+  let muted = new Set<string>()
+  if (channelId) {
+    const { data: marks, error: markError } = await svc.from('support_chat_read').select('user_id').eq('channel_id', channelId).eq('muted', true)
+    if (markError) throw new Error(`team chat notify: staff mutes read failed: ${markError.message}`)
+    muted = new Set(((marks ?? []) as Array<{ user_id: string }>).map((m) => m.user_id))
+  }
+  const userIds = (staff as Array<{ user_id: string }>).map((s) => s.user_id).filter((id) => !muted.has(id))
+  if (userIds.length === 0) return []
+  const { data: rows, error: memberError } = await svc
+    .from('member')
+    .select('id, user_id, workspace_id, created_at')
+    .in('user_id', userIds)
+    .order('created_at', { ascending: true })
+  if (memberError) throw new Error(`team chat notify: staff read failed: ${memberError.message}`)
+  const first = new Map<string, { id: string; user_id: string; workspace_id: string }>()
+  for (const m of (rows ?? []) as Array<{ id: string; user_id: string; workspace_id: string }>) {
+    if (!first.has(m.user_id)) first.set(m.user_id, m)
+  }
+  return [...first.values()].map((m) => ({ memberId: m.id, userId: m.user_id, workspaceId: m.workspace_id, reason: 'all' as const }))
 }
 
 /** Who has this message's notification already. Throws on a failed read. */

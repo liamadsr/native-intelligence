@@ -95,7 +95,11 @@ describe('migration 670 (the text)', () => {
     }
     for (const name of ['meeting_guest_chat_post', 'meeting_guest_chat_read', 'meeting_guest_chat_remove', 'team_chat_message_guard', 'team_chat_search']) {
       const newest = migrationsInOrder().filter((m) => m.sql.toLowerCase().includes(`create or replace function public.${name}(`)).at(-1)
-      expect(newest?.file, name).toBe(FILE)
+      // 715 (support chat) restates the guard and the search from this file's text, adding only its own
+      // columns and names (src/lib/support-chat/__tests__/migration-715.test.ts pins that); the guest's
+      // own lines go on with them.
+      const owner = name === 'team_chat_message_guard' || name === 'team_chat_search' ? '715_support_chat.sql' : FILE
+      expect(newest?.file, name).toBe(owner)
     }
   })
 
