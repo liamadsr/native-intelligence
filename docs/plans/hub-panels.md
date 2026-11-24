@@ -243,6 +243,16 @@ move).
    (Recent was only ever the panel), so there is nowhere to put the switch. On a phone, G J, `/` and
    Search open the Inbox card, which draws its own list and filter in its header, as it did. If you
    want a Recent | Inbox list on phones too, that is a new phone screen: say so and we'll build it.
+6. **Where Inbox's filter sits, after #263** (in production: "the Inbox's filters on the page's
+   first row" and "stay in reach beside an open item"). Your 11-24 ask, one filter of Recent's kind
+   instead of the pills, replaces #263's row of pills, but keeps #263's place for it:
+   - Inside Home (Incoming), the one filter button sits beside the switch, as Recent's does.
+   - Where the Inbox card draws its own list, the same button sits on the page's first row from the
+     card's corner, never in the card header. It is one button, so it stays in reach beside an open
+     item at any width.
+   - What #263's pills gave and this doesn't: each choice with its count, visible at a glance
+     without opening the menu (the menu shows the counts). If you want the pills back on the card's
+     own first row as well, that is one component to put back. Say so.
 5. **Keys: S switches sides, F opens the side's filter** while either list has the focus (Recent → Inbox, Inbox → Recent). S
    is free in both lists, and the ? sheet lists it (`lib/shortcuts.ts`, `recents-switch` and
    `inbox-switch`). The switch itself also takes ← / → when it has the focus. G J still goes to
