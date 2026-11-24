@@ -22,6 +22,12 @@ export interface CardHeaderSlots {
   trail?: HTMLElement | null
   /** In the title's place: a page whose name is what it shows (CardHeaderTitle; the calendar's dates). */
   title?: HTMLElement | null
+  /**
+   * The card body's first row, the card's whole width, over the page and its Properties column (card-body.tsx
+   * PropertiesRow): a detail page's sections stand there (views/page-tabs.tsx DetailTabs), from the card's left
+   * edge, wherever the page itself is centred.
+   */
+  pageTop?: HTMLElement | null
   /** The title's press while a trail shows: back to the page. Set by CardHeaderTrail. */
   setBack?: (back: CardHeaderBack | null) => void
 }
