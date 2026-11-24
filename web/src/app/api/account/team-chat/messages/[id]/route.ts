@@ -29,6 +29,11 @@
  *         checks again that this member may read the conversation, then makes
  *         the same soft delete. A member's or an agent's message is never
  *         taken down this way. The guest's page drops it at its next read.
+ *         Our support staff's own message in a support conversation
+ *         (migration 715) is taken down by them, through 715's
+ *         support_chat_delete (it checks the author again). Nobody else's
+ *         delete reaches one, and staff never edit (PATCH: RLS finds nothing
+ *         of theirs to update, so 404).
  */
 import { after, NextResponse, type NextRequest } from 'next/server'
 import { requireWorkspaceMember } from '@/lib/api-auth'
@@ -40,6 +45,8 @@ import { teamChatErrorResponse } from '@/lib/team-chat/route-errors'
 import { fenceRecordMentions, storedRecordMentions, syncMessageMentions } from '@/lib/team-chat/record-mentions'
 import { shareMentionedRecords } from '@/lib/entity-access/share'
 import { isUuid, tidyBody, tidyMentionIds } from '@/lib/team-chat/types'
+import { isStaffSupportView } from '@/lib/support-chat/access'
+import { deleteSupportMessage } from '@/lib/support-chat/store'
 import { mentionKey, tidyLabeledMentionRefs } from '@/lib/entity-links/mentionable'
 
 type Params = { params: Promise<{ id: string }> }
@@ -54,7 +61,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
     if (!message || message.deleted_at) return notFound()
     // This workspace's only (RLS reads every workspace the person is in).
     const channel = await getChannel(auth.supabase, message.channel_id)
-    if (!channel || channel.workspace_id !== auth.workspaceId) return notFound()
+    if (!channel || (channel.workspace_id !== auth.workspaceId && !isStaffSupportView(channel, auth))) return notFound()
     const root = message.thread_root_id ? await getMessage(auth.supabase, message.thread_root_id) : null
     return NextResponse.json({ message, root })
   } catch (err) {
@@ -81,7 +88,10 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     // A client from before 480 sends no `records`: the message keeps the ones
     // it had that its words still name (never wiped by an older tab's edit).
     const records = input.records !== undefined ? input.records : await storedRecordMentions(auth.supabase, id)
-    const recordMentions = await fenceRecordMentions(auth.supabase, scope, records, body)
+    // A support conversation carries no records (migration 715 refuses their grant): its edits drop them.
+    const current = await getMessage(auth.supabase, id)
+    const inSupport = !!current && (await getChannel(auth.supabase, current.channel_id))?.kind === 'support'
+    const recordMentions = inSupport ? [] : await fenceRecordMentions(auth.supabase, scope, records, body)
     // What it mentioned before the edit: only a NEW mention shares (an Undo stays undone across edits).
     const before = recordMentions.length > 0 ? tidyLabeledMentionRefs(await storedRecordMentions(auth.supabase, id)) : []
     const message = await editMessage(auth.supabase, id, { body, mentions, recordMentions })
@@ -110,6 +120,13 @@ export async function DELETE(_request: NextRequest, { params }: Params) {
   const { id } = await params
   if (!isUuid(id)) return notFound()
   try {
+    // Our staff's own message in a support conversation (migration 715): theirs to take down.
+    const own = await getMessage(auth.supabase, id)
+    if (own?.author_kind === 'support') {
+      const channel = await getChannel(auth.supabase, own.channel_id)
+      if (!isStaffSupportView(channel, auth) || !(await deleteSupportMessage(auth.supabase, id))) return notFound()
+      return NextResponse.json({ ok: true })
+    }
     const deleted = await deleteMessage(auth.supabase, id)
     if (!deleted) {
       // Not theirs: a meeting guest's message, which any member who may read the conversation takes down.
