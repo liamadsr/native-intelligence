@@ -2,7 +2,8 @@
  * /api/account/team-chat/channels (roadmap #7, migration 474)
  *   GET  → { channels: TeamChatChannel[], threads, memberId } the channels and
  *          DMs the person may read here, with unread counts, and the threads
- *          they are in with replies unread (migration 556).
+ *          they are in with replies unread (migration 556). Each says
+ *          whether the person may edit it (can_manage, migration 714).
  *   POST { name, teamId?, topic? } → { id } a new channel, for the whole
  *          workspace or for a team the person is in.
  * Everything runs as the person, under RLS (src/lib/team-chat/store.ts).
@@ -15,10 +16,10 @@ import { teamChatErrorResponse } from '@/lib/team-chat/route-errors'
 import { isUuid, tidyChannelName, TEAM_CHAT_TOPIC_MAX } from '@/lib/team-chat/types'
 
 export async function GET() {
-  const auth = await requireWorkspaceMember()
+  const auth = await requireWorkspaceMember({ select: 'id, role' })
   if (auth instanceof Response) return auth
   try {
-    const { channels, threads } = await listChannels(auth.supabase, { workspaceId: auth.workspaceId, memberId: auth.member.id })
+    const { channels, threads } = await listChannels(auth.supabase, { workspaceId: auth.workspaceId, memberId: auth.member.id, role: auth.member.role ?? null })
     return NextResponse.json({ channels, threads, memberId: auth.member.id })
   } catch (err) {
     return teamChatErrorResponse(err, 'channels list')

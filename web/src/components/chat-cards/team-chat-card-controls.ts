@@ -76,6 +76,12 @@ export interface TeamChatCardControls {
   meetingsKey?: string
   /** The meetings' conversations whose call is live, as the view knows it between asks. */
   liveMeetings?: ReadonlySet<string>
+  /**
+   * The view's Edit (a channel's name and topic, a meeting chat's name) or
+   * Delete meeting chat dialog on that conversation (migration 714), for a
+   * conversation whose `can_manage` is true. Absent: an older card, no menu.
+   */
+  manage?: (id: string, what: 'edit' | 'delete') => void
   /** Put the card full screen (another card is in front). */
   show: () => void
   /**
