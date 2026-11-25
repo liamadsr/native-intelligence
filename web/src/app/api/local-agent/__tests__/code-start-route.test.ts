@@ -384,3 +384,87 @@ describe('a Code job’s agent knows its manager is the person, and its question
     expect(ledger.moveTurn.mock.calls.map((c) => (c[2] as { type: string }).type)).toEqual(['fail'])
   })
 })
+
+describe('the model and effort the person chose (721)', () => {
+  const macEnv = () => (db.tables.environment as Array<Record<string, unknown>>).find((e) => e.id === MAC_ENV)!
+  const takes = () => {
+    macEnv().offered_workers = [
+      { id: 'claude-code', label: 'Claude Code' },
+      { id: 'codex', label: 'Codex', takesModel: true, models: [{ id: 'gpt-5.3-codex', label: 'GPT-5.3 Codex', efforts: ['low', 'high'] }], efforts: ['medium'] },
+    ]
+  }
+
+  it('an offered model and effort are stamped on the job and handed to the Mac with the claim', async () => {
+    takes()
+    const res = await send({ worker: 'codex', model: 'gpt-5.3-codex', effort: 'high' })
+    expect(res.status).toBe(201)
+    const body = await res.json()
+    expect(body.session).toMatchObject({ worker: 'codex', requestedModel: 'gpt-5.3-codex', requestedEffort: 'high' })
+    expect(sessions()[0]).toMatchObject({ requested_model: 'gpt-5.3-codex', requested_effort: 'high' })
+    const claim = await claimSession(db as never, USER, body.session.id, { deviceId: DEVICE, runId: 'run-1', workers: true, models: true })
+    expect(claim).toMatchObject({ worker: 'codex', model: 'gpt-5.3-codex', effort: 'high' })
+  })
+
+  it('the defaults (both null) write nothing new, and claim as before', async () => {
+    const res = await send({ worker: 'codex', model: null, effort: null })
+    expect(res.status).toBe(201)
+    expect(sessions()[0]).not.toHaveProperty('requested_model')
+    expect(sessions()[0]).not.toHaveProperty('requested_effort')
+    const claim = await claimSession(db as never, USER, sessions()[0].id as string, { deviceId: DEVICE, runId: 'run-1', workers: true })
+    expect(claim).toMatchObject({ model: null, effort: null })
+  })
+
+  it('refused with a sentence (409 MODEL_NOT_OFFERED) unless the Mac’s app takes it: never a choice it would ignore', async () => {
+    // The app doesn't say it takes a model for this agent (every build before 721's).
+    const older = await send({ worker: 'codex', model: 'gpt-5.3-codex' })
+    expect(older.status).toBe(409)
+    expect(await older.json()).toMatchObject({ code: 'MODEL_NOT_OFFERED', error: expect.stringContaining('Update the app on that Mac') })
+    takes()
+    for (const over of [
+      { model: 'gpt-9' },
+      { model: 'gpt-5.3-codex', effort: 'medium' },
+      { model: null, effort: 'high' },
+      { worker: 'claude-code', model: 'opus' },
+    ]) {
+      const res = await send({ worker: 'codex', requestId: `req-${JSON.stringify(over).length}`, ...over })
+      expect(res.status, JSON.stringify(over)).toBe(409)
+      expect((await res.json()).code).toBe('MODEL_NOT_OFFERED')
+    }
+    // Its default model's own efforts are fine.
+    expect((await send({ worker: 'codex', requestId: 'req-ok', model: null, effort: 'medium' })).status).toBe(201)
+    expect(sessions()).toHaveLength(1)
+  })
+
+  it('off the shape, or with Native Intelligence’s own agent: 400, nothing started', async () => {
+    takes()
+    expect((await send({ worker: 'codex', model: 'two words' })).status).toBe(400)
+    expect((await send({ worker: null, model: 'gpt-5.3-codex' })).status).toBe(400)
+    expect(sessions()).toHaveLength(0)
+  })
+
+  it('a job started on a chosen model fails at a claim from a page too old to hand it on, with a sentence', async () => {
+    takes()
+    const body = await (await send({ worker: 'codex', model: 'gpt-5.3-codex' })).json()
+    expect(await claimSession(db as never, USER, body.session.id, { deviceId: DEVICE, runId: 'run-1', workers: true })).toBeNull()
+    expect(sessions()[0]).toMatchObject({ status: 'failed', error: expect.stringContaining('Reload Native Intelligence on that Mac') })
+  })
+
+  it('never joins a job of this chat on another model or effort: idle, it ends and a new one starts; busy, refused naming both; the same choice joins', async () => {
+    takes()
+    const first = await (await send({ worker: 'codex', requestId: 'req-a', model: 'gpt-5.3-codex', effort: 'high' })).json()
+    sessions()[0].status = 'waiting'
+    // Idle on another effort: it ends, and a new job starts on this one.
+    const other = await (await send({ worker: 'codex', requestId: 'req-b', model: 'gpt-5.3-codex', effort: 'low' })).json()
+    expect(other.created).toBe(true)
+    expect(other.session.id).not.toBe(first.session.id)
+    expect(other.session).toMatchObject({ requestedModel: 'gpt-5.3-codex', requestedEffort: 'low' })
+    // The same choice: its next turn.
+    const same = await (await send({ worker: 'codex', requestId: 'req-c', model: 'gpt-5.3-codex', effort: 'low' })).json()
+    expect(same).toMatchObject({ joined: true, session: { id: other.session.id } })
+    // Busy (it holds that turn) on another choice: refused, saying both.
+    const busy = await send({ worker: 'codex', requestId: 'req-d', model: null, effort: 'medium' })
+    expect(busy.status).toBe(409)
+    expect((await busy.json()).error).toContain('on gpt-5.3-codex, low effort, and this start is for its default model, medium effort')
+  })
+
+})

@@ -11,7 +11,11 @@
  * POST /api/local-agent/sessions — the person starts a job from the chat
  * composer's Code tab (src/lib/local-agent/code-start.ts): their own typed
  * send, in a folder on one of their Macs, on the agent they picked.
- *   Body: {conversationId, folderId, request, worker, requestId, environmentId?, newJob?}
+ *   Body: {conversationId, folderId, request, worker, requestId, environmentId?, newJob?, model?, effort?}
+ *     model, effort  (721) the model and effort for the person's own coding
+ *                  agent, each an id its Mac's offer lists or null for its
+ *                  default; refused (409 MODEL_NOT_OFFERED) unless that Mac's
+ *                  app says the agent takes them
  *     worker       a coding agent's id the Mac offers, or null for Native
  *                  Intelligence's own agent (required)
  *     requestId    one per send: a retry with it gets the first job back
@@ -88,6 +92,9 @@ export async function POST(request: Request) {
       requestId: body.requestId,
       ...(body.environmentId !== undefined ? { environmentId: body.environmentId } : {}),
       ...(body.newJob === true ? { newJob: true } : {}),
+      // 721: the model and effort for the person's own coding agent, when the composer offered a choice.
+      ...('model' in body ? { model: body.model } : {}),
+      ...('effort' in body ? { effort: body.effort } : {}),
     })
     return NextResponse.json(started, { status: started.created ? 201 : 200 })
   } catch (err) {

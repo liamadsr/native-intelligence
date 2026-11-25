@@ -66,7 +66,7 @@ import type {
   LocalAgentStartArgs,
   LocalAgentStatus,
 } from '@/lib/tauri-bridge'
-import { isBaseBranch, isWorkerId } from '@/lib/environments/types'
+import { isBaseBranch, isModelChoice, isWorkerId } from '@/lib/environments/types'
 
 // ── Tunables ────────────────────────────────────────────────────────────────
 
@@ -127,6 +127,15 @@ export const WORKER_UNSUPPORTED =
   'This job is set to run on your own coding agent, and the Native Intelligence app on this Mac can’t run one yet. Update the app, or pick Native Intelligence in the toggle under the chat’s message box.'
 /** The claim named a worker that isn't a coding agent's id: refused, never run on ours. */
 export const WORKER_INVALID = 'This job names a coding agent Native Intelligence doesn’t recognise, so it didn’t start.'
+/**
+ * The job was started on a model or effort the person chose (721), and this
+ * Mac's app can't start that coding agent on one (it doesn't say
+ * `takesModel` for it): it fails with this rather than run on the defaults.
+ */
+export const MODEL_UNSUPPORTED =
+  'This job was started on a model you chose, and the Native Intelligence app on this Mac can’t choose one for that coding agent yet. Update the app, or start again with its default model.'
+/** The claim named a model or effort that isn't one a Mac names: refused, never run on the defaults. */
+export const MODEL_INVALID = 'This job names a model Native Intelligence doesn’t recognise, so it didn’t start.'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 /** What the events route accepts as a kind (device.ts sanitizeEvent). */
@@ -415,7 +424,14 @@ export function heartbeatBody(
     queuedJobIds: status.jobs.filter((j) => j.queued === true && UUID_RE.test(j.id) && !ignored.has(j.id)).map((j) => j.id),
     capabilities: status.baseBranch === true ? ['baseBranch'] : [],
     // The coding agents this Mac offers (migration 658): mirrored on its environment, so a page elsewhere can offer them.
-    ...(Array.isArray(status.workers) ? { workers: status.workers.map((w) => ({ id: w.id, label: w.label })) } : {}),
+    // With each agent's model choice when the app takes one (721); the server cleans it again (cleanWorkerOffers).
+    ...(Array.isArray(status.workers)
+      ? {
+          workers: status.workers.map((w) =>
+            w.takesModel === true ? { id: w.id, label: w.label, takesModel: true, models: w.models ?? [], efforts: w.efforts ?? [] } : { id: w.id, label: w.label },
+          ),
+        }
+      : {}),
     ...(rejoin ? { rejoin: true } : {}),
   }
 }
@@ -455,6 +471,14 @@ interface Claim {
    * agent (and an older server).
    */
   worker: string | 'invalid' | null
+  /** The model and effort the person chose (721): an id, 'invalid' when malformed, null for the agent's default (and an older server). */
+  model: string | 'invalid' | null
+  effort: string | 'invalid' | null
+}
+
+/** A claim's model or effort (721): never dropped to null when malformed, which would run on the default. */
+function claimChoice(v: unknown): string | 'invalid' | null {
+  return v === undefined || v === null ? null : isModelChoice(v) ? v : 'invalid'
 }
 
 interface ServerSession {
@@ -524,6 +548,8 @@ function parseClaim(body: unknown, pending: PendingStart): Claim {
     baseBranch: isBaseBranch(b.baseBranch) ? b.baseBranch : null,
     // Never dropped to null when malformed: null would run the job on our agent instead of theirs.
     worker: b.worker === undefined || b.worker === null ? null : isWorkerId(b.worker) ? b.worker : 'invalid',
+    model: claimChoice(b.model),
+    effort: claimChoice(b.effort),
   }
 }
 
@@ -1105,6 +1131,8 @@ export function createLocalAgentRelay(deps: RelayDeps): LocalAgentRelay {
         ...(typeof ctx.status.localModel === 'boolean' ? { localModel: ctx.status.localModel } : {}),
         // This relay hands the claim's `worker` to the Mac (or refuses it): the server fails a worker job for a page that doesn't say so.
         workers: true,
+        // And its `model` / `effort` (721): the server fails a job started on one for a page that doesn't say so.
+        models: true,
       })
       claimCooldown.set(id, clock.now() + CLAIM_COOLDOWN_MS)
       if (!res.ok) return false
@@ -1126,7 +1154,12 @@ export function createLocalAgentRelay(deps: RelayDeps): LocalAgentRelay {
               : // A desktop that doesn't list coding agents would ignore `worker` and run ours: refused instead.
                 claim.worker && !Array.isArray(ctx.status.workers)
                 ? WORKER_UNSUPPORTED
-                : null
+                : claim.model === 'invalid' || claim.effort === 'invalid'
+                  ? MODEL_INVALID
+                  : // A desktop that doesn't take a model for this agent would ignore it and run the defaults: refused instead.
+                    (claim.model || claim.effort) && !(claim.worker && ctx.status.workers?.some((w) => w.id === claim.worker && w.takesModel === true))
+                    ? MODEL_UNSUPPORTED
+                    : null
         if (refusal) {
           await postState(id, { runId: provisional, status: 'failed', error: refusal })
           return false
@@ -1144,6 +1177,9 @@ export function createLocalAgentRelay(deps: RelayDeps): LocalAgentRelay {
           ...(claim.baseBranch && claim.mode === 'edit' && ctx.status.baseBranch === true ? { baseBranch: claim.baseBranch } : {}),
           // The person's own coding agent (migration 658): the Mac runs it or answers its own refusal, posted below as the failure.
           ...(claim.worker && claim.worker !== 'invalid' ? { worker: claim.worker } : {}),
+          // Its model and effort (721), only to a desktop that takes them for this agent (checked above); it checks them again.
+          ...(claim.model && claim.model !== 'invalid' ? { model: claim.model } : {}),
+          ...(claim.effort && claim.effort !== 'invalid' ? { effort: claim.effort } : {}),
         }
         /** The start's answer, and what follows it: a stop that came meanwhile wins, a refusal is posted, a run is bound. */
         const finish = async (first: LocalAgentResult<LocalAgentRun> | null, retries: readonly number[], waited = false): Promise<boolean> => {

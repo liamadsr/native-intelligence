@@ -58,10 +58,39 @@ export const NATIVE_WORKER_LABEL = 'Native Intelligence'
 /** Where the person switches a coding agent on, in the Mac app. */
 export const WORKER_SWITCH_HINT = 'Switch one on in the Mac app’s menu: Local Agents → Coding Agents.'
 
+/**
+ * A model or an effort a coding agent may be started on, as the Mac names it
+ * (migration 721's CHECK holds the same shape): letters, digits and `.`, `-`,
+ * `_`, `:`, `/`, 1 to 100 characters.
+ */
+export const MODEL_CHOICE_RE = /^[A-Za-z0-9._:/-]{1,100}$/
+
+export function isModelChoice(v: unknown): v is string {
+  return typeof v === 'string' && MODEL_CHOICE_RE.test(v)
+}
+
+/** A model a coding agent may be started on: its id as the CLI takes it, its name, and the efforts it takes. */
+export interface WorkerModelOffer {
+  id: string
+  label: string
+  efforts: string[]
+}
+
 /** A coding agent a Mac offers right now (`local_agent_status`'s `workers`): its id and its name. */
 export interface MacWorkerOffer {
   id: string
   label: string
+  /**
+   * The Mac's app starts this agent on a chosen model and effort (desktop
+   * builds after 0.2.111). Absent: an app that can't, so the composer offers
+   * no choice and the start route refuses one (never a choice silently
+   * ignored).
+   */
+  takesModel?: true
+  /** With takesModel: the models it may be started on (none: its default model only). */
+  models?: WorkerModelOffer[]
+  /** With takesModel: the efforts it takes on its default model (none: its default effort only). */
+  efforts?: string[]
 }
 
 /**
@@ -97,6 +126,41 @@ export function isWorkerId(v: unknown): v is string {
 export const OFFERED_WORKERS_MAX = 16
 /** An offered agent's label, at most this many characters. */
 export const WORKER_LABEL_MAX = 40
+/** At most this many models are kept for an offered agent, and efforts for a model. */
+export const OFFERED_MODELS_MAX = 32
+export const OFFERED_EFFORTS_MAX = 8
+
+/** A short line of plain text: control characters dropped, spaces folded, trimmed, at most `max` characters. */
+function plainLabel(raw: unknown, max: number): string {
+  return typeof raw === 'string' ? Array.from(raw.replace(/\p{C}+/gu, ' ').replace(/\s+/g, ' ').trim()).slice(0, max).join('').trim() : ''
+}
+
+/** Efforts as the server keeps them: each in the model-choice shape, once, at most OFFERED_EFFORTS_MAX. */
+function cleanEfforts(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return []
+  return [...new Set(raw.filter(isModelChoice))].slice(0, OFFERED_EFFORTS_MAX)
+}
+
+/**
+ * An offer's model choice (721), kept only when the Mac says it takes one
+ * (`takesModel: true`): its models (id in the model-choice shape, once, a
+ * plain label, the id when none, their efforts) and its default model's
+ * efforts. Anything else: nothing, so the offer reads as an app that can't.
+ */
+export function cleanModelChoice(item: { takesModel?: unknown; models?: unknown; efforts?: unknown }): Pick<MacWorkerOffer, 'takesModel' | 'models' | 'efforts'> {
+  if (item.takesModel !== true) return {}
+  const models: WorkerModelOffer[] = []
+  const seen = new Set<string>()
+  for (const raw of Array.isArray(item.models) ? item.models.slice(0, 64) : []) {
+    if (models.length >= OFFERED_MODELS_MAX) break
+    if (!raw || typeof raw !== 'object') continue
+    const m = raw as { id?: unknown; label?: unknown; efforts?: unknown }
+    if (!isModelChoice(m.id) || seen.has(m.id)) continue
+    seen.add(m.id)
+    models.push({ id: m.id, label: plainLabel(m.label, WORKER_LABEL_MAX) || m.id, efforts: cleanEfforts(m.efforts) })
+  }
+  return { takesModel: true, models, efforts: cleanEfforts(item.efforts) }
+}
 
 /**
  * A Mac's offered agents as the server keeps them (migration 658): an array
@@ -116,10 +180,10 @@ export function cleanWorkerOffers(raw: unknown): MacWorkerOffer[] | null {
     if (!item || typeof item !== 'object') continue
     const { id, label } = item as { id?: unknown; label?: unknown }
     if (!isWorkerId(id) || seen.has(id)) continue
-    const text = typeof label === 'string' ? Array.from(label.replace(/\p{C}+/gu, ' ').replace(/\s+/g, ' ').trim()).slice(0, WORKER_LABEL_MAX).join('').trim() : ''
+    const text = plainLabel(label, WORKER_LABEL_MAX)
     if (!text || text.toLocaleLowerCase('en') === NATIVE_WORKER_LABEL.toLocaleLowerCase('en')) continue
     seen.add(id)
-    out.push({ id, label: text })
+    out.push({ id, label: text, ...cleanModelChoice(item as { takesModel?: unknown; models?: unknown; efforts?: unknown }) })
   }
   return out
 }
@@ -323,4 +387,36 @@ export const RUN_ENVIRONMENT_UNUSABLE_CODE = 'RUN_ENVIRONMENT_UNUSABLE'
  */
 export function editsNotAllowedReason(folder: Pick<MacFolder, 'label'>, macName: string): string {
   return `${folder.label} on ${macName} is read-only. Allow edits for it on your Mac, then press Start again.`
+}
+
+/** The start named a model or effort its Mac doesn't offer (details.code). */
+export const MODEL_NOT_OFFERED_CODE = 'MODEL_NOT_OFFERED'
+
+/** The efforts a start may name with `model` (null: the agent's default model). */
+export function effortsFor(offer: Pick<MacWorkerOffer, 'models' | 'efforts'>, model: string | null): string[] {
+  if (model === null) return offer.efforts ?? []
+  return offer.models?.find((m) => m.id === model)?.efforts ?? []
+}
+
+/**
+ * Whether a start may name this model and effort on this offer (721): both
+ * null (the agent's own defaults) always; otherwise only an offer that takes
+ * a model, a model it lists, and an effort that model (or, with no model, its
+ * default model) takes. Null when it may; else the sentence the person reads.
+ * Pure.
+ */
+export function modelChoiceRefusal(
+  offer: MacWorkerOffer | null | undefined,
+  choice: { model: string | null; effort: string | null },
+  agentLabel: string,
+): string | null {
+  if (choice.model === null && choice.effort === null) return null
+  if (!offer?.takesModel) return `This Mac’s Native Intelligence can’t choose ${agentLabel}’s model or effort yet. Update the app on that Mac, or start with its defaults.`
+  if (choice.model !== null && !offer.models?.some((m) => m.id === choice.model)) {
+    return `This Mac doesn’t offer ${choice.model} for ${agentLabel}. Pick another model, or start with its default.`
+  }
+  if (choice.effort !== null && !effortsFor(offer, choice.model).includes(choice.effort)) {
+    return `${choice.model ?? `${agentLabel}’s default model`} doesn’t take ${choice.effort} effort. Pick another, or start with its default.`
+  }
+  return null
 }

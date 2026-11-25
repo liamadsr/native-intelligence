@@ -5,7 +5,7 @@
 
 import { isDesktopApp } from "./platform";
 import { isLiveWordsEvent, type LiveWordsEvent } from "./studio/prompter/live-words";
-import { isWorkerId } from "./environments/types";
+import { cleanModelChoice, isWorkerId, type WorkerModelOffer } from "./environments/types";
 import { disposeAll, listenScoped, toSafeUnlisten } from "./tauri-unlisten";
 import type { NudgeKind } from "./live-agent/nudge-channel";
 import type {
@@ -600,6 +600,12 @@ export interface LocalAgentStartArgs {
    *  desktop refuses an id it doesn't offer, with a sentence for the person,
    *  and never falls back. Absent or null: Native Intelligence's agent. */
   worker?: string | null;
+  /** The model and effort to start `worker` on (721): ids its offer lists
+   *  (`takesModel`). The desktop refuses one its registry doesn't list, with a
+   *  sentence, and never falls back. Absent: the agent's own defaults. Sent
+   *  only to a desktop whose offer for `worker` says `takesModel`. */
+  model?: string | null;
+  effort?: string | null;
 }
 
 /** A coding agent this Mac offers a start right now (`local_agent_status`'s
@@ -607,6 +613,15 @@ export interface LocalAgentStartArgs {
 export interface LocalAgentWorkerOffer {
   id: string;
   label: string;
+  /** This desktop starts the agent on a chosen model and effort (721,
+   *  `local_agent_start`'s `model` / `effort`). Absent: an older desktop,
+   *  which would ignore them: never sent one then. */
+  takesModel?: true;
+  /** With takesModel: the models it may be started on, from the app's own
+   *  registry, each with the efforts it takes. */
+  models?: WorkerModelOffer[];
+  /** With takesModel: the efforts it takes on its default model. */
+  efforts?: string[];
 }
 
 /** What start and resume answer: the job and the launcher process now running
@@ -902,7 +917,8 @@ export function toLocalAgentWorkerOffer(raw: unknown): LocalAgentWorkerOffer | n
   const id = nonEmptyString(r.id);
   if (!id || !isWorkerId(id)) return null;
   const label = typeof r.label === "string" ? r.label.trim().slice(0, 64) : "";
-  return { id, label: label || id };
+  // Its model choice (721), kept only when the desktop says it takes one; cleaned as the server cleans it.
+  return { id, label: label || id, ...cleanModelChoice(r) };
 }
 
 /** `localModel: true|false` or `model: { kind: "local" | "relay" }`, when the desktop says. */
@@ -2411,6 +2427,8 @@ export const tauriBridge = {
       if (typeof a.localModel === "boolean") payload.localModel = a.localModel;
       if (typeof a.baseBranch === "string" && a.baseBranch) payload.baseBranch = a.baseBranch;
       if (typeof a.worker === "string" && a.worker) payload.worker = a.worker;
+      if (typeof a.model === "string" && a.model) payload.model = a.model;
+      if (typeof a.effort === "string" && a.effort) payload.effort = a.effort;
       if (a.resume) {
         payload.resume = { eveSessionId: a.resume.eveSessionId, streamIndex: a.resume.streamIndex };
       }
