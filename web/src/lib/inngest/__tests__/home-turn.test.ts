@@ -391,6 +391,45 @@ describe('homeTurn', () => {
       }
     })
 
+    it('mail held for a meeting with its sender: once the meeting is over, one more event turn (ids only, keyed on the time), before the log line', async () => {
+      const EVENTS_EVENT = { data: { ...IDS, workItemIds: [], reason: 'event' } }
+      const end = '2026-11-24T15:30:00.000Z'
+      const at = Date.parse(end) + 2 * 60_000
+      const AFTER = [
+        'after-meeting',
+        {
+          id: `home-turn:after-meeting:${IDS.conversationId}:${at}`,
+          name: 'home/turn.requested',
+          data: { conversationId: IDS.conversationId, userId: IDS.userId, workspaceId: IDS.workspaceId, workItemIds: [], reason: 'event' },
+        },
+      ]
+      // Everything was held: nothing to say now, so it waits for the meeting's end and asks again.
+      server.planHomeTurn.mockResolvedValueOnce({ ok: false, reason: 'nothing_new', heldUntil: end })
+      let step = createStepMock()
+      expect(await hoisted.handler({ event: EVENTS_EVENT, step })).toEqual({ status: 'skipped', reason: 'nothing_new' })
+      expect(step.sleepUntil).toHaveBeenCalledWith('held-for-meeting', new Date(at))
+      expect(step.sendEvent.mock.calls).toEqual([AFTER])
+      expect(server.claimHomeTurn).not.toHaveBeenCalled()
+      expect(step.sleepUntil.mock.invocationCallOrder[0]).toBeLessThan(info.mock.invocationCallOrder.at(-1)!)
+
+      // Some carried, some held: the turn runs, is routed, then the run asks again after the meeting.
+      server.planHomeTurn.mockResolvedValueOnce({ ok: true, sessionId: 'sess', reports: [], workItemIds: [], dedupeKey: 'event:x', events: { lines: ['- a'], eventIds: ['3'], heldUntil: end } })
+      server.finishHomeTurn.mockResolvedValue({ outcome: 'written', written: true })
+      step = createStepMock()
+      await hoisted.handler({ event: EVENTS_EVENT, step })
+      expect(step.sendEvent.mock.calls).toEqual([ROUTE, AFTER])
+      expect(step.sleepUntil).toHaveBeenCalledWith('held-for-meeting', new Date(at))
+
+      // Nothing held: no sleep, no second turn; and only an event turn ever asks.
+      server.planHomeTurn.mockResolvedValueOnce({ ok: false, reason: 'nothing_new' })
+      step = createStepMock()
+      await hoisted.handler({ event: EVENTS_EVENT, step })
+      server.planHomeTurn.mockResolvedValueOnce({ ok: false, reason: 'nothing_new', heldUntil: end })
+      await hoisted.handler({ event: EVENT, step })
+      expect(step.sleepUntil).not.toHaveBeenCalled()
+      expect(step.sendEvent).not.toHaveBeenCalled()
+    })
+
     it('an approval turn marks its calls carried, in the finish step that frees the lease, when it spoke or judged them done; one cut off carries none (445)', async () => {
       const APPROVAL_EVENT = { data: { ...IDS, workItemIds: [], reason: 'approval' } }
       server.planHomeTurn.mockResolvedValue({ ok: true, sessionId: 'sess', reports: [], workItemIds: [], dedupeKey: 'approval:x', approvals: { lines: ['approval_id a · t · ran'], approvalIds: ['a'] } })

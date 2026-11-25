@@ -152,7 +152,7 @@ import { digestBody, gatherDigest } from '@/lib/agent-events/digest'
 import { gatherCheckIn, type CheckInGather } from '@/lib/now/check-in'
 import { gatherDreamerReports } from '@/lib/dreamer/reports'
 import { appendHomeMessage } from '@/lib/chat/home-message-writer'
-import { eventTurnBody, gatherEventTurn } from '@/lib/agent-events/event-turn'
+import { eventTurnBody, gatherEventTurn, hasSenderMail, meetingHold, readHoldMeetings, type HoldMeeting } from '@/lib/agent-events/event-turn'
 import { gatherGuestAsks, type HomeTurnGuestAsks } from '@/lib/guests/guest-asks'
 import { gatherAgentAnswers } from '@/lib/agent-links/exchange'
 import { approvalsRanAfter, gatherApprovalTurn } from '@/lib/safety/approval-turn'
@@ -316,6 +316,12 @@ export type HomeTurnPlanResult =
   | {
       ok: false
       reason: HomeTurnSkip
+      /**
+       * An event turn whose every line was mail held for a meeting with its
+       * sender (event-turn.ts meetingHold): when the meeting ends (ISO). The
+       * run asks for one more event turn just after it.
+       */
+      heldUntil?: string
       /** Set when there was something to deliver: the consumer records a `skipped` row. */
       record?: {
         dedupeKey: string
@@ -932,6 +938,8 @@ export async function planHomeTurn(
     gatherCheckIn?: (args: Parameters<typeof gatherCheckIn>[1]) => Promise<CheckInGather>
     /** A check-in's own fresh session (createCheckInSession). */
     createCheckInSession?: () => Promise<{ ok: true; sessionId: string } | { ok: false }>
+    /** The person's meetings around now, for the event turn's hold (event-turn.ts readHoldMeetings). */
+    readHoldMeetings?: (nowMs: number) => Promise<HoldMeeting[]>
   } = {},
 ): Promise<HomeTurnPlanResult> {
   let checked: {
@@ -1009,14 +1017,22 @@ export async function planHomeTurn(
       // The router's turn rows (never the payload's word for which): every
       // undelivered one, minus what settled since the router saw it.
       const rows = await gatherEventTurn(supabase, { workspaceId: data.workspaceId, userId: data.userId, nowMs: deps.now })
-      // A meeting change names its times in the person's zone (the digest's chain); read only when one is here.
+      // Mail from someone the person is in a meeting with right now waits until it ends
+      // (event-turn.ts meetingHold): their calendar is read only when a line names a sender.
+      const nowMs = deps.now ?? Date.now()
+      const meetings = hasSenderMail(rows)
+        ? await (deps.readHoldMeetings ?? ((ms: number) => readHoldMeetings(supabase, { workspaceId: data.workspaceId, userId: data.userId }, ms)))(nowMs)
+        : []
+      const hold = meetingHold(rows, meetings, nowMs)
+      // A meeting's times are named in the person's zone (the digest's chain); read only when a line names one.
       let zone: string | null = null
-      if (rows.some((r) => r.kind === 'meeting.changed')) {
+      if (hold.carried.some((r) => r.kind === 'meeting.changed') || hold.current.length || Object.keys(hold.during).length) {
         const { data: zoneRow } = await supabase.from('member').select('time_zone').eq('id', member.id).maybeSingle<{ time_zone: string | null }>()
         zone = (await resolveMemberTimeZone(supabase, { userId: data.userId, memberTimeZone: zoneRow?.time_zone })).timeZone
       }
-      const body = eventTurnBody(rows, zone)
-      if (!body) return { ok: false, reason: 'nothing_new' }
+      const body = eventTurnBody(hold.carried, zone, hold)
+      // Everything held for a meeting: nothing to say now, one more turn once it ends.
+      if (!body) return { ok: false, reason: 'nothing_new', ...(hold.heldUntil ? { heldUntil: hold.heldUntil } : {}) }
       events = body
       dedupeKey = homeTurnDedupeKey('event', body.eventIds)
     } else if (data.reason === 'guest_ask') {
