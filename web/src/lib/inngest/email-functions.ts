@@ -10,7 +10,7 @@ import { finishEmailImport, openEmailImport } from '@/lib/work/import-mirror'
 import { MAX_ARRIVAL_THREADS, triageArrivals, understandableThreads } from '@/lib/email/triage'
 import { understandArrivals } from '@/lib/email/understand-arrivals'
 import { emailArrivals, emitEmailReceived } from '@/lib/flows/emit-email-received'
-import { arrivalGate, dailyCapCheck, draftRepliesToNewMail, recordArrivalDrafts, unsureReasons } from '@/lib/email/arrival-drafts'
+import { arrivalGate, dailyCapCheck, draftRepliesToNewMail, recordArrivalDrafts, skipReasons } from '@/lib/email/arrival-drafts'
 import { refreshHeldThreads } from '@/lib/email/held-refresh'
 import { recordDraftPassEvents } from '@/lib/agent-events/email'
 import { expireHolds } from '@/lib/email/hold'
@@ -537,7 +537,8 @@ export const emailDraftReplies = inngest.createFunction(
         providerThreadIds: threadIds ?? [],
         ...(result.blocked ? { reason: result.blocked } : {}),
         // E3: a thread the gate was unsure of waits as 'unsure': the agent asks the person first.
-        ...(unsureReasons(result.asked) ? { reasons: unsureReasons(result.asked) } : {}),
+        // Mail that came in during the person's meeting with its sender waits as 'in_meeting'.
+        ...(skipReasons(result) ? { reasons: skipReasons(result) } : {}),
       }),
     )
 

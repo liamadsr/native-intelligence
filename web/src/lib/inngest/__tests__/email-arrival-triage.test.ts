@@ -45,7 +45,7 @@ vi.mock('@/lib/email/arrival-drafts', async (importOriginal) => ({
   recordArrivalDrafts: hoisted.recordArrivalDrafts,
   arrivalGate: hoisted.arrivalGate,
   dailyCapCheck: () => async () => true,
-  unsureReasons: (await importOriginal<typeof import('@/lib/email/arrival-drafts')>()).unsureReasons,
+  skipReasons: (await importOriginal<typeof import('@/lib/email/arrival-drafts')>()).skipReasons,
 }))
 vi.mock('@/lib/email/held-refresh', () => ({ refreshHeldThreads: hoisted.refreshHeldThreads }))
 vi.mock('@/lib/email/hold', () => ({ expireHolds: vi.fn() }))
@@ -213,6 +213,15 @@ describe('email-draft-replies', () => {
     await hoisted.handlers['email-draft-replies']({ event: EVENT, step: createStepMock() })
     expect(hoisted.recordDraftPassEvents).toHaveBeenCalledWith(db, {
       userId: 'u-1', workspaceId: 'ws-1', drafts: [], providerThreadIds: ['t-1', 't-2'], reasons: { 't-2': 'unsure' },
+    })
+  })
+
+  it('a thread whose mail arrived during a meeting with its sender waits as in_meeting (2026-11-24)', async () => {
+    hoisted.draftRepliesToNewMail.mockResolvedValueOnce({ drafts: [], blocked: null, asked: ['t-2'], inMeeting: ['t-1'] })
+    hoisted.recordDraftPassEvents.mockResolvedValueOnce(2)
+    await hoisted.handlers['email-draft-replies']({ event: EVENT, step: createStepMock() })
+    expect(hoisted.recordDraftPassEvents).toHaveBeenCalledWith(db, {
+      userId: 'u-1', workspaceId: 'ws-1', drafts: [], providerThreadIds: ['t-1', 't-2'], reasons: { 't-1': 'in_meeting', 't-2': 'unsure' },
     })
   })
 

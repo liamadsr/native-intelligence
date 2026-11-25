@@ -14,7 +14,8 @@ import {
   SAFETY_NET_LOOKBACK_MS,
   SAFETY_NET_MARGIN_MS,
   askedThreads,
-  unsureReasons,
+  inMeetingThreads,
+  skipReasons,
   dailyCapCheck,
   draftingBlocked,
   remainingAutoDrafts,
@@ -319,8 +320,10 @@ async function syncAllUsersEmail(): Promise<{ users_synced: number; drafts_gener
 
       // Each draft, and each thread still waiting on a reply with no draft.
       const capped = result.stoppedBy === 'allowance' || (result.stoppedBy === 'max' && remaining < SAFETY_NET_MAX_DRAFTS)
-      // E3: threads the gate was unsure of wait as 'unsure' (the agent asks the person first).
-      await report(result.drafts ?? [], capped ? 'cap' : undefined, unsureReasons(askedThreads(result.skipped)))
+      // E3: threads the gate was unsure of wait as 'unsure' (the agent asks the person first);
+      // mail that came in during the person's meeting with its sender, as 'in_meeting'.
+      await report(result.drafts ?? [], capped ? 'cap' : undefined,
+        skipReasons({ asked: askedThreads(result.skipped), inMeeting: inMeetingThreads(result.skipped) }))
 
       if (result.count > 0) totalDrafts += result.count
     } catch (e) {

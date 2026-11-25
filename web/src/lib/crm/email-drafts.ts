@@ -26,6 +26,7 @@ import { ownMailAddresses } from '@/lib/email/own-addresses'
 import { findMembersByEmail } from '@/lib/workspace-member-emails'
 import { supersedeOtherDrafts } from '@/lib/email/one-draft'
 import { applyCaptureVisibility, isCaptureVisible } from '@/lib/ai/tools/_shared'
+import { buildCalendarSection, meetingWithSenderAt, readDraftCalendar, threadPeople, type DraftMeeting } from '@/lib/email/draft-calendar'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -210,11 +211,16 @@ export interface DraftPassResult {
    * unsure and the person is asked instead (E3: the thread keeps waiting on a
    * reply, reason 'unsure'), 'deferred' for a temporary skip (unreadable,
    * unverified Reply-To, the index ahead of the provider, another open draft,
-   * no recipient, a failure). The held-thread refresh releases a hold only on
-   * 'no_reply'.
+   * no recipient, a failure), 'in_meeting' for an automatic draft left
+   * unwritten because the newest message arrived during the person's meeting
+   * with its sender (src/lib/email/draft-calendar.ts). The held-thread
+   * refresh releases a hold only on 'no_reply'.
    */
-  skipped?: Record<string, 'no_reply' | 'ask' | 'deferred'>
+  skipped?: Record<string, DraftSkip>
 }
+
+/** Why a tried thread got no draft (DraftPassResult.skipped). */
+export type DraftSkip = 'no_reply' | 'ask' | 'deferred' | 'in_meeting'
 
 async function allowed(options: DraftOptions): Promise<boolean> {
   if (!options.allowAnother) return true
@@ -365,7 +371,7 @@ export async function generateEmailDrafts(
   await report(options, { kind: 'start', total })
 
   let stoppedBy: DraftPassResult['stoppedBy']
-  const skipped: Record<string, 'no_reply' | 'ask' | 'deferred'> = {}
+  const skipped: Record<string, DraftSkip> = {}
   const defer = (thread: Record<string, unknown>) => {
     if (typeof thread.provider_thread_id === 'string') skipped[thread.provider_thread_id] = 'deferred'
   }
@@ -377,6 +383,11 @@ export async function generateEmailDrafts(
   // Every address the person sends from: never a recipient of their reply.
   let ownRead: Promise<Set<string>> | undefined
   const ownOf = () => (ownRead ??= ownMailAddresses(supabaseAdmin, userId))
+  // The person's calendar (src/lib/email/draft-calendar.ts): read once per
+  // pass, and only once a thread gets as far as drafting. A failed or slow
+  // read is no meetings.
+  let calendarRead: Promise<DraftMeeting[]> | undefined
+  const calendarOf = () => (calendarRead ??= readDraftCalendar(supabaseAdmin, { workspaceId, userId }, Date.now()))
   for (const [index, thread] of batch.entries()) {
     if (generatedDrafts.length >= maxDrafts) {
       stoppedBy = 'max'
@@ -440,6 +451,22 @@ export async function generateEmailDrafts(
         await report(options, { kind: 'skipped', index, total })
         continue
       }
+      // The person's meetings with the people on this thread.
+      const meetings = await calendarOf()
+      const people = threadPeople(localThread.messages, thread.participant_emails)
+        .filter((address) => address !== mailbox && !own.has(address))
+      // No automatic draft for mail that arrived while the person was in a
+      // meeting with its sender (2026-11-24: "can you still hop on?", sent
+      // during the call, got "I'm here and ready for our call"). The meeting
+      // itself answers it; the thread waits on the person as 'in_meeting'.
+      if (origin === 'automatic' && !outgoing && sender.length === 1) {
+        const arrivedMs = Date.parse(latestMessage.dateISO ?? (typeof thread.last_message_at === 'string' ? thread.last_message_at : ''))
+        if (meetingWithSenderAt(meetings, sender[0], arrivedMs)) {
+          skipped[thread.provider_thread_id as string] = 'in_meeting'
+          await report(options, { kind: 'skipped', index, total })
+          continue
+        }
+      }
       const fullThread = {
         messages: localThread.messages.map((m) => ({
           from: m.from,
@@ -466,6 +493,7 @@ export async function generateEmailDrafts(
         review ?? { off: origin === 'automatic' },
         chatgptPlan,
         { ownAddresses: own, recipients: [...recipients, ...cc], replyingTo: outgoing ? null : replyMessage.from },
+        { meetings, people },
       )
 
       // Automatic passes re-check just before the insert: another pass may have
@@ -859,6 +887,7 @@ async function generateSingleDraft(
   plan: DraftReviewPlan,
   chatgptPlan = false,
   guard: DraftGuardTarget = { ownAddresses: [], recipients: [], replyingTo: null },
+  calendar: { meetings: readonly DraftMeeting[]; people: readonly string[] } = { meetings: [], people: [] },
 ): Promise<{ text: string; html: string; contextSources: Record<string, unknown>; quality: QualityRecord; guardRetry?: DraftGuardProblem }> {
   const supabaseAdmin = getServiceClient()
   const [{ data: profile }, style, { timeZone }] = await Promise.all([
@@ -880,7 +909,9 @@ async function generateSingleDraft(
   // deterministic word test first; no read for any other thread.
   const facts = await productFactsForThread(supabaseAdmin, workspaceId, fullThread.messages)
   const contextBlock = facts ? `${buildContextBlock(context)}\n\n${facts}` : buildContextBlock(context)
-  const userPrompt = buildDraftReplyPrompt(fullThread.messages, contextBlock, style, { nowMs: Date.now(), timeZone })
+  const clock = { nowMs: Date.now(), timeZone }
+  const calendarSection = buildCalendarSection(calendar.meetings, calendar.people, clock)
+  const userPrompt = buildDraftReplyPrompt(fullThread.messages, contextBlock, style, clock, calendarSection)
 
   // One task session on the eve utility agent (kind 'email_draft_reply'), on
   // the drafting surface's fixed model (SURFACE_MODELS). The kind's
@@ -1001,19 +1032,26 @@ export const UNTRUSTED_THREAD_NOTE =
  * after a webinar said it couldn't attend "today's" webinar): a "Now" line,
  * and each message's date in the person's zone with how long ago it was, so
  * the model never works out from a bare date whether something has passed.
+ *
+ * `calendar` is the "Their calendar" section (buildCalendarSection,
+ * src/lib/email/draft-calendar.ts): the person's meetings with people on the
+ * thread, each marked happening now, over, or how soon it starts. Left out
+ * when empty.
  */
 export function buildDraftReplyPrompt(
   messages: Array<{ from: string; date: string; dateISO?: string; body: string }>,
   contextBlock: string,
   style = '',
   clock?: DraftClock,
+  calendar = '',
 ): string {
   const threadText = messages
     .map((m) => wrapUntrusted(`From: ${m.from}\nDate: ${draftMessageDate(m, clock)}\n\n${m.body}`))
     .join('\n\n---\n\n')
   const styleSection = style.trim() ? `\n\n## How they write\n${style.trim()}` : ''
   const nowSection = clock ? `## Now\n${draftNowLabel(clock)}\n\n` : ''
-  return `${nowSection}## Email Thread\n${UNTRUSTED_THREAD_NOTE}\n\n${threadText}\n\n## Workspace Context\n${contextBlock}${styleSection}\n\nDraft a reply to the most recent message in this thread.`
+  const calendarSection = calendar.trim() ? `\n\n## Their calendar\n${calendar.trim()}` : ''
+  return `${nowSection}## Email Thread\n${UNTRUSTED_THREAD_NOTE}\n\n${threadText}\n\n## Workspace Context\n${contextBlock}${calendarSection}${styleSection}\n\nDraft a reply to the most recent message in this thread.`
 }
 
 /** When a draft is written, and the zone its dates are shown in (the person's: readMemberTimeZone). */

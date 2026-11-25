@@ -62,6 +62,8 @@ vi.mock('@/lib/email/arrival-drafts', async (importOriginal) => {
     SAFETY_NET_LOOKBACK_MS: actual.SAFETY_NET_LOOKBACK_MS,
     askedThreads: actual.askedThreads,
     unsureReasons: actual.unsureReasons,
+    inMeetingThreads: actual.inMeetingThreads,
+    skipReasons: actual.skipReasons,
     draftingBlocked: hoisted.draftingBlocked,
     remainingAutoDrafts: hoisted.remainingAutoDrafts,
     dailyCapCheck: () => hoisted.capCheck,
@@ -595,6 +597,14 @@ describe('GET /api/cron/email-management — threads the gate asks about (E3)', 
     await GET(request('Bearer test-secret'))
     const calls = hoisted.recordDraftPassEvents.mock.calls.map((c) => c[1] as { reasons?: Record<string, string> })
     expect(calls.at(-1)?.reasons).toEqual({ 'p-ask': 'unsure' })
+  })
+
+  it('reports mail that arrived during a meeting with its sender as in_meeting (2026-11-24)', async () => {
+    dbFake = makeDb({ accounts: [{ user_id: 'u1', workspace_id: 'ws-a' }] })
+    hoisted.generateEmailDrafts.mockResolvedValue({ count: 0, drafts: [], skipped: { 'p-ask': 'ask', 'p-meet': 'in_meeting' } } as never)
+    await GET(request('Bearer test-secret'))
+    const calls = hoisted.recordDraftPassEvents.mock.calls.map((c) => c[1] as { reasons?: Record<string, string> })
+    expect(calls.at(-1)?.reasons).toEqual({ 'p-ask': 'unsure', 'p-meet': 'in_meeting' })
   })
 })
 
