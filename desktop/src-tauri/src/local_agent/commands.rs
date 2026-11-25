@@ -157,6 +157,8 @@ pub async fn local_agent_start(
     worker: Option<String>,
     local_model: Option<bool>,
     base_branch: Option<String>,
+    model: Option<String>,
+    effort: Option<String>,
 ) -> Result<StartResult, String> {
     svc.start(StartArgs {
         grant_id,
@@ -168,6 +170,8 @@ pub async fn local_agent_start(
         worker,
         local_model,
         base_branch,
+        model,
+        effort,
     })
     .await
 }

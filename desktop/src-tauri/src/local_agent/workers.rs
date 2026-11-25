@@ -158,6 +158,21 @@ const MODE_NOW_RELAY: &str =
 const FOREIGN_SESSION: &str =
     "a coding agent's job resumes only on a session this Mac recorded for it; start a new job";
 const BAD_SESSION: &str = "this job's session isn't one a coding agent can resume; start a new job";
+/// A start named a model or effort with no coding agent (721): our own agent runs on the Mac's model.
+pub(super) const CHOICE_WITHOUT_WORKER: &str = "a model and an effort are chosen only for your own coding agent; Native Intelligence's agent runs on this Mac's model";
+
+/// A start for a job named another model or effort than the job keeps (721):
+/// refused, never the old one silently. A start that names none keeps its own.
+pub fn check_same_choice(recorded: &(Option<String>, Option<String>), asked: (Option<&str>, Option<&str>)) -> Result<(), String> {
+    if asked.0.is_none() && asked.1.is_none() {
+        return Ok(());
+    }
+    if (recorded.0.as_deref(), recorded.1.as_deref()) == asked {
+        return Ok(());
+    }
+    Err("this job runs on the model and effort it was started with; start a new job to use another".into())
+}
+
 /// Something changed between the handler's checks and the launch.
 pub(super) const CHANGED: &str = "this Mac's model or coding agents changed while the job was starting; start it again";
 /// The bundle has no usable registry or adapter ([`WorkerFiles::present`]),
@@ -190,6 +205,105 @@ pub struct Worker {
     pub label: String,
     /// The executable looked up on the login shell's PATH (`claude`).
     pub cli: String,
+    /// The models a job may be started on (721): the registry's `models`,
+    /// each with the efforts it takes. Empty: its default model only.
+    pub models: Vec<WorkerModel>,
+    /// The efforts its default model takes (the registry's `efforts`).
+    pub efforts: Vec<String>,
+}
+
+/// A model a job may be started on, as the CLI takes its id (721).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+pub struct WorkerModel {
+    pub id: String,
+    pub label: String,
+    pub efforts: Vec<String>,
+}
+
+/// The longest model or effort id (the server's MODEL_CHOICE_RE, migration 721's CHECK).
+const MAX_MODEL_CHOICE: usize = 100;
+/// The most models, and efforts per model, a registry entry may list.
+const MAX_WORKER_MODELS: usize = 32;
+const MAX_WORKER_EFFORTS: usize = 8;
+
+/// A model's or effort's id, as the page, the server and the adapter take
+/// it: 1 to 100 of ASCII letters, digits and `.`, `-`, `_`, `:`, `/`.
+pub fn is_model_choice(s: &str) -> bool {
+    !s.is_empty() && s.len() <= MAX_MODEL_CHOICE && s.bytes().all(|b| b.is_ascii_alphanumeric() || b"._:/-".contains(&b))
+}
+
+/// `local_agent_start`'s `model` and `effort`, before the registry is read: their shape only.
+pub fn check_model_choice_shape(model: Option<&str>, effort: Option<&str>) -> Result<(), String> {
+    if model.is_some_and(|m| !is_model_choice(m)) {
+        return Err("model is not a model's id".into());
+    }
+    if effort.is_some_and(|e| !is_model_choice(e)) {
+        return Err("effort is not an effort's id".into());
+    }
+    Ok(())
+}
+
+/// A job's model and effort against its worker's registry entry (721): only
+/// ones it lists, the effort one its model (or, with none, its default
+/// model) takes. The adapter checks the same before it starts the CLI.
+pub fn check_model_choice(worker: &Worker, model: Option<&str>, effort: Option<&str>) -> Result<(), String> {
+    let name = &worker.label;
+    let efforts = match model {
+        None => &worker.efforts,
+        Some(m) => match worker.models.iter().find(|x| x.id == m) {
+            Some(found) => &found.efforts,
+            None => return Err(format!("{name} can't be started on {m} by this version of Native Intelligence: pick another model, or its default")),
+        },
+    };
+    if let Some(e) = effort {
+        if !efforts.iter().any(|x| x == e) {
+            let which = model.map_or_else(|| format!("{name}'s default model"), str::to_string);
+            return Err(format!("{which} doesn't take {e} effort here: pick another, or its default"));
+        }
+    }
+    Ok(())
+}
+
+/// A registry entry's effort list: distinct ids in the model-choice shape, at most [`MAX_WORKER_EFFORTS`].
+fn parse_worker_efforts(v: Option<&Value>, bad: &dyn Fn(&str) -> String) -> Result<Vec<String>, String> {
+    let Some(v) = v else { return Ok(Vec::new()) };
+    let list = v.as_array().ok_or_else(|| bad("has efforts that aren't a list"))?;
+    let mut out: Vec<String> = Vec::new();
+    for e in list {
+        let e = e.as_str().filter(|e| is_model_choice(e)).ok_or_else(|| bad("has an effort that isn't an effort's id"))?;
+        if out.iter().any(|x| x == e) {
+            return Err(bad("lists an effort twice"));
+        }
+        out.push(e.to_string());
+    }
+    if out.len() > MAX_WORKER_EFFORTS {
+        return Err(bad("lists too many efforts"));
+    }
+    Ok(out)
+}
+
+/// A registry entry's models (721): each `{id, label, efforts}`, ids distinct, at most [`MAX_WORKER_MODELS`].
+fn parse_worker_models(v: Option<&Value>, bad: &dyn Fn(&str) -> String) -> Result<Vec<WorkerModel>, String> {
+    let Some(v) = v else { return Ok(Vec::new()) };
+    let list = v.as_array().ok_or_else(|| bad("has models that aren't a list"))?;
+    if list.len() > MAX_WORKER_MODELS {
+        return Err(bad("lists too many models"));
+    }
+    let mut out: Vec<WorkerModel> = Vec::new();
+    for m in list {
+        let m = m.as_object().ok_or_else(|| bad("has a model that isn't an object"))?;
+        let id = m.get("id").and_then(Value::as_str).filter(|i| is_model_choice(i)).ok_or_else(|| bad("has a model without a usable id"))?;
+        if out.iter().any(|x| x.id == id) {
+            return Err(bad("lists a model twice"));
+        }
+        let label = m.get("label").and_then(Value::as_str).filter(|l| is_label(l)).ok_or_else(|| bad("has a model without a usable label"))?;
+        out.push(WorkerModel {
+            id: id.to_string(),
+            label: label.to_string(),
+            efforts: parse_worker_efforts(m.get("efforts"), bad)?,
+        });
+    }
+    Ok(out)
 }
 
 /// The folder a remembered yes names for a grant at `grant_path`: its
@@ -276,10 +390,15 @@ impl Registry {
             let field = |name: &str| entry.get(name).and_then(Value::as_str);
             let label = field("label").filter(|l| is_label(l)).ok_or_else(|| bad("has no usable label"))?;
             let cli = field("cli").filter(|c| is_cli_name(c)).ok_or_else(|| bad("has no usable cli"))?;
+            // 721: a registry before it lists none (its default model and effort only).
+            let models = parse_worker_models(entry.get("models"), &bad)?;
+            let efforts = parse_worker_efforts(entry.get("efforts"), &bad)?;
             workers.push(Worker {
                 id: id.clone(),
                 label: label.to_string(),
                 cli: cli.to_string(),
+                models,
+                efforts,
             });
         }
         workers.sort_by(|a, b| a.id.cmp(&b.id));
@@ -1001,6 +1120,11 @@ pub struct WorkerRun {
     /// `LOCAL_AGENT_TOOLS_FILE` (board step 4, [`super::workspace_tools`]):
     /// filled in by the actor at launch; none, no variable.
     pub tools_file: Option<String>,
+    /// The model and effort the job was started on (721), checked against
+    /// the registry ([`check_model_choice`]), as `LOCAL_AGENT_WORKER_MODEL`
+    /// and `LOCAL_AGENT_WORKER_EFFORT`; none, no variable (the CLI's defaults).
+    pub model: Option<String>,
+    pub effort: Option<String>,
 }
 
 /// What a launch runs on beyond eve's defaults: the Mac's model choice and
@@ -1043,6 +1167,12 @@ impl RunSpec {
                 add.push(("LOCAL_AGENT_CLOSED_PORTS", closed.as_str()));
                 if let Some(file) = &w.tools_file {
                     add.push(("LOCAL_AGENT_TOOLS_FILE", file));
+                }
+                if let Some(model) = &w.model {
+                    add.push(("LOCAL_AGENT_WORKER_MODEL", model));
+                }
+                if let Some(effort) = &w.effort {
+                    add.push(("LOCAL_AGENT_WORKER_EFFORT", effort));
                 }
             }
             (None, ModelChoice::Local { server, model }) => {
@@ -1188,10 +1318,19 @@ pub struct WorkerItem {
 
 /// A coding agent a start may name right now (`local_agent_status`'s
 /// `workers`): in the bundle's registry, allowed on this Mac, its CLI found.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+/// `takesModel` (721): a start may name a model and an effort from its
+/// lists (its registry's); absent when it lists none.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkerOffer {
     pub id: String,
     pub label: String,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub takes_model: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub models: Vec<WorkerModel>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub efforts: Vec<String>,
 }
 
 /// The actor's L4 state ([`Actor`]'s `l4`).
@@ -1295,6 +1434,9 @@ impl L4 {
             .map(|w| WorkerOffer {
                 id: w.id.clone(),
                 label: w.label.clone(),
+                takes_model: !w.models.is_empty() || !w.efforts.is_empty(),
+                models: w.models.clone(),
+                efforts: w.efforts.clone(),
             })
             .collect()
     }
@@ -1463,6 +1605,8 @@ pub(super) struct Precheck {
     /// Rust has a record of the job, and of its worker if it has one.
     exists: bool,
     recorded: Option<String>,
+    /// The model and effort the job was started on (721), as recorded.
+    recorded_choice: (Option<String>, Option<String>),
     /// The job's session as this Mac recorded it.
     session: Option<String>,
     /// The ids the person allowed.
@@ -1571,6 +1715,7 @@ impl Actor {
                     choice: self.l4.choice(),
                     exists: job.is_some(),
                     recorded: job.and_then(|j| j.worker.clone()),
+                    recorded_choice: (job.and_then(|j| j.worker_model.clone()), job.and_then(|j| j.worker_effort.clone())),
                     session: job.and_then(|j| j.session_id.clone()),
                     allowed: self.l4.stored.allowed_workers.clone(),
                     detect: self.l4.detect.clone(),
@@ -1806,6 +1951,13 @@ impl Actor {
         if recorded.as_deref() != run.worker.as_ref().map(|w| w.worker.id.as_str()) {
             return Err(CHANGED.into());
         }
+        // Its model and effort (721): the ones the job record keeps.
+        let job = self.state.job(job_id);
+        let kept = (job.and_then(|j| j.worker_model.as_deref()), job.and_then(|j| j.worker_effort.as_deref()));
+        let run_choice = run.worker.as_ref().map_or((None, None), |w| (w.model.as_deref(), w.effort.as_deref()));
+        if kept != run_choice {
+            return Err(CHANGED.into());
+        }
         if let Some(w) = &run.worker {
             if !self.l4.stored.allowed(&w.worker.id) || !run.model.is_relay() {
                 return Err(CHANGED.into());
@@ -1875,6 +2027,13 @@ impl LocalAgentService {
         if pre.exists {
             check_same_worker(pre.recorded.as_deref(), args.worker.as_deref(), |r| bundle.label(r))?;
         }
+        // Its model and effort (721): the ones it keeps; a start may not name others.
+        let choice = if pre.exists {
+            check_same_choice(&pre.recorded_choice, (args.model.as_deref(), args.effort.as_deref()))?;
+            pre.recorded_choice.clone()
+        } else {
+            (args.model.clone(), args.effort.clone())
+        };
         if pre.live {
             return Ok(None);
         }
@@ -1882,7 +2041,7 @@ impl LocalAgentService {
             let asked = args.resume.as_ref().map(|r| r.eve_session_id.as_str());
             check_worker_resume(asked, pre.session.as_deref())?;
         }
-        self.plan_run(pre, worker.as_deref(), bundle, args.local_model, launch)
+        self.plan_run(pre, worker.as_deref(), choice, bundle, args.local_model, launch)
             .await
             .map(Some)
     }
@@ -1911,11 +2070,12 @@ impl LocalAgentService {
             return Ok(None);
         }
         let worker = pre.recorded.clone();
+        let choice = pre.recorded_choice.clone();
         let bundle = BundleWorkers::read(launch, worker.is_some());
         if worker.is_some() {
             check_worker_resume(None, pre.session.as_deref())?;
         }
-        let run = self.plan_run(pre, worker.as_deref(), bundle, local_model, launch).await?;
+        let run = self.plan_run(pre, worker.as_deref(), choice, bundle, local_model, launch).await?;
         let worker = run.worker.as_ref().map(|w| w.worker.clone());
         self.stash_run(job_id, Some(run));
         Ok(worker)
@@ -1925,6 +2085,7 @@ impl LocalAgentService {
         &self,
         pre: Precheck,
         worker: Option<&str>,
+        choice: (Option<String>, Option<String>),
         bundle: BundleWorkers,
         local_model: Option<bool>,
         launch: &LaunchConfig,
@@ -1932,6 +2093,10 @@ impl LocalAgentService {
         let model = pre.choice?;
         check_mode(local_model, &model)?;
         let Some(id) = worker else {
+            // Only a coding agent is started on a chosen model (721); never ours.
+            if choice.0.is_some() || choice.1.is_some() {
+                return Err(CHOICE_WITHOUT_WORKER.into());
+            }
             if let ModelChoice::Local { server, model: id } = &model {
                 if !bundle.caps.local_model {
                     return Err(NO_LOCAL_SUPPORT.into());
@@ -1948,6 +2113,8 @@ impl LocalAgentService {
         };
         // Only an agent the bundle on disk lists: never one the page made up.
         let worker = bundle.registry.as_ref().ok_or(NO_WORKERS)?.resolve(id)?.clone();
+        // Its model and effort (721): only what this bundle's registry lists for it.
+        check_model_choice(&worker, choice.0.as_deref(), choice.1.as_deref())?;
         let name = &worker.label;
         if !model.is_relay() {
             return Err(format!(
@@ -1978,6 +2145,8 @@ impl LocalAgentService {
                 fence_dir: String::new(),
                 closed_ports: Vec::new(),
                 tools_file: None,
+                model: choice.0,
+                effort: choice.1,
             }),
         })
     }
@@ -2001,6 +2170,8 @@ pub(super) fn login_run_for(launch: &LaunchConfig, id: &str) -> Result<WorkerRun
         fence_dir: String::new(),
         closed_ports: Vec::new(),
         tools_file: None,
+        model: None,
+        effort: None,
     })
 }
 
@@ -2206,6 +2377,8 @@ mod tests {
                 id: "claude-code".into(),
                 label: "Claude Code".into(),
                 cli: "claude".into(),
+                models: Vec::new(),
+                efforts: Vec::new(),
             }
         );
         assert_eq!(r.resolve("codex").map(|w| w.cli.as_str()), Ok("codex"));
@@ -2766,6 +2939,8 @@ mod tests {
                 fence_dir: "/d/local-agent/fence".into(),
                 closed_ports: vec![4123, 8799],
                 tools_file: None,
+                model: None,
+                effort: None,
             }),
         };
         let exact = with(&[
@@ -2802,6 +2977,130 @@ mod tests {
         );
         assert_eq!(RunSpec::default().describe(true), "model relay");
         assert_eq!(RunSpec::default().describe(false), "dev model key");
+    }
+
+    /// A registry entry with models and efforts (721), as the bundle's adapter has them.
+    const REGISTRY_WITH_MODELS: &str = r#"{
+      "claude-code": {
+        "label": "Claude Code",
+        "cli": "claude",
+        "driver": "claude-stream",
+        "signInHint": "Claude Code isn't signed in on this Mac.",
+        "models": [
+          { "id": "opus", "label": "Opus", "efforts": ["low", "high", "max"] },
+          { "id": "haiku", "label": "Haiku" }
+        ],
+        "efforts": ["low", "high"]
+      },
+      "codex": { "label": "Codex", "cli": "codex", "driver": "codex-app-server", "signInHint": "Sign in.", "efforts": ["low", "medium", "high"] }
+    }"#;
+
+    #[test]
+    fn a_registry_lists_the_models_and_efforts_a_job_may_be_started_on() {
+        let r = Registry::parse(REGISTRY_WITH_MODELS.as_bytes()).unwrap();
+        let claude = r.get("claude-code").unwrap();
+        assert_eq!(claude.models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["opus", "haiku"]);
+        assert_eq!(claude.models[0].efforts, ["low", "high", "max"]);
+        assert!(claude.models[1].efforts.is_empty(), "a model that names none takes its default effort only");
+        assert_eq!(claude.efforts, ["low", "high"]);
+        assert!(r.get("codex").unwrap().models.is_empty());
+        // A registry from before lists none: its default model and effort only.
+        assert!(registry().get("codex").unwrap().models.is_empty());
+        assert!(registry().get("codex").unwrap().efforts.is_empty());
+        // A malformed list is a broken bundle: the whole registry is refused, as the adapter refuses it.
+        for bad in [
+            r#"{"x":{"label":"X","cli":"x","models":[{"id":"two words","label":"Bad"}]}}"#,
+            r#"{"x":{"label":"X","cli":"x","models":[{"id":"a","label":"A"},{"id":"a","label":"A"}]}}"#,
+            r#"{"x":{"label":"X","cli":"x","models":[{"id":"a"}]}}"#,
+            r#"{"x":{"label":"X","cli":"x","efforts":["high","high"]}}"#,
+            r#"{"x":{"label":"X","cli":"x","models":"opus"}}"#,
+        ] {
+            assert!(Registry::parse(bad.as_bytes()).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_job_names_only_a_model_and_effort_its_registry_entry_lists() {
+        let r = Registry::parse(REGISTRY_WITH_MODELS.as_bytes()).unwrap();
+        let claude = r.get("claude-code").unwrap();
+        assert_eq!(check_model_choice(claude, None, None), Ok(()));
+        assert_eq!(check_model_choice(claude, Some("opus"), Some("max")), Ok(()));
+        assert_eq!(check_model_choice(claude, None, Some("high")), Ok(()), "the default model's efforts");
+        assert!(check_model_choice(claude, Some("sonnet"), None).unwrap_err().contains("can't be started on sonnet"));
+        assert!(check_model_choice(claude, Some("haiku"), Some("high")).unwrap_err().contains("haiku doesn't take high effort"));
+        assert!(check_model_choice(claude, None, Some("max")).unwrap_err().contains("Claude Code's default model doesn't take max effort"));
+        // The shape, before the registry is read.
+        for ok in ["opus", "gpt-5.3-codex", "anthropic/claude:latest_1"] {
+            assert!(is_model_choice(ok), "{ok}");
+        }
+        for bad in ["", "two words", "opus;rm", "ünï", &"x".repeat(101)] {
+            assert!(!is_model_choice(bad), "{bad}");
+        }
+        assert!(check_model_choice_shape(Some("two words"), None).is_err());
+        assert!(check_model_choice_shape(None, Some("very high")).is_err());
+        assert_eq!(check_model_choice_shape(Some("opus"), Some("max")), Ok(()));
+    }
+
+    #[test]
+    fn a_job_keeps_the_model_and_effort_it_was_started_with() {
+        let kept = (Some("opus".to_string()), Some("max".to_string()));
+        assert_eq!(check_same_choice(&kept, (Some("opus"), Some("max"))), Ok(()));
+        assert_eq!(check_same_choice(&kept, (None, None)), Ok(()), "a start that names none keeps the job's own");
+        assert!(check_same_choice(&kept, (Some("opus"), Some("low"))).is_err());
+        assert!(check_same_choice(&(None, None), (Some("opus"), None)).is_err(), "a job on its defaults stays on them");
+    }
+
+    #[test]
+    fn the_offer_says_it_takes_a_model_only_with_lists_and_the_page_reads_them() {
+        let r = Registry::parse(REGISTRY_WITH_MODELS.as_bytes()).unwrap();
+        let claude = r.get("claude-code").unwrap();
+        let offer = WorkerOffer {
+            id: claude.id.clone(),
+            label: claude.label.clone(),
+            takes_model: true,
+            models: claude.models.clone(),
+            efforts: claude.efforts.clone(),
+        };
+        assert_eq!(
+            serde_json::to_value(&offer).unwrap(),
+            serde_json::json!({
+                "id": "claude-code",
+                "label": "Claude Code",
+                "takesModel": true,
+                "models": [
+                    { "id": "opus", "label": "Opus", "efforts": ["low", "high", "max"] },
+                    { "id": "haiku", "label": "Haiku", "efforts": [] }
+                ],
+                "efforts": ["low", "high"]
+            })
+        );
+        // An entry that lists none: the offer an older app sent.
+        let plain = WorkerOffer { id: "codex".into(), label: "Codex".into(), ..WorkerOffer::default() };
+        assert_eq!(serde_json::to_value(&plain).unwrap(), serde_json::json!({ "id": "codex", "label": "Codex" }));
+    }
+
+    #[test]
+    fn a_worker_run_on_a_chosen_model_gets_it_and_its_effort() {
+        let dir = tempfile::tempdir().unwrap();
+        let launch = launch_config(dir.path());
+        let run = RunSpec {
+            model: ModelChoice::Relay,
+            worker: Some(WorkerRun {
+                worker: worker("claude-code"),
+                adapter: dir.path().join("agent/workers/worker.sh"),
+                bin: "/opt/homebrew/bin/claude".into(),
+                fence_dir: "/d/local-agent/fence".into(),
+                closed_ports: Vec::new(),
+                tools_file: None,
+                model: Some("opus".into()),
+                effort: Some("max".into()),
+            }),
+        };
+        let mut env = Vec::new();
+        run.apply(&mut env, &launch);
+        let get = |k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.as_str());
+        assert_eq!(get("LOCAL_AGENT_WORKER_MODEL"), Some("opus"));
+        assert_eq!(get("LOCAL_AGENT_WORKER_EFFORT"), Some("max"));
     }
 
     #[test]
@@ -3098,6 +3397,7 @@ mod tests {
         let offer = |id: &str, label: &str| WorkerOffer {
             id: id.into(),
             label: label.into(),
+            ..WorkerOffer::default()
         };
         assert_eq!(l4(ModelChoice::Relay, found(BOTH), &[]).offered(), Vec::<WorkerOffer>::new(), "nothing allowed");
         assert_eq!(
@@ -3471,6 +3771,7 @@ done
             vec![WorkerOffer {
                 id: "claude-code".into(),
                 label: "Claude Code".into(),
+                ..WorkerOffer::default()
             }],
             "and the page may now name it"
         );
@@ -4496,6 +4797,8 @@ while IFS= read -r line; do case "$line" in *'"type":"stop"'*) exit 0;; esac; do
                 fence_dir: "/fence".into(),
                 closed_ports: Vec::new(),
                 tools_file: None,
+                model: None,
+                effort: None,
             }),
         };
         actor.state.jobs.push(Job {

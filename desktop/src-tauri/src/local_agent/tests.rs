@@ -931,6 +931,7 @@ fn status_report_serializes_camel_case_without_empty_fields() {
         workers: vec![super::workers::WorkerOffer {
             id: "claude-code".into(),
             label: "Claude Code".into(),
+            ..super::workers::WorkerOffer::default()
         }],
     };
     let v: Value = serde_json::to_value(&r).unwrap();
@@ -1072,6 +1073,8 @@ async fn edit_jobs_work_in_a_worktree_and_commit_on_finish_without_hooks() {
             worker: None,
             local_model: None,
             base_branch: None,
+            model: None,
+            effort: None,
         })
         .await
         .unwrap();
@@ -2270,6 +2273,8 @@ async fn start_edit_from(rig: &Rig, base: Option<&str>) -> (String, String) {
         worker: None,
         local_model: None,
         base_branch: base.map(str::to_string),
+        model: None,
+        effort: None,
     })
     .await
     .unwrap();

@@ -179,6 +179,13 @@ pub struct Job {
     /// later registry drops never breaks the file (its job is refused).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worker: Option<String>,
+    /// The model and effort its worker was started on (721): ids the
+    /// registry listed for it then ([`super::workers::check_model_choice`]),
+    /// kept for every launch of the job. None: the CLI's own defaults.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worker_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worker_effort: Option<String>,
     /// When the person was last told it started (a banner) or said yes to
     /// it (a worker's confirm), in milliseconds since the Unix epoch
     /// ([`super::starts`]): its launches in the next
@@ -281,6 +288,8 @@ impl Job {
             push_running: None,
             parked: false,
             worker: None,
+            worker_model: None,
+            worker_effort: None,
             announced_at: None,
         }
     }
