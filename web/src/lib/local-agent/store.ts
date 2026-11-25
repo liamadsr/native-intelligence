@@ -20,7 +20,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { completeActionsForMergedPr, moveCardForRun, type CardRun } from '@/lib/actions/agent-finish'
 import { fetchPrMetadata } from '@/lib/github/pr-metadata'
 import { ensureMacEnvironment, macEnvironmentId } from '@/lib/environments/mac'
-import { isBaseBranch, isMissingColumnError, isRepoFullName, isWorkerId } from '@/lib/environments/types'
+import { isBaseBranch, isMissingColumnError, isModelChoice, isRepoFullName, isWorkerId } from '@/lib/environments/types'
 import { CODE_JOB_KEY_PREFIX, CODE_REQUEST_ID_RE, codeJobKey, codeRequestIdOf } from './code-thread'
 import { ringDoorbell } from './doorbell'
 import { macTeammateName } from './teammate'
@@ -129,6 +129,13 @@ export interface SessionRow {
    * Intelligence's own agent.
    */
   worker?: string | null
+  /**
+   * Migration 721: the model and effort the person started it on with their
+   * own coding agent; absent: the agent's own defaults (or before 721). What
+   * it actually runs on is `model` / `effort`, as the agent reports them.
+   */
+  requestedModel?: string
+  requestedEffort?: string
   /**
    * The person asked for it with a card's Start (an action job's key): its
    * opening request is labelled as theirs, though the job runs unattended
@@ -266,6 +273,9 @@ export interface DbSession {
   action_id?: string | null
   /** Migration 659: when the Mac first reported it waiting in its line for a free slot (claimed, not begun), or null. */
   mac_queued_at?: string | null
+  /** Migration 721: the model and effort the person started it on (null: the coding agent's defaults). Absent before 721. */
+  requested_model?: string | null
+  requested_effort?: string | null
   created_at: string
   updated_at: string
   folder?: { label?: string | null; grant_id?: string | null; revoked_at?: string | null } | null
@@ -328,6 +338,9 @@ export function toSessionRow(r: DbSession): SessionRow {
     attended: isAttendedSession(r),
     // Only when it has one: a session on our own agent reads as it always did.
     ...(isWorkerId(r.worker) ? { worker: r.worker } : {}),
+    // Only when it has them (721): a session on the agent's defaults reads as it always did.
+    ...(isModelChoice(r.requested_model) ? { requestedModel: r.requested_model } : {}),
+    ...(isModelChoice(r.requested_effort) ? { requestedEffort: r.requested_effort } : {}),
     ...(isActionJobKey(r.idempotency_key) ? { requestedByPerson: true } : {}),
     ...(r.status === 'starting' && r.mac_queued_at ? { queuedOnMac: true } : {}),
     ...(isCodeJob(r) ? { codeRequestId: codeRequestIdOf(r.idempotency_key)! } : {}),
@@ -804,6 +817,12 @@ export const SESSION_CHANGED_CODE = 'SESSION_CHANGED'
  * mode, it waits on the person's answer (a loop's request never answers it),
  * a stop was asked, or it kept changing as the start tried to join it.
  */
+/** A start's model and effort in words (721): "gpt-5.3-codex, high effort", "its default model". */
+function choiceNamed(model: string | null | undefined, effort: string | null | undefined): string {
+  const m = model || 'its default model'
+  return effort ? `${m}, ${effort} effort` : m
+}
+
 export type FolderBusyReason = 'other_chat' | 'read_only' | 'other_mode' | 'asking' | 'stopping' | 'changing' | 'other_worker' | 'persons_code' | 'chat_agent_job'
 
 /**
@@ -1208,6 +1227,13 @@ type ClaimInput = {
   chosenWorker?: string | null
   /** Never join the folder's job (a new Code job asked for): an idle one ends, a working one is busy. */
   fresh?: boolean
+  /**
+   * The model and effort the start names (createSession's requestedModel /
+   * requestedEffort, 721; null: the agent's defaults); `undefined` for a
+   * start that names none. A live job on another choice is never joined, as
+   * one on another agent isn't.
+   */
+  chosenModel?: { model: string | null; effort: string | null }
 }
 
 /**
@@ -1279,6 +1305,9 @@ function folderBusy(cur: DbSession | null, input: ClaimInput, reason: FolderBusy
                 ? `${label} holds the person’s own Code job${cur?.worker ? ` on ${agentNamed(cur.worker)}` : ''}, which only they talk to. One agent works in a folder at a time: they can stop it from the chat, or wait for it to end.`
               : reason === 'chat_agent_job'
                 ? `${name} is already working in ${label} on a job the chat agent started${whose}. One agent works in a folder at a time: wait for it to finish, or stop it first.`
+              : reason === 'other_worker' && (cur?.worker ?? null) === (input.chosenWorker ?? null) && input.chosenModel
+                ? // The same agent, another model or effort (721).
+                  `${name} is already working in ${label}${whose} on ${choiceNamed(cur?.requested_model, cur?.requested_effort)}, and this start is for ${choiceNamed(input.chosenModel.model, input.chosenModel.effort)}. One agent works in a folder at a time: wait for it to finish, or stop it, before starting again.`
               : reason === 'other_worker'
                 ? `${name} is already working in ${label}${whose} on ${agentNamed(cur?.worker)}, and this start is for ${agentNamed(input.chosenWorker)}. One agent works in a folder at a time: wait for it to finish, or stop it, before starting again.`
                 : `${name} is already working in ${label}${whose}. One agent works in a folder at a time: wait for it to finish, or stop it first.`
@@ -1331,7 +1360,11 @@ async function claimFolder(svc: Svc, input: ClaimInput): Promise<{ joined: DbSes
       const asking = loop && cur.last_signal === 'ask'
       // A start that names its agent never joins a job on another one
       // (migration 658): the work would silently go on with the old one.
-      const otherWorker = input.chosenWorker !== undefined && (cur.worker ?? null) !== input.chosenWorker
+      // Nor one started on another model or effort (721): it would go on with the old one.
+      const otherWorker =
+        (input.chosenWorker !== undefined && (cur.worker ?? null) !== input.chosenWorker) ||
+        (input.chosenModel !== undefined &&
+          ((cur.requested_model ?? null) !== input.chosenModel.model || (cur.requested_effort ?? null) !== input.chosenModel.effort))
       // A job being stopped never takes another turn: the stop would refuse
       // its calls and the request would be lost. Idle, it ends; else it's busy.
       if (sameKind && !cur.stop_requested_at && modeFits && !asking && !otherWorker && !input.fresh) {
@@ -1572,6 +1605,14 @@ export async function createSession(
      * FOLDER_BUSY.
      */
     fresh?: boolean
+    /**
+     * The model and effort the person chose for THIS start (721), stamped on
+     * the session; null: the coding agent's own default. Only the Code tab's
+     * start passes them (code-start.ts), after checking the Mac's offer.
+     * Absent: a start that names none, with no rule about the job it joins.
+     */
+    requestedModel?: string | null
+    requestedEffort?: string | null
   },
   attempt = 0,
 ): Promise<{ session: SessionRow; created: boolean; deviceOnline: boolean; joined?: true }> {
@@ -1606,8 +1647,19 @@ export async function createSession(
   }
   const chosen: string | null | undefined = input.explicitWorker
   const worker = chosen ?? null
-  const { explicitWorker: _explicitWorker, ...claim } = input
-  const joined = await claimFolder(svc, { ...claim, request, ...(chosen !== undefined ? { chosenWorker: chosen } : {}) })
+  for (const v of [input.requestedModel, input.requestedEffort]) {
+    if (v !== undefined && v !== null && !isModelChoice(v)) throw new LocalAgentError('bad_request', 'model and effort must be short ids')
+  }
+  const named = input.requestedModel !== undefined || input.requestedEffort !== undefined
+  const requestedModel = input.requestedModel ?? null
+  const requestedEffort = input.requestedEffort ?? null
+  const { explicitWorker: _explicitWorker, requestedModel: _model, requestedEffort: _effort, ...claim } = input
+  const joined = await claimFolder(svc, {
+    ...claim,
+    request,
+    ...(chosen !== undefined ? { chosenWorker: chosen } : {}),
+    ...(named ? { chosenModel: { model: requestedModel, effort: requestedEffort } } : {}),
+  })
   if (joined) {
     return {
       session: toSessionRow(joined.joined),
@@ -1635,6 +1687,9 @@ export async function createSession(
     ...(environmentId ? { environment_id: environmentId } : {}),
     ...(baseBranch ? { base_branch: baseBranch } : {}),
     ...(worker ? { worker } : {}),
+    // 721: only when chosen, so a start on the defaults writes what it always did (and needs no 721).
+    ...(requestedModel ? { requested_model: requestedModel } : {}),
+    ...(requestedEffort ? { requested_effort: requestedEffort } : {}),
     conversation_id: input.conversationId,
     started_by: input.startedBy,
     mode: input.mode,

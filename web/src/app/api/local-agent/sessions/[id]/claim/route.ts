@@ -43,6 +43,8 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
       ...(typeof body.localModel === 'boolean' ? { localModel: body.localModel } : {}),
       // The page's relay understands `worker` (migration 658); a job with one fails for a page that doesn't say so.
       workers: body.workers === true,
+      // And `model` / `effort` (721); a job started on a chosen one fails for a page that doesn't say so.
+      models: body.models === true,
     })
     if (!claimed) return conflict('This local agent is not waiting to be claimed by this device')
     // The token says whether the person runs on their own ChatGPT plan (the
@@ -69,6 +71,9 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
       baseBranch: claimed.baseBranch,
       // Who does the work (migration 658): the person's own coding agent, or null for ours. The Mac never falls back.
       worker: claimed.worker,
+      // The model and effort the person chose for it (721); null: the agent's default. The Mac runs on them or refuses.
+      model: claimed.model,
+      effort: claimed.effort,
     })
   } catch (err) {
     return errorResponse(err, 'claim')

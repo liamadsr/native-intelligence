@@ -85,9 +85,9 @@
 //!   `local_agent_remove_grant { grantId }`;
 //! - `local_agent_start { grantId, request, jobId?, mode?, modelToken?,
 //!   resume?: { eveSessionId, streamIndex }, worker?, localModel?,
-//!   baseBranch? }` → `{ jobId, runId }` (`worker`, `localModel`:
-//!   [`workers`]; `baseBranch`: a local branch for a new edit job to start
-//!   from, [`git`]);
+//!   baseBranch?, model?, effort? }` → `{ jobId, runId }` (`worker`,
+//!   `localModel`, and `model` / `effort` for a worker (721): [`workers`];
+//!   `baseBranch`: a local branch for a new edit job to start from, [`git`]);
 //! - `local_agent_resume { jobId, modelToken? }` → `{ jobId, runId }`;
 //! - `local_agent_set_model_token { jobId, modelToken }`;
 //! - `local_agent_send { jobId, text, policy: "steer"|"queue" }`,
@@ -574,6 +574,12 @@ pub struct StartArgs {
     /// worktree is made for it ([`git::Git::resolve_base`]): a read job, or
     /// a job with a worktree already, drops it.
     pub base_branch: Option<String>,
+    /// The model and effort to start `worker` on (721): ids its registry
+    /// entry lists ([`workers::check_model_choice`]); refused without a
+    /// worker. Absent: the CLI's own defaults. A job keeps the ones it was
+    /// started with: a later start may name only those.
+    pub model: Option<String>,
+    pub effort: Option<String>,
 }
 
 /// [`StartArgs`], checked.
@@ -591,6 +597,9 @@ struct Checked {
     local_model: Option<bool>,
     /// As sent: checked only if a worktree is made for it ([`Actor::plan_start`]).
     base_branch: Option<String>,
+    /// The model and effort (721), their shape checked; the registry's lists are [`workers::check_start`]'s.
+    model: Option<String>,
+    effort: Option<String>,
 }
 
 impl StartArgs {
@@ -601,6 +610,10 @@ impl StartArgs {
             Some(m) => Some(GrantMode::parse(m).ok_or("mode must be \"read\" or \"edit\"")?),
         };
         let token = self.model_token.as_deref().map(check_token).transpose()?;
+        workers::check_model_choice_shape(self.model.as_deref(), self.effort.as_deref())?;
+        if self.worker.is_none() && (self.model.is_some() || self.effort.is_some()) {
+            return Err(workers::CHOICE_WITHOUT_WORKER.into());
+        }
         if let Some(r) = &self.resume {
             let id = &r.eve_session_id;
             if id.is_empty() || id.len() > MAX_SESSION_ID || id.chars().any(|c| c.is_control()) {
@@ -623,6 +636,8 @@ impl StartArgs {
             },
             local_model: self.local_model,
             base_branch: self.base_branch,
+            model: self.model,
+            effort: self.effort,
         })
     }
 }
@@ -3285,6 +3300,9 @@ impl Actor {
             let mut job = Job::new(&job_id, &grant.id, &args.request, JobStatus::Starting, &now_stamp());
             job.mode = plan.mode;
             job.worker = args.worker.clone();
+            // 721: checked against the registry with the run (workers::check_start).
+            job.worker_model = args.model.clone();
+            job.worker_effort = args.effort.clone();
             if let Some(r) = &args.resume {
                 job.session_id = Some(r.eve_session_id.clone());
                 job.stream_index = Some(r.stream_index);

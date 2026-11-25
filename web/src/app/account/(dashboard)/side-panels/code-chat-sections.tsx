@@ -16,13 +16,9 @@
  *                here but not on the full screen view?"). Only in the shell
  *                (its openers need the agents' shared source), and once the
  *                job has its turn's record.
- *   Model        first, at the panel's top (Liam, 11-19: "a section at the
- *                top right where you can see which model is selected and the
- *                effort level"): the model the coding agent says it runs on,
- *                and its reasoning effort. The agent's own settings on the
- *                person's own account: nothing here picks them. Not drawn
- *                until the agent has said (Native Intelligence's own agent,
- *                a job from before the desktop app told us).
+ *   (The model and effort are not here: they are pinned under the composer,
+ *   as other apps show them (Liam, 11-25; composer-code-controls.tsx
+ *   CodeModelLine), where a new chat also picks them.)
  *   Status       what it is doing now, in the conversation's own words, its
  *                question when it asked one, and Stop while it can be stopped.
  *   Changes      an edit job's branch and commit, and its pull request once
@@ -62,7 +58,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { FLOATING_CARD_CLASS } from '@/components/attention/card-skin'
 import { workerLabel } from '@/lib/environments/types'
 import { isGithubPullRequestUrl } from '@/lib/local-agent/pull-request'
-import { canContinueSession, canMessageSession, canStopSession, effortLabel, isSessionEnded, sessionEndedText, sessionStatusText } from '@/lib/local-agent/transcript-view'
+import { canContinueSession, canMessageSession, canStopSession, isSessionEnded, sessionEndedText, sessionStatusText } from '@/lib/local-agent/transcript-view'
 import { offersPullRequest } from '@/lib/local-agent/changes'
 import { ChangesView } from '@/components/local-agent/changes-view'
 import { PullRequestOffer, queueOne, usePullRequestAsk, viewChangesLabel, type PullRequestAsk } from '@/components/local-agent/local-agent-panel'
@@ -322,19 +318,6 @@ export function CodeChatSections({ pr: given }: { pr?: PullRequestState } = {}) 
   return (
     <div data-code-chat-sections={session.id} className="ph-no-capture flex flex-col gap-2.5">
       {action && <ActionCard action={action} />}
-      {session.model && (
-        <Card id="model" title="Model">
-          <Line label="Model">
-            <span data-code-chat-model="" title={session.model}>
-              {session.model}
-            </span>
-          </Line>
-          {/* A model that names no effort runs on its agent's own default. */}
-          <Line label="Effort">
-            <span data-code-chat-effort={session.effort ?? 'default'}>{session.effort ? effortLabel(session.effort) : 'Default'}</span>
-          </Line>
-        </Card>
-      )}
       <Card id="status" title="Status">
         <p data-code-chat-status={session.status} className={cn('text-foreground/90', asking && 'text-amber-600 dark:text-amber-400', session.status === 'failed' && 'text-destructive')}>
           {codeChatStatus(session, stopping)}

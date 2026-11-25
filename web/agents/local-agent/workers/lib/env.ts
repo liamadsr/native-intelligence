@@ -17,6 +17,12 @@
  *                                     servers at launch, which the fence denies on loopback
  *   LOCAL_AGENT_TOOLS_FILE            optional: the workspace tools the desktop wrote for this
  *                                     launch (workspace-tools.ts; nothing secret in it)
+ *   LOCAL_AGENT_WORKER_MODEL          optional (721): the model the person chose for this job,
+ *                                     an id its registry entry lists (`models`)
+ *   LOCAL_AGENT_WORKER_EFFORT         optional (721): the effort chosen with it, one that model
+ *                                     (or, with none, the default model) takes. Unset: the
+ *                                     CLI's own defaults. Checked against the registry here
+ *                                     as the desktop checked it: never passed on unchecked
  *   LOCAL_AGENT_FENCE_DIR             the desktop's fence folder, holding the empty files
  *                                     `<job id>` and `<job id>.open` (agent-profile.ts: how
  *                                     the desktop finds this job's processes)
@@ -30,7 +36,7 @@
 import { accessSync, constants as fsConstants, lstatSync, realpathSync, statSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import type { LocalAgentMode } from '../../lib/seatbelt.js'
-import type { Registry, RegistryEntry } from './registry.js'
+import { MODEL_CHOICE, modelChoiceRefusal, type Registry, type RegistryEntry } from './registry.js'
 
 /** The environment as read here (process.env, or a plain object in tests). */
 export type WorkerEnv = Readonly<Record<string, string | undefined>>
@@ -55,6 +61,9 @@ export interface WorkerLaunch {
   /** The job's own temp folder (realpath). */
   readonly tmpdir: string
   readonly lang: string
+  /** LOCAL_AGENT_WORKER_MODEL / _EFFORT (721): checked against the entry; null for the CLI's own default. */
+  readonly model: string | null
+  readonly effort: string | null
 }
 
 export class WorkerLaunchError extends Error {
@@ -157,6 +166,17 @@ export function workerLaunchFromEnv(env: WorkerEnv, registry: Registry): WorkerL
   if (mode === 'edit' && extraRead === undefined) throw new WorkerLaunchError('edit mode needs LOCAL_AGENT_EXTRA_READ (the repository git directory)')
   const fenceDir = fenceDirFromEnv(env.LOCAL_AGENT_FENCE_DIR, jobId)
   const closedPorts = closedPortsFromEnv(env.LOCAL_AGENT_CLOSED_PORTS)
+  // The person's model and effort (721): only ones the entry lists, never passed to the CLI unchecked.
+  const choice = (name: 'LOCAL_AGENT_WORKER_MODEL' | 'LOCAL_AGENT_WORKER_EFFORT'): string | null => {
+    const v = env[name]
+    if (v === undefined || v === '') return null
+    if (!MODEL_CHOICE.test(v)) throw new WorkerLaunchError(`this job can't start: the app passed an unreadable ${name === 'LOCAL_AGENT_WORKER_MODEL' ? 'model' : 'effort'}`)
+    return v
+  }
+  const model = choice('LOCAL_AGENT_WORKER_MODEL')
+  const effort = choice('LOCAL_AGENT_WORKER_EFFORT')
+  const refusal = modelChoiceRefusal(entry, model, effort)
+  if (refusal) throw new WorkerLaunchError(refusal)
 
   const binPath = env.LOCAL_AGENT_WORKER_BIN
   if (!binPath || !binPath.startsWith('/')) throw new WorkerLaunchError('LOCAL_AGENT_WORKER_BIN is missing or not absolute')
@@ -186,5 +206,7 @@ export function workerLaunchFromEnv(env: WorkerEnv, registry: Registry): WorkerL
     home: realDir(env.HOME, 'HOME'),
     tmpdir: realDir(env.TMPDIR, 'TMPDIR'),
     lang: env.LANG || 'en_US.UTF-8',
+    model,
+    effort,
   }
 }

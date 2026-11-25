@@ -72,7 +72,7 @@ import { MicPicker } from './mic-picker'
 import { ComposerCaptureButton, type ComposerRecording } from './composer-capture-button'
 import type { ComposerEnvironment, ComposerFolders } from './composer-state'
 import { EnvironmentSelector } from '@/components/environments/environment-selector'
-import { CodeAgentPicker, CodeFolderPicker, CodeNoticeLine, ComposerTabs } from './composer-code-controls'
+import { CodeAgentPicker, CodeFolderPicker, CodeModelLine, CodeNoticeLine, ComposerTabs } from './composer-code-controls'
 import type { ComposerCode } from './composer-code'
 
 /** The composer's voice: what the desktop can do, and the panel's voice mode.
@@ -1732,6 +1732,8 @@ export const ChatInput = memo(function ChatInput({
           )}
           {/* A new chat's folder; an open chat has its own. While it works: how the message lands. */}
           {codeActive && code && !code.messaging && <CodeFolderPicker code={code} onOpenChange={handlePopoverLock} />}
+          {/* The chat's model and effort (721): a new chat's pickers, an open chat's, read-only. */}
+          {codeActive && code && <CodeModelLine code={code} onOpenChange={handlePopoverLock} />}
           {unavailable?.agent && (
             <UnavailableControl
               control="agent"

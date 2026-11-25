@@ -260,6 +260,9 @@ export async function runWorker(opts: { env?: WorkerEnv; registry?: Registry } =
         cwd: launch.folder,
         mcp: { url: mcp.url, token: mcp.token },
         ...(workspaceText !== undefined ? { workspaceInstructions: workspaceText } : {}),
+        // The person's model and effort (721), checked against the entry at launch (env.ts).
+        model: launch.model,
+        effort: launch.effort,
       },
       {
         write: (msg) => {

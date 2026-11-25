@@ -257,6 +257,13 @@ export interface CodeStartBody {
   environmentId?: string
   /** Start a new job even where this chat's idle one is open (it is ended first): the composer's Start a new job. */
   newJob?: boolean
+  /**
+   * The model and effort for the person's own coding agent (721), sent only
+   * when its Mac's offer takes them: each an id it lists, or null for its
+   * default. Absent: the defaults (the server never fills them in).
+   */
+  model?: string | null
+  effort?: string | null
 }
 
 export interface CodeStarted {

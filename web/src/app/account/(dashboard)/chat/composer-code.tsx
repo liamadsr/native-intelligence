@@ -27,6 +27,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type { UIMessage } from '@ai-sdk/react'
+import { readModelChoice, writeModelChoice, type ModelChoice } from './code-model-choice'
 import { toast } from 'sonner'
 import {
   ENVIRONMENTS_FRESH_MS,
@@ -51,6 +52,7 @@ import {
   defaultCodeAgent,
   hasMacEnvironment,
   isPickableAgent,
+  offeredModelChoice,
   openingCodeChoice,
   readCodeTabChoice,
   resolveCodeFolder,
@@ -77,7 +79,7 @@ import { backToAgent, getCurrentChat, isOnCode, openCodingChat, pressCode, subsc
 import { draftSent } from './chat-drafts'
 import type { LocalAgentStatus } from '@/lib/local-agent/store'
 import { canContinueSession } from '@/lib/local-agent/transcript-view'
-import { workerLabel } from '@/lib/environments/types'
+import { effortsFor, workerLabel } from '@/lib/environments/types'
 import type { LocalAgentPolicy } from '@/lib/tauri-bridge'
 
 /** What ChatInput draws for the Code tab (composer-code-controls.tsx). */
@@ -113,6 +115,22 @@ export interface ComposerCode {
    * Null: the next send starts a new chat.
    */
   messaging: { agentLabel: string; working: boolean } | null
+  /**
+   * The model and effort a NEW chat starts its coding agent on (721), with
+   * their pickers: only when the picked agent's Mac says it takes them (its
+   * offer's `takesModel`); null otherwise (our own agent, an older app), and
+   * the start sends none. Each null is the agent's own default. Remembered
+   * per agent on this device (code-model-choice.ts).
+   */
+  modelChoice: {
+    models: ReadonlyArray<{ id: string; label: string }>
+    /** The efforts the chosen model takes (with none chosen, the default model's). */
+    efforts: readonly string[]
+    model: string | null
+    effort: string | null
+    pickModel: (model: string | null) => void
+    pickEffort: (effort: string | null) => void
+  } | null
 }
 
 /**
@@ -294,6 +312,13 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
   const chosen = choice ?? openingCodeChoice(stored, jobs, defaults)
   const current = chosen.tab === tab ? chosen : { ...chosen, tab }
   const agent = isPickableAgent(agents, current.agent) ? current.agent : defaults.agent
+  // Its model and effort (721): only what its Mac's app offers for it, remembered per agent on this device.
+  const choiceOffer = agent ? (agents.yours.find((o) => o.id === agent)?.choice ?? null) : null
+  const [wantedChoice, setWantedChoice] = useState<{ agent: string | null; choice: ModelChoice | null }>({ agent: null, choice: null })
+  // After mount, and when the agent changes: the server render and the first client one agree (the defaults).
+  useEffect(() => setWantedChoice({ agent, choice: readModelChoice(agent) }), [agent])
+  const wanted = wantedChoice.agent === agent ? wantedChoice.choice : null
+  const chosenModel = useMemo(() => (choiceOffer ? offeredModelChoice(choiceOffer, wanted) : null), [choiceOffer, wanted])
   const folderId = resolveCodeFolder(folderOptions, current.folderId)
   const active = tab === 'code' || openWithoutToggle
   // What a NEW chat needs (a Mac, a folder). A coding chat open in the Code view takes a message without it.
@@ -389,6 +414,31 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
     backToAgent({ from: 'composer' })
   }, [setNotice])
   const pickAgent = useCallback((a: string | null) => update({ agent: a }), [update])
+  const pickChoice = useCallback(
+    (next: Partial<ModelChoice>) => {
+      if (!choiceOffer || !agent) return
+      const was = chosenModel ?? { model: null, effort: null }
+      // A model that doesn't take the effort chosen drops it (offeredModelChoice): never a pair the Mac refuses.
+      const choice = offeredModelChoice(choiceOffer, { ...was, ...next })
+      writeModelChoice(agent, choice)
+      setWantedChoice({ agent, choice })
+    },
+    [choiceOffer, agent, chosenModel],
+  )
+  const modelChoice = useMemo<ComposerCode['modelChoice']>(
+    () =>
+      choiceOffer && chosenModel
+        ? {
+            models: choiceOffer.models.map((m) => ({ id: m.id, label: m.label })),
+            efforts: effortsFor(choiceOffer, chosenModel.model),
+            model: chosenModel.model,
+            effort: chosenModel.effort,
+            pickModel: (model) => pickChoice({ model }),
+            pickEffort: (effort) => pickChoice({ effort }),
+          }
+        : null,
+    [choiceOffer, chosenModel, pickChoice],
+  )
   const pickFolder = useCallback((f: string) => update({ folderId: f }), [update])
   const addFolder = useCallback(() => {
     void addEnvironmentFolder().then(() => {
@@ -429,7 +479,7 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
   // ── The send ──────────────────────────────────────────────────────────────
   const agentLabel = codeAgentLabel(agent, agents)
   const folderLabel = folderOptions.find((o) => o.id === folderId)?.label ?? null
-  const live = { active, blocker, agent, agentLabel, folderId, folderLabel, mac, jobs, chatEnv: chat.environment }
+  const live = { active, blocker, agent, agentLabel, folderId, folderLabel, mac, jobs, chatEnv: chat.environment, chosenModel }
   const liveRef = useRef(live)
   liveRef.current = live
   const optsRef = useRef(opts)
@@ -531,6 +581,8 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
           requestId,
           ...(now.chatEnv ? { environmentId: now.chatEnv.id } : {}),
           ...(newJob ? { newJob: true } : {}),
+          // Only when its Mac's app takes them (721): never a choice it would ignore.
+          ...(now.chosenModel ? { model: now.chosenModel.model, effort: now.chosenModel.effort } : {}),
         })
         if (!started.ok) {
           setNotice(started.message)
@@ -624,9 +676,10 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
             noticeActions,
             sending,
             messaging,
+            modelChoice,
           }
         : null,
-    [available, tab, setTab, agents, agent, agentLabel, pickAgent, mac, folderOptions, folderId, pickFolder, folders.canPick, addFolder, blocker, notice, noticeActions, sending, messaging],
+    [available, tab, setTab, agents, agent, agentLabel, pickAgent, mac, folderOptions, folderId, pickFolder, folders.canPick, addFolder, blocker, notice, noticeActions, sending, messaging, modelChoice],
   )
 
   return { available, active, code, submit, thread, held, sendHeldNow, takeHeld }

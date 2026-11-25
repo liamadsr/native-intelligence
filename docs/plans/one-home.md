@@ -553,3 +553,30 @@ button to open that view should be on the Changes panel, not on the main chat vi
 
 **Not proven**: a real diff read on the job's own Mac in the desktop app (the test account has no
 Mac; the stubbed chat shows the "read it on that Mac" line), notes sent from the panel to a real job.
+
+## Model and effort, pinned under the box (2026-11-25)
+
+Liam: "That should just be pinned to the chat panel like in other apps, and you should also be able to select the
+model and the effort level when starting a coding session."
+
+- **The right panel's Model card is gone.** A coding chat's model and effort sit in the composer's row under the box,
+  after the folder (`CodeModelLine`).
+- **A new chat** shows a Model and an Effort picker, each starting at Default (the agent's own), only for a coding
+  agent whose Mac's app says it takes them (the offer's `takesModel`). The lists are that Mac's, from its app's
+  registry, never written in the web. The last pick is remembered per agent on this device
+  (`ni:code:model:<agent>`); one the Mac no longer offers reads as Default.
+- **An open chat** shows its model and effort read-only, as its agent reports them. Neither CLI documents a
+  mid-session switch on the path the app uses for Claude Code. Codex's `turn/start` does take `model` and `effort`
+  "for this turn and subsequent turns", so a live switch there is a possible follow-up. Today a new chat picks
+  another.
+- **The path:** the start route checks the choice against the Mac's mirrored offer (409 `MODEL_NOT_OFFERED`) and
+  stamps it on the session (migration 721). The claim hands it on. The relay passes it to `local_agent_start` only
+  where the desktop's offer takes it. The desktop checks it against its registry, keeps it on the job, and passes it
+  to the worker. The worker passes it to the CLI: Claude Code's `--model` / `--effort`, Codex's thread `model` and
+  turn `effort`. A step that can't carry it refuses with a sentence; none drops it silently.
+- **What's offered:** Claude Code, its documented aliases (opus, sonnet, haiku) and levels (low to max). Codex,
+  efforts only (low, medium, high), on its default model. Its model list is `model/list`'s, read at run time in a
+  follow-up.
+
+**Not proven**: all of it on a Mac (it needs the desktop release, `desktop/docs/next-release.md`); the effort values
+against Codex's own enum (not in its README; low, medium and high are the long-standing ones).

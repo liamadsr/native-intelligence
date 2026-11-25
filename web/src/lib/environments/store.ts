@@ -52,6 +52,7 @@ import {
   type MacCapability,
   type MacEnvironment,
   type MacFolder,
+  type MacWorkerOffer,
   type NetworkAccess,
 } from './types'
 
@@ -481,12 +482,13 @@ export const WORKER_NOT_OFFERED_CODE = 'WORKER_NOT_OFFERED'
  * (environment.offered_workers): the Mac would refuse it anyway, so the
  * person hears why now. Throws an EnvironmentError.
  */
-export async function assertMacOffers(svc: Svc, environmentId: string, worker: string): Promise<void> {
+export async function assertMacOffers(svc: Svc, environmentId: string, worker: string): Promise<MacWorkerOffer> {
   const { data, error } = await svc.from('environment').select('offered_workers').eq('id', environmentId).maybeSingle()
   if (isMissingColumnError(error)) throw new EnvironmentError('conflict', WORKER_NOT_AVAILABLE_REASON, { code: WORKER_NOT_AVAILABLE_CODE })
   if (error) throw new Error(`offered agents read failed: ${error.message}`)
   const offers = cleanWorkerOffers((data as { offered_workers?: unknown } | null)?.offered_workers)
-  if (offers?.some((w) => w.id === worker)) return
+  const offer = offers?.find((w) => w.id === worker)
+  if (offer) return offer
   throw new EnvironmentError(
     'conflict',
     offers === null

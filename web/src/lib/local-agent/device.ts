@@ -20,7 +20,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { ensureMacEnvironment } from '@/lib/environments/mac'
-import { cleanWorkerOffers, isBaseBranch, isMissingColumnError, isMacCapability, isWorkerId, type MacCapability, type MacWorkerOffer } from '@/lib/environments/types'
+import { cleanWorkerOffers, isBaseBranch, isMissingColumnError, isMacCapability, isModelChoice, isWorkerId, type MacCapability, type MacWorkerOffer } from '@/lib/environments/types'
 import { LEDGER_SILENT_TOOLS, moveTurn, nextTurn, stepFromTool, turnStatus, type LedgerMove } from './ledger'
 import { isGithubPullRequestUrl, isSessionBranch } from './pull-request'
 import {
@@ -644,6 +644,21 @@ export interface ClaimResult {
    * refuses with its own sentence. Null: Native Intelligence's own agent.
    */
   worker: string | null
+  /**
+   * The model and effort the person started it on (721,
+   * local_agent_session.requested_model / requested_effort), for its coding
+   * agent: the Mac starts the agent on them, every launch, or refuses with
+   * its own sentence. Null: the agent's own default.
+   */
+  model: string | null
+  effort: string | null
+}
+
+/** A session's model or effort as a claim hands it on (721): the column's shape again, else refused, never dropped. */
+export function claimModelChoice(v: string | null | undefined): string | null {
+  if (v === null || v === undefined) return null
+  if (!isModelChoice(v)) throw new Error('claim failed: the session’s model or effort is not one a Mac names')
+  return v
 }
 
 /**
@@ -667,6 +682,14 @@ export function claimBaseBranch(row: Pick<DbSession, 'mode' | 'base_branch'>): s
  * claim: the page that claimed it predates workers (its relay doesn't say
  * `workers: true`), so it would start it on Native Intelligence's agent.
  */
+/**
+ * Why a job started on a chosen model or effort (721) failed at its claim:
+ * the page that claimed it predates them (its relay doesn't say
+ * `models: true`), so it would start the agent on its defaults instead.
+ */
+export const MODEL_PAGE_OUTDATED_REASON =
+  'This job was started on a model you chose, and the Native Intelligence window on that Mac is out of date, so it didn’t start. Reload Native Intelligence on that Mac (or update the app), then start it again.'
+
 export const WORKER_PAGE_OUTDATED_REASON =
   'This job is set to run on your own coding agent, and the Native Intelligence window on that Mac is out of date, so it didn’t start. Reload Native Intelligence on that Mac (or update the app), then ask again.'
 
@@ -698,6 +721,12 @@ export async function claimSession(
      * an older page would drop the worker and run Native Intelligence's agent.
      */
     workers?: boolean
+    /**
+     * The claiming page's relay hands on `model` and `effort` (721). Without
+     * it, a job that has either is failed here (MODEL_PAGE_OUTDATED_REASON):
+     * an older page would drop them and run the agent on its defaults.
+     */
+    models?: boolean
   },
 ): Promise<ClaimResult | null> {
   if (!isUuid(sessionId)) throw new LocalAgentError('not_found', 'Local agent not found')
@@ -741,6 +770,10 @@ export async function claimSession(
     await failSession(svc, row, WORKER_PAGE_OUTDATED_REASON)
     return null
   }
+  if ((row.requested_model || row.requested_effort) && input.models !== true) {
+    await failSession(svc, row, MODEL_PAGE_OUTDATED_REASON)
+    return null
+  }
   // The ledger row stays `queued` until the Mac's first word (its `starting`
   // status event): a job the Mac holds in its line for a free slot reads
   // "queued" on its card all the way through, server line and Mac line.
@@ -757,6 +790,8 @@ export async function claimSession(
     localModel,
     baseBranch: claimBaseBranch(row),
     worker: claimWorker(row),
+    model: claimModelChoice(row.requested_model),
+    effort: claimModelChoice(row.requested_effort),
   }
 }
 

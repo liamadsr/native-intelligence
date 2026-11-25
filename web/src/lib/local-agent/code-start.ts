@@ -18,7 +18,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { macEnvironmentId } from '@/lib/environments/mac'
 import { WORKER_NOT_OFFERED_CODE, assertMacOffers } from '@/lib/environments/store'
-import { EnvironmentError, isWorkerId } from '@/lib/environments/types'
+import { EnvironmentError, MODEL_NOT_OFFERED_CODE, isModelChoice, isWorkerId, modelChoiceRefusal, workerLabel } from '@/lib/environments/types'
 import { CODE_CLOUD_NEXT_REASON, codeJobRequestBudget } from './code-thread'
 import {
   CODE_REQUEST_ID_RE,
@@ -59,6 +59,14 @@ export interface CodeStartInput {
   environmentId?: unknown
   /** "Start a new job": never the folder's next turn; an idle job there ends to make room. */
   newJob?: unknown
+  /**
+   * The model and the effort the person chose for their own coding agent
+   * (721), each an id the Mac's offer lists, or null for the agent's own
+   * default. Absent: a composer that offers no choice (the defaults, as
+   * before). Refused unless the Mac's app says the agent takes them.
+   */
+  model?: unknown
+  effort?: unknown
 }
 
 export interface CodeStartResult {
@@ -87,6 +95,10 @@ export async function startCodeJob(svc: Svc, input: CodeStartInput): Promise<Cod
       `That request is too long for one job: keep it under about ${budget.toLocaleString('en-US')} characters, or put the details in a file in the folder and point to it.`,
       { code: CODE_REQUEST_TOO_LONG_CODE, maxBytes: budget },
     )
+  }
+  const choice = modelChoiceOf(input)
+  if (choice && input.worker === null && (choice.model !== null || choice.effort !== null)) {
+    throw new LocalAgentError('bad_request', 'Native Intelligence’s own agent runs on the model your Mac is set to: pick a coding agent to choose a model.')
   }
   if (!isUuid(input.folderId)) throw new LocalAgentError('bad_request', 'folderId must be one of your folders')
   if (!isUuid(input.conversationId)) throw new LocalAgentError('bad_request', 'conversationId must be one of your chats')
@@ -122,12 +134,16 @@ export async function startCodeJob(svc: Svc, input: CodeStartInput): Promise<Cod
         code: WORKER_NOT_OFFERED_CODE,
       })
     }
+    let offer
     try {
-      await assertMacOffers(svc, environmentId, input.worker)
+      offer = await assertMacOffers(svc, environmentId, input.worker)
     } catch (err) {
       if (!(err instanceof EnvironmentError)) throw err
       throw new LocalAgentError('conflict', err.message, err.details)
     }
+    // Its model and effort (721): only what that Mac's app said this agent takes, never a choice it would ignore.
+    const refusal = choice ? modelChoiceRefusal(offer, choice, workerLabel(input.worker, [offer])) : null
+    if (refusal) throw new LocalAgentError('conflict', refusal, { code: MODEL_NOT_OFFERED_CODE })
   }
 
   const started = await createSession(svc, {
@@ -141,8 +157,24 @@ export async function startCodeJob(svc: Svc, input: CodeStartInput): Promise<Cod
     idempotencyKey: key,
     explicitWorker: input.worker,
     ...(input.newJob === true ? { fresh: true } : {}),
+    ...(choice ? { requestedModel: choice.model, requestedEffort: choice.effort } : {}),
   })
   return { session: started.session, created: started.created, joined: started.joined === true, deviceOnline: started.deviceOnline }
+}
+
+/**
+ * The start's model and effort (721): null when it names neither (an older
+ * composer), else each an id or null (the agent's default). Off-shape:
+ * refused.
+ */
+function modelChoiceOf(input: Pick<CodeStartInput, 'model' | 'effort'>): { model: string | null; effort: string | null } | null {
+  if (input.model === undefined && input.effort === undefined) return null
+  const one = (v: unknown, what: string): string | null => {
+    if (v === undefined || v === null) return null
+    if (!isModelChoice(v)) throw new LocalAgentError('bad_request', `${what} must be one your Mac offers`)
+    return v
+  }
+  return { model: one(input.model, 'model'), effort: one(input.effort, 'effort') }
 }
 
 /**

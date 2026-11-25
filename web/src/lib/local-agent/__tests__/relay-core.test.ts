@@ -12,6 +12,8 @@ import {
   GRANT_GONE,
   GRANT_READ_ONLY,
   WORKER_INVALID,
+  MODEL_INVALID,
+  MODEL_UNSUPPORTED,
   WORKER_UNSUPPORTED,
   QUEUE_DROPPED,
   START_INLINE_MS,
@@ -480,7 +482,7 @@ describe('relay: pending → claim → start', () => {
     })
     const order = h.log.filter((l) => /claim|^start|state|events/.test(l))
     expect(order).toEqual([
-      `POST /sessions/${S1}/claim {"deviceId":"${DEVICE.deviceId}","runId":"claim-1","workers":true}`,
+      `POST /sessions/${S1}/claim {"deviceId":"${DEVICE.deviceId}","runId":"claim-1","workers":true,"models":true}`,
       `start ${S1}`,
       `POST /sessions/${S1}/state {"runId":"run-A","previousRunId":"claim-1","deviceId":"${DEVICE.deviceId}"}`,
       `POST /sessions/${S1}/events {"runId":"run-A","events":[{"seq":1,"event":{"kind":"status","status":"starting"}}]}`,
@@ -495,7 +497,7 @@ describe('relay: pending → claim → start', () => {
       },
     })
     await h.relay.flushAll()
-    expect(h.server.requests.find((r) => r.path.endsWith('/claim'))?.body).toEqual({ deviceId: DEVICE.deviceId, runId: 'claim-1', localModel: true, workers: true })
+    expect(h.server.requests.find((r) => r.path.endsWith('/claim'))?.body).toEqual({ deviceId: DEVICE.deviceId, runId: 'claim-1', localModel: true, workers: true, models: true })
   })
 
   it('a 409 on claim is skipped, and not retried until the cool-down passes', async () => {
@@ -1019,6 +1021,36 @@ describe('relay: messages and stops', () => {
     expect(startArgs(ours)).not.toHaveProperty('worker')
     const olderServer = await boot({ setup: (x) => (x.server.state.pending.start = [pendingStart(S1)]) })
     expect(startArgs(olderServer)).not.toHaveProperty('worker')
+  })
+
+  it('starts the coding agent on the model and effort the person chose (721), only on a desktop that takes them, never on its defaults instead', async () => {
+    const choiceClaim = (over: Record<string, unknown>) => (x: Harness) => {
+      x.server.state.pending.start = [pendingStart(S1)]
+      const claimBody = x.server.state.claimBody
+      x.server.state.claimBody = (id: string) => ({ ...claimBody(id), worker: 'codex', ...over })
+    }
+    const taking = [{ id: 'codex', label: 'Codex', takesModel: true as const, models: [{ id: 'gpt-5.3-codex', label: 'GPT-5.3 Codex', efforts: ['high'] }], efforts: ['high'] }]
+    const startArgs = (h: { bridge: { start: { mock: { calls: unknown[][] } } } }) => h.bridge.start.mock.calls[0][0] as LocalAgentStartArgs
+    // A desktop that takes a model for this agent gets them; it checks them against its own registry.
+    const chosen = await boot({ setup: (x) => { choiceClaim({ model: 'gpt-5.3-codex', effort: 'high' })(x); x.state.workers = taking } })
+    expect(startArgs(chosen)).toMatchObject({ worker: 'codex', model: 'gpt-5.3-codex', effort: 'high' })
+    // An effort alone (the default model) too.
+    const effortOnly = await boot({ setup: (x) => { choiceClaim({ model: null, effort: 'high' })(x); x.state.workers = taking } })
+    expect(startArgs(effortOnly)).toMatchObject({ worker: 'codex', effort: 'high' })
+    expect(startArgs(effortOnly)).not.toHaveProperty('model')
+    // A desktop that lists the agent but takes no model would ignore them: failed instead, nothing started.
+    const older = await boot({ setup: (x) => { choiceClaim({ model: 'gpt-5.3-codex' })(x); x.state.workers = [{ id: 'codex', label: 'Codex' }] } })
+    expect(older.bridge.start).not.toHaveBeenCalled()
+    expect(older.server.posts('/state')[0].body).toEqual({ runId: 'claim-1', status: 'failed', error: MODEL_UNSUPPORTED })
+    // Something off the shape is refused, never read as "the default".
+    const bad = await boot({ setup: (x) => { choiceClaim({ model: 'two words' })(x); x.state.workers = taking } })
+    expect(bad.bridge.start).not.toHaveBeenCalled()
+    expect(bad.server.posts('/state')[0].body).toEqual({ runId: 'claim-1', status: 'failed', error: MODEL_INVALID })
+    // No choice (the defaults, or an older server): nothing extra in the start.
+    const defaults = await boot({ setup: (x) => { choiceClaim({})(x); x.state.workers = [{ id: 'codex', label: 'Codex' }] } })
+    expect(startArgs(defaults)).toMatchObject({ worker: 'codex' })
+    expect(startArgs(defaults)).not.toHaveProperty('model')
+    expect(startArgs(defaults)).not.toHaveProperty('effort')
   })
 
   it('starts and resumes on the model the server recorded (teammate plan): the desktop launches on it or refuses', async () => {

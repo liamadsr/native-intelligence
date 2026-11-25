@@ -928,3 +928,149 @@ describe('a coding chat open with no Mac (no toggle)', () => {
   })
 })
 
+
+/** Open the model line's `kind` picker, waiting until its menu, and only its, is open (the one a pick just closed may linger a frame). */
+async function openPicker(kind: 'model' | 'effort'): Promise<string[]> {
+  const other = kind === 'model' ? 'effort' : 'model'
+  for (let tries = 0; tries < 10 && !(document.querySelector(`[data-code-model-menu="${kind}"]`) && !document.querySelector(`[data-code-model-menu="${other}"]`)); tries++) {
+    await flush()
+    if (!document.querySelector(`[data-code-model-menu="${kind}"]`)) await openMenu(`[data-code-model-picker="${kind}"]`)
+  }
+  return [...document.querySelectorAll(`[data-code-model-menu="${kind}"] [data-code-model-option]`)].map((o) => o.getAttribute('data-code-model-option')!)
+}
+
+/** Open the `kind` picker and press one of its options, in its own menu. */
+async function pickOption(kind: 'model' | 'effort', option: string) {
+  await openPicker(kind)
+  press(document.querySelector<HTMLElement>(`[data-code-model-menu="${kind}"] [data-code-model-option="${option}"]`)!)
+  await flush()
+}
+
+describe('the model and effort, pinned under the box (721)', () => {
+  const TAKING = mac({
+    id: 'env-studio',
+    name: 'Studio Mac',
+    deviceName: 'Studio Mac',
+    deviceId: 'dev-studio',
+    worker: 'claude-code',
+    offeredWorkers: [
+      {
+        id: 'claude-code',
+        label: 'Claude Code',
+        takesModel: true,
+        models: [
+          { id: 'opus', label: 'Opus', efforts: ['low', 'high', 'max'] },
+          { id: 'haiku', label: 'Haiku', efforts: [] },
+        ],
+        efforts: ['low', 'high'],
+      },
+    ],
+    folders: [{ id: 'f-site', label: 'harbor-site', mode: 'edit', isGit: true, baseBranch: 'main', repoFullName: 'harbor/site' }],
+  })
+  const started = (body: unknown) => json({ session: session({ codeRequestId: (body as { requestId: string }).requestId }), created: true, joined: false, deviceOnline: true }, 201)
+  const startBody = () => posts().find((c) => c.url === '/api/local-agent/sessions')!.body as Record<string, unknown>
+
+  it('an app that takes no model: no pickers, and the start names none (the defaults, as before)', async () => {
+    await mount({ list: [STUDIO], chatEnv: STUDIO, routes: [{ method: 'POST', url: '/api/local-agent/sessions', reply: started }] })
+    press(q('[data-composer-tab="code"]')!)
+    await flush()
+    expect(q('[data-code-model-line]')).toBeNull()
+    type('Fix the date picker')
+    await send()
+    expect(startBody()).not.toHaveProperty('model')
+    expect(startBody()).not.toHaveProperty('effort')
+  })
+
+  it('a new chat: Default and Default, the lists the Mac offers, and the pick goes with the start', async () => {
+    await mount({ list: [TAKING], chatEnv: TAKING, routes: [{ method: 'POST', url: '/api/local-agent/sessions', reply: started }] })
+    press(q('[data-composer-tab="code"]')!)
+    await flush()
+    expect(q('[data-code-model-line="new"]')).not.toBeNull()
+    expect(q('[data-code-model-picker="model"]')!.textContent).toBe('Default')
+    expect(q('[data-code-model-picker="effort"]')!.textContent).toBe('Default')
+    expect(await openPicker('model')).toEqual(['default', 'opus', 'haiku'])
+    press(q('[data-code-model-option="opus"]')!)
+    await flush()
+    expect(q('[data-code-model-picker="model"]')!.textContent).toBe('Opus')
+    expect(await openPicker('effort')).toEqual(['default', 'low', 'high', 'max'])
+    press(q('[data-code-model-option="max"]')!)
+    await flush()
+    type('Fix the date picker')
+    await send()
+    expect(startBody()).toMatchObject({ worker: 'claude-code', model: 'opus', effort: 'max' })
+  })
+
+  it('remembered per agent on this device; a remembered one the Mac no longer offers is the default again', async () => {
+    localStorage.setItem('ni:code:model:claude-code', JSON.stringify({ model: 'haiku', effort: 'high' }))
+    await mount({ list: [TAKING], chatEnv: TAKING, routes: [{ method: 'POST', url: '/api/local-agent/sessions', reply: started }] })
+    press(q('[data-composer-tab="code"]')!)
+    await flush()
+    // Haiku is offered; it takes no effort, so the effort is its default and no effort picker shows.
+    expect(q('[data-code-model-picker="model"]')!.getAttribute('data-code-model-value')).toBe('haiku')
+    expect(q('[data-code-model-picker="effort"]')).toBeNull()
+    await pickOption('model', 'opus')
+    expect(JSON.parse(localStorage.getItem('ni:code:model:claude-code')!)).toEqual({ model: 'opus', effort: null })
+    // Back to both defaults: forgotten.
+    await pickOption('model', 'default')
+    expect(localStorage.getItem('ni:code:model:claude-code')).toBeNull()
+    // One it doesn't offer any more.
+    localStorage.setItem('ni:code:model:claude-code', JSON.stringify({ model: 'sonnet', effort: 'high' }))
+    act(() => root.unmount())
+    root = createRoot(container)
+    await mount({ list: [TAKING], chatEnv: TAKING, routes: [{ method: 'POST', url: '/api/local-agent/sessions', reply: started }] })
+    press(q('[data-composer-tab="code"]')!)
+    await flush()
+    expect(q('[data-code-model-picker="model"]')!.getAttribute('data-code-model-value')).toBe('default')
+    expect(q('[data-code-model-picker="effort"]')!.getAttribute('data-code-model-value')).toBe('high')
+  })
+
+  it('our own agent: no pickers (it runs on the model its Mac is set to)', async () => {
+    await mount({ list: [TAKING], chatEnv: TAKING })
+    press(q('[data-composer-tab="code"]')!)
+    await flush()
+    await openMenu('[data-code-agent-picker]')
+    press(q('[data-code-agent-option="native"]')!)
+    await flush()
+    expect(q('[data-code-model-line]')).toBeNull()
+  })
+
+  it('an open chat: read-only, what its agent reports (else what it was started on); no pickers', async () => {
+    await mount({ list: [TAKING], chatEnv: TAKING })
+    const live = (over: Record<string, unknown>) =>
+      ({ session: session({ status: 'waiting', ...over }), stopping: false, send: async () => ({ ok: true }), stop: async () => ({ ok: true }), promptOpen: false, noChanges: false, filesChanged: null, insertions: null, deletions: null }) as never
+    act(() => openCodingChat('sess-1'))
+    act(() => setCodeChatLive('sess-1', live({ requestedModel: 'opus', requestedEffort: 'max' })))
+    await flush()
+    expect(q('[data-code-model-line="open"]')!.textContent).toBe('opus · Max')
+    expect(q('[data-code-model-picker]')).toBeNull()
+    act(() => setCodeChatLive('sess-1', live({ requestedModel: 'opus', model: 'claude-opus-5-5', effort: 'high' })))
+    await flush()
+    expect(q('[data-code-model-line="open"]')!.textContent).toBe('claude-opus-5-5 · High')
+  })
+})
+
+describe('an agent whose Mac lists efforts only (Codex today, 721)', () => {
+  it('no Model picker (its default model), an Effort picker, and the effort goes with the start', async () => {
+    const CODEX_MAC = mac({
+      id: 'env-studio',
+      name: 'Studio Mac',
+      deviceName: 'Studio Mac',
+      deviceId: 'dev-studio',
+      worker: 'codex',
+      offeredWorkers: [{ id: 'codex', label: 'Codex', takesModel: true, models: [], efforts: ['low', 'medium', 'high'] }],
+      folders: [{ id: 'f-site', label: 'harbor-site', mode: 'edit', isGit: true, baseBranch: 'main', repoFullName: 'harbor/site' }],
+    })
+    await mount({
+      list: [CODEX_MAC],
+      chatEnv: CODEX_MAC,
+      routes: [{ method: 'POST', url: '/api/local-agent/sessions', reply: (body) => json({ session: session({ worker: 'codex', codeRequestId: (body as { requestId: string }).requestId }), created: true, joined: false, deviceOnline: true }, 201) }],
+    })
+    press(q('[data-composer-tab="code"]')!)
+    await flush()
+    expect(q('[data-code-model-picker="model"]')).toBeNull()
+    await pickOption('effort', 'high')
+    type('Tidy the README')
+    await send()
+    expect(posts().find((c) => c.url === '/api/local-agent/sessions')!.body).toMatchObject({ worker: 'codex', model: null, effort: 'high' })
+  })
+})

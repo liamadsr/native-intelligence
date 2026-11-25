@@ -38,7 +38,7 @@
  *                    coding agent's fenced report, for the knowledge
  *                    extraction and the chat agent's history.
  */
-import { KNOWN_CODING_AGENTS, NATIVE_WORKER_LABEL, workerLabel, type MacWorkerOffer } from '@/lib/environments/types'
+import { KNOWN_CODING_AGENTS, NATIVE_WORKER_LABEL, effortsFor, workerLabel, type MacWorkerOffer, type WorkerModelOffer } from '@/lib/environments/types'
 import type { ChatEnvironment, EnvironmentsSnapshot, MacEnvironmentItem, ThisMacSnapshot } from './environment-client'
 import type { LocalAgentStatus, SessionRow } from './store'
 import { CODE_CLOUD_NEXT_REASON, codeFinishSessionOf, codeMessageMetaOf } from './code-thread'
@@ -124,6 +124,28 @@ export interface CodeAgentOption {
   /** A coding agent's id, or null for Native Intelligence's own agent. */
   id: string | null
   label: string
+  /**
+   * The model choice its Mac's app offers for it (721), when it takes one:
+   * the models (each with its efforts) and its default model's efforts.
+   * Absent: it starts on its own defaults only, and no picker shows.
+   */
+  choice?: { models: WorkerModelOffer[]; efforts: string[] }
+}
+
+/**
+ * A remembered (or picked) model and effort, kept only while the agent's
+ * offer still lists them: a model it no longer offers is its default again,
+ * and an effort that model doesn't take is too. Pure.
+ */
+export function offeredModelChoice(
+  choice: CodeAgentOption['choice'] | undefined,
+  wanted: { model: string | null; effort: string | null } | null,
+): { model: string | null; effort: string | null } {
+  if (!choice || !wanted) return { model: null, effort: null }
+  const model = wanted.model !== null && choice.models.some((m) => m.id === wanted.model) ? wanted.model : null
+  const efforts = effortsFor(choice, model)
+  const effort = wanted.effort !== null && efforts.includes(wanted.effort) ? wanted.effort : null
+  return { model, effort }
 }
 
 export interface CodeAgentSections {
@@ -141,7 +163,11 @@ export function codeAgentSections(mac: MacEnvironmentItem | null, thisMac: ThisM
   const offered = new Set(offers.map((w) => w.id))
   return {
     native: { id: null, label: NATIVE_WORKER_LABEL },
-    yours: offers.map((w) => ({ id: w.id, label: w.label || workerLabel(w.id) })),
+    yours: offers.map((w) => ({
+      id: w.id,
+      label: w.label || workerLabel(w.id),
+      ...(w.takesModel ? { choice: { models: w.models ?? [], efforts: w.efforts ?? [] } } : {}),
+    })),
     needsConnection: KNOWN_CODING_AGENTS.filter((w) => !offered.has(w.id)).map((w) => ({ id: w.id, label: w.label })),
   }
 }

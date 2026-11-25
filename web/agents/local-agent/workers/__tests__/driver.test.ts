@@ -143,7 +143,7 @@ describe('a session', () => {
     t.driver.start('look at the README')
     await t.waiting(1)
     expect(t.out.find((m) => m.type === 'session')).toEqual({ type: 'session', sessionId: 'sess-1', streamIndex: 0 })
-    expect(t.seen.starts).toEqual([{ cwd: '/x/project', instructions: `${WORKER_INSTRUCTIONS}\n\n${READ_JOB}`, mcp: { name: 'ni', url: t.mcp.url, token: t.mcp.token } }])
+    expect(t.seen.starts).toEqual([{ cwd: '/x/project', instructions: `${WORKER_INSTRUCTIONS}\n\n${READ_JOB}`, mcp: { name: 'ni', url: t.mcp.url, token: t.mcp.token }, model: null, effort: null }])
     expect(t.seen.prompts).toEqual(['look at the README'])
     expect(t.events()).toEqual([
       { kind: 'status', status: 'starting' },
@@ -311,7 +311,7 @@ describe('resume', () => {
     t.driver.resume('sess-abc', 4)
     await t.waiting(1)
     expect(t.out[0]).toEqual({ type: 'session', sessionId: 'sess-abc', streamIndex: 4 })
-    expect(t.seen.resumes).toEqual([['sess-abc', { cwd: '/x/project', instructions: `${WORKER_INSTRUCTIONS}\n\n${READ_JOB}`, mcp: { name: 'ni', url: t.mcp.url, token: t.mcp.token } }]])
+    expect(t.seen.resumes).toEqual([['sess-abc', { cwd: '/x/project', instructions: `${WORKER_INSTRUCTIONS}\n\n${READ_JOB}`, mcp: { name: 'ni', url: t.mcp.url, token: t.mcp.token }, model: null, effort: null }]])
     t.driver.send('go on', 'queue')
     await t.waiting(2)
     expect(t.seen.prompts).toEqual(['go on'])
