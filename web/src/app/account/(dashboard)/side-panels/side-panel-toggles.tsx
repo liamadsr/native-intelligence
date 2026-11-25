@@ -20,8 +20,8 @@
  *               something (with nothing, no button: Liam's "hide empty
  *               widgets"): opens the panel on the For you cards, swaps to
  *               them from the sections, or closes the panel while they show.
- *               On Code it is the Code view's own For you, a coding agent's
- *               work only (Liam, 11-20), over the coding chat's details.
+ *               Not while a coding chat is the current one: the panel is
+ *               that chat's details there (docs/plans/one-home.md).
  *
  * Each is lit only while its own view is on screen (side-panel-store.ts
  * shownView), so at most one is.
@@ -32,7 +32,7 @@ import { useModKeyLabel } from '@/lib/hotkeys'
 import { TOP_BAR_PILL, TOP_BAR_TIP } from '../top-bar/pill-style'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useAgentsSummary } from '../chat/chat-widgets'
-import { useCodeForYouEntries, useForYouEntries } from '../chat/for-you-column'
+import { useForYouEntries } from '../chat/for-you-column'
 import { shownView, toggleSidePanelView } from './side-panel-store'
 import { RIGHT_PANEL_ID, useSidePanelState } from './side-panels'
 
@@ -64,16 +64,16 @@ export function SidePanelToggle({ variant = 'pill' }: { variant?: 'pill' | 'head
   // Lit only while the sections are on screen (not while For you shows).
   const open = shownView(state) === 'panel'
   const shortcut = useModKeyLabel('\\')
-  // On Code the panel holds the selected coding chat's details: the agents
+  // A coding chat is the current one: the panel holds its details. The agents
   // running and the connectors' dot are the agent's own, not shown there.
-  const onCode = !!state.codeView
+  const onCode = state.chatKind !== 'agent'
   const running = onCode ? 0 : agents.running
   const attention = !onCode && state.connectionsAttention
   const label = [onCode ? 'Coding chat details' : 'Side panel', running > 0 ? `${running} running` : null, attention ? 'a connection needs you' : null].filter(Boolean).join(', ')
-  // On Code with no chat selected there is nothing for it to open: no button
+  // A new coding chat, nothing sent: there is nothing for it to open, so no button
   // (Liam, 11-16: it "shows with the notification bubble even though nothing
   // is there and clicking it does nothing"; "hide empty widgets").
-  if (onCode && !state.codeChat) return null
+  if (state.chatKind === 'code-new') return null
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -129,11 +129,10 @@ export function ForYouToggle({ variant = 'pill' }: { variant?: 'pill' | 'header'
   // On screen now (the panel open on For you, which it is only with cards): what the button shows and flips.
   const state = useSidePanelState()
   const shown = shownView(state) === 'forYou'
-  // On Code it is the Code view's own For you, a coding agent's work only (Liam, 11-20); the agent's leaves that out.
-  const agentEntries = useForYouEntries()
-  const codeEntries = useCodeForYouEntries()
-  const entries = state.codeView ? codeEntries : agentEntries
-  if (entries.length === 0) return null
+  // The agent's own, and never a coding agent's work (Liam, 11-20). While a coding chat is the current one the
+  // panel is that chat's details: no For you there (a coding chat that waits on you is its row in Recent; docs/plans/one-home.md).
+  const entries = useForYouEntries()
+  if (entries.length === 0 || state.chatKind !== 'agent') return null
   return (
     <Tooltip>
       <TooltipTrigger asChild>

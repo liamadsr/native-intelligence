@@ -186,9 +186,18 @@ export type FinishedTake = {
 /** A part of an upload, as POST /uploads hands them out. */
 export type UploadPart = { index: number; bytes: number; url: string; headers: Record<string, string> }
 
+/**
+ * What the take's prompter can do while it records (desktop only): the take's session on the Mac (the floating
+ * control's), and whether the words heard come live (`on`), or not because Local transcription isn't ready or the take
+ * has no microphone (`no-local`), or because this desktop build is older than live words (`old-app`).
+ */
+export type TakeLiveInfo = { sessionId: string; following: 'on' | 'no-local' | 'old-app' }
+
 /** The recorder, whichever backend. */
 export interface Recorder {
   readonly kind: RecorderKind
+  /** While a take records: its prompter's live words (the desktop recorder only). */
+  liveInfo?(): TakeLiveInfo | null
   /**
    * Get everything ready before the countdown: open the camera and microphone (the browser may ask for them here),
    * check the Mac's permissions. Throws a sentence the dialog can show.

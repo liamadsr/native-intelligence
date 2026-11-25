@@ -30,7 +30,7 @@ const NI_IDENTITY = "You are Assistant, the user's always-on agent in Native Int
 describe('withTeammateIdentity', () => {
   it('swaps only the opening identity sentence for the teammate’s', async () => {
     const base = await realBase()
-    expect(base.startsWith(`${NI_IDENTITY} You know their actions`)).toBe(true)
+    expect(base.startsWith(`${NI_IDENTITY} You know their work:`)).toBe(true)
     const teammate = withTeammateIdentity(base, 'Triage')
     expect(teammate).toBe(`You are Triage, one of the user's AI teammates in Native Intelligence.${base.slice(NI_IDENTITY.length)}`)
     expect(teammate).not.toContain('You are Assistant,')
@@ -39,7 +39,7 @@ describe('withTeammateIdentity', () => {
 
   it('keeps a $ in the name literal (never a replacement pattern)', async () => {
     const teammate = withTeammateIdentity(await realBase(), "Cash $& $' Co")
-    expect(teammate.startsWith("You are Cash $& $' Co, one of the user's AI teammates in Native Intelligence. You know their actions")).toBe(true)
+    expect(teammate.startsWith("You are Cash $& $' Co, one of the user's AI teammates in Native Intelligence. You know their work:")).toBe(true)
   })
 
   it('a base without the sentence comes back as is', () => {

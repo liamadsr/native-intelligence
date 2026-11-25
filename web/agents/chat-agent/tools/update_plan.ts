@@ -40,7 +40,8 @@ export default defineTool({
     'Keep a short checklist for a job of 3 or more steps; the person sees it under your reply. Call it once you ' +
     'know the steps, then again when a step starts or finishes (never after every tool call). Send the WHOLE list ' +
     'each time: at most 12 steps of one short line, exactly one in_progress while you work, skipped for a step ' +
-    'that turned out not to be needed. Skip it for quick answers and small tasks.',
+    'that turned out not to be needed. Skip it for quick answers and small tasks. It is your checklist, not the ' +
+    "person's to-dos: a step only becomes an action when the person asks for one or it is a real commitment for later.",
   inputSchema: updatePlanInput,
   execute: (input) => {
     const valid = validatePlanSteps(input.steps)

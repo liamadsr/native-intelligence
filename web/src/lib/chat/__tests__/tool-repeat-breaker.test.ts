@@ -159,8 +159,7 @@ describe('the repeat-failure breaker', () => {
 describe('the chat agent is told not to resend a failing call', () => {
   it('agents/chat-agent/instructions.md: fix the input per the error after INPUT_INVALID; never an identical failing call', () => {
     const md = readFileSync(join(process.cwd(), 'agents/chat-agent/instructions.md'), 'utf8').replace(/\s+/g, ' ')
-    expect(md).toContain("After an `INPUT_INVALID`, fix the input the way the error's words say")
-    expect(md).toContain('Never resend an identical call that failed with `INPUT_INVALID`, or one that has failed the same way twice.')
-    expect(md).toContain('A `REPEATED_FAILURE` means stop: tell the person what failed and ask how to proceed.')
+    expect(md).toContain('After `INPUT_INVALID`, fix what the error names before calling again; never resend a call that failed the same way twice.')
+    expect(md).toContain('`REPEATED_FAILURE` means stop and tell them.')
   })
 })

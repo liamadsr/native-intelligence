@@ -26,8 +26,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createRoot, type Root } from 'react-dom/client'
 import { act, createElement as h, useEffect, useState } from 'react'
 import type { UIMessage } from '@ai-sdk/react'
-import { __resetCodeViewForTests, getCodeView, selectCodeChat, setCodeChatLive } from '../code-view-store'
+import { __resetCodeViewForTests, getCodeView, selectCodeChat, setCodeChatLive } from '../code-chat-live'
 import { CodeHeldRow } from '../composer-code-controls'
+import { __resetCurrentChatForTests, backToAgent, currentChatKind, getCurrentChat, openCodingChat } from '../current-chat-store'
+import { getSidePanelState } from '../../side-panels/side-panel-store'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 ;(globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
@@ -186,6 +188,8 @@ async function mount(opts: { list: unknown[]; chatEnv: unknown; routes?: FakeRou
 beforeEach(() => {
   opened.length = 0
   __resetCodeViewForTests()
+  __resetCurrentChatForTests()
+  sessionStorage.clear()
   hostOpts.conversation = CONV
   hostOpts.notes = []
   resetEnvironmentStore()
@@ -220,6 +224,53 @@ describe('who sees the tabs', () => {
     expect(q('[data-code-agent-picker]')).toBeNull()
     expect(q('[data-worker-toggle]')).toBeNull()
     expect(q('[data-code-folder-picker]')).toBeNull()
+  })
+})
+
+describe('the toggle is Home’s current chat', () => {
+  it('a coding chat opened from outside the composer (a Recent row) moves the toggle to Code: the box never stays on the agent under it', async () => {
+    await mount({ list: [STUDIO], chatEnv: STUDIO })
+    expect(q('[data-composer-tab="chat"]')!.getAttribute('data-state')).toBe('on')
+    act(() => openCodingChat('sess-1', { from: 'recents' }))
+    await flush()
+    expect(q('[data-composer-tab="code"]')!.getAttribute('data-state')).toBe('on')
+    expect(currentChatKind()).toBe('code')
+    expect(getSidePanelState().chatKind).toBe('code')
+  })
+
+  it('Code starts a new coding chat in place, and the agent’s side goes back', async () => {
+    await mount({ list: [STUDIO], chatEnv: STUDIO })
+    press(q('[data-composer-tab="code"]')!)
+    await flush()
+    expect(currentChatKind()).toBe('code-new')
+    press(q('[data-composer-tab="chat"]')!)
+    await flush()
+    expect(currentChatKind()).toBe('agent')
+    expect(getSidePanelState().chatKind).toBe('agent')
+  })
+
+  it('Code pressed with a coding chat open starts a new one, never that chat again (the toggle starts, Recent resumes)', async () => {
+    await mount({ list: [STUDIO], chatEnv: STUDIO })
+    act(() => openCodingChat('sess-1', { from: 'recents' }))
+    await flush()
+    press(q('[data-composer-tab="chat"]')!)
+    await flush()
+    press(q('[data-composer-tab="code"]')!)
+    await flush()
+    expect(getCurrentChat()).toEqual({ kind: 'code-new' })
+    expect(getCodeView().selected).toBeNull()
+  })
+
+  it('a conversation’s saved tab is no longer a mode: it opens on the agent whatever it says', async () => {
+    localStorage.setItem(`${CODE_TAB_STORAGE_PREFIX}${CONV}`, JSON.stringify({ tab: 'code', agent: null, folderId: 'f-site' }))
+    await mount({ list: [STUDIO], chatEnv: STUDIO })
+    expect(q('[data-composer-tab="chat"]')!.getAttribute('data-state')).toBe('on')
+    expect(currentChatKind()).toBe('agent')
+    // The agent it kept (Native Intelligence, not the Mac's saved worker) is still what a new coding chat starts with.
+    press(q('[data-composer-tab="code"]')!)
+    await flush()
+    expect(q('[data-code-agent-picker]')!.getAttribute('data-code-agent-picker')).toBe('native')
+    expect(q('[data-code-folder-picker]')!.getAttribute('data-code-folder-picker')).toBe('f-site')
   })
 })
 
@@ -574,7 +625,7 @@ describe('the Code tab', () => {
     expect(started).toBe(2)
   })
 
-  it('a conversation with a Code job opens on Code with that job’s agent, and draws it as its line', async () => {
+  it('a conversation with a Code job opens on the agent, draws the job as its line, and a new coding chat there starts with that job’s agent', async () => {
     const started: UIMessage = { id: 'code-req-1', role: 'user', parts: [{ type: 'text', text: 'Fix it' }], metadata: { local_agent_code: { requestId: 'req-1' } } }
     await mount({
       list: [STUDIO],
@@ -582,7 +633,9 @@ describe('the Code tab', () => {
       initial: [started],
       routes: [{ url: `/api/local-agent/sessions?conversationId=${CONV}`, reply: () => json({ sessions: [session({ worker: null, codeRequestId: 'req-1', status: 'waiting' })] }) }],
     })
-    expect(q('[data-composer-tab="code"]')!.getAttribute('data-state')).toBe('on')
+    expect(q('[data-composer-tab="chat"]')!.getAttribute('data-state')).toBe('on')
+    press(q('[data-composer-tab="code"]')!)
+    await flush()
     expect(q('[data-code-agent-picker]')!.getAttribute('data-code-agent-picker')).toBe('native')
     // Its line, with the job's state as the list read it (finished, idle).
     expect(q('[data-code-line="sess-1"]')!.getAttribute('data-code-line-state')).toBe('done')
@@ -808,3 +861,51 @@ describe('a message to the open chat while its agent works (Liam, 11-20: as the 
     expect(q('[data-code-held]')).toBeNull()
   })
 })
+
+/**
+ * No Mac, so no toggle (nothing to start a coding chat with). A coding chat
+ * that exists still opens as the current chat (a notification, a link:
+ * docs/plans/one-home.md, "Every way in"), and the box is that chat's while
+ * it is on screen, never the agent's under it.
+ */
+describe('a coding chat open with no Mac (no toggle)', () => {
+  async function open(status: string) {
+    await mount({ list: [cloud()], chatEnv: cloud() })
+    expect(q('[data-composer-tabs]')).toBeNull()
+    const live = { session: session({ id: 'sess-open', status }), stopping: false, send: vi.fn(async () => ({ ok: true as const })), stop: vi.fn() }
+    act(() => {
+      openCodingChat('sess-open', { from: 'notification' })
+      setCodeChatLive('sess-open', live as never)
+    })
+    await flush()
+    return live
+  }
+
+  it('a message goes to that chat, and nothing to the agent or to a new job', async () => {
+    const live = await open('waiting')
+    type('Now the tests')
+    await send()
+    expect(live.send).toHaveBeenCalledWith('Now the tests', 'steer', expect.any(String))
+    expect(host.value).toBe('')
+    expect(posts()).toEqual([])
+  })
+
+  it('a chat that ended takes nothing: the words stay in the box, and no job starts', async () => {
+    const live = await open('failed')
+    type('Try again')
+    await send()
+    expect(live.send).not.toHaveBeenCalled()
+    expect(host.value).toBe('Try again')
+    expect(posts()).toEqual([])
+  })
+
+  it('back on the agent, the box is the agent’s again', async () => {
+    const live = await open('waiting')
+    act(() => backToAgent())
+    await flush()
+    type('Hello')
+    await send()
+    expect(live.send).not.toHaveBeenCalled()
+  })
+})
+

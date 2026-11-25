@@ -17,7 +17,7 @@ import { answerGuestAsk, gatherGuestAsks, markGuestAsksDelivered, recentGuestAns
 import { buildHomeTurnBody, HOME_TURN_REASONS, parseHomeTurnRequested } from '@/lib/chat/home-turn'
 import { homeTurnLabel } from '@/lib/chat/home-turn-server'
 import { guestTimes, type PlannedGuestAsk } from '../guest-ask-lines'
-import { renderBackgroundUpdate, SAY_WHAT_HAPPENED } from '@/lib/chat/home-turn'
+import { BACKGROUND_UPDATE_OPENING, renderBackgroundUpdate } from '@/lib/chat/home-turn'
 
 const OWNER = { userId: 'owner-1', workspaceId: 'ws-1' }
 const NOW = Date.parse('2026-10-27T19:00:00.000Z')
@@ -135,14 +135,17 @@ describe('the guest_ask home turn', () => {
   })
 
   it('every background update that reports outside activity keeps who and what, and so do the standing instructions', () => {
-    // A helper's report reads the default guidance.
+    // A helper's report and an event read the shared opening (docs/plans/goal-driven-main-agent.md §3).
     const report = renderBackgroundUpdate('row-1', 'A helper reported.', ['- a draft is ready'])
     const events = buildHomeTurnBody('row-1', 'event', { events: { lines: ['- a reply is waiting'], eventIds: ['e1'] } })
-    for (const body of [report, events]) expect(body ?? '').toContain(SAY_WHAT_HAPPENED.trim())
+    expect(BACKGROUND_UPDATE_OPENING).toContain('When you write, it is news to them: who or what it came from, what you did, what you need, in one short message.')
+    for (const body of [report, events]) expect(body ?? '').toContain(BACKGROUND_UPDATE_OPENING)
+    // A guest's ask keeps its own: who asked what, what you told them, what you need.
+    const guest = buildHomeTurnBody('row-1', 'guest_ask', { guestAsks: { asks: [ask], askIds: [ask.askId] } })!
+    expect(guest).not.toContain(BACKGROUND_UPDATE_OPENING)
+    expect(guest).toContain('The owner may not have seen any of it')
     const md = readFileSync(join(process.cwd(), 'agents/chat-agent/instructions.md'), 'utf8').replace(/\s+/g, ' ')
-    expect(md).toContain('What happened outside this chat is news to them')
-    expect(md).toContain('Lead with who reached out and what they wanted, then what you did or answered, then what you need from them')
-    expect(md).toContain('When you answer a question they asked, the question is the context')
+    expect(md).toContain("When they do, it's news to them: who or what it came from, what you did, and what you need from them, in one short message.")
   })
 })
 

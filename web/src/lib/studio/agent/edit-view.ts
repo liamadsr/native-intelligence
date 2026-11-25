@@ -75,6 +75,7 @@ export const STYLE_DEFAULTS: Record<LayerKind, Obj> = {
   highlight: { background: '#ffd84d55', stroke: '#ffd84d', strokeWidth: 0, radius: 12, ...MOTION_DEFAULTS },
   arrow: { stroke: '#ffd84d', strokeWidth: 10, fromX: 'auto', fromY: 'auto', curve: 0.2, ...MOTION_DEFAULTS },
   spotlight: { dim: 0.65, radius: 24, ...MOTION_DEFAULTS },
+  blur: { blur: 24, radius: 16, ...MOTION_DEFAULTS },
   notification: { app: 'Notification', icon: '🔔', title: null, text: '', size: 0.022, font: 'sans', glass: true, background: 'auto', ...MOTION_DEFAULTS },
   card: { text: '', title: null, icon: null, size: 0.034, font: 'display', weight: 'medium', color: '#15161a', glass: true, background: '#ffffff', ...MOTION_DEFAULTS },
   chips: { items: [], size: 0.026, font: 'sans', align: 'left', background: '#f08c2e', color: '#ffffff', stagger: 9, ...MOTION_DEFAULTS },

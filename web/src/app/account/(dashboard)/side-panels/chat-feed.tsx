@@ -17,6 +17,7 @@
 import { memo, useEffect, useMemo, useSyncExternalStore } from 'react'
 import type { UIMessage } from 'ai'
 import { registerChatScrollHold } from './side-panel-store'
+import { noteAgentReplied } from '../chat/current-chat-store'
 import {
   newestThreadPlan,
   planKey,
@@ -53,6 +54,8 @@ export function subscribeChatFeed(listener: () => void): () => void {
 
 export function publishChatFeed(next: ChatFeed): void {
   if (next.plan === feed.plan && next.quick === feed.quick && next.conversationId === feed.conversationId && next.busy === feed.busy) return
+  // A reply ended in the same conversation: unseen while the person is on another chat (the pinned row's dot, current-chat-store.ts).
+  if (feed.busy && !next.busy && next.conversationId !== null && next.conversationId === feed.conversationId) noteAgentReplied()
   feed = next
   for (const listener of listeners) listener()
 }

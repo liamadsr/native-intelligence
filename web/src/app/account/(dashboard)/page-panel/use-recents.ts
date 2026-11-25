@@ -18,12 +18,13 @@
  * What the person opened here is remembered per device (SEEN_KEY), so a dot
  * stays gone across reloads and comes back only with something new.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { FeedEntry } from '@/lib/entities/feed-model'
 import { FEED_MAX_LIMIT } from '@/lib/entities/feed-model'
 import { getClientWorkspaceId } from '@/lib/workspace-fetch'
 import { RECENTS_URL, type RecentSourceEntry } from '@/lib/entities/recents-model'
 import { paletteInboxUrl, paletteRecentUrl, readFeedEntries } from '../chat/use-palette-feed'
+import { codeChatsVersion, subscribeCodeChats } from './code-chats-store'
 import { RECENTS_PAGE, markSeen, mergeRecents, parseSeen, type RecentItem, type SeenMap } from './recents-model'
 
 /** Remembered per device: what the person opened from the panel, `{"type:id": iso}`. */
@@ -82,7 +83,7 @@ export interface Recents {
 }
 
 /** `frontId`: the card full screen beside the panel, or null; its closing reads again. */
-export function useRecents(active: boolean, frontId: string | null = null): Recents {
+export function useRecents(active: boolean, frontId: string | null = null, codeReview?: ReadonlySet<string>): Recents {
   // The window's workspace, as its requests name it (lib/workspace-fetch.ts).
   const workspaceId = getClientWorkspaceId()
   const [lists, setLists] = useState<Lists>({ workspaceId, inbox: null, recent: null, sources: null, readAt: null })
@@ -90,6 +91,9 @@ export function useRecents(active: boolean, frontId: string | null = null): Rece
   const inFlight = useRef(false)
   // A read asked for while one runs: it runs once that one is answered.
   const again = useRef(false)
+
+  // A coding chat started or was messaged here (code-chats-store.ts): its row moves up, read again.
+  const codeTick = useSyncExternalStore(subscribeCodeChats, codeChatsVersion, codeChatsVersion)
 
   const read = useCallback(async (): Promise<void> => {
     if (inFlight.current) {
@@ -141,7 +145,7 @@ export function useRecents(active: boolean, frontId: string | null = null): Rece
     const onFocus = () => void read()
     window.addEventListener('focus', onFocus)
     return () => window.removeEventListener('focus', onFocus)
-  }, [active, workspaceId, read])
+  }, [active, workspaceId, read, codeTick])
 
   // The card in front closing (put back, or another opened in its place):
   // read again, so what it touched moves up. Not when one opens over none.
@@ -156,7 +160,7 @@ export function useRecents(active: boolean, frontId: string | null = null): Rece
   const inbox = ofWorkspace ? lists.inbox : null
   const recent = ofWorkspace ? lists.recent : null
   const sources = ofWorkspace ? lists.sources : null
-  const items = useMemo(() => mergeRecents({ inbox, recent, sources, seen: seen ?? {} }), [inbox, recent, sources, seen])
+  const items = useMemo(() => mergeRecents({ inbox, recent, sources, seen: seen ?? {}, ...(codeReview ? { codeReview } : {}) }), [inbox, recent, sources, seen, codeReview])
 
   const markOpened = useCallback((item: RecentItem) => {
     if (!item.inboxAt) return

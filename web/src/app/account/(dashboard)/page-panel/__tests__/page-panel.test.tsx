@@ -75,6 +75,10 @@ import { PAGE_PANEL_W_VAR, holdFrontCard } from '@/components/chat-cards/front-c
 import { CARD_PAGES } from '@/lib/chat-cards/page-menu'
 import type { CardSpec } from '@/lib/chat-cards/kinds'
 import { __resetSelectedPlaceForTests } from '../../rail/selected-place'
+import { __resetCurrentChatForTests, agentHasUnseenReply, getCurrentChat, newCodingChat, noteAgentReplied, openCodingChat } from '../../chat/current-chat-store'
+import { __resetCodeViewForTests, setCodeChatLive } from '../../chat/code-chat-live'
+import { RECENTS_FILTER_KEY, showOnlyCoding } from '../use-recents-filter'
+import { publishChatFeed, resetChatFeed } from '../../side-panels/chat-feed'
 import { HOME_SIDE_KEY, __resetHomeSideForTests, homeSide, setHomeSide } from '../home-side'
 import { __resetSubnavOnScreenForTests, subnavCovers, subnavOnScreen, subscribeSubnavOnScreen } from '../subnav-on-screen'
 
@@ -126,6 +130,10 @@ beforeEach(() => {
   __resetHomeSideForTests()
   __resetSubnavOnScreenForTests()
   store.resetSidePanelStore()
+  __resetCodeViewForTests()
+  __resetCurrentChatForTests()
+  resetChatFeed()
+  window.sessionStorage.clear()
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string) => {
@@ -299,7 +307,10 @@ describe('the page panel', () => {
       act(() => {
         target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init }))
       })
+    // The pinned agent is the list's first row; the records' follow.
     press('j', {}, keys)
+    expect(document.activeElement).toBe(container.querySelector('[data-recent-pinned]'))
+    press('j')
     expect(document.activeElement).toBe(rows()[0])
     press('j')
     expect(document.activeElement).toBe(rows()[1])
@@ -467,8 +478,10 @@ describe('the page panel', () => {
       act(() => {
         target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
       })
-    // Nothing open: J only moves.
+    // Nothing open: J only moves (the pinned agent first, then the action's row).
     press('j', keys)
+    press('j')
+    expect(document.activeElement).toBe(rows()[0])
     expect(opened).toEqual([])
     let release = () => {}
     act(() => {
@@ -840,5 +853,187 @@ describe('the page panel', () => {
       expect(store.getSidePanelState().pagePanelOpen).toBe(false)
       expect(window.localStorage.getItem(store.PAGE_PANEL_OPEN_KEY)).toBe('0')
     })
+  })
+})
+
+/**
+ * One Home (docs/plans/one-home.md; Liam, 11-25): the agent pinned at the top
+ * of Recent, the coding chats among its rows with their state, and nothing
+ * here changing when Code is pressed.
+ */
+describe('Recent with one current chat', () => {
+  const JOB = 'c0de0000-0000-4000-8000-0000000000a1'
+  const ASKS = 'c0de0000-0000-4000-8000-0000000000a2'
+  const FAILED = 'c0de0000-0000-4000-8000-0000000000a3'
+  const QUEUED = 'c0de0000-0000-4000-8000-0000000000a4'
+  const code = (over: Record<string, unknown> = {}) => ({ status: 'waiting', lastSignal: 'finish', workItemId: null, actionIdentifier: null, queuedOnMac: false, ...over })
+  const job = (id: string, label: string, minutes: number, over: Record<string, unknown> = {}) => ({ type: 'code_job', id, label, context: 'Code', at: ago(minutes), code: code(over) })
+  const pinned = () => container.querySelector<HTMLButtonElement>('[data-recent-pinned]')!
+  const row = (id: string) => container.querySelector<HTMLButtonElement>(`[data-recent-item="code_job:${id}"]`)!
+  const click = (el: HTMLElement) => act(() => el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 })))
+
+  it('the agent is pinned first, above every heading, by its own name, and lit while its chat is the current one', async () => {
+    act(() => root.render(<Row />))
+    await flush()
+    const first = panel()!.querySelector('[data-recents] button')!
+    expect(first).toBe(pinned())
+    expect(pinned().querySelector('[data-recent-title]')!.textContent).toBe('Joseph')
+    expect(pinned().getAttribute('aria-current')).toBe('true')
+    // Not one of the records' rows: it is in no time group.
+    expect(pinned().closest('[data-recents-group]')).toBeNull()
+    expect(titles()).toEqual(['Send the Fernhill quote', 'Q4 renewals plan'])
+  })
+
+  it('the pinned agent is never filtered out, and shows with nothing recent', async () => {
+    window.localStorage.setItem(RECENTS_FILTER_KEY, JSON.stringify({ status: 'all', types: ['canvases'] }))
+    act(() => root.render(<Row />))
+    await flush()
+    expect(rows()).toHaveLength(0)
+    expect(container.querySelector('[data-recents-none]')).not.toBeNull()
+    expect(pinned()).not.toBeNull()
+    inbox = []
+    recent = []
+    window.localStorage.removeItem(RECENTS_FILTER_KEY)
+    act(() => root.unmount())
+    root = createRoot(container)
+    act(() => root.render(<Row />))
+    await flush()
+    expect(container.querySelector('[data-recents-empty]')).not.toBeNull()
+    expect(pinned()).not.toBeNull()
+  })
+
+  it('coding chats are rows among the rest, by time, with the coding icon and their state', async () => {
+    sources = [job(JOB, 'Add a dark mode toggle', 2, { status: 'running', lastSignal: null }), job(ASKS, 'Fix the flaky checkout test', 30, { lastSignal: 'ask' }), job(FAILED, 'Upgrade the linter', 5 * 24 * 60, { status: 'failed', lastSignal: null }), job(QUEUED, 'Rename the module', 6 * 24 * 60, { status: 'queued', lastSignal: null })]
+    act(() => root.render(<Row />))
+    await flush()
+    // Mixed in by when each last moved: the working chat, the action that came, the chat that asks, the doc, the old chats.
+    expect(titles()).toEqual(['Add a dark mode toggle', 'Send the Fernhill quote', 'Fix the flaky checkout test', 'Q4 renewals plan', 'Upgrade the linter', 'Rename the module'])
+    // Working: the coding icon, a quiet pulse, no dot.
+    expect(row(JOB).getAttribute('data-recent-code')).toBe('working')
+    expect(row(JOB).querySelector('[data-recent-code-icon]')!.getAttribute('class')).toContain('animate-pulse')
+    expect(row(JOB).querySelector('[data-recent-dot]')).toBeNull()
+    expect(row(JOB).textContent).toContain('working')
+    // It asks: the orange dot, in words for a screen reader.
+    expect(row(ASKS).getAttribute('data-recent-code')).toBe('asks')
+    expect(row(ASKS).querySelector('[data-recent-dot]')!.getAttribute('class')).toContain('bg-orange-500')
+    expect(row(ASKS).querySelector('[data-recent-dot]')!.textContent).toBe(', needs your answer')
+    expect(row(ASKS).hasAttribute('data-recent-needs-you')).toBe(true)
+    // Failed: a small warning mark, no dot. Queued: says so.
+    expect(row(FAILED).querySelector('[data-recent-code-failed]')).not.toBeNull()
+    expect(row(FAILED).querySelector('[data-recent-dot]')).toBeNull()
+    expect(row(QUEUED).querySelector('[data-recent-code-queued]')!.textContent).toBe('Queued')
+    // A record's own dot keeps its own colour.
+    expect(container.querySelector(`[data-recent-item="action:${ACTION}"] [data-recent-dot]`)!.getAttribute('class')).toContain('bg-primary')
+  })
+
+  it('an action’s coding chat carries the action’s identifier before its title', async () => {
+    sources = [job(JOB, 'Fix the date picker', 2, { actionIdentifier: 'ENG-42' })]
+    act(() => root.render(<Row />))
+    await flush()
+    expect(row(JOB).querySelector('[data-recent-code-action]')!.textContent).toBe('ENG-42')
+  })
+
+  it('opening a coding chat makes it the current chat and lights its row; the pinned agent is one press back', async () => {
+    sources = [job(JOB, 'Add a dark mode toggle', 2)]
+    act(() => root.render(<Row />))
+    await flush()
+    click(row(JOB))
+    expect(getCurrentChat()).toEqual({ kind: 'code', sessionId: JOB })
+    expect(row(JOB).getAttribute('aria-current')).toBe('true')
+    expect(pinned().getAttribute('aria-current')).toBeNull()
+    // No card was opened for it: the middle is its conversation.
+    expect(opened).toEqual([])
+    // The left panel is still Recent: nothing swapped.
+    expect(panel()).not.toBeNull()
+    expect(container.querySelector('[data-code-chats]')).toBeNull()
+    click(pinned())
+    expect(getCurrentChat()).toEqual({ kind: 'agent' })
+    expect(pinned().getAttribute('aria-current')).toBe('true')
+    expect(row(JOB).getAttribute('aria-current')).toBeNull()
+  })
+
+  it('Code pressed changes nothing here but one row: "New coding chat", lit, gone on leaving', async () => {
+    act(() => root.render(<Row />))
+    await flush()
+    const before = titles()
+    act(() => newCodingChat({ from: 'composer' }))
+    const provisional = container.querySelector<HTMLElement>('[data-recent-provisional]')!
+    expect(provisional.textContent).toBe('New coding chat')
+    expect(provisional.getAttribute('aria-current')).toBe('true')
+    expect(pinned().getAttribute('aria-current')).toBeNull()
+    // Recent | Incoming, the filter and the rows are as they were.
+    expect(container.querySelector('[data-home-side]')).not.toBeNull()
+    expect(container.querySelector('[data-recents-filter]')).not.toBeNull()
+    expect(titles()).toEqual(before)
+    click(pinned())
+    expect(container.querySelector('[data-recent-provisional]')).toBeNull()
+  })
+
+  it('under a card in front, the card’s row is lit and the current chat’s row keeps a thin mark', async () => {
+    sources = [job(JOB, 'Add a dark mode toggle', 2)]
+    act(() => root.render(<Row />))
+    await flush()
+    click(row(JOB))
+    let release = () => {}
+    act(() => {
+      release = holdFrontCard({ id: 'card-doc', spec: { kind: 'record', title: 'Doc', record: { type: 'document', id: DOC } } as never, close: () => {} })
+    })
+    await flush()
+    expect(container.querySelector(`[data-recent-item="document:${DOC}"]`)!.getAttribute('aria-current')).toBe('true')
+    expect(row(JOB).getAttribute('aria-current')).toBeNull()
+    expect(row(JOB).hasAttribute('data-recent-current')).toBe(true)
+    act(() => release())
+    await flush()
+    expect(row(JOB).getAttribute('aria-current')).toBe('true')
+    expect(row(JOB).hasAttribute('data-recent-current')).toBe(false)
+  })
+
+  it('the current coding chat’s row says what its conversation holds now, with no read of the list', async () => {
+    sources = [job(JOB, 'Add a dark mode toggle', 2, { status: 'running', lastSignal: null })]
+    act(() => root.render(<Row />))
+    await flush()
+    click(row(JOB))
+    expect(row(JOB).getAttribute('data-recent-code')).toBe('working')
+    const before = reads
+    const live = (status: string, lastSignal: string | null) => ({ session: { id: JOB, status, lastSignal }, stopping: false, send: async () => ({ ok: true as const }), stop: async () => ({ ok: true as const }) }) as never
+    act(() => setCodeChatLive(JOB, live('waiting', 'ask')))
+    expect(row(JOB).getAttribute('data-recent-code')).toBe('asks')
+    expect(row(JOB).querySelector('[data-recent-dot]')).not.toBeNull()
+    expect(reads).toBe(before)
+  })
+
+  it('the filter’s Type for them is "Coding", and Status → Unread keeps the ones that wait on you', async () => {
+    sources = [job(JOB, 'Add a dark mode toggle', 2, { status: 'running', lastSignal: null }), job(ASKS, 'Fix the flaky checkout test', 30, { lastSignal: 'ask' })]
+    act(() => root.render(<Row />))
+    await flush()
+    // "Show only coding" (the first-time line's press) is the Type filter, set from outside the panel.
+    act(() => showOnlyCoding())
+    expect(titles()).toEqual(['Add a dark mode toggle', 'Fix the flaky checkout test'])
+    expect(container.querySelector('[data-recents-filter]')!.getAttribute('data-recents-filter-on')).toBe('1')
+    act(() => root.unmount())
+    window.localStorage.setItem(RECENTS_FILTER_KEY, JSON.stringify({ status: 'unread', types: [] }))
+    root = createRoot(container)
+    act(() => root.render(<Row />))
+    await flush()
+    expect(titles()).toEqual(['Send the Fernhill quote', 'Fix the flaky checkout test'])
+  })
+
+  it('while the person is on another chat, the pinned agent pulses as it replies and carries a dot once a reply finished unseen', async () => {
+    sources = [job(JOB, 'Add a dark mode toggle', 2)]
+    act(() => root.render(<Row />))
+    await flush()
+    click(row(JOB))
+    act(() => publishChatFeed({ plan: null, quick: null, conversationId: 'conv-1', busy: true }))
+    expect(pinned().hasAttribute('data-recent-working')).toBe(true)
+    expect(pinned().querySelector('[data-recent-dot]')).toBeNull()
+    act(() => publishChatFeed({ plan: null, quick: null, conversationId: 'conv-1', busy: false }))
+    expect(agentHasUnseenReply()).toBe(true)
+    expect(pinned().hasAttribute('data-recent-working')).toBe(false)
+    expect(pinned().querySelector('[data-recent-dot]')!.textContent).toBe(', replied')
+    click(pinned())
+    expect(pinned().querySelector('[data-recent-dot]')).toBeNull()
+    // On the agent's own chat a finished reply is never unseen.
+    act(() => noteAgentReplied())
+    expect(agentHasUnseenReply()).toBe(false)
   })
 })

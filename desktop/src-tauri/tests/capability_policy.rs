@@ -183,3 +183,20 @@ fn this_build_resolved_the_capabilities_for_its_profile() {
     assert_eq!(ids, want);
     assert_eq!(remote_urls(&resolved["default"]), ["https://nativeintelligence.dev/*", "https://dial8.ai/*"]);
 }
+
+/// The recording control's size command is granted like every app command (the release build reads one capability,
+/// for every app window), so the command itself is the fence: it refuses any caller but the control's own page and
+/// only ever sizes the control (studio_recorder.rs `may_size_control`, unit-tested there). Pinned as text so the check
+/// can't be dropped while the grant stays.
+#[test]
+fn the_control_size_command_answers_the_control_alone() {
+    assert!(permissions(&capability()).iter().any(|p| p == "allow-studio-recorder-control-size"));
+    // A Windows checkout has CRLF line endings (as app_commands.rs reads its sources): the text is compared as LF.
+    let src = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/commands/studio_recorder.rs")).unwrap().replace("\r\n", "\n");
+    let body = src.split("pub fn studio_recorder_control_size(").nth(1).expect("the command");
+    let body = &body[..body.find("\n}\n").expect("its end")];
+    let first = body.lines().nth(1).unwrap_or("").trim();
+    assert_eq!(first, "if !may_size_control(webview.label()) {", "the caller check comes first");
+    assert!(body.contains("get_webview_window(CONTROL_LABEL)"), "it sizes the control, never the caller's own window");
+    assert!(src.contains("pub fn may_size_control(caller: &str) -> bool {\n    caller == CONTROL_LABEL\n}"));
+}

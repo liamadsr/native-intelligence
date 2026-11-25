@@ -31,6 +31,7 @@ import {
   VIEW_KEY,
   captureChatAnchor,
   chatScroller,
+  CODE_DETAILS_OPEN_KEY,
   getServerSidePanelState,
   getSidePanelState,
   moveAmongVisible,
@@ -42,11 +43,8 @@ import {
   registerChatScrollHold,
   restoreChatAnchor,
   setCaptureDockOpen,
-  setCodeChatSelected,
   setCodeDetailsOpen,
-  setCodeForYouContent,
-  setCodeForYouOpen,
-  setCodeView,
+  setPanelChatKind,
   setPagePanelContent,
   setPagePanelOpen,
   setPagePanelShown,
@@ -311,66 +309,80 @@ describe('one panel, two views (Liam, 11-11: “you can’t see both at the same
   })
 })
 
-describe('on Code: the Code view’s own For you and the coding chat’s details (Liam, 11-20)', () => {
-  /** On Code with a coding chat selected, its details open (their default). */
-  const onCode = () => {
-    setCodeView(true)
-    setCodeChatSelected(true)
-  }
-
-  it('For you’s button opens a coding agent’s cards over the details and closes them again, the details back', () => {
-    onCode()
-    setCodeForYouContent(true)
-    expect(shownView(getSidePanelState())).toBe('panel')
-    toggleSidePanelView('forYou')
-    expect(shownView(getSidePanelState())).toBe('forYou')
-    expect(rightShown(getSidePanelState())).toBe(true)
-    toggleSidePanelView('forYou')
-    expect(shownView(getSidePanelState())).toBe('panel')
+/**
+ * The panel shows the current chat's own (docs/plans/one-home.md): the store
+ * holds that chat's kind, told by chat/current-chat-store.ts, in place of the
+ * four Code-view flags it had (codeView, codeChat, codeForYou,
+ * codeForYouContent).
+ */
+describe('the current chat’s kind decides what the panel is', () => {
+  it('starts on the agent’s, and is never saved', () => {
+    expect(getSidePanelState().chatKind).toBe('agent')
+    expect(getServerSidePanelState().chatKind).toBe('agent')
+    setPanelChatKind('code')
+    expect(window.localStorage.length).toBe(0)
   })
 
-  it('the details’ button swaps back to them from For you, opened if they were closed', () => {
-    onCode()
-    setCodeForYouContent(true)
-    setCodeDetailsOpen(false)
-    expect(shownView(getSidePanelState())).toBeNull()
-    toggleSidePanelView('forYou')
-    expect(shownView(getSidePanelState())).toBe('forYou')
+  it('a coding chat: its details, open by default, by their own switch; the agent’s panel is never touched', () => {
+    setRightPanelOpen(true)
+    setPanelChatKind('code')
+    expect(shownView(getSidePanelState())).toBe('panel')
     toggleSidePanelView('panel')
-    expect(getSidePanelState()).toMatchObject({ codeForYou: false, codeDetailsOpen: true })
-    expect(shownView(getSidePanelState())).toBe('panel')
-  })
-
-  it('with no chat selected the cards alone fill the panel; closed, nothing is on screen', () => {
-    setCodeView(true)
-    setCodeForYouContent(true)
+    expect(getSidePanelState()).toMatchObject({ codeDetailsOpen: false, rightOpen: true })
     expect(rightShown(getSidePanelState())).toBe(false)
-    toggleSidePanelView('forYou')
-    expect(shownView(getSidePanelState())).toBe('forYou')
+    expect(window.localStorage.getItem(CODE_DETAILS_OPEN_KEY)).toBe('0')
     toggleRightPanel()
+    expect(getSidePanelState().codeDetailsOpen).toBe(true)
+    expect(window.localStorage.getItem(CODE_DETAILS_OPEN_KEY)).toBeNull()
+    expect(shownView(getSidePanelState())).toBe('panel')
+  })
+
+  it('a coding chat’s panel has no For you: its button’s action does nothing there, whatever the agent’s For you holds', () => {
+    setForYouContent(true)
+    setPanelChatKind('code')
+    toggleSidePanelView('forYou')
+    expect(shownView(getSidePanelState())).toBe('panel')
+    expect(getSidePanelState()).toMatchObject({ rightOpen: false, view: 'panel' })
+  })
+
+  it('a new coding chat: nothing to show, and neither key nor button opens anything', () => {
+    setRightPanelOpen(true)
+    setPanelChatKind('code-new')
     expect(rightShown(getSidePanelState())).toBe(false)
+    expect(shownView(getSidePanelState())).toBeNull()
+    toggleRightPanel()
+    toggleSidePanelView('panel')
+    expect(rightShown(getSidePanelState())).toBe(false)
+    expect(getSidePanelState()).toMatchObject({ rightOpen: true, codeDetailsOpen: true })
   })
 
-  it('its last card settled, it closes: the next card never opens it over the details unasked', () => {
-    onCode()
-    setCodeForYouContent(true)
-    setCodeForYouOpen(true)
-    setCodeForYouContent(false)
-    expect(getSidePanelState().codeForYou).toBe(false)
-    expect(shownView(getSidePanelState())).toBe('panel')
-    setCodeForYouContent(true)
-    expect(shownView(getSidePanelState())).toBe('panel')
+  it('the details’ switch does nothing with no coding chat on screen', () => {
+    setCodeDetailsOpen(false)
+    expect(getSidePanelState().codeDetailsOpen).toBe(true)
+    setPanelChatKind('code-new')
+    setCodeDetailsOpen(false)
+    expect(getSidePanelState().codeDetailsOpen).toBe(true)
   })
 
-  it('the agent’s own panel and For you are left as they were, and come back with the agent’s tab', () => {
+  it('the agent’s own panel and For you are as they were, and come back with the agent’s chat', () => {
     setForYouContent(true)
     toggleSidePanelView('forYou')
-    onCode()
-    setCodeForYouContent(true)
-    toggleSidePanelView('forYou')
+    setPanelChatKind('code')
+    toggleSidePanelView('panel')
+    setPanelChatKind('code-new')
     expect(getSidePanelState()).toMatchObject({ rightOpen: true, view: 'forYou' })
-    setCodeView(false)
+    setPanelChatKind('agent')
     expect(shownView(getSidePanelState())).toBe('forYou')
+  })
+
+  it('pure, for the space plan: the kind and the details’ switch alone decide a coding chat’s panel', () => {
+    const agentOpen = { rightOpen: true, view: 'panel' as const, forYouContent: false }
+    expect(rightShown(agentOpen)).toBe(true)
+    expect(rightShown({ ...agentOpen, chatKind: 'code-new' })).toBe(false)
+    expect(rightShown({ ...agentOpen, chatKind: 'code' })).toBe(true)
+    expect(rightShown({ rightOpen: false, view: 'forYou', forYouContent: false, chatKind: 'code' })).toBe(true)
+    expect(rightShown({ ...agentOpen, chatKind: 'code', codeDetailsOpen: false })).toBe(false)
+    expect(shownView({ rightOpen: true, view: 'forYou', forYouContent: true, chatKind: 'code' })).toBe('panel')
   })
 })
 

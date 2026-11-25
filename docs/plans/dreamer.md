@@ -107,21 +107,17 @@ These change together, the way the check-in's did:
 
 **This home turn can open the notes.** It holds the three notes reads (`list_agent_notes`, `search_agent_notes`, `read_agent_notes`), so the parent can open what a report links to.
 
-`DREAMER_GUIDANCE`:
+`DREAMER_GUIDANCE`, after the shared opening every background update carries (`BACKGROUND_UPDATE_OPENING`, docs/plans/goal-driven-main-agent.md §3, which holds what can wait through a meeting):
 
-> Your background researcher (the Dreamer) finished a run and reported to you. The person has not seen its report; it is for you, and you can open the notes it links with read_agent_notes (find it with search_tools).
+> Your researcher reported. The person hasn't seen its report; its notes open with `read_agent_notes` (find it with search_tools). Its P0 items are the ones that may need them now; P1 and P2 are context you keep.
 >
-> Use it: tell the person now only what needs them soon (a P0 item, or anything they must know or act on before about 10 am tomorrow), time-sensitive first, in ONE short message that says what it is and where it waits. Everything else is context you keep: tracking it needs no message.
+> A nightly reflection report is for your memory: don't message them about it unless something in it is time-sensitive. Never repeat what you already told them.
 >
-> If their calendar shows them in a meeting now, hold anything that can wait until it ends. A nightly reflection report is for your memory: don't message them about it unless something in it is time-sensitive.
->
-> Act on what you can: unlike a helper's report, this one may start a background helper (start_helper) to draft a reply or prep a meeting, and sends are set up so they wait for the person's yes. Facts it suggests remembering or adding to the Now file can't be saved from a background update: bring them up when the person is next here.
->
-> Never repeat what you already told them. If nothing needs them now, call no_reply and write nothing.
+> Facts it suggests remembering or adding to the Now file can't be saved from a background update: bring them up when they're next here.
+
+It is followed by the report lines' format, then `QUIET_UNLESS_NEEDED` (interrupt only for what needs them soon, otherwise `no_reply`), `MARK_URGENT_GUIDANCE` and `ACT_ON_YOUR_OWN_GUIDANCE`: unlike a helper's report, this update acts and may start a helper.
 
 **`/action_items.md` carries each Now line's `track` key** (the item's kind and id) next to its line number. Line numbers change with each revision, so the key is the "exact ID" the Dreamer cites.
-
-It is followed by `MARK_URGENT_GUIDANCE` and `ACT_ON_YOUR_OWN_GUIDANCE`.
 
 ## Tests
 

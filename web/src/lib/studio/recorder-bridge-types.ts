@@ -136,6 +136,9 @@ export interface StudioStarted {
   files: StudioPlannedFile[]
   /** `local`: on-device words come back from stop(); `none`: use a server transcript. */
   transcription: 'local' | 'none'
+  /** This build streams the words heard while the take records (`studio-recorder://live-words`): true when it does for
+   *  this take, false when it can't (no Local transcription, no microphone). Absent from builds before live words. */
+  liveWords?: boolean
   warnings: string[]
 }
 

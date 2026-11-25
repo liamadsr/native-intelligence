@@ -83,9 +83,9 @@ describe('the profile section', () => {
     expect(parts.clock).toContain('10:30 PM')
   })
 
-  it('the base guidance carries the standing time rule: earlier messages were true when written; check the clock before saying "ahead"', async () => {
+  it('the base guidance carries the standing time rule: check the clock before calling something upcoming', async () => {
     const parts = await buildSystemPromptParts('u1', fakeSupabase(member('Liam')).client, undefined, { workspaceId: 'ws-1', webAccess: 'never' })
-    expect(parts.base).toContain('Earlier messages in this conversation were true when they were written.')
+    expect(parts.base).toContain("**Time moves on.** Check a thing's time against now before calling it upcoming")
     expect(parts.base).toContain('anything that started earlier today has already happened')
   })
 

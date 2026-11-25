@@ -37,12 +37,12 @@
  *                view and see it's chat and go to the action item from it's
  *                properties panel").
  *
- * Read from the conversation's own reader (chat/code-view-store.ts `live`):
+ * Read from the conversation's own reader (chat/code-chat-live.ts `live`):
  * no read of its own, no timer. Until that first read, blank cards.
  */
 import { EntityIcon } from '@/components/entities/entity-icon'
 import { useEffect, useState, type ReactNode } from 'react'
-import { ArrowUpRight, ExternalLink, Square } from 'lucide-react'
+import { ArrowUpRight, ExternalLink, Link2, Square } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -56,6 +56,8 @@ import { useCodeView } from '../chat/use-code-view'
 import { useOptionalAgentWorkShared } from '@/components/work/agent-work-provider'
 import { WorkItemDetailPanel } from '@/components/work/work-item-detail-panel'
 import { openTarget } from '@/lib/chat-cards/open-card'
+import { getClientWorkspaceId } from '@/lib/workspace-fetch'
+import { codingChatLink } from '../chat/coding-chat-link'
 
 /** Who does the work, one way for every agent: its name, and where it runs. */
 export function codeAgentName(session: Pick<PanelSession, 'worker'>): string {
@@ -254,6 +256,22 @@ export function CodeChatSections() {
         <Line label="Mac">{session.deviceName || 'Your Mac'}</Line>
         <Line label="Folder">{session.folderLabel || 'A folder'}</Line>
       </Card>
+      {/* The chat's own address (docs/plans/one-home.md: `/account?code=<session id>`), for a note or a teammate of theirs who can read it. */}
+      <button
+        type="button"
+        data-code-chat-copy-link=""
+        onClick={() => {
+          const link = codingChatLink(window.location.origin, session.id, getClientWorkspaceId() ?? null)
+          void navigator.clipboard?.writeText(link).then(
+            () => toast.success('Link copied'),
+            () => toast.error('Could not copy the link'),
+          )
+        }}
+        className="pointer-events-auto inline-flex h-7 shrink-0 items-center gap-1 self-start rounded-full px-2 text-xs text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <Link2 aria-hidden className="size-3.5" />
+        Copy link
+      </button>
       <Card id="agent" title="Agent">
         <Line label="Works as">{codeAgentName(session)}</Line>
         <p>{session.worker ? `Your own ${workerLabel(session.worker)} account does the work, on your Mac.` : 'Native Intelligence does the work, on your Mac.'}</p>
