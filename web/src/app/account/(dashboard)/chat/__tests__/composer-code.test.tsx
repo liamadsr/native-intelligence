@@ -929,6 +929,23 @@ describe('a coding chat open with no Mac (no toggle)', () => {
 })
 
 
+/** Open the model line's `kind` picker, waiting until its menu, and only its, is open (the one a pick just closed may linger a frame). */
+async function openPicker(kind: 'model' | 'effort'): Promise<string[]> {
+  const other = kind === 'model' ? 'effort' : 'model'
+  for (let tries = 0; tries < 10 && !(document.querySelector(`[data-code-model-menu="${kind}"]`) && !document.querySelector(`[data-code-model-menu="${other}"]`)); tries++) {
+    await flush()
+    if (!document.querySelector(`[data-code-model-menu="${kind}"]`)) await openMenu(`[data-code-model-picker="${kind}"]`)
+  }
+  return [...document.querySelectorAll(`[data-code-model-menu="${kind}"] [data-code-model-option]`)].map((o) => o.getAttribute('data-code-model-option')!)
+}
+
+/** Open the `kind` picker and press one of its options, in its own menu. */
+async function pickOption(kind: 'model' | 'effort', option: string) {
+  await openPicker(kind)
+  press(document.querySelector<HTMLElement>(`[data-code-model-menu="${kind}"] [data-code-model-option="${option}"]`)!)
+  await flush()
+}
+
 describe('the model and effort, pinned under the box (721)', () => {
   const TAKING = mac({
     id: 'env-studio',
@@ -971,13 +988,11 @@ describe('the model and effort, pinned under the box (721)', () => {
     expect(q('[data-code-model-line="new"]')).not.toBeNull()
     expect(q('[data-code-model-picker="model"]')!.textContent).toBe('Default')
     expect(q('[data-code-model-picker="effort"]')!.textContent).toBe('Default')
-    await openMenu('[data-code-model-picker="model"]')
-    expect([...document.querySelectorAll('[data-code-model-option]')].map((o) => o.getAttribute('data-code-model-option'))).toEqual(['default', 'opus', 'haiku'])
+    expect(await openPicker('model')).toEqual(['default', 'opus', 'haiku'])
     press(q('[data-code-model-option="opus"]')!)
     await flush()
     expect(q('[data-code-model-picker="model"]')!.textContent).toBe('Opus')
-    await openMenu('[data-code-model-picker="effort"]')
-    expect([...document.querySelectorAll('[data-code-model-option]')].map((o) => o.getAttribute('data-code-model-option'))).toEqual(['default', 'low', 'high', 'max'])
+    expect(await openPicker('effort')).toEqual(['default', 'low', 'high', 'max'])
     press(q('[data-code-model-option="max"]')!)
     await flush()
     type('Fix the date picker')
@@ -993,14 +1008,10 @@ describe('the model and effort, pinned under the box (721)', () => {
     // Haiku is offered; it takes no effort, so the effort is its default and no effort picker shows.
     expect(q('[data-code-model-picker="model"]')!.getAttribute('data-code-model-value')).toBe('haiku')
     expect(q('[data-code-model-picker="effort"]')).toBeNull()
-    await openMenu('[data-code-model-picker="model"]')
-    press(q('[data-code-model-option="opus"]')!)
-    await flush()
+    await pickOption('model', 'opus')
     expect(JSON.parse(localStorage.getItem('ni:code:model:claude-code')!)).toEqual({ model: 'opus', effort: null })
     // Back to both defaults: forgotten.
-    await openMenu('[data-code-model-picker="model"]')
-    press(q('[data-code-model-option="default"]')!)
-    await flush()
+    await pickOption('model', 'default')
     expect(localStorage.getItem('ni:code:model:claude-code')).toBeNull()
     // One it doesn't offer any more.
     localStorage.setItem('ni:code:model:claude-code', JSON.stringify({ model: 'sonnet', effort: 'high' }))
@@ -1057,9 +1068,7 @@ describe('an agent whose Mac lists efforts only (Codex today, 721)', () => {
     press(q('[data-composer-tab="code"]')!)
     await flush()
     expect(q('[data-code-model-picker="model"]')).toBeNull()
-    await openMenu('[data-code-model-picker="effort"]')
-    press(q('[data-code-model-option="high"]')!)
-    await flush()
+    await pickOption('effort', 'high')
     type('Tidy the README')
     await send()
     expect(posts().find((c) => c.url === '/api/local-agent/sessions')!.body).toMatchObject({ worker: 'codex', model: null, effort: 'high' })
