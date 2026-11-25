@@ -170,7 +170,7 @@ export async function threadsAwaitingReply(
     draftedThreadIds?: readonly string[]
     /** Only these threads (provider ids): the arrival path reports the ones it was handed. */
     providerThreadIds?: readonly string[]
-    /** Why they got no draft (templated): 'not_drafted' by default, or 'cap', 'paused', 'dormant', 'usage'. */
+    /** Why they got no draft (templated): 'not_drafted' by default, or 'cap', 'paused', 'dormant', 'usage' (per thread: 'unsure', 'in_meeting'). */
     reason?: string
     /** A thread's own reason, by provider thread id, over `reason` ('unsure': the gate asks the person first, E3). */
     reasons?: Readonly<Record<string, string>>

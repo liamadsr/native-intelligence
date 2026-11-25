@@ -249,3 +249,23 @@ describe('turned-away threads (GEN-1164)', () => {
     expect(await draftRepliesToNewMail(db as never, 'u-1', W, ['t1', 't2', 't3'], NOW, OPEN)).toEqual({ drafts: [], blocked: null, asked: ['t2'], turnedAway: ['t1'] })
   })
 })
+
+describe('mail that arrived during a meeting with its sender (2026-11-24)', () => {
+  it("the pass's in_meeting skips come back as their own list, never capped or turned away", async () => {
+    const { inMeetingThreads } = await import('../arrival-drafts')
+    expect(inMeetingThreads({ a: 'in_meeting', b: 'no_reply', c: 'ask', d: 'in_meeting' })).toEqual(['a', 'd'])
+    expect(inMeetingThreads(undefined)).toEqual([])
+    hoisted.generateEmailDrafts.mockResolvedValueOnce({ drafts: [], count: 0, skipped: { t1: 'in_meeting', t2: 'ask' } })
+    expect(await draftRepliesToNewMail(db as never, 'u-1', W, ['t1', 't2'], NOW, OPEN)).toEqual({ drafts: [], blocked: null, asked: ['t2'], inMeeting: ['t1'] })
+  })
+
+  it('each waits on the person with the templated reason in_meeting, beside the unsure ones', async () => {
+    const { skipReasons } = await import('../arrival-drafts')
+    expect(skipReasons({ asked: ['t2'], inMeeting: ['t1'] })).toEqual({ t1: 'in_meeting', t2: 'unsure' })
+    expect(skipReasons({ inMeeting: ['t1'] })).toEqual({ t1: 'in_meeting' })
+    expect(skipReasons({ asked: [] })).toBeUndefined()
+    expect(skipReasons({})).toBeUndefined()
+    const { NO_DRAFT_BECAUSE } = await import('@/lib/agent-events/event-turn')
+    expect(NO_DRAFT_BECAUSE.in_meeting).toBe('it arrived while they were in a meeting with the sender, so the meeting answers it')
+  })
+})

@@ -17,7 +17,10 @@
  * The body names each thread or item in a line, by Native Intelligence's own phrase around
  * a clipped title (a mail row: the sender's address, never a subject), with its pointer (`email_draft <id>`,
  * `capture <id>`…) so the agent can open it with its read tools and point the
- * person at the review pile. Never mail text. Once the agent WROTE a reply,
+ * person at the review pile. Never mail text: the agent reads a thread live
+ * before it mentions it (home-turn.ts EVENT_MAIL_GUIDANCE). Mail from someone
+ * the person is in a meeting with right now waits for the meeting's end
+ * (meetingHold, below). Once the agent WROTE a reply,
  * the rows are marked delivered (`home_turn:<row id>`). A quiet turn (no_reply)
  * means the agent judged them handled: they are marked too (so the next mail
  * doesn't bring them back), except an approval, which still waits on the
@@ -29,7 +32,8 @@ import type { HomeTurnEvents } from '@/lib/chat/home-turn'
 import { HOME_TURN_MAX_DIGEST_EVENTS } from '@/lib/chat/home-turn'
 import { markSettledEvents, settledEventIds } from './freshness'
 import { EMAIL_KIND_PHRASE, MENTION_PHRASE } from './away-section'
-import { meetingWhen } from './meeting-time'
+import { DEFAULT_MEETING_MS, meetingClock, meetingWhen } from './meeting-time'
+import type { UpcomingMeeting } from './upcoming-meetings'
 import { NOTICE_KINDS, type AgentEventKind, type AgentEventRow } from './types'
 
 /**
@@ -86,13 +90,17 @@ export async function gatherEventTurn(
 /**
  * Why a thread got no draft, when a limit held it back (the mail seam's
  * templated `reason`): such a thread is never drafted by an event turn's
- * helper either, which would get round the limit.
+ * helper either, which would get round the limit. 'in_meeting' is the
+ * calendar's hold (src/lib/email/draft-calendar.ts): the mail arrived during
+ * the person's meeting with its sender, so a draft could only guess where
+ * the person is.
  */
 export const NO_DRAFT_BECAUSE: Readonly<Record<string, string>> = {
   cap: "today's limit of automatic drafts was reached",
   paused: 'agent work is switched off',
   usage: 'the AI usage limit was reached',
   dormant: 'drafting is paused while the workspace is quiet',
+  in_meeting: 'it arrived while they were in a meeting with the sender, so the meeting answers it',
 }
 
 /**
@@ -114,7 +122,8 @@ function pointer(row: Pick<EventTurnRow, 'kind' | 'facts' | 'ref_type' | 'ref_id
 /**
  * One row's line: Native Intelligence's phrase around a clipped title, then its pointer.
  * A mail row names the sender's address and its contact pointer, never a
- * subject (no stored mail): the agent reads the thread live if it must. A
+ * subject (no stored mail): the agent reads the thread live before it says
+ * what it is. A
  * meeting change names its times in `timeZone` (the person's), with the zone,
  * so the agent never works out a time itself. Pure.
  */
@@ -128,9 +137,10 @@ export function eventTurnLine(row: EventTurnRow, timeZone: string | null = null)
     case 'email.drafted':
       return `- Reply needed${by}${contact}. A draft is ready in the review pile (Mail, To review).${pointer(row)}`
     case 'email.needs_reply': {
-      // E3 (decision 1): Jev wasn't sure a reply is needed, so none was guessed at: ask first.
+      // E3 (decision 1): Jev wasn't sure a reply is needed, so none was guessed at. The agent
+      // reads it before saying anything (Liam, 2026-11-24: "want me to read it?" is no update).
       if (f.reason === 'unsure') {
-        return `- Maybe a reply${by}${contact}: Native Intelligence wasn't sure one is needed, so none was drafted. Ask the person whether they want a reply; draft one only if they say yes.${pointer(row)}`
+        return `- Maybe a reply${by}${contact}: Native Intelligence wasn't sure one is needed, so none was drafted. Read it first. Ask the person only if a reply is really in doubt, saying in a clause what it asks; draft one only if they say yes.${pointer(row)}`
       }
       // A draft held back by a limit stays held back: say why, and that it is not to be drafted.
       const held = typeof f.reason === 'string' ? NO_DRAFT_BECAUSE[f.reason] : undefined
@@ -202,13 +212,184 @@ export function eventTurnLine(row: EventTurnRow, timeZone: string | null = null)
   }
 }
 
+// ── Mail held while the person is in a meeting with its sender ──────────────
+//
+// Liam, 2026-11-24: a background message pinged him at 10:29 about mail from
+// the very person he was on a call with. Mail from someone the person is in a
+// meeting with right now (or about to be: MEETING_HOLD_LEAD_MS) waits in code
+// until the meeting ends: its row is left out of the turn and stays
+// undelivered, and the turn's run asks for one more event turn just after the
+// end (src/lib/inngest/home-turn.ts askAfterMeeting). Whatever they wrote,
+// they can say in the meeting. Once it is over, the mail's line says it came
+// during that meeting, so mail about it ("I'm here", a link, running late)
+// gets no ping.
+
+/** The kinds whose line names a sender: the ones a meeting with that sender holds. */
+const MAIL_KINDS: ReadonlySet<AgentEventKind> = new Set(['email.drafted', 'email.needs_reply', 'email.arrived'])
+/** How far back the hold reads meetings' starts: one that started longer ago than this is not counted as still going. */
+export const MEETING_HOLD_LOOKBACK_MS = 4 * 60 * 60_000
+/** Mail this close before a meeting with its sender counts as at it (they're there, running late, the link). */
+export const MEETING_HOLD_LEAD_MS = 10 * 60_000
+/** At most this many senders named on a meeting's line. */
+const MEETING_HOLD_MAX_SENDERS = 3
+
+/** A meeting of the person's as the hold reads it: its pointer, when it runs, and who is in it. */
+export interface HoldMeeting {
+  ref: string
+  id: string
+  title: string | null
+  startIso: string
+  endIso: string
+  /** Its attendees and organizer, lower case. */
+  people: string[]
+}
+
+/** The calendar's meetings as the hold reads them (a meeting with no end runs DEFAULT_MEETING_MS). Pure. */
+export function holdMeetingsOf(
+  meetings: ReadonlyArray<Pick<UpcomingMeeting, 'ref' | 'id' | 'title' | 'startIso' | 'endIso' | 'attendees' | 'organizer'>>,
+): HoldMeeting[] {
+  return meetings.flatMap((m) => {
+    const startMs = Date.parse(m.startIso)
+    if (!Number.isFinite(startMs)) return []
+    const endMs = m.endIso ? Date.parse(m.endIso) : NaN
+    const people = [...new Set([...(m.attendees ?? []), ...(m.organizer ? [m.organizer] : [])].map((a) => a.trim().toLowerCase()).filter((a) => a.includes('@')))]
+    if (!people.length) return []
+    const end = Number.isFinite(endMs) && endMs > startMs ? endMs : startMs + DEFAULT_MEETING_MS
+    // A block longer than the look-back (a workshop day, a hold on the calendar) is no meeting to hold mail for.
+    if (end - startMs > MEETING_HOLD_LOOKBACK_MS) return []
+    return [{ ref: m.ref, id: m.id, title: m.title, startIso: m.startIso, endIso: new Date(end).toISOString(), people }]
+  })
+}
+
+/** What a meeting with the sender does to a turn's rows (meetingHold). */
+export interface MeetingHold {
+  /** The rows this turn carries. */
+  carried: EventTurnRow[]
+  /** The rows held for a meeting going on now (left undelivered). */
+  heldIds: string[]
+  /** When the last meeting that held a row ends (ISO), or null when none did. */
+  heldUntil: string | null
+  /** Each meeting going on now (or starting within the lead) that held a row, with the senders it held. */
+  current: Array<{ meeting: HoldMeeting; senders: string[]; startsLater: boolean }>
+  /** A carried mail row (by id) that came during a meeting with its sender, now over. */
+  during: Record<string, HoldMeeting>
+}
+
+/** The sender of a mail row, lower case, or null. */
+function senderOf(row: Pick<EventTurnRow, 'kind' | 'facts'>): string | null {
+  if (!MAIL_KINDS.has(row.kind)) return null
+  const from = typeof row.facts?.from === 'string' ? row.facts.from.trim().toLowerCase() : ''
+  return from.includes('@') ? from : null
+}
+
+/** True when the turn's rows hold mail with a sender: only then is the calendar read. Pure. */
+export function hasSenderMail(rows: ReadonlyArray<Pick<EventTurnRow, 'kind' | 'facts'>>): boolean {
+  return rows.some((r) => senderOf(r) !== null)
+}
+
+/** `ms` falls in the meeting, counting its lead. */
+function atMeeting(m: HoldMeeting, ms: number): boolean {
+  return ms >= Date.parse(m.startIso) - MEETING_HOLD_LEAD_MS && ms < Date.parse(m.endIso)
+}
+
+/**
+ * Split the turn's rows by the person's meetings: a mail row whose sender is
+ * in a meeting going on now (or starting within MEETING_HOLD_LEAD_MS) is
+ * held; one that came during such a meeting, now over, is carried with that
+ * meeting noted. Every other row is carried as it is. Pure.
+ */
+export function meetingHold(rows: readonly EventTurnRow[], meetings: readonly HoldMeeting[], nowMs: number): MeetingHold {
+  const out: MeetingHold = { carried: [], heldIds: [], heldUntil: null, current: [], during: {} }
+  const current = new Map<HoldMeeting, Set<string>>()
+  let untilMs = -Infinity
+  for (const row of rows) {
+    const sender = senderOf(row)
+    const theirs = sender ? meetings.filter((m) => m.people.includes(sender)) : []
+    const now = theirs.filter((m) => atMeeting(m, nowMs))
+    if (sender && now.length) {
+      out.heldIds.push(row.id)
+      for (const m of now) {
+        current.set(m, (current.get(m) ?? new Set()).add(sender))
+        untilMs = Math.max(untilMs, Date.parse(m.endIso))
+      }
+      continue
+    }
+    out.carried.push(row)
+    const at = Date.parse(row.occurs_at)
+    const over = Number.isFinite(at) ? theirs.find((m) => Date.parse(m.endIso) <= nowMs && atMeeting(m, at)) : undefined
+    if (over) out.during[row.id] = over
+  }
+  if (Number.isFinite(untilMs)) out.heldUntil = new Date(untilMs).toISOString()
+  out.current = [...current].map(([meeting, senders]) => ({ meeting, senders: [...senders], startsLater: Date.parse(meeting.startIso) > nowMs }))
+  return out
+}
+
+/**
+ * The person's meetings around now as the hold reads them: those starting in
+ * the last MEETING_HOLD_LOOKBACK_MS or the next MEETING_HOLD_LEAD_MS, in this
+ * workspace (one read of their calendar, readMeetingWindow, with organizers).
+ * Never throws: a failed read is no meetings, so nothing is held.
+ */
+export async function readHoldMeetings(
+  supabase: SupabaseClient,
+  person: { workspaceId: string; userId: string },
+  nowMs: number,
+): Promise<HoldMeeting[]> {
+  try {
+    const { readMeetingWindow } = await import('./upcoming-meetings')
+    const read = await readMeetingWindow(supabase, person, { fromMs: nowMs - MEETING_HOLD_LOOKBACK_MS, toMs: nowMs + MEETING_HOLD_LEAD_MS }, { nowMs }, { text: true })
+    return holdMeetingsOf(read.meetings)
+  } catch {
+    return []
+  }
+}
+
+/** A meeting's title on a line, clipped and quoted. */
+function meetingTitle(m: HoldMeeting): string {
+  return `“${clipLogText(m.title, 80) ?? 'Untitled meeting'}”`
+}
+
+/** The line naming a meeting going on now that holds mail. Pure. */
+export function inMeetingLine(entry: MeetingHold['current'][number], timeZone: string | null = null): string {
+  const m = entry.meeting
+  const shown = entry.senders.slice(0, MEETING_HOLD_MAX_SENDERS).map((s) => clipLogText(s, 120) ?? s)
+  const more = entry.senders.length - shown.length
+  const who = `${shown.join(', ')}${more > 0 ? ` and ${more} more` : ''}`
+  const when = entry.startsLater
+    ? `They have a meeting starting at ${meetingClock(m.startIso, timeZone, false)}, until ${meetingClock(m.endIso, timeZone)}`
+    : `They are in a meeting now, until ${meetingClock(m.endIso, timeZone)}`
+  return `- ${when}: ${meetingTitle(m)}, with ${who}. Native Intelligence is holding mail from them until it ends and brings it back then: don't bring it up now. [${m.ref} ${m.id.slice(0, 120)}]`
+}
+
+/** What a mail line adds when it came during a meeting with its sender, now over. Pure. */
+export function duringMeetingNote(m: HoldMeeting, timeZone: string | null = null): string {
+  return `It came while they were in ${meetingTitle(m)} with this sender (${meetingClock(m.startIso, timeZone, false)} to ${meetingClock(m.endIso, timeZone)}), now over: if it was about that meeting (they were there, a link, running late), it is moot: say nothing about it.`
+}
+
 /** The event turn's body input, or null when there is nothing to carry. Pure. */
-export function eventTurnBody(rows: readonly EventTurnRow[], timeZone: string | null = null): HomeTurnEvents | null {
+export function eventTurnBody(
+  rows: readonly EventTurnRow[],
+  timeZone: string | null = null,
+  hold: Pick<MeetingHold, 'current' | 'during' | 'heldUntil'> | null = null,
+): HomeTurnEvents | null {
   if (!rows.length) return null
-  const lines = rows.map((row) => eventTurnLine(row, timeZone))
+  const lines = rows.map((row) => {
+    const line = eventTurnLine(row, timeZone)
+    const over = hold?.during[row.id]
+    if (!over) return line
+    // The note goes before the pointer: every line ends with its pointer.
+    const p = pointer(row)
+    const note = duringMeetingNote(over, timeZone)
+    return p && line.endsWith(p) ? `${line.slice(0, -p.length)} ${note}${p}` : `${line} ${note}`
+  })
   const shown = lines.slice(0, EVENT_TURN_MAX_LINES)
   if (lines.length > shown.length) shown.push(`- …and ${lines.length - shown.length} more`)
-  return { lines: shown, eventIds: rows.map((r) => r.id) }
+  const meetingLines = (hold?.current ?? []).map((entry) => inMeetingLine(entry, timeZone))
+  return {
+    lines: [...meetingLines, ...shown],
+    eventIds: rows.map((r) => r.id),
+    ...(hold?.heldUntil ? { heldUntil: hold.heldUntil } : {}),
+  }
 }
 
 /**
