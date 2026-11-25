@@ -10,6 +10,7 @@ import type { EditorProject } from '@/lib/studio/engine/contracts'
 import { request } from '../ui/client'
 import { STUDIO_API } from '../studio-env'
 import type { FinishedTake, Recorder, TakeFile, TakeRole } from './types'
+import { checkWorkspace } from './workspace-pin'
 
 /** Where a take goes once it is a video: a new video, a punch-in, or storyboard beats of an open video. */
 export type TakePlacement =
@@ -89,6 +90,7 @@ export function recordingRequest(take: FinishedTake, keys: Partial<Record<TakeRo
 
 /** Upload every file of a take; answers the upload keys by role. Progress is reported per file. */
 export async function uploadTake(recorder: Recorder, take: FinishedTake, onProgress: (files: UploadProgress[]) => void): Promise<Partial<Record<TakeRole, string>>> {
+  checkWorkspace()
   const files = uploadOrder(take.files)
   const state: UploadProgress[] = files.map((file) => ({ role: file.role, label: LABELS[file.role], fraction: 0, done: false, bytes: file.bytes, live: !!file.uploadKey }))
   const report = () => onProgress(state.map((item) => ({ ...item })))
@@ -109,6 +111,7 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 
 /** Tell the Studio about an uploaded take and follow it until it is a video (or failed). */
 export async function submitTake(body: ReturnType<typeof recordingRequest> & { projectId?: string }, onProgress: (view: RecordingView) => void, isAlive: () => boolean = () => true): Promise<RecordingAnswer> {
+  checkWorkspace()
   return follow(await request<RecordingAnswer>(`${STUDIO_API}/recordings?wait=1`, body), onProgress, isAlive)
 }
 

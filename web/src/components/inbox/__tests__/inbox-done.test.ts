@@ -140,7 +140,8 @@ describe('Done in the inbox', () => {
     await inboxDone(inboxState().data!.items[0])
     await loadInbox()
     expect(keys()).toEqual(['mail:t1'])
-    expect(toasts.error).toEqual(['That email could not be archived. It’s back in the list.'])
+    // The server's reason, in its plain words.
+    expect(toasts.error).toEqual(['That email could not be archived: No mailbox for this thread could be reached. It’s back in the list.'])
   })
 
   it('Undo brings it back', async () => {
@@ -228,5 +229,25 @@ describe('Done in the inbox', () => {
     await inboxDone(inboxState().data!.held[0])
     await loadInbox()
     expect(inboxState().data!.held).toEqual([])
+  })
+
+  it('mail no longer in the inbox at all (deleted at the mailbox, in Trash): Done is done, with no Undo', async () => {
+    listed = [mail('mail:t1')]
+    await loadInbox()
+    triageAnswer = { changed: 0, threads: [{ thread_id: 'pt-t1', status: 'not_found', out_of_inbox: 'gone', error: 'Gmail no longer has this email.' }] }
+    await inboxDone(inboxState().data!.items[0])
+    listed = []
+    await loadInbox()
+    expect(keys()).toEqual([])
+    expect(toasts.error).toEqual([])
+    expect(toasts.success).toEqual([{ msg: 'Archived', undo: undefined }])
+  })
+
+  it('a failure with no reason from the server says the plain line', async () => {
+    listed = [mail('mail:t1')]
+    await loadInbox()
+    triageAnswer = { changed: 0, threads: [{ thread_id: 'pt-t1', status: 'failed' }] }
+    await inboxDone(inboxState().data!.items[0])
+    expect(toasts.error).toEqual(['That email could not be archived. It’s back in the list.'])
   })
 })

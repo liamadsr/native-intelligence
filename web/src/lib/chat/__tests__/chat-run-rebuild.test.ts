@@ -15,7 +15,7 @@
  * derivation only.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { ALL_TOOL_NAMES, isAttendedOnlyTool, isChatNativeTool } from '@/lib/ai/tool-registry'
+import { ALL_TOOL_NAMES, DREAMER_ONLY_TOOL_NAMES, isAttendedOnlyTool, isChatNativeTool } from '@/lib/ai/tool-registry'
 import {
   BROWSER_TOOL_NAMES,
   CORE_TOOL_NAMES,
@@ -155,10 +155,11 @@ describe('rebuildChatSpec — ceiling + model', () => {
     expect(spec.ceiling).toBeNull()
 
     const advertised = new Set(spec.ceilingTools.map((t) => t.name))
-    // The note-taker's line is a live turn's alone (one-chat Slice 3).
+    // The note-taker's line is a live turn's alone (one-chat Slice 3), and the
+    // Dreamer's own tools are its work run's alone (docs/plans/dreamer.md).
     const liveOnly = new Set(LIVE_MEETING_TOOL_NAMES)
     for (const name of ALL_TOOL_NAMES) {
-      expect(advertised.has(name), name).toBe(!liveOnly.has(name))
+      expect(advertised.has(name), name).toBe(!liveOnly.has(name) && !DREAMER_ONLY_TOOL_NAMES.has(name))
     }
     expect(advertised.has('search_tools')).toBe(true)
   })

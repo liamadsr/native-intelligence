@@ -11,6 +11,7 @@ import { costRoutes } from './costs'
 import { generationRoutes } from './generation'
 import { notYetRoutes } from './not-yet'
 import { productRoutes } from './products'
+import { prompterRoutes } from './prompter'
 import { projectRoutes } from './projects'
 import { recordingRoutes } from './recordings'
 import { sceneRoutes } from './scenes'
@@ -23,4 +24,4 @@ import { voiceoverRoutes } from './voiceover'
 
 // transcriptionRoutes holds `transcripts/transcribe` (one job per asset, none after "no speech"); mediaRoutes holds
 // the other transcript routes. recordingRoutes comes before notYetRoutes: its `projects/:id/beats/:beat/take` answers.
-export const studioRoutes: StudioRoute[] = [...videoRoutes, ...projectRoutes, ...scriptRoutes, ...fontRoutes, ...libraryRoutes, ...transcriptionRoutes, ...mediaRoutes, ...recordingRoutes, ...voiceoverRoutes, ...generationRoutes, ...costRoutes, ...visionRoutes, ...soundRoutes, ...checkRoutes, ...blueprintRoutes, ...sceneRoutes, ...adsRoutes, ...productRoutes, ...notYetRoutes]
+export const studioRoutes: StudioRoute[] = [...videoRoutes, ...projectRoutes, ...scriptRoutes, ...prompterRoutes, ...fontRoutes, ...libraryRoutes, ...transcriptionRoutes, ...mediaRoutes, ...recordingRoutes, ...voiceoverRoutes, ...generationRoutes, ...costRoutes, ...visionRoutes, ...soundRoutes, ...checkRoutes, ...blueprintRoutes, ...sceneRoutes, ...adsRoutes, ...productRoutes, ...notYetRoutes]

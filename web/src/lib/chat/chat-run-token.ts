@@ -297,7 +297,7 @@ export const CHAT_RUN_SERVER_PRINCIPALS: ReadonlySet<string> = new Set<ChatRunSe
 export type HomeTurnTokenReason = Exclude<HomeTurnReason, 'text' | 'slack' | 'agent_ask' | 'call' | 'team_chat'>
 
 /** Every {@link HomeTurnTokenReason}, for the verifiers' shape guard. */
-export const HOME_TURN_TOKEN_REASONS: ReadonlySet<string> = new Set<HomeTurnTokenReason>(['helper_report', 'event', 'digest', 'guest_ask', 'agent_answer', 'check_in', 'approval'])
+export const HOME_TURN_TOKEN_REASONS: ReadonlySet<string> = new Set<HomeTurnTokenReason>(['helper_report', 'event', 'digest', 'guest_ask', 'agent_answer', 'check_in', 'approval', 'dreamer'])
 
 /** True when a home turn's reason mints a `home_turn` token (not a channel turn's). */
 export function isHomeTurnTokenReason(reason: string): reason is HomeTurnTokenReason {

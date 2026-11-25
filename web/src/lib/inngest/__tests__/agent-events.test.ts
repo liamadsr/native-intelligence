@@ -292,7 +292,8 @@ describe('agentEventDigest (A6 slice 4)', () => {
     const out = (await fn('agent-event-digest').handler({ step })) as { candidates: number; checkIn: { candidates: number; sent: number; skips: Record<string, number> } }
     // One scan, asked for every hour at once.
     expect(hoisted.findDigestCandidates).toHaveBeenCalledOnce()
-    expect((hoisted.findDigestCandidates.mock.calls[0] as unknown[])[2]).toEqual([8, 10, 12, 14, 16, 19])
+    // The Dreamer's hours ride it too (docs/plans/dreamer.md): 03 and 07, 11, 15 (19 is the look-ahead's already).
+    expect((hoisted.findDigestCandidates.mock.calls[0] as unknown[])[2]).toEqual([8, 10, 12, 14, 16, 19, 3, 7, 11, 15])
     expect(hoisted.planDigestFor.mock.calls.map(([, cand]) => (cand as { userId: string }).userId)).toEqual(['u1'])
     expect(checkIn.planCheckInFor.mock.calls.map(([, cand]) => (cand as { userId: string }).userId)).toEqual(['u2', 'u3'])
     // 8 is also the look-ahead's morning slot.
@@ -323,6 +324,34 @@ describe('agentEventDigest (A6 slice 4)', () => {
     expect(step.sendEvent).toHaveBeenCalledWith('request-look-aheads', [request])
     expect(out.lookAhead).toEqual({ candidates: 3, sent: 1, skips: { no_zone: 2 } })
     expect(info.mock.calls.map(([l]) => String(l))).toContain('[look-ahead] candidates=3 sent=1 no_zone=2')
+    info.mockRestore()
+  })
+
+  it('the Dreamer rides it too (docs/plans/dreamer.md): one request per person at its hours, the 03:00 reflection only in a zone of their own', async () => {
+    hoisted.planDigestFor.mockReset()
+    checkIn.planCheckInFor.mockReset()
+    lookAhead.planLookAheadFor.mockReset()
+    lookAhead.planLookAheadFor.mockResolvedValue({ ok: false, reason: 'no_zone' })
+    hoisted.findDigestCandidates.mockResolvedValueOnce([
+      { ...c(1), hour: 7, timeZoneSource: 'member' },
+      { ...c(2), hour: 3, timeZoneSource: 'utc', timeZone: 'UTC' },
+      { ...c(3), hour: 3, timeZoneSource: 'member' },
+      { ...c(4), hour: 19, timeZoneSource: 'utc', timeZone: 'UTC' },
+    ])
+    const step = createStepMock()
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+    const out = (await fn('agent-event-digest').handler({ step })) as { dreamer: { candidates: number; sent: number; skips: Record<string, number> } }
+    const sent = step.sendEvent.mock.calls.find(([id]) => id === 'request-dreamers')?.[1] as Array<{ id: string; name: string; ts: number; data: Record<string, unknown> }>
+    expect(sent.map((e) => e.id)).toEqual(['dreamer:u1:w1:2026-10-14:7', 'dreamer:u3:w1:2026-10-14:3', 'dreamer:u4:w1:2026-10-14:19'])
+    expect(sent[0]).toMatchObject({ id: 'dreamer:u1:w1:2026-10-14:7', name: 'dreamer/run.requested', data: { userId: 'u1', workspaceId: 'w1', timeZone: 'Europe/London', localDate: '2026-10-14', hour: 7 } })
+    // Delivered at the scan's hour plus the person's own jitter (under 30 minutes).
+    const hour = Math.floor(Date.now() / 3_600_000) * 3_600_000
+    for (const e of sent) {
+      expect(e.ts).toBeGreaterThanOrEqual(hour - 3_600_000)
+      expect(e.ts).toBeLessThan(hour + 30 * 60_000)
+    }
+    expect(out.dreamer).toEqual({ candidates: 4, sent: 3, skips: { no_zone: 1 } })
+    expect(info.mock.calls.map(([l]) => String(l))).toContain('[dreamer] scan candidates=4 sent=3 no_zone=1')
     info.mockRestore()
   })
 })

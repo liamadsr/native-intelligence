@@ -33,6 +33,7 @@ import type {
   RecorderPermissions,
   RecorderTargets,
   TakeFile,
+  TakeLiveInfo,
   TakeOptions,
   TakeRole,
   TakeWord,
@@ -583,6 +584,8 @@ export class DesktopRecorder implements Recorder {
   readonly kind = 'desktop' as const
   private options: TakeOptions | null = null
   private sessionId: string | null = null
+  /** The take recording now: its prompter's live words. */
+  private following: TakeLiveInfo | null = null
   private unlisten: Unlisten[] = []
   private progress = new Map<string, (fraction: number) => void>()
   private startedAt = new Date()
@@ -602,6 +605,11 @@ export class DesktopRecorder implements Recorder {
     leases?: PageLeases,
   ) {
     this.leases = leases ?? new PageLeases(native)
+  }
+
+  /** While a take records: its session and whether its words come live (for the prompter). */
+  liveInfo(): TakeLiveInfo | null {
+    return this.following && this.sessionId === this.following.sessionId ? this.following : null
   }
 
   /** The takes this recorder is recording now (never listed as kept on this computer). */
@@ -734,6 +742,8 @@ export class DesktopRecorder implements Recorder {
     const sessionId = str(answer.sessionId)
     if (!sessionId) throw new Error('The recorder did not start. Try again.')
     this.sessionId = sessionId
+    // A build with live words says so (true, or false without Local transcription or a microphone); an older one says nothing.
+    this.following = { sessionId, following: answer.liveWords === true ? 'on' : answer.liveWords === false ? 'no-local' : 'old-app' }
     void this.leases.hold(sessionId)
     const live = this.openLive(sessionId, answer)
     this.live = live
@@ -790,6 +800,7 @@ export class DesktopRecorder implements Recorder {
       // Already gone.
     }
     this.stopping = true
+    this.following = null
     const raw = await this.native.stop(sessionId)
     const take = normalizeStop(sessionId, raw, this.startedAt)
     const live = this.live
@@ -814,6 +825,7 @@ export class DesktopRecorder implements Recorder {
   async cancel(): Promise<void> {
     const sessionId = this.sessionId
     this.sessionId = null
+    this.following = null
     this.stopping = true
     // Thrown away: the pieces already on the Studio go too.
     const live = this.live

@@ -175,6 +175,7 @@
     "allow-studio-recorder-drafts",
     "allow-studio-recorder-words",
     "allow-studio-recorder-take-token",
+    "allow-studio-recorder-control-size",
     "allow-studio-export-pick-destination",
     "allow-studio-export-reveal",
     "allow-studio-export-save-parts",

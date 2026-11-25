@@ -59,6 +59,8 @@ import {
   ALL_TOOL_NAMES,
   ATTENDED_ONLY_TOOL_NAMES,
   CHAT_NATIVE_TOOL_NAMES,
+  DREAMER_ONLY_TOOL_NAMES,
+  PARENT_NOTES_TOOL_NAMES,
   TOOL_CATEGORIES,
   getToolSideEffect,
 } from '@/lib/ai/tool-registry'
@@ -167,9 +169,13 @@ export const SURFACE_EXCLUDED_TOOLS: Readonly<Record<ChatRunSurface, ReadonlySet
    * (nobody's desktop is there) and the tools that need their JWT (a channel
    * turn's server token carries none). ask_user is native: on a channel turn
    * it answers with a plain-text note instead of parking
-   * (agents/chat-agent/tools/ask_user.ts).
+   * (agents/chat-agent/tools/ask_user.ts). Nor the Dreamer's notes
+   * (PARENT_NOTES_TOOL_NAMES, docs/plans/dreamer.md): the person's private
+   * research, the Now file and what the agent remembers about them, which a
+   * reply in a channel thread would put in front of everyone there; the one
+   * surface covers DMs and channel threads alike, so both go without them.
    */
-  slack: new Set(['mcp_confirm_call', 'helpers', ...CHANNEL_EXCLUDED_NATIVE, ...ATTENDED_ONLY_TOOL_NAMES, ...CARD_TOOLS, ...BROWSER_TOOLS, ...JWT_TOOLS]),
+  slack: new Set(['mcp_confirm_call', 'helpers', ...CHANNEL_EXCLUDED_NATIVE, ...ATTENDED_ONLY_TOOL_NAMES, ...PARENT_NOTES_TOOL_NAMES, ...CARD_TOOLS, ...BROWSER_TOOLS, ...JWT_TOOLS]),
   /**
    * A text the person sent the Native Intelligence number (docs/plans/text-and-calling.md):
    * the device ask's set (no external-MCP confirm, no chat-native tool but
@@ -188,7 +194,7 @@ export const SURFACE_EXCLUDED_TOOLS: Readonly<Record<ChatRunSurface, ReadonlySet
    * (src/lib/guests/guest-tools.ts) before this set is ever read. It still
    * excludes everything the text set does, and every attended-only tool.
    */
-  dial8: new Set(['mcp_confirm_call', 'helpers', ...CHAT_NATIVE_TOOL_NAMES, ...ATTENDED_ONLY_TOOL_NAMES, ...CARD_TOOLS, ...BROWSER_TOOLS, ...JWT_TOOLS]),
+  dial8: new Set(['mcp_confirm_call', 'helpers', ...CHAT_NATIVE_TOOL_NAMES, ...ATTENDED_ONLY_TOOL_NAMES, ...PARENT_NOTES_TOOL_NAMES, ...CARD_TOOLS, ...BROWSER_TOOLS, ...JWT_TOOLS]),
   /**
    * What the person said on a call to the Native Intelligence number (the GPT-Live spike,
    * src/lib/calls/): the text set, and no helpers or chat-native tool at all.
@@ -202,9 +208,10 @@ export const SURFACE_EXCLUDED_TOOLS: Readonly<Record<ChatRunSurface, ReadonlySet
    * src/lib/team-chat/): Slack's channel-thread set, and no chat-native tool
    * at all (no background helper or message to another person's agent: what
    * came back would have nowhere in the channel to go). Others in the channel
-   * read the reply; nothing there draws cards.
+   * read the reply; nothing there draws cards. Nor the Dreamer's notes: the
+   * person's private research, in a reply the channel reads.
    */
-  team_chat: new Set(['mcp_confirm_call', 'helpers', ...CHAT_NATIVE_TOOL_NAMES, ...ATTENDED_ONLY_TOOL_NAMES, ...CARD_TOOLS, ...BROWSER_TOOLS, ...JWT_TOOLS, ...TABLE_WRITE_TOOLS, ...SPREADSHEET_WRITE_TOOLS]),
+  team_chat: new Set(['mcp_confirm_call', 'helpers', ...CHAT_NATIVE_TOOL_NAMES, ...ATTENDED_ONLY_TOOL_NAMES, ...PARENT_NOTES_TOOL_NAMES, ...CARD_TOOLS, ...BROWSER_TOOLS, ...JWT_TOOLS, ...TABLE_WRITE_TOOLS, ...SPREADSHEET_WRITE_TOOLS]),
 }
 
 /**
@@ -231,6 +238,10 @@ export const SERVER_TURN_EXCLUDED_TOOLS: ReadonlySet<string> = new Set([
   'read_card',
   ...JWT_TOOLS,
   ...BROWSER_TOOLS,
+  // The Dreamer's own tools (docs/plans/dreamer.md): never the main agent's,
+  // on any turn. Its notes' reads stay: a background update (the Dreamer's
+  // own report above all) may open what a report links to.
+  ...DREAMER_ONLY_TOOL_NAMES,
 ])
 
 /**
@@ -353,13 +364,15 @@ export function checkInMayCall(toolName: string): boolean {
 /**
  * The background updates that act on their own (Liam, 2026-10-26): a
  * helper's report, an event (mail, a meeting, a teammate's ask), another
- * agent's answer, and a call the person approved having run (445: the agent
- * carries on with what they asked for). A guest's ask and the daily digest
+ * agent's answer, a call the person approved having run (445: the agent
+ * carries on with what they asked for), and the Dreamer's report (720,
+ * docs/plans/dreamer.md: unlike a helper's report it may start a helper, as
+ * serverTurnMayCall bars only 'helper_report'). A guest's ask and the daily digest
  * stay read-only, as their guidance says: a guest's words never drive a
  * write, and the digest only reports. So does a home token that names no
  * reason.
  */
-export const HOME_TURN_ACTING_REASONS: ReadonlySet<string> = new Set<HomeTurnTokenReason>(['helper_report', 'event', 'agent_answer', 'approval'])
+export const HOME_TURN_ACTING_REASONS: ReadonlySet<string> = new Set<HomeTurnTokenReason>(['helper_report', 'event', 'agent_answer', 'approval', 'dreamer'])
 
 /** True when a home turn minted for `reason` acts on its own ({@link HOME_TURN_ACTING_REASONS}). */
 export function homeTurnActs(reason: HomeTurnTokenReason | undefined): boolean {
@@ -425,8 +438,15 @@ export function teamChatExcludes(toolName: string): boolean {
   return effect !== undefined && !TEAM_CHAT_SIDE_EFFECTS.has(effect)
 }
 
-/** True when `toolName` is structurally excluded for this token surface. */
+/**
+ * True when `toolName` is structurally excluded for this token surface. The
+ * Dreamer's own tools (DREAMER_ONLY_TOOL_NAMES, docs/plans/dreamer.md) are
+ * excluded on EVERY chat token, the person's own main chat (no surface)
+ * included: only the Dreamer's work run holds them. Both halves read this, so
+ * they are never advertised and never permitted.
+ */
 export function isToolExcludedForSurface(toolName: string, surface: ChatRunSurface | undefined): boolean {
+  if (DREAMER_ONLY_TOOL_NAMES.has(toolName)) return true
   if (!surface) return false
   if (SURFACE_EXCLUDED_TOOLS[surface].has(toolName)) return true
   return surface === 'team_chat' && teamChatExcludes(toolName)
@@ -555,11 +575,14 @@ export async function resolveAgentToolCeiling(
  *   ask_user         — the bubble has no picker (the native tool also answers
  *                      instead of parking on a teammate token,
  *                      agents/chat-agent/tools/ask_user.ts);
- *   mcp_confirm_call — no external MCP tools at all, so nothing to confirm.
+ *   mcp_confirm_call — no external MCP tools at all, so nothing to confirm;
+ *   the Dreamer's notes tools (PARENT_NOTES_TOOL_NAMES) — the main agent's
+ *                      private research about the person and its researcher's
+ *                      own writes (docs/plans/dreamer.md), never a bot's.
  * ask_user and mcp_confirm_call are not registry tools, so narrowToTeammate
  * drops them anyway; listing them keeps the rule in one readable place.
  */
-export const TEAMMATE_CHAT_EXCLUDED_TOOLS: ReadonlySet<string> = new Set([...CHAT_NATIVE_TOOL_NAMES, 'ask_user', 'mcp_confirm_call'])
+export const TEAMMATE_CHAT_EXCLUDED_TOOLS: ReadonlySet<string> = new Set([...CHAT_NATIVE_TOOL_NAMES, 'ask_user', 'mcp_confirm_call', ...PARENT_NOTES_TOOL_NAMES])
 
 /**
  * What a teammate chat's ceiling is built from: the teammate's own bounds

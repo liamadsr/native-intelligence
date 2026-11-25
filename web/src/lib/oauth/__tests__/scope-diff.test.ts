@@ -54,6 +54,14 @@ describe('missingScopes', () => {
     ]
     expect(missingScopes('google', 'email', granted)).toEqual([
       'https://www.googleapis.com/auth/gmail.compose',
+      'https://www.googleapis.com/auth/gmail.modify',
     ])
+  })
+
+  it('a Gmail connection granted before gmail.modify was asked for is flagged for "Update access"', () => {
+    // What every Gmail connection holds until it updates (Google echoes the granted scopes, userinfo as given).
+    const before = ['https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/gmail.compose', 'https://www.googleapis.com/auth/userinfo.email', 'openid']
+    expect(missingScopes('google', 'email', before)).toEqual(['https://www.googleapis.com/auth/gmail.modify'])
+    expect(missingScopes('google', 'email', [...before, 'https://www.googleapis.com/auth/gmail.modify'])).toEqual([])
   })
 })

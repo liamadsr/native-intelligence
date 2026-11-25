@@ -6,8 +6,12 @@
  *
  *   change: { archive?, read?, star?, add_labels?, remove_labels?, mute? },
  *     as update_email_thread takes them.
- *   → 200 { changed, threads: [{ thread_id, status, error? }] }: what changed
- *     (an already-undone thread is 'unchanged', so a retry is safe).
+ *   → 200 { changed, threads: [{ thread_id, status, out_of_inbox?, reason?, error? }] }:
+ *     what changed (an already-undone thread is 'unchanged', so a retry is
+ *     safe). out_of_inbox ('gone' | 'trash' | 'spam'): an archive or mute of a
+ *     thread that isn't in the inbox at all (deleted at the mailbox, or in
+ *     Trash or Spam); the index now says so. reason: a failure's code, its
+ *     error the same in plain words.
  *   → 400 a bad body, an empty change, or a flag's own name as a label.
  *
  * The person's own click is their yes: no ten-thread confirmation here. Each
@@ -62,6 +66,13 @@ export async function POST(request: NextRequest) {
   const outcomes = await changeEmailThreads(user.id, workspaceId, thread_ids, change)
   return NextResponse.json({
     changed: outcomes.filter((o) => o.status === 'changed').length,
-    threads: outcomes.map((o) => ({ thread_id: o.threadId, status: o.status, ...(o.error ? { error: o.error } : {}) })),
+    threads: outcomes.map((o) => ({
+      thread_id: o.threadId,
+      status: o.status,
+      // Not in the inbox at all, and the index now says so (thread-triage.ts outOfInbox): what Incoming's Done asked.
+      ...(o.outOfInbox ? { out_of_inbox: o.outOfInbox } : {}),
+      ...(o.reason ? { reason: o.reason } : {}),
+      ...(o.error ? { error: o.error } : {}),
+    })),
   })
 }

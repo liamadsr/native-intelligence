@@ -969,6 +969,7 @@ pub fn run() {
             commands::studio_recorder::studio_recorder_request_permissions,
             commands::studio_recorder::studio_recorder_targets,
             commands::studio_recorder::studio_recorder_start,
+            commands::studio_recorder::studio_recorder_control_size,
             commands::studio_recorder::studio_recorder_stop,
             commands::studio_recorder::studio_recorder_cancel,
             commands::studio_recorder::studio_recorder_upload,

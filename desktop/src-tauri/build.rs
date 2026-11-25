@@ -167,6 +167,7 @@ const APP_COMMANDS: &[&str] = &[
     "studio_recorder_drafts",
     "studio_recorder_words",
     "studio_recorder_take_token",
+    "studio_recorder_control_size",
     "studio_export_pick_destination",
     "studio_export_reveal",
     "studio_export_save_parts",
