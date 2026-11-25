@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getServiceClient } from '@/lib/admin'
 import { getValidToken, getAllValidTokens } from '@/lib/oauth/token-manager'
+import { fetchGmailHistory } from '@/lib/email/gmail-api'
 import { threadCopyWorkspaceIds } from '@/lib/email/account-scope'
 import { mailboxAddresses } from '@/lib/email/reply-policy'
 import {
@@ -74,6 +75,77 @@ export async function syncEmailThreads(
 // Gmail sync
 // ---------------------------------------------------------------------------
 
+/** The most threads one sync reads (each is a Gmail call): the newest changes first. */
+export const SYNC_MAX_THREADS = 100
+
+/**
+ * The thread ids a Gmail history names (messages added or deleted, labels
+ * added or removed), newest change first, each once. History pages come
+ * oldest first, so the records are walked from the end: under a cap the
+ * sync keeps what changed last.
+ */
+export function historyThreadIdsNewestFirst(history: ReadonlyArray<Record<string, unknown>>): string[] {
+  const ids: string[] = []
+  const seen = new Set<string>()
+  for (let i = history.length - 1; i >= 0; i--) {
+    const record = history[i]
+    for (const key of ['messagesAdded', 'messagesDeleted', 'labelsAdded', 'labelsRemoved']) {
+      const items = (record[key] as Array<{ message?: { threadId?: unknown } }> | undefined) ?? []
+      for (let j = items.length - 1; j >= 0; j--) {
+        const id = items[j]?.message?.threadId
+        if (typeof id === 'string' && id && !seen.has(id)) {
+          seen.add(id)
+          ids.push(id)
+        }
+      }
+    }
+  }
+  return ids
+}
+
+/**
+ * The mailbox's own checkpoint: the push path's `email_sync_state.gmail_history_id`
+ * (src/lib/inngest/email-functions.ts), per account (a legacy mailbox's by
+ * person and provider). Null when there is none, or it can't be read.
+ */
+async function gmailCheckpoint(supabaseAdmin: SupabaseClient, userId: string, accountId?: string): Promise<string | null> {
+  try {
+    let query = supabaseAdmin.from('email_sync_state').select('gmail_history_id')
+    query = accountId ? query.eq('account_id', accountId) : query.eq('user_id', userId).eq('provider', 'google')
+    const { data, error } = await query.limit(1).maybeSingle()
+    if (error) {
+      console.warn('[Email Refresh] Gmail checkpoint not read:', error.message)
+      return null
+    }
+    const id = (data as { gmail_history_id?: unknown } | null)?.gmail_history_id
+    return typeof id === 'string' && id ? id : null
+  } catch (err) {
+    console.warn('[Email Refresh] Gmail checkpoint not read:', err instanceof Error ? err.message : err)
+    return null
+  }
+}
+
+/**
+ * The daily cron's and the Sync button's Gmail pass (the push path,
+ * email-functions.ts, is the one that keeps up as mail arrives).
+ *
+ * Incremental: what changed since the mailbox's checkpoint, the one the push
+ * path keeps (gmailCheckpoint), every page of it, newest changes first up to
+ * SYNC_MAX_THREADS. Never email_thread_index.history_id: nothing writes it
+ * any more, and a legacy row's (or a row a triage stamped, whose synced_at
+ * then sorts first) is a stale cursor Gmail answers 404 to. Left as it is on
+ * the rows (no migration): nothing reads it now.
+ *
+ * This pass only READS the checkpoint. Moving it is the push path's alone:
+ * the push path triages what it passes (drafts, the agent's news, email
+ * loops), so a pass that moved it would make the push path skip mail it
+ * never triaged, and two writers would race on one cursor. Reading from it
+ * again is safe: indexing a thread twice writes the same row.
+ *
+ * No checkpoint, or one Gmail has expired (404): the last 30 days instead,
+ * said once in the log. Any other refusal is logged with its status and
+ * falls back the same way, never a silent nothing.
+ */
 async function syncGmailThreads(
   accessToken: string,
   userEmail: string | null,
@@ -84,26 +156,26 @@ async function syncGmailThreads(
 ): Promise<{ synced: number }> {
   const supabaseAdmin = getServiceClient()
 
-  // Get last sync state
-  let lastHistoryId: string | null = null
-  if (!fullSync) {
-    const { data: syncState } = await supabaseAdmin
-      .from('email_thread_index')
-      .select('history_id')
-      .eq('user_id', userId)
-      .eq('provider', 'google')
-      .not('history_id', 'is', null)
-      .order('synced_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-    lastHistoryId = syncState?.history_id || null
-  }
+  const checkpoint = fullSync ? null : await gmailCheckpoint(supabaseAdmin, userId, accountId)
 
   // Fetch thread list
   let threadIds: string[] = []
 
-  if (fullSync || !lastHistoryId) {
-    // Full sync: recent threads
+  if (checkpoint) {
+    try {
+      const { history } = await fetchGmailHistory(accessToken, checkpoint)
+      threadIds = historyThreadIdsNewestFirst(history as Array<Record<string, unknown>>)
+    } catch (err) {
+      const why = err instanceof Error ? err.message : String(err)
+      if (why === 'HISTORY_EXPIRED') {
+        console.warn(`[Email Refresh] Gmail checkpoint expired (account=${accountId ?? 'legacy'}): reading the last 30 days instead`)
+      } else {
+        console.error(`[Email Refresh] Gmail history read failed (account=${accountId ?? 'legacy'}): ${why}; reading the last 30 days instead`)
+      }
+      return syncGmailThreads(accessToken, userEmail, userId, workspaceId, true, accountId)
+    }
+  } else {
+    // Full sync: recent threads (newest first, as Gmail lists them)
     const params = new URLSearchParams({
       maxResults: '200',
       q: 'newer_than:30d',
@@ -119,27 +191,6 @@ async function syncGmailThreads(
     const data = await res.json()
     threadIds = (data.threads || []).map((t: { id: string }) => t.id)
     console.log(`[Email Refresh] Gmail full sync: found ${threadIds.length} threads`)
-  } else {
-    // Incremental: fetch history
-    try {
-      const res = await fetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/history?startHistoryId=${lastHistoryId}&historyTypes=messageAdded`,
-        { headers: { Authorization: `Bearer ${accessToken}` } },
-      )
-      if (res.ok) {
-        const data = await res.json()
-        const affectedThreadIds = new Set<string>()
-        for (const h of data.history || []) {
-          for (const m of h.messagesAdded || []) {
-            if (m.message?.threadId) affectedThreadIds.add(m.message.threadId)
-          }
-        }
-        threadIds = Array.from(affectedThreadIds)
-      }
-    } catch {
-      // Fall back to full sync on error
-      return syncGmailThreads(accessToken, userEmail, userId, workspaceId, true, accountId)
-    }
   }
 
   if (threadIds.length === 0) return { synced: 0 }
@@ -147,8 +198,8 @@ async function syncGmailThreads(
   const workspaceIds = await threadCopyWorkspaceIds(accountId, workspaceId, supabaseAdmin)
   let syncedCount = 0
 
-  // Process threads (limit to 100 for performance)
-  for (const threadId of threadIds.slice(0, 100)) {
+  // The newest first, at most SYNC_MAX_THREADS (each is a Gmail call).
+  for (const threadId of threadIds.slice(0, SYNC_MAX_THREADS)) {
     try {
       const outcome = await indexGmailThread(
         supabaseAdmin,
