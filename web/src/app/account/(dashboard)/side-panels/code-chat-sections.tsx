@@ -58,7 +58,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { FLOATING_CARD_CLASS } from '@/components/attention/card-skin'
 import { workerLabel } from '@/lib/environments/types'
 import { isGithubPullRequestUrl } from '@/lib/local-agent/pull-request'
-import { canMessageSession, canStopSession, isSessionEnded, sessionEndedText, sessionStatusText } from '@/lib/local-agent/transcript-view'
+import { canContinueSession, canMessageSession, canStopSession, isSessionEnded, sessionEndedText, sessionStatusText } from '@/lib/local-agent/transcript-view'
 import { offersPullRequest } from '@/lib/local-agent/changes'
 import { ChangesView } from '@/components/local-agent/changes-view'
 import { PullRequestOffer, queueOne, usePullRequestAsk, viewChangesLabel, type PullRequestAsk } from '@/components/local-agent/local-agent-panel'
@@ -248,7 +248,8 @@ export function CodeChangesPanel({ pr: given }: { pr?: PullRequestState } = {}) 
           deviceName={session.deviceName}
           branch={session.branch}
           prUrl={session.prUrl}
-          canMessage={canMessageSession(session.status)}
+          // Notes are the person's own message: an ended chat it picks up again (canContinueSession) takes them too.
+          canMessage={canContinueSession(session)}
           onSendNotes={sendNote}
         />
       </div>

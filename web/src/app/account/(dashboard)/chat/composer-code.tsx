@@ -78,7 +78,7 @@ import { getCodeView, openCodeChatKey, subscribeCodeView } from './code-chat-liv
 import { backToAgent, getCurrentChat, isOnCode, openCodingChat, pressCode, subscribeCurrentChat } from './current-chat-store'
 import { draftSent } from './chat-drafts'
 import type { LocalAgentStatus } from '@/lib/local-agent/store'
-import { canMessageSession } from '@/lib/local-agent/transcript-view'
+import { canContinueSession } from '@/lib/local-agent/transcript-view'
 import { effortsFor, workerLabel } from '@/lib/environments/types'
 import type { LocalAgentPolicy } from '@/lib/tauri-bridge'
 
@@ -325,8 +325,9 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
   // Read as one string of what shows here (the chat's id, status, agent): the chat panel
   // never re-renders on a working chat's other updates (code-chat-live.ts openCodeChatKey).
   const openKey = useSyncExternalStore(subscribeCodeView, openCodeChatKey, () => null)
-  const [openId, openStatus, openWorker] = openKey ? openKey.split('\n') : [null, null, null]
-  const messagesOpenChat = active && !!openId && canMessageSession(openStatus as LocalAgentStatus)
+  const [openId, openStatus, openWorker, openContinues] = openKey ? openKey.split('\n') : [null, null, null, null]
+  // It can take a message, or it ended in a way the person's next message picks up again (code-chat-live.ts).
+  const messagesOpenChat = active && !!openId && (canContinueSession({ status: openStatus as LocalAgentStatus }) || openContinues === 'continues')
   const blocker = active && !messagesOpenChat ? codeBlocker(chat, mac, folderId) : null
   const openChatWorking = messagesOpenChat && isWorkingStatus(openStatus)
   // One name for every agent (Liam, 11-16: "treat all coding agents the same"): the chat's own, ours or the person's.
@@ -503,7 +504,7 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
         setNotice('This chat is still loading. Send again in a moment.')
         return false
       }
-      if (!newJob && view.selected && view.live && view.live.session.id === view.selected && canMessageSession(view.live.session.status)) {
+      if (!newJob && view.selected && view.live && view.live.session.id === view.selected && canContinueSession(view.live.session)) {
         // Its agent works: held under the box until the turn ends (Send now hands it over mid-turn).
         // A second message joins the first, on its own lines.
         if (isWorkingStatus(view.live.session.status)) {

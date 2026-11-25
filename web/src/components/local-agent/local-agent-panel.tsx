@@ -62,7 +62,9 @@ import { isGithubPullRequestUrl } from '@/lib/local-agent/pull-request'
 import { macTeammateName } from '@/lib/local-agent/teammate'
 import { workerLabel } from '@/lib/environments/types'
 import {
+  canContinueSession,
   canMessageSession,
+  CONTINUE_TEXT,
   canStopSession,
   isPromptOpen,
   isSessionEnded,
@@ -458,13 +460,16 @@ export function LocalAgentPanel({
   const askedTeammate = asking && lastAsk?.teammate === true
   // A native question is open on the Mac (C3): the person answers it there, never here.
   const waitingOnMac = promptOpen
-  const canMessage = canMessageSession(session.status)
+  // An ended chat the person's next message picks up again (isContinuableEnd) takes one too.
+  const canMessage = canContinueSession(session)
+  const continuable = canMessage && isSessionEnded(session.status)
   // Changes here, in the conversation's place: only for a host with no panel of its own for them.
   const changesHere = resultsOn && !changesBeside
   const showChanges = changesHere && view === 'changes'
   // Its branch as last committed holds no change (the app commits at every finish, a job that changed nothing too):
-  // `noChanges`. The offer is the host's while its Changes are beside the conversation.
-  const offerPr = !changesBeside && canMessage && offersPullRequest(session, { promptOpen: waitingOnMac, noChanges })
+  // `noChanges`. The offer is the host's while its Changes are beside the conversation, and only for a chat that
+  // can take a message now (never an ended one, continuable or not).
+  const offerPr = !changesBeside && canMessageSession(session.status) && offersPullRequest(session, { promptOpen: waitingOnMac, noChanges })
   // The person's own request: one they started here, or a card's Start they pressed. The chat agent's: its own.
   const requestAuthor = session.startedBy === 'person' || session.requestedByPerson === true ? 'person' : 'agent'
 
@@ -583,7 +588,14 @@ export function LocalAgentPanel({
 
       <div className="shrink-0" hidden={showChanges}>
         {canMessage ? (
-          composer ? <LocalAgentComposer onSend={send} working={live} asking={asking} autoFocus={autoFocus} /> : null
+          <>
+            {continuable && (
+              <p data-local-agent-ended="continuable" className="py-2 text-center text-xs text-muted-foreground">
+                {sessionEndedText(session.status, session.error)} {CONTINUE_TEXT}
+              </p>
+            )}
+            {composer ? <LocalAgentComposer onSend={send} working={live} asking={asking} autoFocus={autoFocus} /> : null}
+          </>
         ) : (
           <p data-local-agent-ended="" className="py-2 text-center text-xs text-muted-foreground">
             {sessionEndedText(session.status, session.error)}{' '}

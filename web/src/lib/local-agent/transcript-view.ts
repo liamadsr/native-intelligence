@@ -665,6 +665,34 @@ export function canMessageSession(status: LocalAgentStatus): boolean {
   return !isSessionEnded(status)
 }
 
+/**
+ * Ended, yet the person's own next message picks it up again (store.ts
+ * addMessage revives it to `waiting`, and the Mac resumes the same session in
+ * the same folder, or says why it can't): a chat that acted for them
+ * (`attended`) that sat idle past its window, or that they stopped. Never one
+ * that failed, ended for a reason (its folder or Mac removed, another job took
+ * the folder, its Mac couldn't pick it up again), or never ran (a queue nobody
+ * claimed). Pure: the server and the composer read the same rule.
+ */
+export function isContinuableEnd(status: LocalAgentStatus, error: string | null | undefined, attended: boolean | undefined): boolean {
+  if (attended !== true) return false
+  return (status === 'expired' && error === IDLE_REASON) || (status === 'cancelled' && !error)
+}
+
+/** The person's next message goes to this chat: it can take one, or it ended in a way a message picks up again. */
+export function canContinueSession(s: { status: LocalAgentStatus; error?: string | null; attended?: boolean }): boolean {
+  return canMessageSession(s.status) || isContinuableEnd(s.status, s.error, s.attended)
+}
+
+/** The ended line's second half for a chat {@link isContinuableEnd} says a message continues. */
+export const CONTINUE_TEXT = 'Your next message picks it up again.'
+
+/** The words a chat ends on when its Mac refused to pick it up again (device.ts): never continuable, so the next message is a new chat. */
+export function revivalRefusedReason(macReason: string): string {
+  const said = macReason.replace(/\s+/g, ' ').trim().replace(/[.。]+$/, '').slice(0, 300)
+  return said ? `your Mac couldn’t pick it up again (${said}). Your next message starts a new chat.` : 'your Mac couldn’t pick it up again. Your next message starts a new chat.'
+}
+
 /** Stop can end it: anything not over yet, idle included. */
 export function canStopSession(status: LocalAgentStatus): boolean {
   return !isSessionEnded(status)
