@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  inspectorOpenKey, pressRailTab, railTabActive, railTabs, rememberInspectorOpen, rememberedInspectorOpen,
+  inspectorOpenKey, railTabActive, railTabs, rememberInspectorOpen, rememberedInspectorOpen,
   selectInspectorTab, showInspectorTab, sidePanelToClose,
 } from '../inspector-panel';
 
@@ -34,14 +34,9 @@ describe('the inspector panel', () => {
     expect(railTabs).not.toContain('cursor');
   });
 
-  it('opens on an icon, and closes on the icon of the tab already showing', () => {
-    expect(pressRailTab({ open: false, tab: 'background' }, 'clip')).toEqual({ open: true, tab: 'clip' });
-    expect(pressRailTab({ open: false, tab: 'clip' }, 'clip')).toEqual({ open: true, tab: 'clip' });
-    expect(pressRailTab({ open: true, tab: 'clip' }, 'clip')).toEqual({ open: false, tab: 'clip' });
-    expect(pressRailTab({ open: true, tab: 'clip' }, 'audio')).toEqual({ open: true, tab: 'audio' });
-    expect(pressRailTab({ open: true, tab: 'cursor' }, 'background')).toEqual({ open: true, tab: 'background' });
-    // A picked layer fills the panel: its tab's icon shows the tab instead of closing the panel.
-    expect(pressRailTab({ open: true, tab: 'clip' }, 'clip', false)).toEqual({ open: true, tab: 'clip' });
+  it('a tab along the inspector\'s top shows its pane and opens the panel; it never closes it (the header\'s toggle does)', () => {
+    expect(showInspectorTab({ open: false, tab: 'background' }, 'clip')).toEqual({ open: true, tab: 'clip' });
+    expect(showInspectorTab({ open: true, tab: 'clip' }, 'clip')).toEqual({ open: true, tab: 'clip' });
   });
 
   it('lets a selection choose the tab without opening a closed panel', () => {

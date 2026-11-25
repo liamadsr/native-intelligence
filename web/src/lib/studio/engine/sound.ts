@@ -90,6 +90,7 @@ function layerCues(layer: EditorLayer, fps: number): Omit<SoundCue, 'id'>[] {
     case 'image': return [{ t: at(enter.frames * 0.5), kind: 'pop', label: 'image pops in' }];
     case 'arrow': case 'box': case 'highlight': return [{ t: at(2), kind: 'tick', label: `${layer.kind} appears` }];
     case 'spotlight': return [{ t: at(1), kind: 'swell', weight: 0.6, label: 'spotlight' }];
+    case 'blur': return [];
     case 'text': {
       const p = enter.preset;
       if (p === 'streak' || p === 'scatter') return [{ t: at(enter.frames * 0.35), kind: 'whoosh.short', label: `title flies in · ${label}` }, ...countingCues(layer, fps)];
