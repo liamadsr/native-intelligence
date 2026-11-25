@@ -329,6 +329,32 @@ describe('person routes', () => {
     expect(await ended.json()).toMatchObject({ code: 'CONFLICT' })
   })
 
+  it('the person’s own chat, stopped or idle a day: no token for it until their message picks it up again', async () => {
+    const { session } = await createSession(db as never, {
+      userId: USER, workspaceId: WS, folderId: FOLDER, conversationId: CONV, request: 'Fix the flaky test', mode: 'read', startedBy: 'person',
+    })
+    const id = session.id
+    for (const ended of [
+      { status: 'cancelled', error: null, stop_requested_at: new Date().toISOString() },
+      { status: 'expired', error: 'it sat idle for 24 hours' },
+    ]) {
+      Object.assign(db.tables.local_agent_session[0], ended, { ended_at: new Date().toISOString(), lease_expires_at: null })
+      // Ended: the refresh mints nothing.
+      expect((await tokenPOST(post({}), params('id', id))).status).toBe(409)
+      const res = await messagePOST(post({ text: 'Carry on', requestId: `req-${ended.status}` }), params('id', id))
+      expect(res.status).toBe(200)
+      expect(db.tables.local_agent_session[0]).toMatchObject({ status: 'waiting', error: null, ended_at: null, stop_requested_at: null })
+      // Picked up again: the Mac's own refresh, through the usual route, gets one.
+      const token = await (await tokenPOST(post({}), params('id', id))).json()
+      expect(verifyModelToken(token.modelToken)).toMatchObject({ ok: true, claims: { sid: id, uid: USER } })
+    }
+    // Another person can't pick it up.
+    db.tables.local_agent_session[0].status = 'cancelled'
+    m.user = OTHER
+    expect((await messagePOST(post({ text: 'mine now' }), params('id', id))).status).toBe(404)
+    expect(db.tables.local_agent_session[0].status).toBe('cancelled')
+  })
+
   it('stop cancels a queued session', async () => {
     const id = await newSession()
     const body = await (await stopPOST(post({}), params('id', id))).json()

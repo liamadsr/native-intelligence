@@ -564,6 +564,36 @@ describe('pollIntervalFor', () => {
     expect(q('[data-local-agent-ended]')?.textContent).not.toContain('Ask the Native Intelligence agent')
   })
 
+  it('a chat the person stopped, or that sat idle a day, keeps its box: the next message picks it up again', async () => {
+    for (const ended of [
+      { status: 'cancelled' as const, error: null, line: 'This local agent was stopped. Your next message picks it up again.' },
+      { status: 'expired' as const, error: 'it sat idle for 24 hours', line: 'It sat idle for 24 hours, so it ended. Your next message picks it up again.' },
+    ]) {
+      await act(async () => root.unmount())
+      root = createRoot(container)
+      fetchMock.mockClear()
+      await mount(sessionRow({ status: ended.status, error: ended.error, attended: true, startedBy: 'person', codeRequestId: 'req-1' }), [])
+      expect(q('[data-local-agent-ended="continuable"]')?.textContent).toBe(ended.line)
+      // No Stop: nothing runs.
+      expect(q('[data-local-agent-stop]')).toBeNull()
+      const box = q<HTMLTextAreaElement>('[data-local-agent-composer] textarea')!
+      await act(async () => type(box, 'Pick it up from where you left off'))
+      await act(async () => q<HTMLFormElement>('[data-local-agent-composer]')!.requestSubmit())
+      await settle()
+      const post = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST')!
+      expect(post[0]).toBe(`/api/local-agent/sessions/${SID}/messages`)
+      expect(JSON.parse(String(post[1]!.body))).toMatchObject({ text: 'Pick it up from where you left off' })
+    }
+    // Ended any other way (failed; not the person's own chat): the ended line, no box, as before.
+    for (const over of [{ status: 'failed' as const, error: null, attended: true }, { status: 'cancelled' as const, error: null, attended: false }]) {
+      await act(async () => root.unmount())
+      root = createRoot(container)
+      await mount(sessionRow(over), [])
+      expect(q('[data-local-agent-composer]')).toBeNull()
+      expect(q('[data-local-agent-ended=""]')).not.toBeNull()
+    }
+  })
+
   it('2 s while it works, slower while it idles, never once it ended', () => {
     expect(pollIntervalFor('running')).toBe(POLL_WORKING_MS)
     expect(pollIntervalFor('queued')).toBe(POLL_WORKING_MS)

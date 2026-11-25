@@ -22,6 +22,7 @@
  */
 import type { LocalAgentPolicy } from '@/lib/tauri-bridge'
 import type { PanelSession } from '@/components/local-agent/session-api'
+import { canContinueSession } from '@/lib/local-agent/transcript-view'
 
 type Sent = { ok: true } | { ok: false; message: string }
 
@@ -104,7 +105,8 @@ export function setCodeChatError(sessionId: string, message: string): void {
 export function openCodeChatKey(): string | null {
   const { selected, live } = state
   if (!selected || !live || live.session.id !== selected) return null
-  return `${selected}\n${live.session.status}\n${live.session.worker ?? ''}`
+  // Its fourth line: an ended chat the person's next message picks up again (canContinueSession).
+  return `${selected}\n${live.session.status}\n${live.session.worker ?? ''}\n${canContinueSession(live.session) ? 'continues' : ''}`
 }
 
 export function __resetCodeViewForTests(): void {

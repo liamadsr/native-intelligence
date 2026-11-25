@@ -24,7 +24,7 @@ import { isBaseBranch, isMissingColumnError, isRepoFullName, isWorkerId } from '
 import { CODE_JOB_KEY_PREFIX, CODE_REQUEST_ID_RE, codeJobKey, codeRequestIdOf } from './code-thread'
 import { ringDoorbell } from './doorbell'
 import { macTeammateName } from './teammate'
-import { CARD_EXPIRED_REASON, IDLE_REASON, LOOP_EXPIRED_REASON } from './transcript-view'
+import { CARD_EXPIRED_REASON, IDLE_REASON, LOOP_EXPIRED_REASON, isContinuableEnd } from './transcript-view'
 import {
   EXPIRED_REASON,
   moveTurn,
@@ -453,7 +453,9 @@ export type Staleness = 'expired' | 'idle' | 'interrupted'
  * Why a row is stale now, or null:
  *   expired      queued past expires_at (no Mac claimed it in 6 h)
  *   idle         waiting / interrupted with no activity for 24 h (→ expired:
- *                the model relay and token refresh then refuse it)
+ *                the model relay and token refresh then refuse it, until the
+ *                person's own message picks it up again: addMessage,
+ *                reviveSession)
  *   interrupted  starting / running with a lapsed lease
  */
 export function staleness(
@@ -1741,11 +1743,20 @@ export async function addMessage(
   if (key !== undefined && (typeof key !== 'string' || !key.trim() || key.length > 1000)) {
     throw new LocalAgentError('bad_request', 'invalid idempotency key')
   }
-  const row = await loadSession(svc, input.userId, input.sessionId)
-  if (!row) throw new LocalAgentError('not_found', 'Local agent not found')
+  const read = await loadSession(svc, input.userId, input.sessionId)
+  if (!read) throw new LocalAgentError('not_found', 'Local agent not found')
+  let row = read
   if (key) {
     const existing = await messageByKey(svc, input.userId, row.id, key)
     if (existing) return { messageId: existing, requeued: false, duplicate: true }
+  }
+  // The person's own message to a chat that sat idle past its window, or that
+  // they stopped, picks it up again (isContinuableEnd): back to idle, so the
+  // Mac resumes the same session in the same folder, or says why it can't.
+  let revived = false
+  if ((TERMINAL_STATUSES as string[]).includes(row.status) && input.author === 'person' && isContinuableEnd(row.status, row.error, isAttendedSession(row))) {
+    row = await reviveSession(svc, row)
+    revived = true
   }
   if ((TERMINAL_STATUSES as string[]).includes(row.status)) {
     throw new LocalAgentError('conflict', `This local agent has ${row.status === 'expired' ? 'expired' : row.status === 'cancelled' ? 'been stopped' : 'failed'}; start a new one`, { status: row.status })
@@ -1792,7 +1803,8 @@ export async function addMessage(
       user_id: input.userId,
       source: 'server',
       kind: 'inbound',
-      payload: { author: input.author, text, policy, messageId },
+      // `revived`: this message picked an ended chat up again (an undelivered one ends it again: device.ts).
+      payload: { author: input.author, text, policy, messageId, ...(revived ? { revived: true } : {}) },
     })
     .select('id')
     .maybeSingle()
@@ -1905,6 +1917,50 @@ export async function addMessage(
 
   await ringDoorbell(svc, input.userId, { reason: 'message', sessionId: row.id })
   return { messageId, requeued }
+}
+
+/** The refusal for a chat that can't be picked up again because its folder is no longer shared. */
+export const REVIVE_FOLDER_GONE = 'This chat’s folder is no longer shared from your Mac, so it can’t continue. Start a new chat.'
+/** The refusal for a chat whose folder another live chat holds now. */
+export const REVIVE_FOLDER_BUSY = 'Another chat is working in this folder now, so this one can’t continue until that one ends. Start a new chat, or stop the other one.'
+
+/**
+ * Pick an ended chat up again (addMessage, the person's own message,
+ * isContinuableEnd): one CAS from exactly the ended state read (its status and
+ * its words) back to `waiting`, its end cleared and its activity now, so the
+ * reaper's 24 h counts again from here. Nothing else moves: the message that
+ * follows takes the idle path (the next turn, the doorbell), and the Mac's
+ * relay resumes the job on a fresh token through the usual, authenticated
+ * route, or acks the message failed (then device.ts ends it again).
+ *
+ * Refused (conflict) when its folder is no longer shared or its Mac was
+ * removed, or another live chat holds the folder now (migration 419's index).
+ * Lost to a concurrent change, the row as it is now (the caller decides on it).
+ */
+async function reviveSession(svc: Svc, r: DbSession): Promise<DbSession> {
+  if (!r.folder || r.folder.revoked_at || !r.folder.grant_id) throw new LocalAgentError('conflict', REVIVE_FOLDER_GONE, { status: r.status })
+  if (r.device?.removed_at) throw macRemoved()
+  // Its lane of the folder (migration 659) holds another live chat: the index would refuse it too.
+  const myAction = actionIdOfJobKey(r.idempotency_key)
+  const inLane = (cur: DbSession) => (isCardEditJob(r) ? actionIdOfJobKey(cur.idempotency_key) === myAction : !isCardEditJob(cur))
+  if ((await liveInFolder(svc, r.user_id, r.folder_id)).some((cur) => cur.id !== r.id && inLane(cur))) {
+    throw new LocalAgentError('conflict', REVIVE_FOLDER_BUSY, { code: FOLDER_BUSY_CODE, status: r.status })
+  }
+  const at = nowIso()
+  let q = svc
+    .from('local_agent_session')
+    .update({ status: 'waiting', error: null, ended_at: null, stop_requested_at: null, lease_expires_at: null, updated_at: at })
+    .eq('id', r.id)
+    .eq('user_id', r.user_id)
+    .eq('status', r.status)
+  q = r.error ? q.eq('error', r.error) : q.is('error', null)
+  const { data, error } = await q.select(SESSION_SELECT).maybeSingle()
+  if (error) {
+    if (error.code === UNIQUE_VIOLATION) throw new LocalAgentError('conflict', REVIVE_FOLDER_BUSY, { code: FOLDER_BUSY_CODE, status: r.status })
+    throw new Error(`local agent revive failed: ${error.message}`)
+  }
+  if (data) return data as DbSession
+  return (await loadSession(svc, r.user_id, r.id)) ?? r
 }
 
 /** A session's queue life: an unattended job (a loop's, an action's) waits 15 minutes, a person's 6 hours. */
