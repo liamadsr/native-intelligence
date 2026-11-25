@@ -23,7 +23,8 @@ export const RENDER_LEDGER: readonly { version: string; sources: string; chain: 
   { version: '2026-11-14.3', sources: 'fd8f085c6f0f3dfdfd14ac1ae46333fd66164a1d1d6e6e71f65421a6d0c90e59', chain: '5e8e97e450136168f9f73fa1a3629b849765df47a6f7468b7fdc65706b7a18cb' },
   { version: '2026-11-14.4', sources: 'bb6085ee5cd770191ff25ecafbd5f73712db3b54291b898818e9b87808b0d858', chain: 'cc3d3e1958ac6e78eca3476a49c810bb3742735fdf84cbac2bb2b957d19db1df' },
   { version: '2026-11-14.5', sources: '9dd4dbed4f62f5f3df9188450bcf7b02dc8f84898c2799544a799d7a27eacb07', chain: '1f8ebb79a557ef6716397e5209040b994d04b9583a5bb27755aa66c68a766362' },
-  { version: '2026-11-14.6', sources: '7415b5f76de345255fa34f34fc16a83ae61c696e450b7c7cd76fb543adee7ab7', chain: '114616688c86076fdee3630d34d80ec77cde7f14ce17c1ef5545bb14c27b1f55' },]
+  { version: '2026-11-14.6', sources: '7415b5f76de345255fa34f34fc16a83ae61c696e450b7c7cd76fb543adee7ab7', chain: '114616688c86076fdee3630d34d80ec77cde7f14ce17c1ef5545bb14c27b1f55' },
+  { version: '2026-11-24.1', sources: '880dba734513dfdb56f5910303206044b49b01eebf8caa87746cb1231137749e', chain: 'a562fd1387f23f16b28eb637d46c9efa9d38032dfb81ab7df8cd37dbeecb4361' },]
 
 /** The version in force: the ledger's last line. */
 export const STUDIO_RENDER_VERSION = RENDER_LEDGER[RENDER_LEDGER.length - 1]!.version

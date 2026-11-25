@@ -102,25 +102,22 @@ export function LayerInspector({ project, layerId, change, close }: { project: E
       <label className="field-label">Picture<StudioSelect aria-label="Picture" value={layer.assetId ?? ''} onChange={v => set({ assetId: v || undefined })}>{project.assets.filter(a => a.kind === 'image').map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</StudioSelect></label>
       <Slider label="Corners" value={s.radius ?? 0} max={500} unit=" px" onChange={n => style({ radius: n })} />
       <Slider label="Float" value={Math.round((s.float ?? 0) * 1000)} max={40} unit="" resetValue={0} onChange={n => style({ float: n ? n / 1000 : undefined })} />
+    </section> : layer.kind === 'blur' ? <section><h3>Blur</h3>
+      <Slider label="Strength" value={s.blur ?? 24} min={4} max={80} unit=" px" onChange={n => style({ blur: n })} />
+      <Slider label="Corners" value={s.radius ?? 16} max={200} unit=" px" onChange={n => style({ radius: n })} />
     </section> : <section><h3>Look</h3>
       <div className="layer-colors">{layer.kind !== 'spotlight' ? color('Color', s.stroke, v => style({ stroke: v, ...(layer.kind === 'highlight' && v ? { background: `${v}55` } : {}) })) : null}{layer.kind === 'box' ? color('Fill', s.background, v => style({ background: v }), true) : null}</div>
       {layer.kind !== 'spotlight' ? <Slider label="Line" value={s.strokeWidth ?? 6} max={40} unit=" px" onChange={n => style({ strokeWidth: n })} /> : null}
       {layer.kind !== 'arrow' ? <Slider label="Corners" value={s.radius ?? 12} max={200} unit=" px" onChange={n => style({ radius: n })} /> : <Slider label="Bend" value={Math.round((s.curve ?? 0.2) * 100)} min={-100} max={100} unit="%" onChange={n => style({ curve: n / 100 })} />}
       {layer.kind === 'spotlight' ? <Slider label="Dim" value={Math.round((s.dim ?? 0.65) * 100)} max={100} unit="%" onChange={n => style({ dim: n / 100 })} /> : null}
     </section>}
-    <section><h3>Depth</h3>
+    {/* Where it sits, how big and how turned are done on the preview (PreviewLayerControls; Liam, 11-24: "make sure I
+        can do all this on the screen like rotate and move and resize and no need for these controls"). Opacity can't be
+        shown on the picture, so it stays here. */}
+    <section><h3>Opacity &amp; depth</h3>
+      <Slider label="Opacity" value={Math.round(layer.opacity * 100)} max={100} unit="%" resetValue={100} onChange={n => set({ opacity: n / 100 })} />
       <label className="layer-toggle"><input type="checkbox" checked={!!layer.behind} onChange={e => set({ behind: e.target.checked || undefined })} /> Behind the subject <small>words behind the speaker, a new background behind the person</small></label>
       {layer.behind && !project.cutouts?.length && studioCan('cutouts') ? <SubjectCutout projectId={project.id} /> : null}
-    </section>
-    <section><h3>Position</h3>
-      <div className="layer-grid"><Slider label={layer.kind === 'arrow' ? 'Tip ←→' : '←→'} value={Math.round(layer.x * 100)} min={-20} max={120} unit="%" onChange={n => set({ x: n / 100 })} />
-        <Slider label={layer.kind === 'arrow' ? 'Tip ↑↓' : '↑↓'} value={Math.round(layer.y * 100)} min={-20} max={120} unit="%" onChange={n => set({ y: n / 100 })} />
-        {layer.kind === 'arrow' ? <><Slider label="Start ←→" value={Math.round((s.fromX ?? 0.3) * 100)} min={-20} max={120} unit="%" onChange={n => style({ fromX: n / 100 })} />
-          <Slider label="Start ↑↓" value={Math.round((s.fromY ?? 0.3) * 100)} min={-20} max={120} unit="%" onChange={n => style({ fromY: n / 100 })} /></>
-          : <><Slider label="Width" value={Math.round(layer.width * 100)} min={1} max={100} unit="%" onChange={n => set({ width: n / 100 })} />
-            {layer.kind !== 'text' ? <Slider label="Height" value={Math.round(layer.height * 100)} min={1} max={100} unit="%" onChange={n => set({ height: n / 100 })} /> : null}</>}
-        <Slider label="Rotation" value={Math.round(layer.rotate)} min={-180} max={180} unit="°" resetValue={0} onChange={n => set({ rotate: n })} />
-        <Slider label="Opacity" value={Math.round(layer.opacity * 100)} max={100} unit="%" resetValue={100} onChange={n => set({ opacity: n / 100 })} /></div>
     </section>
     <section><h3>Timing &amp; animation</h3>
       <div className="layer-row"><label className="field-label">Starts<input type="number" step={0.05} min={0} value={+(layer.startFrame / fps).toFixed(2)} onChange={e => { const v = Math.round(Number(e.target.value) * fps); if (Number.isFinite(v) && v >= 0 && v < layer.endFrame) set({ startFrame: v }); }} /></label>

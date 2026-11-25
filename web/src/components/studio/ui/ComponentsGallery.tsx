@@ -22,9 +22,17 @@ const need = (status: string) => status === 'ok' || status === 'unchecked' ? nul
  * places a capture on the video at the playhead as a layer that remembers what it shows. Nothing here runs the
  * product or asks for a path on the Mac: what needs the Mac is a sentence to say to the agent.
  */
-export function ComponentsGallery({ projectId, at, disabled, notify, beforeEdit, afterEdit }: { projectId: string; at: number; disabled: boolean;
-  notify?: (text: string, error?: boolean) => void; beforeEdit?: () => Promise<boolean>; afterEdit?: () => void }) {
-  const [open, setOpen] = useState(false), [products, setProducts] = useState<Product[] | null>(null), [kit, setKit] = useState<string | null>(null);
+/**
+ * `open` / `onOpenChange` / `trigger={false}`: opened from elsewhere (the timeline's Add menu, Liam, 11-24: "lets
+ * have clear dropdown with clean groupings"), with no button of its own; `onStale` hears how many filmed layers the
+ * product has moved on from, for that menu's line.
+ */
+export function ComponentsGallery({ projectId, at, disabled, notify, beforeEdit, afterEdit, open: openProp, onOpenChange, trigger = true, onStale }: { projectId: string; at: number; disabled: boolean;
+  notify?: (text: string, error?: boolean) => void; beforeEdit?: () => Promise<boolean>; afterEdit?: () => void;
+  open?: boolean; onOpenChange?: (open: boolean) => void; trigger?: boolean; onStale?: (count: number) => void }) {
+  const [openOwn, setOpenOwn] = useState(false), [products, setProducts] = useState<Product[] | null>(null), [kit, setKit] = useState<string | null>(null);
+  const open = openProp ?? openOwn
+  const setOpen = useCallback((next: boolean) => { if (openProp === undefined) setOpenOwn(next); onOpenChange?.(next) }, [openProp, onOpenChange])
   const [catalog, setCatalog] = useState<Catalog | null>(null), [query, setQuery] = useState(''), [pick, setPick] = useState<Entry | null>(null);
   const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null), [stale, setStale] = useState(0);
   const alive = useRef(true); useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
@@ -34,6 +42,7 @@ export function ComponentsGallery({ projectId, at, disabled, notify, beforeEdit,
   useEffect(() => { if (open) void loadProducts(); }, [open, loadProducts]);
   useEffect(() => { if (open && kit) void loadCatalog(kit); }, [open, kit, loadCatalog]);
   useEffect(() => { void request<{ stale: unknown[] }>(`/api/account/studio/projects/${encodeURIComponent(projectId)}/components/status`).then(r => setStale(r.stale.length)).catch(() => setStale(0)); }, [projectId, open]);
+  useEffect(() => { onStale?.(stale) }, [stale, onStale]);
   const place = async (capture: Capture) => {
     if (!kit) return;
     if (beforeEdit && !await beforeEdit()) { setError('Save your edit first'); return; }
@@ -49,7 +58,7 @@ export function ComponentsGallery({ projectId, at, disabled, notify, beforeEdit,
   const product = products?.find(p => p.name === kit) ?? null;
 
   return <div className="tl-menu components-gallery">
-    <button disabled={disabled} onClick={() => setOpen(true)} title="Your product's real interface, filmed from its code on your Mac: add it to the video"><Icon name="components" size={14}/>Components{stale ? ` · ${stale} to update` : ''}</button>
+    {trigger ? <button disabled={disabled} onClick={() => setOpen(true)} title="Your product's real interface, filmed from its code on your Mac: add it to the video"><Icon name="components" size={14}/>Components{stale ? ` · ${stale} to update` : ''}</button> : null}
     {/* A dialog as the Studio's others are (controls.tsx Modal): over the whole window, Escape and outside close it. */}
     <DialogPrimitive.Root open={open} onOpenChange={setOpen}><DialogPrimitive.Portal container={typeof document === 'undefined' ? null : studioPortal()}><DialogPrimitive.Overlay className="cg-overlay">
       <DialogPrimitive.Content className="cg-panel" aria-describedby={undefined}>

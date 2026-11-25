@@ -1,12 +1,11 @@
 // @vitest-environment jsdom
 /**
- * The Studio's pages rail (../AppRail.tsx; Liam, 11-13: "a panel … where you saw all the different pages like overview
- * storyboard cast edit"; "we don't need the page names lets only show it on hover"): Projects and videos, Project
- * overview, then the video's Overview, Storyboard, Cast and Edit, icons only, each named for assistive technology and in
- * the app's tooltip on hover and keyboard focus (with ⌘O where it applies); the page on screen says so; nothing to open
- * without a video; everything held while a presenter take records; any page closes the chooser. And it is always
- * there: the editor mounts it first in its row, down the Studio's left edge, on the page's own ground (Liam, 11-13: "the
- * side panel should be on the left side and … integrated within the overall panel"; studio.css).
+ * The Studio's pages as tabs across the top (../AppRail.tsx; Liam, 11-24, of the earlier column of icons down the left
+ * edge: "the buttons are just floating on the sides"; he chose tabs on top): Projects, Project, then the video's
+ * Overview, Storyboard, Cast and Edit, each a pill with its short name on screen and its full name for assistive
+ * technology and in its tooltip (with ⌘O where it applies); the page on screen says so; nothing to open without a
+ * video; everything held while a presenter take records; any page closes the chooser. And it is always there: the
+ * editor mounts it first, a row across the Studio's top, with the page's content under it (studio.css).
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -34,48 +33,31 @@ const items = () => [...nav().querySelectorAll<HTMLButtonElement>('[data-rail-it
 const item = (id: string) => nav().querySelector<HTMLButtonElement>(`[data-rail-item="${id}"]`)!
 const current = () => items().filter(b => b.getAttribute('aria-current') === 'page').map(b => b.dataset.railItem)
 
-describe('the Studio’s pages rail', () => {
-  it('lists Projects and videos, Project overview, then the video’s pages: icons only, each named', () => {
+describe('the Studio’s page tabs', () => {
+  it('lists Projects, Project, then the video’s pages: short names on screen, full names for assistive technology', () => {
     render()
     expect(nav().getAttribute('aria-label')).toBe('Studio pages')
     expect(items().map(b => b.dataset.railItem)).toEqual(['projects', 'project', 'overview', 'storyboard', 'cast', 'edit'])
+    expect(items().map(b => b.textContent)).toEqual(['Projects', 'Project', 'Overview', 'Storyboard', 'Cast', 'Edit'])
     expect(items().map(b => b.getAttribute('aria-label'))).toEqual([RAIL_LABELS.projects, RAIL_LABELS.project, 'Overview', 'Storyboard', 'Cast', 'Edit'])
     expect(RAIL_LABELS).toEqual({ projects: 'Projects and videos', project: 'Project overview' })
     // The video's four grouped under their own name, so Overview is never taken for the Studio project's.
     expect(nav().querySelector('[role="group"]')!.getAttribute('aria-label')).toBe('Video')
-    // No names on screen, no caption: an icon each, and no browser tooltip doubling the app's.
-    expect(nav().textContent).toBe('')
-    for (const b of items()) {
-      expect(b.querySelector('svg.lucide')).not.toBeNull()
-      expect(b.hasAttribute('title')).toBe(false)
-    }
   })
 
-  it('shows a page’s name in the app’s tooltip on keyboard focus, with ⌘O for Projects and videos on a Mac', async () => {
+  it('gives Projects and videos its shortcut: ⌘O on a Mac, in its tooltip and to assistive technology', () => {
     vi.spyOn(navigator, 'platform', 'get').mockReturnValue('MacIntel')
     render()
-    await act(async () => { item('projects').focus() })
-    const tip = await vi.waitFor(() => {
-      const el = document.querySelector<HTMLElement>('[data-rail-tooltip="projects"]')
-      if (!el) throw new Error('no tooltip yet')
-      return el
-    })
-    expect(tip.textContent).toContain('Projects and videos⌘O')
-    expect(tip.querySelector('kbd')!.textContent).toBe('⌘O')
+    expect(item('projects').getAttribute('title')).toBe('Projects and videos (⌘O)')
     expect(item('projects').getAttribute('aria-keyshortcuts')).toBe('Meta+O')
+    expect(item('edit').getAttribute('title')).toBe('Edit')
   })
 
-  it('says Ctrl+O on Windows and Linux, in the tooltip and to assistive technology', async () => {
+  it('says Ctrl+O on Windows and Linux', () => {
     vi.spyOn(navigator, 'platform', 'get').mockReturnValue('Win32')
     render()
     expect(item('projects').getAttribute('aria-keyshortcuts')).toBe('Control+O')
-    await act(async () => { item('projects').focus() })
-    const tip = await vi.waitFor(() => {
-      const el = document.querySelector<HTMLElement>('[data-rail-tooltip="projects"] kbd')
-      if (!el) throw new Error('no tooltip yet')
-      return el
-    })
-    expect(tip.textContent).toBe('Ctrl+O')
+    expect(item('projects').getAttribute('title')).toBe('Projects and videos (Ctrl+O)')
   })
 
   it('says which page is on screen, and only that one', () => {
@@ -111,30 +93,32 @@ describe('the Studio’s pages rail', () => {
 })
 
 // Mounting, order and the chooser as a page are checked on the rendered shell (./studio-shell.test.tsx). What jsdom
-// cannot lay out (where the rail is drawn and how it looks) is checked on the stylesheet's own rules here.
-describe('the rail’s stylesheet', () => {
+// cannot lay out (where the tabs are drawn and how they look) is checked on the stylesheet's own rules here.
+describe('the tabs’ stylesheet', () => {
   const css = readFileSync(join(__dirname, '..', 'studio.css'), 'utf8')
 
-  it('is drawn down the Studio’s left edge on the page’s own ground (no fill, no edge, no reordering), and the chooser beside it leaves it uncovered', () => {
-    const rail = /\.ni-studio \.app-rail\{([^}]*)\}/.exec(css)![1]!
-    expect(rail).toContain('background:transparent')
-    expect(rail).toContain('border:0')
-    expect(rail).not.toMatch(/(^|;)order:|box-shadow/)
-    expect(css).not.toMatch(/\.app-rail\{([^}]*;)?order:/)
-    expect(css).toMatch(/\.ni-studio \.app\.with-rail \.chooser-backdrop\{left:var\(--st-rail-w\)\}/)
-    // The chooser is a page beside the rail: no dim, no frame.
+  it('are a row across the Studio’s top in the app’s page-tab look, and the chooser under them leaves them uncovered', () => {
+    expect(css).toMatch(/\.ni-studio \.app\.with-tabs\{flex-direction:column;--st-tabs-h:48px\}/)
+    const row = /\.ni-studio \.studio-tabs\{([^}]*)\}/.exec(css)![1]!
+    expect(row).toContain('height:var(--st-tabs-h)')
+    expect(row).toContain('padding:0 10px')
+    expect(row).not.toMatch(/background|box-shadow|(^|;)order:/)
+    const tab = /\.ni-studio \.studio-tabs \.studio-tab\{([^}]*)\}/.exec(css)![1]!
+    expect(tab).toContain('height:28px')
+    expect(tab).toContain('border-radius:999px')
+    expect(tab).toContain('font-size:13px')
+    expect(css).toMatch(/\.ni-studio \.app\.with-tabs \.chooser-backdrop\{top:var\(--st-tabs-h\)\}/)
+    expect(css).not.toMatch(/--st-rail-w|\.app-rail\b|\.rail-button\b/)
+    // The chooser is a page under the tabs: no dim, no frame.
     // The ground is the app's card, not a fill of the Studio's own (Liam, 11-14): the root, the chooser and the pages
     // that fill the root paint nothing, and the editor a page covers is not drawn meanwhile.
     expect(css).toMatch(/\.ni-studio \.chooser-backdrop\{padding:0;background:transparent\}/)
     expect(css).toMatch(/\.ni-studio\.ni-studio-root\{background:transparent\}/)
     expect(css).toMatch(/\.ni-studio\.ni-studio-root \.film-pages\{background:transparent\}/)
     expect(css).toMatch(/\.ni-studio\.ni-studio-root \.app-main\[inert\]\{visibility:hidden\}/)
-    // One slim width at every size (the app rail's feel), with nothing that switches it at a breakpoint.
-    expect(css).toMatch(/\.ni-studio \.app\.with-rail\{flex-direction:row;--st-rail-w:52px\}/)
-    expect(css).not.toMatch(/--st-rail-w:(?!52px)\d/)
-    expect(css).not.toMatch(/\.rail-(label|caption)\b/)
     // Colours from the Studio's tokens only.
-    const rules = css.split('\n').filter(line => /\.(app-rail|rail-button|rail-slot|rail-sep)\b/.test(line))
+    const rules = css.split('\n').filter(line => /\.studio-tab(s|s-sep|s-group)?\b/.test(line))
+    expect(rules.length).toBeGreaterThan(3)
     for (const rule of rules) expect(rule).not.toMatch(/#[0-9a-f]{3,8}\b|rgba?\(/i)
   })
 })
