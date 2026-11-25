@@ -250,7 +250,7 @@ describe('migration 338', () => {
     expect(passage('mail-playbook')).toContain('searching the mailbox')
   })
 
-  it('teaches the promotion rule as the chat-agent instructions and the code have it', () => {
+  it('teaches the promotion rule as the chat agent’s update_plan and the code have it', async () => {
     const p = passage('actions-playbook')
     expect(p).toContain('`update_plan`')
     expect(p).toMatch(/stay checklists/)
@@ -262,13 +262,13 @@ describe('migration 338', () => {
     expect(p).toMatch(/Work nobody is watching \(a loop, a background helper\) files every action it creates as a suggestion for the person to confirm, whatever you pass, and can't confirm one/)
     expect(p).not.toContain('`helpers`')
     // The same rule rides the helpers' pack once the main chat touches start_helper
-    // (src/lib/packs/tool-families.ts), and the standing instructions keep its first
-    // half for the agent's own plan.
+    // (src/lib/packs/tool-families.ts), and update_plan's own description keeps its
+    // first half for the agent's own plan (docs/plans/goal-driven-main-agent.md §4).
     const guide = TOOL_FAMILIES.find((f) => f.key === 'helpers')?.guide ?? ''
     expect(guide).toMatch(/becomes an action on the board only when it needs a person to decide or do something/)
     expect(guide).toContain('Work nobody is watching files such a step as a suggested action for the person to confirm, never as a confirmed one.')
-    const instructions = readFileSync(join(process.cwd(), 'agents/chat-agent/instructions.md'), 'utf8').replace(/\s+/g, ' ')
-    expect(instructions).toContain('A step only becomes an action when the person asks for one or it is a real commitment for later.')
+    const updatePlan = (await import('../../../../agents/chat-agent/tools/update_plan')).default as { description?: string }
+    expect(updatePlan.description).toContain("It is your checklist, not the person's to-dos: a step only becomes an action when the person asks for one or it is a real commitment for later.")
     // And what the code enforces: unattended skill runs and work runs file actions as suggested.
     for (const route of ['src/app/api/internal/skill-run/tool/route.ts', 'src/app/api/internal/work-run/tool/route.ts']) {
       expect(readFileSync(join(process.cwd(), route), 'utf8'), route).toContain('fileActionsAsSuggested: true')

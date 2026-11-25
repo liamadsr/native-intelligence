@@ -607,7 +607,7 @@ describe('sendHomeTurn', () => {
     const eve = scriptedSession(ownTurn(homeTurnTag(row.id)))
     await sendHomeTurn(db.client, digestData, plan, row, { makeClient: eve.makeClient, budgetMs: 1000 })
     const message = String(eve.sends[0].message)
-    expect(message).toContain('Daily digest')
+    expect(message).toContain('this is the daily digest')
     expect(message).toContain('1 waiting on you')
     expect(message).toContain('Ready for your review: Prospects')
     expect(eve.sends[0].options).toEqual({ turnPolicy: 'queue' })

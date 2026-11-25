@@ -274,7 +274,7 @@ describe('buildChatSystemPrompt — teammate chat', () => {
       return c
     }
     const real = await buildSystemPrompt('nobody', { from: empty } as never, undefined, { workspaceId: 'ws-none', webAccess: 'never' })
-    expect(real).toContain(`\n\n---\n\n${NI_BASE.replace(' BASE_RULES', ' You know their actions')}`)
+    expect(real).toContain(`\n\n---\n\n${NI_BASE.replace(' BASE_RULES', ' You know their work:')}`)
   })
 
   it('the joined prompt reads persona, then memory, above the base', async () => {
