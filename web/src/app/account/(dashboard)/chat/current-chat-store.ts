@@ -32,7 +32,7 @@
  */
 import { closeFrontCards } from '@/components/chat-cards/front-card'
 import { getClientWorkspaceId } from '@/lib/workspace-fetch'
-import { setPanelChatKind } from '../side-panels/side-panel-store'
+import { closeCodeChanges, setPanelChatKind } from '../side-panels/side-panel-store'
 import { getCodeView, selectCodeChat, subscribeCodeView } from './code-chat-live'
 import { CODE_PRESS_STARTS_NEW, RELOAD_RESTORES } from './one-home-decisions'
 
@@ -121,6 +121,8 @@ function apply(next: CurrentChat, opts: CurrentChatFrom, save = true): void {
   onCode = nextOnCode
   // The panels show the current chat's own (side-panel-store.ts chatKind): told here, by its one writer.
   setPanelChatKind(getCurrentChat().kind)
+  // Its Changes are the chat's own: another coding chat opens on its details.
+  if (chatKey(was) !== chatKey(getCurrentChat())) closeCodeChanges()
   if (save) remember(next)
   if (chatKey(was) !== chatKey(getCurrentChat()) || next.kind === 'agent') emit()
 }

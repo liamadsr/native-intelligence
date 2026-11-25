@@ -7,8 +7,12 @@
  * bar and the composer.
  *
  * It is the local agent's panel as it draws everywhere (LocalAgentPanel:
- * the request, everything since, Conversation and Changes, the branch card),
- * without its own box: the main composer under it messages the chat
+ * the request, everything since, the branch card), the conversation only
+ * (Liam, 11-25: "it should just be the conversation, and changes should show
+ * on their own panel"): its Changes open in the right panel (side-panel-store.ts
+ * openCodeChanges; code-chat-sections.tsx CodeChangesPanel), from the branch
+ * card here or the Changes card there, with "Open pull request" on that card.
+ * Without its own box: the main composer under it messages the chat
  * (composer-code.tsx). The same for every coding agent, ours or the
  * person's own (Liam, 11-16). It is the session's one reader: what it holds
  * goes to the Code view's store for the composer and the right panel
@@ -46,7 +50,7 @@ import { useAssistantName } from '@/lib/voice/assistant-name-store'
 import { FIRST_TIME_KEY, FIRST_TIME_LINE } from './one-home-decisions'
 import { showOnlyCoding } from '../page-panel/use-recents-filter'
 import { setHomeSide } from '../page-panel/home-side'
-import { setPagePanelOpen } from '../side-panels/side-panel-store'
+import { openCodeChanges, setPagePanelOpen } from '../side-panels/side-panel-store'
 import { useOptionalAgentWorkShared } from '@/components/work/agent-work-provider'
 
 export function CodeChatStage() {
@@ -131,7 +135,7 @@ function Stage({
           </button>
         )}
         {/* Keyed by the chat: another one is another conversation, read afresh. */}
-        <LocalAgentPanel key={selected} sessionId={selected} composer={false} header={header} onLive={onLive} onError={onError} hideScrollbar hideFinish={hideFinish} className="min-h-0 flex-1" />
+        <LocalAgentPanel key={selected} sessionId={selected} composer={false} header={header} onLive={onLive} onError={onError} hideScrollbar hideFinish={hideFinish} onOpenChanges={openCodeChanges} className="min-h-0 flex-1" />
       </div>
     </div>
   )

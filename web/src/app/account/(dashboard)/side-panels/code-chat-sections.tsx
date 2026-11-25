@@ -26,7 +26,11 @@
  *   Status       what it is doing now, in the conversation's own words, its
  *                question when it asked one, and Stop while it can be stopped.
  *   Changes      an edit job's branch and commit, and its pull request once
- *                there is one; a read-only job says so.
+ *                there is one; a read-only job says so. "View changes" (with
+ *                its file count when known) opens them in this panel
+ *                (CodeChangesPanel, below), and "Open pull request" is here
+ *                once its turn ended with none (Liam, 11-25: the button to
+ *                open the changes is on the Changes panel, not the chat).
  *   Environment  the Mac and the folder it works in.
  *   Agent        who does the work: Native Intelligence on that Mac, or the
  *                person's own coding agent by name.
@@ -39,10 +43,16 @@
  *
  * Read from the conversation's own reader (chat/code-chat-live.ts `live`):
  * no read of its own, no timer. Until that first read, blank cards.
+ *
+ * CodeChangesPanel: the job's Changes (changes-view.tsx, everything it does:
+ * the files, their diff, notes sent back to the agent), the panel's whole
+ * height and wider (space-plan.ts CHANGES_PANEL_WIDTH_PX), in the details'
+ * place, with "‹ Details" back (side-panel-store.ts codeChanges). Also opened
+ * by the transcript's branch card (code-chat-stage.tsx).
  */
 import { EntityIcon } from '@/components/entities/entity-icon'
-import { useEffect, useState, type ReactNode } from 'react'
-import { ArrowUpRight, ExternalLink, Link2, Square } from 'lucide-react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { ArrowUpRight, ChevronLeft, ExternalLink, FileDiff, Link2, Square } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -50,7 +60,10 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { FLOATING_CARD_CLASS } from '@/components/attention/card-skin'
 import { workerLabel } from '@/lib/environments/types'
 import { isGithubPullRequestUrl } from '@/lib/local-agent/pull-request'
-import { canStopSession, effortLabel, isSessionEnded, sessionEndedText, sessionStatusText } from '@/lib/local-agent/transcript-view'
+import { canMessageSession, canStopSession, effortLabel, isSessionEnded, sessionEndedText, sessionStatusText } from '@/lib/local-agent/transcript-view'
+import { offersPullRequest } from '@/lib/local-agent/changes'
+import { ChangesView } from '@/components/local-agent/changes-view'
+import { PullRequestOffer, queueOne, usePullRequestAsk, viewChangesLabel, type PullRequestAsk } from '@/components/local-agent/local-agent-panel'
 import type { PanelSession } from '@/components/local-agent/session-api'
 import { useCodeView } from '../chat/use-code-view'
 import { useOptionalAgentWorkShared } from '@/components/work/agent-work-provider'
@@ -58,6 +71,8 @@ import { WorkItemDetailPanel } from '@/components/work/work-item-detail-panel'
 import { openTarget } from '@/lib/chat-cards/open-card'
 import { getClientWorkspaceId } from '@/lib/workspace-fetch'
 import { codingChatLink } from '../chat/coding-chat-link'
+import type { CodeChatLive } from '../chat/code-chat-live'
+import { closeCodeChanges, openCodeChanges } from './side-panel-store'
 
 /** Who does the work, one way for every agent: its name, and where it runs. */
 export function codeAgentName(session: Pick<PanelSession, 'worker'>): string {
@@ -152,8 +167,101 @@ function ActionCard({ action }: { action: JobAction }) {
   )
 }
 
-export function CodeChatSections() {
+/** The pull request ask, held by the panel's code view so it outlives a swap between the details and the Changes. */
+type PullRequestState = { asked: PullRequestAsk; ask: () => Promise<void> }
+
+/** "Open pull request" is offered: an edit job's turn ended on a branch with work on it and no pull request, and it can take a message. */
+export function pullRequestOffered(live: Pick<CodeChatLive, 'session' | 'promptOpen' | 'noChanges'>): boolean {
+  return canMessageSession(live.session.status) && offersPullRequest(live.session, { promptOpen: live.promptOpen, noChanges: live.noChanges })
+}
+
+function usePullRequestState(live: CodeChatLive | null): PullRequestState {
+  const send = live?.send ?? null
+  const queue = useMemo(() => (send ? queueOne(send) : null), [send])
+  return usePullRequestAsk(queue, live?.session.status)
+}
+
+/**
+ * The right panel's code view (side-panels.tsx): the selected coding chat's
+ * details, or its Changes while they are open, one at a time. The pull
+ * request ask is held here, for both.
+ */
+export function CodeChatPanel({ changes }: { changes: boolean }) {
+  const { live } = useCodeView()
+  const pr = usePullRequestState(live)
+  return changes ? <CodeChangesPanel pr={pr} /> : <CodeChatSections pr={pr} />
+}
+
+/** The pull request offer as the Changes card and panel show it: while offered, or once asked (until the job works again). */
+function PullRequestSlot({ live, pr, compact = false, className }: { live: CodeChatLive; pr: PullRequestState; compact?: boolean; className?: string }) {
+  if (!(pullRequestOffered(live) || pr.asked === 'sent')) return null
+  return <PullRequestOffer asked={pr.asked} onAsk={() => void pr.ask()} compact={compact} className={className} />
+}
+
+/**
+ * The job's Changes, in the panel's place (side-panel-store.ts codeChanges):
+ * "‹ Details" back, the branch, the pull request offer, then the changes view
+ * filling the panel's height and scrolling. Nothing without a coding chat
+ * read, nor for one with no Changes (a read-only job, no branch yet: back to
+ * the details).
+ */
+export function CodeChangesPanel({ pr: given }: { pr?: PullRequestState } = {}) {
+  const { live } = useCodeView()
+  const own = usePullRequestState(given ? null : live)
+  const pr = given ?? own
+  const session = live?.session
+  const hasChanges = !!session && session.mode === 'edit' && !!session.branch
+  // A chat read with nothing to show here: the details again (another turn may give it a branch).
+  useEffect(() => {
+    if (live && !hasChanges) closeCodeChanges()
+  }, [live, hasChanges])
+  if (!live || !session || !hasChanges) return null
+  const sendNote = queueOne(live.send)
+  return (
+    <section
+      aria-label="Changes"
+      data-code-changes-panel={session.id}
+      className={cn('ph-no-capture pointer-events-auto relative flex min-h-0 flex-1 flex-col overflow-hidden', FLOATING_CARD_CLASS)}
+    >
+      <div className="shrink-0 px-3 pb-2 pt-2">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <button
+            type="button"
+            data-code-changes-back=""
+            onClick={() => closeCodeChanges()}
+            className="-ml-1 inline-flex h-7 shrink-0 items-center gap-1 rounded-full px-2 text-xs text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <ChevronLeft aria-hidden className="size-3.5" />
+            Details
+          </button>
+          <h3 className="min-w-0 flex-1 truncate text-[13px] text-foreground">Changes</h3>
+        </div>
+        <p className="mt-0.5 truncate pl-1 font-mono text-[11px] text-muted-foreground" title={session.branch ?? undefined}>
+          {session.branch}
+        </p>
+        <PullRequestSlot live={live} pr={pr} className="mt-1.5" />
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-3 scrollbar-hide">
+        {/* Keyed by the chat: another one's diff is read afresh. */}
+        <ChangesView
+          key={session.id}
+          sessionId={session.id}
+          deviceId={session.deviceId}
+          deviceName={session.deviceName}
+          branch={session.branch}
+          prUrl={session.prUrl}
+          canMessage={canMessageSession(session.status)}
+          onSendNotes={sendNote}
+        />
+      </div>
+    </section>
+  )
+}
+
+export function CodeChatSections({ pr: given }: { pr?: PullRequestState } = {}) {
   const { selected, live, error } = useCodeView()
+  const own = usePullRequestState(given ? null : live)
+  const pr = given ?? own
   // The work item's panel opens records through the agents' shared source: only inside the shell.
   const inShell = useOptionalAgentWorkShared() !== null
   const action = useJobAction(live?.session.actionId)
@@ -245,8 +353,15 @@ export function CodeChatSections() {
                 <ExternalLink aria-hidden className="size-3" />
               </a>
             ) : (
-              <p>No pull request yet. The Changes tab in the conversation shows the files.</p>
+              <p>No pull request yet.</p>
             )}
+            <div className="flex flex-wrap items-center gap-1.5 pt-1">
+              <Button type="button" variant="outline" size="sm" className="h-7 gap-1.5" onClick={() => openCodeChanges()} data-code-chat-view-changes={live.filesChanged ?? ''}>
+                <FileDiff aria-hidden className="size-3" />
+                {viewChangesLabel(live.filesChanged)}
+              </Button>
+              <PullRequestSlot live={live} pr={pr} compact />
+            </div>
           </>
         ) : (
           <p>Edits go on a new branch in a separate copy. None yet.</p>

@@ -31,6 +31,12 @@ export interface CodeChatLive {
   stopping: boolean
   send: (text: string, policy: LocalAgentPolicy, requestId: string) => Promise<Sent>
   stop: () => Promise<Sent>
+  /** A question is open on the Mac (the person answers it there): no pull request offer meanwhile. */
+  promptOpen: boolean
+  /** Its branch as last committed holds no change: nothing to open a pull request for. */
+  noChanges: boolean
+  /** How many files its branch changed, as its last branch card said; null when unknown. */
+  filesChanged: number | null
 }
 
 export interface CodeViewState {
@@ -80,7 +86,18 @@ export function setCodeChatLive(sessionId: string, live: CodeChatLive | null): v
   if (state.selected !== sessionId) return
   const was = state.live
   if (was === live) return
-  if (was && live && was.session === live.session && was.stopping === live.stopping && was.send === live.send && was.stop === live.stop) return
+  if (
+    was &&
+    live &&
+    was.session === live.session &&
+    was.stopping === live.stopping &&
+    was.send === live.send &&
+    was.stop === live.stop &&
+    was.promptOpen === live.promptOpen &&
+    was.noChanges === live.noChanges &&
+    was.filesChanged === live.filesChanged
+  )
+    return
   set({ ...state, live, error: live ? null : state.error })
 }
 

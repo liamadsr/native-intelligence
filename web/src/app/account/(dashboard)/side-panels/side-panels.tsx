@@ -91,7 +91,7 @@ import { cn } from '@/lib/utils'
 import { useHotkeys } from '@/lib/hotkeys'
 import { useConnections } from '@/lib/integrations/use-connections'
 import { FLOATING_CARD_CLASS } from '@/components/attention/card-skin'
-import { CodeChatSections } from './code-chat-sections'
+import { CodeChatPanel } from './code-chat-sections'
 import { useOptionalAgentWorkShared } from '@/components/work/agent-work-provider'
 import { ForYouView, useForYouEntries } from '../chat/for-you-column'
 import { CardHeading, type SummaryTone } from './card-heading'
@@ -108,6 +108,7 @@ import { useAssistantName } from '@/lib/voice/assistant-name-store'
 import { useChatContext } from '@/lib/chat/context-client'
 import {
   CHAT_THREAD_SELECTOR,
+  codeChangesShown,
   getServerSidePanelState,
   getSidePanelState,
   moveSection,
@@ -125,6 +126,7 @@ import {
   type SidePanelView,
 } from './side-panel-store'
 import {
+  CHANGES_PANEL_WIDTH_PX,
   CHAT_CONTENT_MAX_PX,
   NO_PANELS,
   PANEL_GUTTER_PX,
@@ -157,11 +159,16 @@ export function useSidePanelState(): SidePanelState {
 export function planFor(
   width: number,
   state: Pick<SidePanelState, 'rightOpen' | 'view' | 'forYouContent' | 'captureDock'> &
-    Partial<Pick<SidePanelState, 'pagePanel' | 'pagePanelOpen' | 'pagePanelFloatOk' | 'pagePanelPage' | 'chatKind' | 'codeDetailsOpen'>>,
+    Partial<Pick<SidePanelState, 'pagePanel' | 'pagePanelOpen' | 'pagePanelFloatOk' | 'pagePanelPage' | 'chatKind' | 'codeDetailsOpen' | 'codeChanges'>>,
   { content, was = null }: { content?: number; was?: SpacePlan | null } = {},
 ): SpacePlan {
   const left = !!state.pagePanel && state.pagePanelOpen !== false && !state.captureDock
-  return planSpace({ width, right: rightShown(state), left, leftFloat: !!state.pagePanelFloatOk, leftPinned: !!state.pagePanelPage, content, dock: state.captureDock, was })
+  return planSpace({ width, right: rightShown(state), rightWidth: rightPanelWidth(state), left, leftFloat: !!state.pagePanelFloatOk, leftPinned: !!state.pagePanelPage, content, dock: state.captureDock, was })
+}
+
+/** How wide the right panel is: wider while it shows a coding chat's Changes (space-plan.ts CHANGES_PANEL_WIDTH_PX). */
+export function rightPanelWidth(state: Parameters<typeof codeChangesShown>[0]): number {
+  return codeChangesShown(state) ? CHANGES_PANEL_WIDTH_PX : RIGHT_PANEL_WIDTH_PX
 }
 
 /** The row's CSS variables holding the chat strip's margins (dashboard-shell.tsx reads them). */
@@ -320,6 +327,9 @@ export function RightSidePanel({ mode }: { mode: PanelMode }) {
   const shown = shownView(state)
   const onAgent = state.chatKind === 'agent'
   const codeDetailsOn = open && state.chatKind === 'code' && shown === 'panel'
+  // Its Changes, in the details' place (the Changes card's "View changes", the branch card): one at a time.
+  const codeChangesOn = codeDetailsOn && state.codeChanges
+  const width = rightPanelWidth(state)
   const sectionsOn = open && onAgent && state.view === 'panel'
   const forYouOn = open && onAgent && state.view === 'forYou' && hasForYou
   // Each view mounted on its first showing, then kept.
@@ -372,12 +382,16 @@ export function RightSidePanel({ mode }: { mode: PanelMode }) {
         SLIDE_CLASS,
         open ? 'visible translate-x-0' : 'invisible translate-x-[calc(100%+1rem)]',
       )}
-      style={{ ...SLIDE_STYLE, top: PANEL_TOP, right: TOP_BAR_RIGHT_INSET_PX, bottom, width: RIGHT_PANEL_WIDTH_PX }}
+      // Never wider than the window less its gutters (a phone: the Changes panel floats edge to edge).
+      style={{ ...SLIDE_STYLE, top: PANEL_TOP, right: TOP_BAR_RIGHT_INSET_PX, bottom, width, maxWidth: `calc(100% - ${TOP_BAR_RIGHT_INSET_PX + PANEL_GUTTER_PX}px)` }}
     >
-      {/* A coding chat: its details, in the sections' place. */}
+      {/* A coding chat: its details, in the sections' place; or its Changes, the panel's whole height ("‹ Details" back). */}
       {codeDetailsOn && (
-        <div data-side-panel-code="" className="pointer-events-none -mx-1 flex min-h-0 flex-col overflow-y-auto overscroll-contain px-1 pb-1 scrollbar-hide-deep">
-          <CodeChatSections />
+        <div
+          data-side-panel-code={codeChangesOn ? 'changes' : ''}
+          className={cn('pointer-events-none -mx-1 flex min-h-0 flex-col px-1 pb-1', codeChangesOn ? 'flex-1' : 'overflow-y-auto overscroll-contain scrollbar-hide-deep')}
+        >
+          <CodeChatPanel changes={codeChangesOn} />
         </div>
       )}
       {/* The sections: as tall as their cards (down to the panel's bottom, then they scroll), a hair of room round them for their lift and focus rings. */}

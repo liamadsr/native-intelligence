@@ -75,6 +75,13 @@ import { dockMode, dockPush } from '../chat/live-capture-dock-store'
 
 /** The right panel's width (Liam, 10-15: the agents rail was "a bit too narrow"); the For you cards fill it too. */
 export const RIGHT_PANEL_WIDTH_PX = 360
+/**
+ * The right panel's width while it shows a coding chat's Changes (code-chat-sections.tsx
+ * CodeChangesPanel): a diff needs more than the details' cards do. It makes room where
+ * that fits and floats where it doesn't (`rightWidth`), never wider than the window
+ * less its gutters (side-panels.tsx).
+ */
+export const CHANGES_PANEL_WIDTH_PX = 560
 /** The page panel's width: the For you column's when it stood on the left (its rows read best at 272-296px). */
 export const PAGE_PANEL_WIDTH_PX = 296
 /** Between a panel and the window's edge. */
@@ -149,6 +156,8 @@ export interface SpaceInput {
   width: number
   /** The right panel is on screen (either view). */
   right: boolean
+  /** How wide the right panel is, px: RIGHT_PANEL_WIDTH_PX (the default) or CHANGES_PANEL_WIDTH_PX. */
+  rightWidth?: number
   /** The page panel has something to show (the page on screen has one, and the notepad doesn't hold the left). */
   left?: boolean
   /** The page panel was opened by hand this session: where it can't make room it floats instead of staying out. */
@@ -183,9 +192,9 @@ function spanOf(strip: number, content: number, dock: boolean): { lo: number; hi
  * fit allows. One side short: that side's margin alone, twice the shortfall,
  * so the centred column moves just the shortfall. Null where nothing fits.
  */
-function fit(width: number, rightRoom: boolean, leftRoom: boolean, content: number, dock: boolean) {
+function fit(width: number, rightRoom: boolean, leftRoom: boolean, content: number, dock: boolean, rightReserve = RIGHT_RESERVE_PX) {
   const a = leftRoom ? LEFT_RESERVE_PX + PANEL_BREATH_PX : -Infinity
-  const b = rightRoom ? width - RIGHT_RESERVE_PX - PANEL_BREATH_PX : Infinity
+  const b = rightRoom ? width - rightReserve - PANEL_BREATH_PX : Infinity
   // Where the strip's left margin may be for a strip this wide, in whole
   // pixels, or null where none clears both.
   const margins = (strip: number): [number, number] | null => {
@@ -229,7 +238,8 @@ export function planSpace(input: SpaceInput): SpacePlan {
   return plan
 }
 
-function planRoom({ width, right, left = false, leftPinned = false, content = CHAT_CONTENT_MAX_PX, dock = false, was = null }: SpaceInput): SpacePlan {
+function planRoom({ width, right, rightWidth = RIGHT_PANEL_WIDTH_PX, left = false, leftPinned = false, content = CHAT_CONTENT_MAX_PX, dock = false, was = null }: SpaceInput): SpacePlan {
+  const rightReserve = rightWidth + PANEL_GUTTER_PX
   if (!right && !left) return NO_PANELS
   const float: SpacePlan = { right: right ? 'float' : 'off', left: 'off', insetLeft: 0, insetRight: 0 }
   if (!(width > 0)) return right ? float : NO_PANELS
@@ -237,9 +247,9 @@ function planRoom({ width, right, left = false, leftPinned = false, content = CH
     // The chat keeps MIN_CHAT_PX beside the panels making room; sides
     // already making room hold it a little longer (the hysteresis).
     const held = (!rightRoom || was?.right === 'room') && (!leftRoom || was?.left === 'room')
-    const beside = width - (rightRoom ? RIGHT_RESERVE_PX : 0) - (leftRoom ? LEFT_RESERVE_PX : 0)
+    const beside = width - (rightRoom ? rightReserve : 0) - (leftRoom ? LEFT_RESERVE_PX : 0)
     if (beside < (held ? MIN_CHAT_PX - ROOM_HYSTERESIS_PX : MIN_CHAT_PX)) return null
-    const insets = fit(width, rightRoom, leftRoom, content, dock)
+    const insets = fit(width, rightRoom, leftRoom, content, dock, rightReserve)
     if (!insets) return null
     return { right: rightRoom ? 'room' : 'off', left: leftRoom ? 'room' : 'off', ...insets }
   }
