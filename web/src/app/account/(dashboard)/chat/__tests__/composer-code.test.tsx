@@ -1018,3 +1018,31 @@ describe('the model and effort, pinned under the box (721)', () => {
     expect(q('[data-code-model-line="open"]')!.textContent).toBe('claude-opus-5-5 · High')
   })
 })
+
+describe('an agent whose Mac lists efforts only (Codex today, 721)', () => {
+  it('no Model picker (its default model), an Effort picker, and the effort goes with the start', async () => {
+    const CODEX_MAC = mac({
+      id: 'env-studio',
+      name: 'Studio Mac',
+      deviceName: 'Studio Mac',
+      deviceId: 'dev-studio',
+      worker: 'codex',
+      offeredWorkers: [{ id: 'codex', label: 'Codex', takesModel: true, models: [], efforts: ['low', 'medium', 'high'] }],
+      folders: [{ id: 'f-site', label: 'harbor-site', mode: 'edit', isGit: true, baseBranch: 'main', repoFullName: 'harbor/site' }],
+    })
+    await mount({
+      list: [CODEX_MAC],
+      chatEnv: CODEX_MAC,
+      routes: [{ method: 'POST', url: '/api/local-agent/sessions', reply: (body) => json({ session: session({ worker: 'codex', codeRequestId: (body as { requestId: string }).requestId }), created: true, joined: false, deviceOnline: true }, 201) }],
+    })
+    press(q('[data-composer-tab="code"]')!)
+    await flush()
+    expect(q('[data-code-model-picker="model"]')).toBeNull()
+    await openMenu('[data-code-model-picker="effort"]')
+    press(q('[data-code-model-option="high"]')!)
+    await flush()
+    type('Tidy the README')
+    await send()
+    expect(posts().find((c) => c.url === '/api/local-agent/sessions')!.body).toMatchObject({ worker: 'codex', model: null, effort: 'high' })
+  })
+})

@@ -344,10 +344,11 @@ export function CodeModelLine({ code, onOpenChange }: { code: ComposerCode; onOp
     )
   }
   const choice = code.modelChoice
-  if (!choice) return null
+  if (!choice || (choice.models.length === 0 && choice.efforts.length === 0)) return null
   return (
     <span data-code-model-line="new" className="flex min-w-0 shrink items-center">
-      <ChoicePicker kind="model" value={choice.model} options={choice.models} onPick={choice.pickModel} onOpenChange={onOpenChange} />
+      {/* An agent whose Mac lists no models (only efforts): its default model, no picker for it. */}
+      {choice.models.length > 0 && <ChoicePicker kind="model" value={choice.model} options={choice.models} onPick={choice.pickModel} onOpenChange={onOpenChange} />}
       {choice.efforts.length > 0 && (
         <ChoicePicker kind="effort" value={choice.effort} options={choice.efforts.map((e) => ({ id: e, label: effortLabel(e) }))} onPick={choice.pickEffort} onOpenChange={onOpenChange} />
       )}
