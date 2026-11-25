@@ -18,6 +18,7 @@ import { readAgentPausedState, routerPaused } from '@/lib/work/agent-paused'
 import { workspaceIsDormant } from './flow-functions'
 import { startServerHelper } from '@/lib/chat/start-helper'
 import { autoArchiveRequest } from './email-auto-archive'
+import { DREAMER_HOURS, dreamerRequestsFor, dreamerScanLogLine, isDreamerHour } from '@/lib/dreamer/run'
 
 /** People planned per digest step (each takes a few small reads). */
 export const DIGEST_PLAN_CHUNK = 50
@@ -248,6 +249,12 @@ const dormant = (supabase: Parameters<typeof routerPaused>[0], workspaceId: stri
  * call): the look-ahead (docs/plans/look-ahead-heartbeat.md), run per person
  * by ./look-ahead.ts.
  *
+ * At 03:00 (the nightly reflection, only in a zone of the person's own),
+ * 07:00, 11:00, 15:00 and 19:00 local, one `dreamer/run.requested` per person
+ * (dreamerRequestsFor, src/lib/dreamer/run.ts): the Dreamer
+ * (docs/plans/dreamer.md), the main agent's background researcher, run per
+ * person by ./dreamer.ts, which holds its gates.
+ *
  * Beside the digests, one morning tidy request per person
  * (email/auto-archive.requested, ./email-auto-archive.ts) whatever their
  * digest planned, except where it found no home thread, autonomy off or a
@@ -261,7 +268,9 @@ export const agentEventDigest = inngest.createFunction(
     triggers: [{ cron: '0 * * * *' }],
   },
   async ({ step }) => {
-    const found = (await step.run('find-candidates', () => findDigestCandidates(getServiceClient(), Date.now(), [...new Set([DIGEST_LOCAL_HOUR, ...CHECK_IN_SLOTS, LOOK_AHEAD_SLOT_HOURS.morning, LOOK_AHEAD_SLOT_HOURS.evening])]))) as DigestCandidate[]
+    const found = (await step.run('find-candidates', () =>
+      findDigestCandidates(getServiceClient(), Date.now(), [...new Set([DIGEST_LOCAL_HOUR, ...CHECK_IN_SLOTS, LOOK_AHEAD_SLOT_HOURS.morning, LOOK_AHEAD_SLOT_HOURS.evening, ...DREAMER_HOURS])]),
+    )) as DigestCandidate[]
     // The digest's hour first: a pass that hits the cap keeps the digests.
     const candidates = found.filter((c) => (c.hour ?? DIGEST_LOCAL_HOUR) === DIGEST_LOCAL_HOUR).slice(0, DIGEST_MAX_PEOPLE)
     const checkIns = found.filter((c): c is DigestCandidate & { hour: number } => isCheckInSlot(c.hour)).slice(0, DIGEST_MAX_PEOPLE)
@@ -336,6 +345,15 @@ export const agentEventDigest = inngest.createFunction(
     if (lookAheadRequests.length) await step.sendEvent('request-look-aheads', lookAheadRequests)
     const lookAhead = { candidates: lookAheads.length, sent: lookAheadRequests.length, skips: lookAheadSkips }
     if (lookAheads.length) console.info(lookAheadPlanLogLine(lookAhead))
-    return { status: 'done', ...result, checkIn, lookAhead }
+
+    // The Dreamer (docs/plans/dreamer.md): one request per person at each of
+    // its hours (the reflection at 03:00 only in a zone of their own); its
+    // consumer (./dreamer.ts) holds every other gate.
+    const dreamers = found.filter((c) => isDreamerHour(c.hour)).slice(0, DIGEST_MAX_PEOPLE)
+    const dreamerPlan = dreamerRequestsFor(dreamers, Date.now())
+    if (dreamerPlan.requests.length) await step.sendEvent('request-dreamers', dreamerPlan.requests)
+    const dreamer = { candidates: dreamers.length, sent: dreamerPlan.requests.length, skips: dreamerPlan.skips }
+    if (dreamers.length) console.info(dreamerScanLogLine(dreamer))
+    return { status: 'done', ...result, checkIn, lookAhead, dreamer }
   },
 )

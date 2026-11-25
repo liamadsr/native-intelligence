@@ -18,7 +18,7 @@ import {
   type LinkableEntityType,
 } from '@/lib/knowledge/entity-registry'
 import type { WorkExpectation, WorkRole } from '@/lib/work/roles'
-import { TOOL_CATEGORIES, WORK_RUN_ADMITTED_SIDE_EFFECTS, isChatNativeTool } from '@/lib/ai/tool-registry'
+import { TOOL_CATEGORIES, WORK_RUN_ADMITTED_SIDE_EFFECTS, isChatNativeTool, isParentNotesTool } from '@/lib/ai/tool-registry'
 import { attendedOnlyToolsDeniedTo } from '@/lib/safety/caller'
 
 export type AgentRunKind = 'coding' | 'workspace'
@@ -478,6 +478,11 @@ function deriveWorkRunExcludedTools(): readonly string[] {
       // its class: only the main chat runs it. wait_for_bot_reply is a read, so
       // the class alone would let it reach work runs and their chats.
       if (isChatNativeTool(tool.name)) excluded.add(tool.name)
+      // The Dreamer's notes tools (docs/plans/dreamer.md) are out whatever
+      // their class: its notes are private research about the person, and its
+      // writes and report are its own. ceilingForWorkRun gives them back to a
+      // Dreamer run's own turns alone (DREAMER_RUN_TOOL_NAMES).
+      if (isParentNotesTool(tool.name)) excluded.add(tool.name)
     }
   }
   return Object.freeze([...excluded])

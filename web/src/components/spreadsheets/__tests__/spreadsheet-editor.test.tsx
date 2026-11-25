@@ -914,3 +914,47 @@ describe('an open that takes the page down names itself', () => {
     expect(grid()).toBeTruthy()
   })
 })
+
+// Measured on 11-25 (production build, Chromium, a 108,000-cell sheet): an open holds one workbook,
+// and closing it gives it back (the DOM back to the list's, the heap back within 2 MB). These keep it so.
+describe('one workbook at a time, given back on close', () => {
+  it('the workbook a spreadsheet opened is freed when it closes, and when the editor moves to another', async () => {
+    const server = await import('@/lib/spreadsheets/engine-server')
+    const engine = await import('@/lib/spreadsheets/engine-client')
+    const live = new Set<object>()
+    const spy = vi.spyOn(engine, 'openModel').mockImplementation(async (workbook) => {
+      const model = server.loadModel(workbook ?? null)
+      live.add(model)
+      const free = model.free.bind(model)
+      model.free = () => {
+        live.delete(model)
+        free()
+      }
+      return model
+    })
+    try {
+      await open()
+      expect(grid()).toBeTruthy()
+      expect(live.size).toBe(1)
+
+      // Another spreadsheet in the same editor: the first one's workbook goes.
+      const OTHER = '44444444-4444-4444-8444-444444444444'
+      await act(async () => {
+        root.render(<SpreadsheetEditor spreadsheetId={OTHER} />)
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10)
+      })
+      expect(live.size).toBe(1)
+
+      // Closed: nothing left.
+      await act(async () => root.render(<div />))
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10)
+      })
+      expect(live.size).toBe(0)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+})

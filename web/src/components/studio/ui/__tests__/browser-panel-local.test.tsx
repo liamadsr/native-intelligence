@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
  * The Browser panel's folders on this computer (../BrowserPanel.tsx with ../local-folders.ts), with the browser's
- * folder input stood in for: the place appears under "This computer", its files list and search here, a long folder
+ * folder input stood in for: the place appears in the place picker, its files list and search here, a long folder
  * says it was cut, a file is added by its button or a double-click and uploaded through the same import as a dropped
  * file, and after a reload a folder the browser only gave for one visit offers "Choose it again" instead of looking
  * linked. Made-up folders only; nothing touches a real disk or the server.
@@ -31,6 +31,7 @@ const flush = async (ms = 0) => { await act(async () => { await new Promise(r =>
 const file = (path: string, size: number) => { const f = new File([], path.split('/').at(-1)!); Object.defineProperty(f, 'size', { value: size }); Object.defineProperty(f, 'webkitRelativePath', { value: path }); return f }
 const text = () => host!.textContent ?? ''
 const button = (label: string) => [...host!.querySelectorAll('button')].find(b => b.textContent?.trim() === label || b.getAttribute('aria-label') === label)
+const picker = () => host!.querySelector('[aria-label="Place"]')?.textContent ?? ''
 const row = (name: string) => [...host!.querySelectorAll<HTMLElement>('[role=treeitem]')].find(r => r.querySelector('.ab-name')?.firstChild?.textContent === name)
 
 async function render(add = vi.fn()) {
@@ -63,9 +64,8 @@ const pngHeader = (w: number, h: number) => { const b = new Uint8Array(33); b.se
 const withBytes = (path: string, data: Uint8Array) => { const f = new File([data as BlobPart], path.split('/').at(-1)!); Object.defineProperty(f, 'webkitRelativePath', { value: path }); return f }
 
 describe('Browser panel: a folder on this computer', () => {
-  it('offers to add a folder under the places, and says nothing leaves the computer first', async () => {
+  it('offers to add a folder beside the place picker, and says nothing leaves the computer first', async () => {
     await render()
-    expect(text()).toContain('This computer')
     expect(button('Add a folder from this computer')).toBeTruthy()
     expect(text()).toContain('Nothing leaves this computer until you add a file. An added file goes to this workspace’s Studio library.')
   })
@@ -76,8 +76,7 @@ describe('Browser panel: a folder on this computer', () => {
     const map = withBytes('Holiday/stills/map.png', pngHeader(1600, 1000))
     await choose([file('Holiday/clip 2.mp4', 3_000_000), map, file('Holiday/theme.aiff', 10), file('Holiday/.DS_Store', 1)])
 
-    const place = [...host!.querySelectorAll('.ab-place.local')]
-    expect(place.map(p => p.textContent)).toEqual(['Holiday'])
+    expect(picker()).toBe('Holiday')
     expect([...host!.querySelectorAll('[role=treeitem] .ab-name')].map(n => n.textContent)).toEqual(['stills', 'clip 2.mp4', 'theme.aiff'])
     expect(row('clip 2.mp4')!.querySelector('.ab-size')!.textContent).toBe('2.9 MB')
     expect(text()).toContain('Linked until the page reloads.')
@@ -121,22 +120,24 @@ describe('Browser panel: a folder on this computer', () => {
     localStorage.setItem('ni:studio:browser.local-folders.v2:u-ana', JSON.stringify([{ id: 'local:trip', name: 'Holiday', mode: 'session' }]))
     localStorage.setItem('ni:studio:browser.place', JSON.stringify('local:trip'))
     await render()
-    expect(host!.querySelector('.ab-place.local')!.className).toContain('s-choose-again')
+    expect(picker()).toBe('Holiday (choose it again)')
     expect(text()).toContain('“Holiday” was linked until the page reloaded.')
     expect(host!.querySelectorAll('[role=treeitem]')).toHaveLength(0)
 
     await act(async () => { button('Choose it again')!.click() })
     await choose([file('Holiday/clip 2.mp4', 3)])
-    expect(host!.querySelector('.ab-place.local')!.className).not.toContain('s-choose-again')
+    expect(picker()).toBe('Holiday')
     expect([...host!.querySelectorAll('[role=treeitem] .ab-name')].map(n => n.textContent)).toEqual(['clip 2.mp4'])
   })
 
   it('removes a folder from the Browser', async () => {
     localStorage.setItem('ni:studio:browser.local-folders.v2:u-ana', JSON.stringify([{ id: 'local:trip', name: 'Holiday', mode: 'session' }]))
+    localStorage.setItem('ni:studio:browser.place', JSON.stringify('local:trip'))
     await render()
     await act(async () => { button('Remove Holiday from the Browser')!.click() })
     await flush()
-    expect(host!.querySelector('.ab-place.local')).toBeNull()
+    expect(picker()).not.toContain('Holiday')
+    expect(button('Remove Holiday from the Browser')).toBeUndefined()
     expect(JSON.parse(localStorage.getItem('ni:studio:browser.local-folders.v2:u-ana')!)).toEqual([])
   })
 

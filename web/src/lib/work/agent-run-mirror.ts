@@ -71,6 +71,8 @@ export interface AgentRunLike {
    *  becomes this row's parent; the tree's root and depth follow from it. */
   parent_run_id?: string | null
   chat_conversation_id?: string | null
+  /** agent_run.server_helper (migration 337): a Dreamer's row ('dreamer', 720) is born muted and silent. */
+  server_helper?: string | null
 }
 
 /** The deliverable shape agent_run.deliverables carries (agent-run/types.ts). */
@@ -108,6 +110,7 @@ function kindFor(run: AgentRunLike): string {
 }
 
 function titleFor(run: AgentRunLike, actionTitle?: string | null): string {
+  if (run.server_helper === 'dreamer') return DREAMER_WORK_TITLE
   const prompt = (run.task_prompt ?? '').split('\n').map((l) => l.trim()).find(Boolean)
   const candidate = actionTitle?.trim() || prompt || ''
   if (candidate) return candidate.length > TITLE_MAX ? `${candidate.slice(0, TITLE_MAX - 1)}…` : candidate
@@ -173,6 +176,10 @@ export async function ensureWorkForAgentRun(
     const parent = run.parent_run_id ? await findWork(supabase, { agentRunId: run.parent_run_id }) : null
     const area = await runArea(supabase, run)
     const { teammateId, routed } = await runTeammateId(supabase, run, memberId, area)
+    // The Dreamer (docs/plans/dreamer.md): muted from birth (no push, log
+    // line or inbox event, whoever mirrors it first, the reaper included) and
+    // marked so its recorder never writes a teammate report.
+    const dreamer = run.server_helper === 'dreamer'
     const handle = await startWork(supabase, {
       workspaceId: run.workspace_id,
       memberId,
@@ -193,7 +200,9 @@ export async function ensureWorkForAgentRun(
         ...(run.provenance ? { provenance: run.provenance } : {}),
         // A bot routed to a person's own run: theirs, not the bot's (its chat stays the run's own).
         ...(routed && teammateId ? { teammate_routed: true } : {}),
+        ...(dreamer ? { server_helper: 'dreamer' } : {}),
       },
+      ...(dreamer ? { quiet: true } : {}),
       ...(run.origin ? { origin: run.origin } : {}),
       ...(teammateId ? { aiTeamMemberId: teammateId } : {}),
       ...(parent
@@ -363,12 +372,12 @@ export function deliverablesFromAgentRun(list: AgentRunDeliverable[] | null | un
 }
 
 /**
- * Whether the run is a meeting prep (a helper the server starts on its own,
- * `agent_run.server_helper`, migration 337; agent-events/meeting-prep.ts).
- * One read, at a run's completion only. Fails to false: a failed read (or a
+ * The run's server-started kind (`agent_run.server_helper`, migrations 337,
+ * 443, 720: 'meeting_prep', 'home_turn', 'check_in', 'dreamer'), or null.
+ * One read, at a run's completion only. Fails to null: a failed read (or a
  * database without the column) leaves the ordinary review.
  */
-export async function isMeetingPrepRun(supabase: SupabaseClient, ref: { agentRunId: string; workspaceId: string }): Promise<boolean> {
+export async function serverHelperOfRun(supabase: SupabaseClient, ref: { agentRunId: string; workspaceId: string }): Promise<string | null> {
   try {
     const { data, error } = await supabase
       .from('agent_run')
@@ -376,12 +385,25 @@ export async function isMeetingPrepRun(supabase: SupabaseClient, ref: { agentRun
       .eq('id', ref.agentRunId)
       .eq('workspace_id', ref.workspaceId)
       .maybeSingle()
-    if (error || !data) return false
-    return (data as { server_helper?: unknown }).server_helper === 'meeting_prep'
+    if (error || !data) return null
+    const kind = (data as { server_helper?: unknown }).server_helper
+    return typeof kind === 'string' && kind ? kind : null
   } catch {
-    return false
+    return null
   }
 }
+
+/**
+ * Whether the run is a meeting prep (a helper the server starts on its own,
+ * `agent_run.server_helper`, migration 337; agent-events/meeting-prep.ts).
+ * Fails to false (serverHelperOfRun).
+ */
+export async function isMeetingPrepRun(supabase: SupabaseClient, ref: { agentRunId: string; workspaceId: string }): Promise<boolean> {
+  return (await serverHelperOfRun(supabase, ref)) === 'meeting_prep'
+}
+
+/** The title of a Dreamer run's ledger row (its task opens with its role, not a job). */
+export const DREAMER_WORK_TITLE = 'Background research'
 
 /**
  * Mirror one agent_run transition onto its ledger row. A run with no row (one
@@ -426,8 +448,14 @@ export async function mirrorAgentRunStatus(
         // chat with its document and goal box. It waits on nobody, so it never
         // sits in For you, a bot's count or the digest's pile; its `done` still
         // reports to the chat (reportDone).
-        const prep = await isMeetingPrepRun(supabase, ref)
-        const review = !prep && (deliverables.length > 0 || work.kind === WORK_KINDS.workRun)
+        // And the Dreamer (docs/plans/dreamer.md): research for the main
+        // agent, never for the person to review. It settles `done`, reports
+        // nothing (its row is silent: recorder.ts), and its findings reach
+        // the parent through its own report (notify_parent).
+        const serverHelper = await serverHelperOfRun(supabase, ref)
+        const prep = serverHelper === 'meeting_prep'
+        const dreamer = serverHelper === 'dreamer'
+        const review = !prep && !dreamer && (deliverables.length > 0 || work.kind === WORK_KINDS.workRun)
         await work.finish({
           summary: transition.summary ?? null,
           deliverables,

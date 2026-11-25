@@ -53,7 +53,7 @@ import { ensureWorkForAgentRun } from '@/lib/work/agent-run-mirror'
 import { snapshotResources, workRunDispatchEventId, type WorkRunDispatchSend } from '@/lib/work/start-work-item'
 import { resolveAgentAutonomyPolicyFromSettings } from '@/lib/work/agent-autonomy-policy'
 import { AGENT_PAUSED_CODE, AGENT_PAUSED_REASON, helperStartPaused } from '@/lib/work/agent-paused'
-import { serverHelperChatCeiling, snapshotChatCeiling } from '@/lib/agent-run/run-work-spec-rebuild'
+import { dreamerChatCeiling, serverHelperChatCeiling, snapshotChatCeiling } from '@/lib/agent-run/run-work-spec-rebuild'
 import { wrapUntrusted } from '@/lib/email/untrusted'
 import { requestAgentRunCancel, RUN_CANCEL_TERMINAL_STATUSES } from '@/lib/agent-run/request-run-cancel'
 import { callerReachableTeammateIds } from '@/lib/chat/teammate-access'
@@ -63,7 +63,7 @@ import type { StartHelperInput, StopHelperInput } from '@/lib/ai/tools/chat-help
 import { GENERIC_HELPER_ID, HELPER_CHOICE_MAX_CANDIDATES, type HelperChoiceCandidate, type HelperChoiceInput } from '@/lib/ai/decisions/tasks/helper-choice'
 import { decideHelperTier, type HelperTierDecision } from '@/lib/ai/helper-tier'
 import { JEV_TIER_MODE, helperRouteForModel, routeHelperModel, routeHelperTask } from '@/lib/ai/model-route'
-import { helperModelEntry, type HelperModelKey } from '@/lib/ai/models'
+import { helperModelEntry, helperModelForTier, type HelperModelKey } from '@/lib/ai/models'
 import { isCheckInClaims, type ChatRunTokenClaims } from './chat-run-token'
 import { channelTurnMayUseNative } from './chat-ceiling'
 import { NOW_TRACK_KINDS, canonicalTrackId, loadNowNote, nowMemberId, type NowTrackKind } from '@/lib/now/now-file'
@@ -321,7 +321,14 @@ async function admitHelper(
     // What this chat may call bounds the run and every handoff under it. A
     // server-started helper (nobody watching, the reviewer skipped) is bound
     // to reads plus the three review-pile writes, never an in-place write.
-    p_chat_ceiling: admission.serverHelper ? serverHelperChatCeiling() : snapshotChatCeiling(admission.chatCeiling),
+    // The Dreamer (docs/plans/dreamer.md) to reads, its notes and its one
+    // report: no review-pile write at all.
+    p_chat_ceiling:
+      admission.serverHelper === 'dreamer'
+        ? dreamerChatCeiling()
+        : admission.serverHelper
+          ? serverHelperChatCeiling()
+          : snapshotChatCeiling(admission.chatCeiling),
     p_areas: areas,
     // Only a server start names it (migration 337); the chat's own call is 332's, unchanged.
     ...(admission.serverHelper ? { p_server_helper: admission.serverHelper } : {}),
@@ -347,7 +354,7 @@ async function admitHelper(
     // Read the stored launch, not the retry's input. Replay cannot relabel a run
     // or change its owner, resources, task, or agent after admission.
     const { data: run, error: readError } = await supabase.from('agent_run')
-      .select('id, workspace_id, kind, status, triggered_by, task_prompt, origin, ai_team_member_id, chat_conversation_id, started_at, session_state')
+      .select('id, workspace_id, kind, status, triggered_by, task_prompt, origin, ai_team_member_id, chat_conversation_id, started_at, session_state, server_helper')
       .eq('id', result.run_id).eq('workspace_id', claims.workspaceId)
       .eq('triggered_by', claims.userId).eq('chat_conversation_id', claims.conversationId).maybeSingle()
     if (readError || !run || run.origin !== 'chat') throw new Error('Could not read the helper run')
@@ -397,10 +404,14 @@ async function applyHelperTier(
     // A check-in's helper runs light, fixed in code (docs/plans/now-file.md):
     // the light model the agent named, else Flash; never decided by the rules.
     // The work-run spec holds it light too (run-work-spec-rebuild.ts).
+    // The Dreamer runs on Think, fixed in code (docs/plans/dreamer.md "The
+    // model": a server start's cap), whatever its brief would route to.
     const { route } =
       admission.serverHelper === 'check_in'
         ? { route: helperRouteForModel(checkInHelperModel(input.model), 'fixed', ['check_in']) }
-        : await (deps.decideTier ?? decideHelperTier)(supabase, {
+        : admission.serverHelper === 'dreamer'
+          ? { route: helperRouteForModel(DREAMER_HELPER_MODEL, 'fixed', ['dreamer']) }
+          : await (deps.decideTier ?? decideHelperTier)(supabase, {
             userId: admission.userId,
             workspaceId: admission.workspaceId,
             key: `run:${runId}`,
@@ -435,6 +446,9 @@ async function applyHelperTier(
 /** A check-in helper's model when the agent named no light one. */
 export const CHECK_IN_HELPER_MODEL: HelperModelKey = 'flash'
 
+/** The Dreamer's model: the Think tier's (docs/plans/dreamer.md). */
+export const DREAMER_HELPER_MODEL: HelperModelKey = helperModelForTier('think')
+
 /** The light helper model a check-in's helper runs on: the one asked for when it is light (tier 'fast'), else Flash. Pure. */
 export function checkInHelperModel(requested: HelperModelKey | undefined): HelperModelKey {
   return requested && helperModelEntry(requested).tier === 'fast' ? requested : CHECK_IN_HELPER_MODEL
@@ -442,15 +456,16 @@ export function checkInHelperModel(requested: HelperModelKey | undefined): Helpe
 
 // ── A server start (A6 slice 5) ──────────────────────────────────────────────
 
-/** The kinds of server-started helper (migrations 337/340/443 agent_run.server_helper). */
-export type ServerHelperKind = 'meeting_prep' | 'home_turn' | 'check_in'
+/** The kinds of server-started helper (migrations 337/340/443/720 agent_run.server_helper). */
+export type ServerHelperKind = 'meeting_prep' | 'home_turn' | 'check_in' | 'dreamer'
 
 /** A helper the server starts on the person's behalf, into their home thread. */
 export interface ServerHelperStart {
   /**
    * Its kind: its own budget per person, never the person's helper slots: 1
-   * working at a time, and 6 a day for 'home_turn'; 'meeting_prep' has no
-   * daily cap (migration 355: every meeting gets its prep).
+   * working at a time, and 6 a day for 'home_turn' (and 'dreamer', migration
+   * 720); 'meeting_prep' has no daily cap (migration 355: every meeting gets
+   * its prep).
    */
   kind: ServerHelperKind
   workspaceId: string
@@ -719,7 +734,7 @@ export async function recoverQueuedChatHelpers(
   deps: { send?: WorkRunDispatchSend } = {},
 ): Promise<number> {
   const { data, error } = await supabase.from('agent_run')
-    .select('id, workspace_id, kind, status, triggered_by, task_prompt, origin, ai_team_member_id, chat_conversation_id')
+    .select('id, workspace_id, kind, status, triggered_by, task_prompt, origin, ai_team_member_id, chat_conversation_id, server_helper')
     .eq('origin', 'chat').eq('kind', 'workspace').eq('status', 'queued')
     .is('started_at', null).is('session_state', null)
     .lt('created_at', new Date(now - 60_000).toISOString()).order('created_at', { ascending: true }).limit(100)

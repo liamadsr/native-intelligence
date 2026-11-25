@@ -170,50 +170,35 @@ describe('the side panel’s button', () => {
   })
 })
 
-describe('on Code: the Code view’s own For you (Liam, 11-20)', () => {
-  /** On Code with a coding chat selected, its details open (their default), the coding cards told to the store. */
-  const onCode = (codeCards: number) => {
-    entries.codeCount = codeCards
-    act(() => {
-      store.setCodeView(true)
-      store.setCodeChatSelected(true)
-      store.setCodeForYouContent(codeCards > 0)
-    })
-  }
-
-  it('counts a coding agent’s work only, never the agent’s cards; none with none', () => {
-    onCode(2)
+describe('while a coding chat is the current one (docs/plans/one-home.md)', () => {
+  it('no For you button: the panel is that chat’s details, and coding work that waits on you is its row in Recent', () => {
+    entries.codeCount = 2
+    act(() => store.setPanelChatKind('code'))
     renderHeader()
-    expect(toggle()?.getAttribute('aria-label')).toBe('For you, 2')
-    act(() => {
-      entries.codeCount = 0
-      store.setCodeForYouContent(false)
-    })
+    // Neither the agent's three cards nor the coding agent's two.
+    expect(toggle()).toBeNull()
+    expect(side()?.getAttribute('aria-label')).toBe('Coding chat details')
+    // Back on the agent: its own For you again, its own cards only.
+    act(() => store.setPanelChatKind('agent'))
+    renderHeader()
+    expect(toggle()?.getAttribute('aria-label')).toBe('For you, 3')
+  })
+
+  it('the details’ button opens and closes them, lit while they show', () => {
+    act(() => store.setPanelChatKind('code'))
+    renderHeader()
+    expect(tinted(side())).toBe(true)
+    act(() => side()!.click())
+    expect(store.getSidePanelState().codeDetailsOpen).toBe(false)
+    expect(tinted(side())).toBe(false)
+    act(() => side()!.click())
+    expect(store.getSidePanelState().codeDetailsOpen).toBe(true)
+  })
+
+  it('a new coding chat: no button at all, nothing to open', () => {
+    act(() => store.setPanelChatKind('code-new'))
     renderHeader()
     expect(toggle()).toBeNull()
-  })
-
-  it('opens the coding cards over the details and closes them again, the details back; one button lit at a time', () => {
-    onCode(2)
-    renderHeader()
-    expect(store.shownView(store.getSidePanelState())).toBe('panel')
-    act(() => toggle()!.click())
-    expect(store.shownView(store.getSidePanelState())).toBe('forYou')
-    expect(toggle()?.getAttribute('aria-expanded')).toBe('true')
-    expect(side()?.getAttribute('aria-expanded')).toBe('false')
-    act(() => toggle()!.click())
-    expect(store.shownView(store.getSidePanelState())).toBe('panel')
-    // From the cards, the details' button swaps back to them.
-    act(() => toggle()!.click())
-    act(() => side()!.click())
-    expect(store.shownView(store.getSidePanelState())).toBe('panel')
-    expect(side()?.getAttribute('aria-expanded')).toBe('true')
-  })
-
-  it('the agent’s panel is left as it was', () => {
-    onCode(1)
-    renderHeader()
-    act(() => toggle()!.click())
-    expect(store.getSidePanelState()).toMatchObject({ rightOpen: false, view: 'panel' })
+    expect(side()).toBeNull()
   })
 })

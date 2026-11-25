@@ -1,5 +1,6 @@
 'use client'
 
+import { openCodingChat } from '@/app/account/(dashboard)/chat/current-chat-store'
 import { Button } from '@/components/ui/button'
 import { ShimmerText } from '@/components/ui/shimmer-text'
 import {
@@ -465,6 +466,31 @@ function getToolLabel(name: string): string {
   return TOOL_LABELS[name] || name.replace(/_/g, ' ')
 }
 
+const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * The coding chat a finished `start_local_agent` call started (its result's
+ * `session_id`; refused because one already works in that folder, that one's),
+ * or null: any other tool, a call still running or failed, a result naming none.
+ */
+export function startedCodingChat(name: string, state: ToolState, result: unknown): string | null {
+  if (name !== 'start_local_agent' || state !== 'result') return null
+  let value: unknown = result
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value)
+    } catch {
+      return null
+    }
+  }
+  if (!value || typeof value !== 'object') return null
+  // Started: its own id. Refused because one already works in that folder: that one's (`busy`).
+  const own = (value as { session_id?: unknown }).session_id
+  const busy = (value as { busy?: { session_id?: unknown } | null }).busy?.session_id
+  const id = typeof own === 'string' ? own : busy
+  return typeof id === 'string' && SESSION_ID.test(id) ? id : null
+}
+
 /** The workspace searches whose result says what they covered (`scope`). */
 const SCOPED_SEARCH_TOOLS = new Set(['find', 'deep_search'])
 
@@ -538,6 +564,9 @@ function ToolImpl({ name, state, args, result, className, entityLinks, onEntityC
     (args && Object.keys(args).length > 0) || result !== undefined
 
   const hasEntityLinks = entityLinks && entityLinks.length > 0
+  // A coding chat the agent started itself: it never takes the middle (one-home-decisions.ts
+  // AGENT_STARTED_CHAT_TAKES_THE_MIDDLE); it is a row in Recent, and one press from here.
+  const startedChat = startedCodingChat(name, state, result)
 
   return (
     <div
@@ -582,6 +611,17 @@ function ToolImpl({ name, state, args, result, className, entityLinks, onEntityC
               )}
             </Button>
           </CollapsibleTrigger>
+          {startedChat && (
+            <button
+              type="button"
+              data-tool-open-coding-chat={startedChat}
+              className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-left text-xs font-medium text-primary transition-colors hover:bg-primary/10"
+              onClick={() => openCodingChat(startedChat, { from: 'agent' })}
+            >
+              Open chat
+              <ExternalLink className="h-3 w-3 shrink-0" />
+            </button>
+          )}
           {hasEntityLinks && entityLinks.length === 1 && (
             <button
               type="button"

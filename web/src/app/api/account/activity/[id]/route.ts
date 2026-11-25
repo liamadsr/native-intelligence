@@ -2,7 +2,7 @@
  * One work item (ACTIVITY-AND-REVIEW-DESIGN §4.2 — the detail panel's data).
  *
  *   GET   /api/account/activity/[id]                      → { item, run, drafts, output, held_contacts, parent, children, mine }
- *   GET   /api/account/activity/[id]?light=1              → { item: { id, workspace_id, ai_team_member_id, kind, title } }
+ *   GET   /api/account/activity/[id]?light=1              → { item: { id, workspace_id, ai_team_member_id, kind, title, local_agent_session_id } }
  *         who the item is, and nothing the panel joins: a click deciding where
  *         it opens (bots-v4.md Phase 2: on its teammate's bot's page, else over
  *         the Inbox) when nothing on screen holds the row (lib/bots/item-lookup.ts).
@@ -44,6 +44,7 @@
  * (NORTH-STAR invariant 5): the deliverable's own surface carries them and
  * resolves the item.
  */
+import { localAgentSessionIdOf } from '@/lib/local-agent/transcript-view'
 import { NextResponse, type NextRequest } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { requireWorkspaceMember, type MemberAuthContext } from '@/lib/api-auth'
@@ -81,8 +82,11 @@ async function loadOwnItem(supabase: SupabaseClient, id: string): Promise<WorkIt
 }
 
 /** What `?light=1` answers: who the item is. */
-export type WorkItemFacts = Pick<WorkItem, 'id' | 'workspace_id' | 'ai_team_member_id' | 'kind' | 'title'>
-const ITEM_FACTS_SELECT = 'id, workspace_id, ai_team_member_id, kind, title'
+export type WorkItemFacts = Pick<WorkItem, 'id' | 'workspace_id' | 'ai_team_member_id' | 'kind' | 'title'> & {
+  /** The coding chat it is a turn of (a local agent's session), or null: a click opens that chat, not the item's card (docs/plans/one-home.md). */
+  local_agent_session_id: string | null
+}
+const ITEM_FACTS_SELECT = 'id, workspace_id, ai_team_member_id, kind, title, source'
 
 /** `?light=1`: the item's facts, under the same owner-only read as the panel's. */
 async function itemFacts(supabase: SupabaseClient, id: string): Promise<Response> {
@@ -90,13 +94,14 @@ async function itemFacts(supabase: SupabaseClient, id: string): Promise<Response
     const { data, error } = await supabase.from('tracked_job').select(ITEM_FACTS_SELECT).eq('id', id).maybeSingle()
     if (error) throw new Error(error.message)
     if (!data) return notFound('Work item not found')
-    const row = data as WorkItemFacts
+    const row = data as Omit<WorkItemFacts, 'local_agent_session_id'> & { source?: Record<string, unknown> | null }
     const item: WorkItemFacts = {
       id: row.id,
       workspace_id: row.workspace_id,
       ai_team_member_id: row.ai_team_member_id ?? null,
       kind: row.kind,
       title: row.title,
+      local_agent_session_id: localAgentSessionIdOf({ kind: row.kind, source: row.source ?? null }),
     }
     return NextResponse.json({ item })
   } catch (err) {

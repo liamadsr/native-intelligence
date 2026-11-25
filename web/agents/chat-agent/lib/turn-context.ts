@@ -159,7 +159,7 @@ const MAX_ENTRIES = 60
 const MAX_ENTRY_CHARS = 400
 
 /** The heading when the spec sent none. */
-const DEFAULT_APPEND_HEADING = 'Log: what happened in this workspace lately, one dated line each, oldest first.'
+const DEFAULT_APPEND_HEADING = 'Log: what happened in this workspace lately, one dated line each, oldest first; "you" in a line means the person.'
 
 /** An opening tag the renderer writes, alone on its line: a version (and an append-only cursor), or `cleared`. */
 const OPENING_TAG_RE =

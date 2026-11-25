@@ -10,7 +10,7 @@
  *           what came to the person (assigned, @-mentioned, shared with
  *           them) and what they touched themselves, docs, actions,
  *           projects, captures, contacts, deals, team chat's messages.
- *           Their Drive uploads, coding jobs, team chat channels (one row
+ *           Their Drive uploads, coding chats, team chat channels (one row
  *           each), body-edited docs, spreadsheets, canvases and agent
  *           chats too (GET /api/account/recents, migration 713;
  *           docs/plans/recent-panel.md).
@@ -18,6 +18,16 @@
  *           morning/afternoon/evening (the part of today it is now),
  *           Earlier today, Yesterday, then each day, newest first, an
  *           empty one not drawn (recents-model.ts recentGroupOf).
+ *   Pinned  the agent's own chat, first, above every heading and never
+ *           filtered (Liam, 11-25: "a pinned chat, your main agent's chat,
+ *           so you can easily go back"; docs/plans/one-home.md): one press
+ *           is "back to my agent". A new coding chat, while it is the
+ *           current chat, is a row under it.
+ *   Coding  a coding chat is a row like any other, with the coding icon and
+ *           its state (working, needs your answer, waits on your review,
+ *           failed); opening it makes it Home's current chat
+ *           (chat/current-chat-store.ts): the middle, the box and the right
+ *           panel are its. Pressing Code never changes this panel.
  *   Filter  its button at the top, or F while the panel has the focus:
  *           Status (All, Unread: the dot, Read), Type (one per kind the
  *           list has), Reset filters; kept per device (use-recents-filter.ts).
@@ -53,6 +63,8 @@
  *   Lit     the row of the record the card in front shows
  *           (recents-model.ts frontRecentKey): the rail's lit tint,
  *           `aria-current`. Its click does nothing more (it is open).
+ *           With nothing in front, the current chat's row; under a card,
+ *           that row keeps a thin mark.
  *   Empty   nothing at all: no panel, no empty state (Liam's "hide empty
  *           widgets"), and no button for it in the rail's header.
  *   Corners the card's are 24px (page-panel-frame.tsx; Liam, 11-11: they
@@ -65,8 +77,8 @@
  * while it shows, a card in front closing; no timer), plain rows, at most RECENTS_PAGE mounted until "Show
  * more", no animation. `ph-no-capture`: titles can be private.
  */
-import { useCallback, useEffect, useMemo, useState, type KeyboardEvent } from 'react'
-import { Building2, ListFilter, SquareTerminal } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type KeyboardEvent } from 'react'
+import { Building2, Code2, ListFilter, Plus, TriangleAlert } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { openTarget } from '@/lib/chat-cards/open-card'
 import { entityOpenTarget } from '@/lib/entity-links/open-entity'
@@ -86,14 +98,20 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { useSidePanelState } from '../side-panels/side-panels'
-import { setCodeView } from '../side-panels/side-panel-store'
-import { selectCodeChat } from '../chat/code-view-store'
-import { CodeChatsPanel } from './code-chats'
+import { agentHasUnseenReply, backToAgent, getCurrentChat, newCodingChat, openCodingChat, subscribeCurrentChat, type CurrentChat } from '../chat/current-chat-store'
+import { PINNED_AGENT_SUFFIX } from '../chat/one-home-decisions'
+import { useCodeView } from '../chat/use-code-view'
+import { useCodeForYouEntries } from '../chat/for-you-column'
+import { useChatFeed } from '../side-panels/chat-feed'
+import { closeFrontCards } from '@/components/chat-cards/front-card'
+import { AgentIcon } from '@/components/agents/agent-icon'
+import { useAssistantName } from '@/lib/voice/assistant-name-store'
 import { PagePanelFrame } from './page-panel-frame'
 import {
+  CODE_ROW_STATE_WORDS,
   DEFAULT_RECENT_FILTER,
   RECENTS_PAGE,
+  codeChatRowKey,
   filterRecents,
   frontRecentKey,
   groupRecents,
@@ -101,6 +119,7 @@ import {
   recentTypesPresent,
   shortRecentTime,
   toggleRecentType,
+  withLiveCodeChat,
   type RecentFilter,
   type RecentItem,
   type RecentStatus,
@@ -110,6 +129,7 @@ import { useRecentsFilter } from './use-recents-filter'
 import { keepFocusAfterFlip, useOpenedRow } from './hub-open'
 import { setHomeSide, useHomeSide } from './home-side'
 import { PanelSwitch } from './panel-switch'
+import { setCodingRowsWaiting, useCodingNeedsYou } from './coding-attention'
 import { InboxPanel } from './inbox-panel'
 import { useInbox } from '@/components/inbox/inbox-store'
 import type { PagePanelProps } from './page-panel-types'
@@ -117,7 +137,7 @@ import type { PagePanelProps } from './page-panel-types'
 /**
  * Open a recent row the way the palette opens a feed row. A Drive file opens
  * in the file viewer (it reads the file under the viewer's own policies
- * again), a coding job in the Code view on it. False when it names nothing
+ * again), a coding chat as Home's current chat. False when it names nothing
  * that opens.
  */
 export function openRecent(item: Pick<RecentItem, 'type' | 'id' | 'title'>): boolean {
@@ -131,8 +151,8 @@ export function openRecent(item: Pick<RecentItem, 'type' | 'id' | 'title'>): boo
     return true
   }
   if (item.type === 'code_job') {
-    setCodeView(true)
-    selectCodeChat(item.id)
+    // The current chat's one way in: the composer's tab follows it (it stayed on the agent before).
+    openCodingChat(item.id, { from: 'recents' })
     return true
   }
   const target = entityOpenTarget(item.type, item.id, item.title)
@@ -140,51 +160,57 @@ export function openRecent(item: Pick<RecentItem, 'type' | 'id' | 'title'>): boo
   return target ? openTarget(target, { from: 'recents', flip: true }) : false
 }
 
-/** Kinds that open a card in front (not a viewer over the page, nor the Code view): the ones J/K flip through. */
+/** Kinds that open a card in front (not a viewer over the page, nor a chat in the middle): the ones J/K flip through. */
 const flips = (item: Pick<RecentItem, 'type'>): boolean => item.type !== 'attachment' && item.type !== 'conversation' && item.type !== 'code_job'
 
-/** The rows' buttons in a list, in order (the keyboard's J/K walk them). */
-const rowButtons = (root: HTMLElement | null): HTMLButtonElement[] => (root ? [...root.querySelectorAll<HTMLButtonElement>('button[data-recent-item]')] : [])
+/** The rows' buttons in a list, in order (the keyboard's J/K walk them): the pinned agent and a new coding chat's row first, then the records'. */
+const rowButtons = (root: HTMLElement | null): HTMLButtonElement[] => (root ? [...root.querySelectorAll<HTMLButtonElement>('button[data-recent-item], button[data-recent-pinned], button[data-recent-provisional]')] : [])
 
 /** Is the key press typing into a field (never a panel key then)? */
 const typing = (t: EventTarget | null): boolean => t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))
 
 /**
- * Home's panel: the recents, or, while the main composer is on Code, the
- * person's coding chats in their place (code-chats.tsx; Liam, 11-16). One or
- * the other is mounted, so only the list on screen reads.
+ * Home's panel: Recent | Incoming, whichever chat is current (docs/plans/
+ * one-home.md; Liam, 11-25: "you only have one homepage view"). The coding
+ * chats are Recent's own rows; pressing Code never changes what is here.
  */
 export function HomeRecentsPanel(props: PagePanelProps) {
-  const { codeView } = useSidePanelState()
   const side = useHomeSide()
   const { active, onContent } = props
-  // Both lists stay mounted once shown, each holding what it read: a switch
-  // between the agent's tab and Code shows the other at once, never an empty
-  // slot while it reads again (page-panel.tsx's rule). Only the one on
-  // screen reads, and only it says what home has to show. So do Recent and
-  // Inbox, the two sides of Home's switch (home-side.ts; Liam, 11-24).
-  const [seenCode, setSeenCode] = useState(codeView)
-  if (codeView && !seenCode) setSeenCode(true)
-  const inbox = !codeView && side === 'inbox'
+  // Both sides stay mounted once shown, each holding what it read: a switch
+  // shows the other at once, never an empty slot while it reads again
+  // (page-panel.tsx's rule). Only the one on screen reads, and only it says
+  // what home has to show (home-side.ts; Liam, 11-24).
+  const inbox = side === 'inbox'
   const [seenInbox, setSeenInbox] = useState(inbox)
   if (inbox && !seenInbox) setSeenInbox(true)
-  const [content, setContent] = useState<{ recents: boolean | null; code: boolean | null }>({ recents: null, code: null })
-  const onRecents = useCallback<PagePanelProps['onContent']>((_page, has) => setContent((c) => (c.recents === has ? c : { ...c, recents: has })), [])
-  const onCode = useCallback<PagePanelProps['onContent']>((_page, has) => setContent((c) => (c.code === has ? c : { ...c, code: has })), [])
+  const [recents, setRecents] = useState<boolean | null>(null)
+  const onRecents = useCallback<PagePanelProps['onContent']>((_page, has) => setRecents(has), [])
   const noop = useCallback<PagePanelProps['onContent']>(() => {}, [])
   // Inbox always has something to show (its filter, its rows or "all caught up").
-  const has = codeView ? content.code : inbox ? true : content.recents
+  const has = inbox ? true : recents
   useEffect(() => {
     onContent('home', has)
   }, [has, onContent])
   return (
     <>
-      <RecentsPanel {...props} active={active && !codeView && !inbox} shown={!codeView && !inbox} onContent={onRecents} />
+      <RecentsPanel {...props} active={active && !inbox} shown={!inbox} onContent={onRecents} />
       {seenInbox && <InboxPanel {...props} active={active && inbox} shown={inbox} page="home" lead={<HomeSideSwitch />} onContent={noop} />}
-      {seenCode && <CodeChatsPanel {...props} active={active && codeView} shown={codeView} onContent={onCode} />}
     </>
   )
 }
+
+const AGENT_CHAT: CurrentChat = { kind: 'agent' }
+const serverChat = () => AGENT_CHAT
+
+/** Home's current chat (chat/current-chat-store.ts). */
+export function useCurrentChat(): CurrentChat {
+  return useSyncExternalStore(subscribeCurrentChat, getCurrentChat, serverChat)
+}
+
+/** The pinned row's key, and the provisional row's: never a record's `type:id`. */
+export const PINNED_AGENT_KEY = 'agent'
+export const NEW_CODING_CHAT_KEY = 'code-new'
 
 const HOME_SIDES = [
   { id: 'recent', label: 'Recent' },
@@ -195,24 +221,53 @@ const HOME_SIDES = [
 /**
  * Home's Recent | Incoming (home-side.ts; Liam, 11-24: "the split between
  * recent and notification or incoming in the sub-navigation", as Team chat's
- * All | Recent). Incoming carries a dot while something in it is unread.
+ * All | Recent). Incoming carries a dot while something in it is unread;
+ * Recent an orange one while a coding chat needs the person (11-25).
  */
 export function HomeSideSwitch() {
   const side = useHomeSide()
   const { data } = useInbox(false)
   const unread = !!data?.items.some((i) => i.unread)
-  const options = HOME_SIDES.map((o) => ({ ...o, dot: o.id === 'inbox' && unread && side !== 'inbox' }))
+  // A coding chat that needs the person: the orange dot of its row, on the way back to Recent while Incoming shows (coding-attention.ts).
+  const coding = useCodingNeedsYou()
+  const options = HOME_SIDES.map((o) =>
+    o.id === 'inbox'
+      ? { ...o, dot: unread && side !== 'inbox' }
+      : { ...o, dot: coding && side !== 'recent', dotTone: 'orange' as const, dotWords: 'a coding chat needs you' },
+  )
   return <PanelSwitch options={options} value={side} onChange={setHomeSide} label="Show" data="data-home-side" />
 }
 
 function RecentsPanel({ active, mode, front, onContent, shown }: PagePanelProps & { shown: boolean }) {
-  const { items: all, readAt, markOpened } = useRecents(active, front?.id ?? null)
+  // The coding chats that wait on the person's review, by their work item (the shell's shared source: no read here).
+  const reviews = useCodeForYouEntries()
+  const codeReview = useMemo(() => new Set(reviews.map((e) => e.id)), [reviews])
+  const { items: read, readAt, markOpened } = useRecents(active, front?.id ?? null, codeReview)
+  // The current coding chat's row says what its conversation's reader holds now: no read of the list for it.
+  const chat = useCurrentChat()
+  const { live } = useCodeView()
+  const liveSession = chat.kind === 'code' && live && live.session.id === chat.sessionId ? live.session : null
+  const liveKey = liveSession ? `${liveSession.id}|${liveSession.status}|${liveSession.lastSignal ?? ''}|${liveSession.queuedOnMac ? 1 : 0}` : ''
+  const all = useMemo(
+    () =>
+      withLiveCodeChat(
+        read,
+        liveSession ? { sessionId: liveSession.id, status: liveSession.status, lastSignal: liveSession.lastSignal, queuedOnMac: !!liveSession.queuedOnMac } : null,
+        codeReview,
+      ) as RecentItem[],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- liveKey is what the row reads of the session
+    [read, liveKey, codeReview],
+  )
   const [filter, setFilter] = useRecentsFilter()
   const [filterOpen, setFilterOpen] = useState(false)
   // The record the card in front shows: its row is lit. A card that names no
   // record (team chat on a channel): the row opened for it (hub-open.ts).
   const [openedLit, noteOpened] = useOpenedRow(front?.id ?? null)
-  const lit = front ? (frontRecentKey(front.spec) ?? openedLit) : null
+  // With nothing in front, the current chat's own row is the one lit: the pinned agent, a coding chat, or the new one.
+  const currentKey = chat.kind === 'code' ? codeChatRowKey(chat.sessionId) : chat.kind === 'agent' ? PINNED_AGENT_KEY : NEW_CODING_CHAT_KEY
+  const lit = front ? (frontRecentKey(front.spec) ?? openedLit) : currentKey
+  // Under a card in front, the current chat's row keeps a thin mark: whose box the composer is.
+  const marked = front ? currentKey : null
   // Whether there is anything at all (the filter aside).
   const has = all.length > 0 && readAt !== null
   // Before its first read: not known yet (null), so a page change home holds
@@ -227,6 +282,11 @@ function RecentsPanel({ active, mode, front, onContent, shown }: PagePanelProps 
 
   const items = useMemo(() => filterRecents(all, filter), [all, filter])
   const present = useMemo(() => recentTypesPresent(all), [all])
+  // How many coding chats wait on the person, for the way back to Recent while it is off screen (coding-attention.ts).
+  const codingWaiting = useMemo(() => all.filter((i) => i.type === 'code_job' && i.needsYou).length, [all])
+  useEffect(() => {
+    if (readAt) setCodingRowsWaiting(codingWaiting)
+  }, [readAt, codingWaiting])
   const [limit, setLimit] = useState(RECENTS_PAGE)
   const windowed = useMemo(() => items.slice(0, limit), [items, limit])
   const groups = useMemo(() => (readAt ? groupRecents(windowed, readAt) : []), [windowed, readAt])
@@ -288,7 +348,8 @@ function RecentsPanel({ active, mode, front, onContent, shown }: PagePanelProps 
     // 11-23: "so I can flip through the recent things I've looked at"), the
     // next card taking this one's place (openRecent's `flip`). A file or an
     // agent chat (a viewer over the page) is only moved to: Enter opens it.
-    if (lit !== null && next !== at) {
+    // Only with a card in front: with none, the lit row is the current chat's own, and a step only moves.
+    if (front && lit !== null && next !== at) {
       const item = windowed.find((i) => i.key === rows[next].dataset.recentItem)
       if (item && flips(item)) open(item)
     }
@@ -311,6 +372,17 @@ function RecentsPanel({ active, mode, front, onContent, shown }: PagePanelProps 
             data-recents=""
             className="ph-no-capture flex flex-col gap-3"
           >
+            {/* The agent, pinned (Liam, 11-25: "a pinned chat, your main agent's chat, so you can easily go back"): above every heading, never filtered. */}
+            <ul data-recents-pinned="" className="flex flex-col">
+              <li>
+                <PinnedAgentRow lit={lit === PINNED_AGENT_KEY} marked={marked === PINNED_AGENT_KEY} />
+              </li>
+              {chat.kind === 'code-new' && (
+                <li>
+                  <NewCodingChatRow lit={lit === NEW_CODING_CHAT_KEY} marked={marked === NEW_CODING_CHAT_KEY} />
+                </li>
+              )}
+            </ul>
             {!has && (
               <p data-recents-empty="" className="px-2 py-4 text-center text-xs text-muted-foreground">
                 What you open and work on shows here.
@@ -338,7 +410,7 @@ function RecentsPanel({ active, mode, front, onContent, shown }: PagePanelProps 
                   <ul className="flex flex-col">
                     {group.items.map((item) => (
                       <li key={item.key}>
-                        <RecentRow item={item} now={readAt} lit={item.key === lit} onOpen={open} />
+                        <RecentRow item={item} now={readAt} lit={item.key === lit} marked={item.key === marked} onOpen={open} />
                       </li>
                     ))}
                   </ul>
@@ -448,31 +520,121 @@ function RecentsFilterBar({
 /** The rail's lit tint (rail/app-rail.tsx ITEM_ACTIVE), for the row whose card is in front. */
 const ROW_LIT = 'bg-foreground/[0.08] hover:bg-foreground/[0.08]'
 
-function RecentRow({ item, now, lit, onOpen }: { item: RecentItem; now: Date; lit: boolean; onOpen: (item: RecentItem) => void }) {
+/** The thin mark of the current chat's row while a card is in front of it. */
+const ROW_MARKED = 'shadow-[inset_2px_0_0_0_hsl(var(--foreground)/0.35)]'
+const ROW =
+  'flex h-8 w-full items-center gap-2.5 rounded-xl px-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring motion-reduce:transition-none'
+
+/**
+ * The agent's own chat, pinned at the top of Recent (docs/plans/one-home.md):
+ * one press from anywhere on Home is "back to my agent". Its name and icon
+ * (one-home-decisions.ts PINNED_AGENT_SUFFIX). While the person is on another
+ * chat: a quiet pulse while it replies, a dot once a reply finished unseen.
+ */
+function PinnedAgentRow({ lit, marked }: { lit: boolean; marked: boolean }) {
+  const { name } = useAssistantName()
+  const { busy } = useChatFeed()
+  const unseen = useSyncExternalStore(subscribeCurrentChat, agentHasUnseenReply, () => false)
+  return (
+    <button
+      type="button"
+      data-recent-pinned={PINNED_AGENT_KEY}
+      data-recent-current={marked ? '' : undefined}
+      data-recent-working={busy && !lit ? '' : undefined}
+      aria-current={lit ? 'true' : undefined}
+      onClick={() => {
+        // Its chat in front again, whatever page was open over it (as the toggle's agent side).
+        closeFrontCards()
+        backToAgent({ from: 'recents' })
+      }}
+      title={`${name}${PINNED_AGENT_SUFFIX}: your agent’s chat`}
+      className={cn(ROW, lit ? ROW_LIT : 'hover:bg-muted/60', marked && ROW_MARKED)}
+    >
+      <span aria-hidden data-recent-icon="" className="flex w-4 shrink-0 items-center justify-center text-muted-foreground">
+        <AgentIcon className={cn('size-4', busy && !lit && 'motion-safe:animate-pulse')} />
+      </span>
+      <span data-recent-title="" className={cn('min-w-0 flex-1 truncate text-[13px] text-foreground', unseen && 'font-medium')}>
+        {name}
+        {PINNED_AGENT_SUFFIX}
+      </span>
+      {busy && !lit && <span className="sr-only">, replying</span>}
+      {unseen && (
+        <span data-recent-dot="" className="size-1.5 shrink-0 rounded-full bg-primary">
+          <span className="sr-only">, replied</span>
+        </span>
+      )}
+    </button>
+  )
+}
+
+/** The new coding chat, while it is the current chat and nothing is sent: where the person is, in the list. Gone on a send or on leaving. */
+function NewCodingChatRow({ lit, marked }: { lit: boolean; marked: boolean }) {
+  return (
+    <button
+      type="button"
+      data-recent-provisional={NEW_CODING_CHAT_KEY}
+      data-recent-current={marked ? '' : undefined}
+      aria-current={lit ? 'true' : undefined}
+      onClick={() => newCodingChat({ from: 'recents' })}
+      className={cn(ROW, lit ? ROW_LIT : 'hover:bg-muted/60', marked && ROW_MARKED)}
+    >
+      <span aria-hidden data-recent-icon="" className="flex w-4 shrink-0 items-center justify-center text-muted-foreground">
+        <Plus className="size-4" strokeWidth={1.75} />
+      </span>
+      <span data-recent-title="" className="min-w-0 flex-1 truncate text-[13px] text-foreground">
+        New coding chat
+      </span>
+    </button>
+  )
+}
+
+function RecentRow({ item, now, lit, marked = false, onOpen }: { item: RecentItem; now: Date; lit: boolean; marked?: boolean; onOpen: (item: RecentItem) => void }) {
+  // A coding chat: the coding icon and its state (docs/plans/one-home.md).
+  const code = item.type === 'code_job' ? (item.codeState ?? 'done') : null
+  const words = code ? CODE_ROW_STATE_WORDS[code] : ''
   return (
     <button
       type="button"
       data-recent-item={item.key}
       data-recent-needs-you={item.needsYou ? '' : undefined}
+      data-recent-code={code ?? undefined}
+      data-recent-current={marked ? '' : undefined}
       aria-current={lit ? 'true' : undefined}
       onClick={() => onOpen(item)}
-      // The whole title (and where it sits) for the pointer: the row cuts it to one line.
-      title={item.context ? `${item.title} · ${item.context}` : item.title}
-      className={cn(
-        'flex h-8 w-full items-center gap-2.5 rounded-xl px-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring motion-reduce:transition-none',
-        lit ? ROW_LIT : 'hover:bg-muted/60',
-      )}
+      // The whole title (and where it sits, a coding chat's state) for the pointer: the row cuts it to one line.
+      title={[item.codeAction, item.title, item.context, words].filter(Boolean).join(' · ')}
+      className={cn(ROW, lit ? ROW_LIT : 'hover:bg-muted/60', marked && ROW_MARKED)}
     >
       {/* The glyph alone, no tile (Liam, 11-11), in a fixed slot so the titles line up. */}
       <span aria-hidden data-recent-icon="" className="flex w-4 shrink-0 items-center justify-center text-muted-foreground">
-        <EntityIcon kind={item.type} size="md" fallback={item.type === 'code_job' ? SquareTerminal : Building2} />
+        {code ? (
+          <span className="relative flex items-center justify-center">
+            <Code2 data-recent-code-icon="" className={cn('size-4', code === 'working' && 'motion-safe:animate-pulse')} strokeWidth={1.75} />
+            {code === 'failed' && <TriangleAlert data-recent-code-failed="" className="absolute -bottom-1 -right-1.5 size-2.5 text-amber-600 dark:text-amber-500" strokeWidth={2.25} />}
+          </span>
+        ) : (
+          <EntityIcon kind={item.type} size="md" fallback={Building2} />
+        )}
       </span>
-      <span data-recent-title="" className={cn('min-w-0 flex-1 truncate text-[13px] text-foreground', item.needsYou && 'font-medium')}>
+      <span data-recent-title="" className={cn('min-w-0 flex-1 truncate text-[13px] text-foreground', item.needsYou && 'font-medium', code === 'failed' && 'text-muted-foreground')}>
+        {/* The action it works, by its identifier: which actions are being worked on. */}
+        {item.codeAction && (
+          <span data-recent-code-action="" className="mr-1.5 text-[11px] font-normal tabular-nums text-muted-foreground">
+            {item.codeAction}
+          </span>
+        )}
         {item.title}
       </span>
+      {code && words && !item.needsYou && <span className="sr-only">, {words}</span>}
+      {code === 'queued' && (
+        <span data-recent-code-queued="" className="shrink-0 text-[11px] text-muted-foreground">
+          Queued
+        </span>
+      )}
       {item.needsYou && (
-        <span data-recent-dot="" className="size-1.5 shrink-0 rounded-full bg-primary">
-          <span className="sr-only">, needs you</span>
+        // A coding chat's dot is orange (Liam, 11-20: the Code tab's dot, now on the chat's own row).
+        <span data-recent-dot="" className={cn('size-1.5 shrink-0 rounded-full', code ? 'bg-orange-500' : 'bg-primary')}>
+          <span className="sr-only">, {code ? words : 'needs you'}</span>
         </span>
       )}
       <time dateTime={item.at} className="shrink-0 text-[11px] tabular-nums text-muted-foreground">

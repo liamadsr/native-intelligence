@@ -1,5 +1,6 @@
-// The Browser (as in Ableton Live): places on the left, their contents on the right, a preview of the selected file
-// underneath. In a workspace there are two fixed places: the Studio library (every video, image and sound already
+// The Browser: a place picked at the top, its contents in the full width under it, a preview of the selected file
+// underneath once one is picked (Liam, 11-24: the side-by-side places and contents with an empty preview "looks like
+// poop"; he chose a picker at the top). In a workspace there are two fixed places: the Studio library (every video, image and sound already
 // imported) and the workspace's own Files (images, video and sound attached to captures, actions and projects).
 // Under them, "This computer": folders the person links from their own computer (local-folders.ts). The server can't
 // read this computer, so a linked folder is listed, searched and previewed in this page, and a file from it is
@@ -12,6 +13,7 @@ import type { EditorJob } from '@/lib/studio/engine/api';
 import { isDesktopApp } from '@/lib/platform';
 import { finishedJob, importFile, request } from './client';
 import { Icon, type IconName } from './icons';
+import { StudioSelect } from './controls';
 import { isMenuKey, useContextMenu, type MenuItem } from './ContextMenu';
 import { importableFile, isLocalPlace, LocalFolderError, localFolders, localFoldersFor, type LocalPlaceView } from './local-folders';
 import { forgetThumbs, localThumb } from './local-thumbs';
@@ -212,19 +214,15 @@ export function BrowserPanel({ add, disabled, notify }: { add: (item: BrowserIte
       else { const parent = selected.path.split('/').slice(0, -1).join('/'); const r = entryRows.find(r => r.entry.path === parent); if (r) setSelected(r.entry); }
     }
     else if (ev.key === 'Enter' && selected) { ev.preventDefault(); if (selected.kind === 'folder' && !results) toggle(selected); else addEntry(selected); }
+    else if (ev.key === 'Escape' && selected) { ev.preventDefault(); setSelected(null); }
     else if (ev.key === ' ') { ev.preventDefault(); window.dispatchEvent(new CustomEvent('ni-studio-browser-preview-toggle')); }
     else if (isMenuKey(ev) && selected) { ev.preventDefault(); const row = listRef.current?.querySelector(`[data-row="${CSS.escape(selected.path)}"]`); if (row) entryMenu({ ...ev, currentTarget: row, clientX: 0, clientY: 0 } as unknown as React.KeyboardEvent, selected); }
   };
 
-  const placeRow = (p: Place) => {
-    const l = p.local, state = l && l.status !== 'ready' ? ` s-${l.status}` : '';
-    const title = !l ? p.name : l.status === 'ask' ? `${p.name}: allow access to open it` : l.status === 'choose-again' ? `${p.name}: choose it again to open it` : l.status === 'missing' ? `${p.name}: can’t be found` : l.mode === 'session' ? `${p.name}: linked until the page reloads` : p.name;
-    return <div key={p.id} className={`ab-place${p.id === placeId ? ' on' : ''}${p.available || l ? '' : ' missing'}${l ? ' local' : ''}${state}`} title={title} onContextMenu={event => placeMenu(event, p)}>
-      <button onClick={() => open(p.id)} onKeyDown={e => { if (isMenuKey(e)) { e.preventDefault(); placeMenu({ ...e, currentTarget: e.currentTarget, clientX: 0, clientY: 0 } as unknown as React.KeyboardEvent, p); } }}>
-        <Icon name={l ? (l.status === 'missing' ? 'warning' : 'folder') : p.id === 'files' ? 'folder' : 'clip'} size={14} /><span>{p.name}</span></button>
-      {l ? <button className="ab-place-x" aria-label={`Remove ${p.name} from the Browser`} title="Remove from the Browser" onClick={() => void removeLocal(p)}><Icon name="close" size={12} /></button> : null}
-    </div>;
-  };
+  /** A place's name in the picker, with what it needs when it can't be opened just now. */
+  const placeName = (p: Place) => { const l = p.local;
+    return !l || l.status === 'ready' || l.status === 'checking' ? p.name : l.status === 'ask' ? `${p.name} (allow access)` : l.status === 'choose-again' ? `${p.name} (choose it again)` : `${p.name} (can’t be found)`; };
+  const noteId = React.useId();
 
   /** What the list shows for a linked folder that can't be opened just now. */
   const localCard = (p: Place, l: LocalPlaceView) => <div className="ab-empty ab-local-state">
@@ -238,20 +236,21 @@ export function BrowserPanel({ add, disabled, notify }: { add: (item: BrowserIte
 
   const local = place?.local ?? null;
   return <aside className="asset-browser" style={{ width }} aria-label="Browser" onKeyDown={ev => { if (!ev.metaKey && !ev.ctrlKey) ev.stopPropagation(); }}>
+    {/* Where to look: the workspace's places and the folders linked from this computer, in one picker; beside it,
+        a linked folder's remove and the button that links another. */}
+    <div className="ab-top" onContextMenu={event => { if (place?.local) placeMenu(event, place); }}>
+      <StudioSelect className="ab-place-pick" aria-label="Place" value={placeId ?? ''} onChange={id => open(id)} disabled={!places.length}>
+        <optgroup label="Workspace">{(serverPlaces ?? []).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</optgroup>
+        {localPlaces.length ? <optgroup label="This computer">{localPlaces.map(p => <option key={p.id} value={p.id}>{placeName(p)}</option>)}</optgroup> : null}
+      </StudioSelect>
+      {place?.local ? <button className="ab-tool" aria-label={`Remove ${place.name} from the Browser`} title="Remove from the Browser (the folder and its files stay where they are)" onClick={() => void removeLocal(place)}><Icon name="close" size={14} /></button> : null}
+      {folders ? <button className="ab-tool" onClick={() => void addFolder()} aria-label={support === 'files' ? 'Add files from this computer' : 'Add a folder from this computer'} aria-describedby={noteId}
+        title={`${support === 'files' ? 'Add files from this computer' : 'Add a folder from this computer'}. ${support === 'kept' ? 'This browser keeps the link.' : 'Linked until the page reloads.'} Nothing leaves this computer until you add a file.`}><Icon name="plus" size={14} /></button> : null}
+      {folders ? <span id={noteId} className="sr-only">Nothing leaves this computer until you add a file. An added file goes to this workspace’s Studio library.</span> : null}
+    </div>
     <div className="ab-search"><Icon name="search" size={14} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder={place ? `Search ${place.name}` : 'Search everything'} aria-label="Search the Browser" onKeyDown={e => { if (e.key === 'Escape') setQuery(''); if (e.key === 'ArrowDown') { e.preventDefault(); listRef.current?.focus(); if (entryRows[0]) setSelected(entryRows[0].entry); } }} />{query ? <button className="ab-clear" aria-label="Clear search" title="Clear search" onClick={() => setQuery('')}><Icon name="close" size={14} /></button> : null}</div>
     <div className="ab-filters" role="tablist" aria-label="File types">{FILTERS.map(f => <button key={f.label} role="tab" aria-selected={filter === f.kind} className={filter === f.kind ? 'on' : ''} onClick={() => setFilter(f.kind)}>{f.label}</button>)}</div>
     <div className="ab-body">
-      <nav className="ab-places" aria-label="Places">
-        <div className="ab-head">Places</div>
-        {(serverPlaces ?? []).map(placeRow)}
-        {folders ? <>
-        <div className="ab-head ab-head-local">This computer</div>
-        {localPlaces.map(placeRow)}
-        <button className="ab-add" onClick={() => void addFolder()} title={support === 'kept' ? 'Link a folder. This browser keeps the link.' : 'Link a folder until the page reloads.'}>
-          <Icon name="plus" size={12} /><span>{support === 'files' ? 'Add files from this computer' : 'Add a folder from this computer'}</span></button>
-        <p className="ab-local-note">Nothing leaves this computer until you add a file. An added file goes to this workspace’s Studio library.</p>
-        </> : null}
-      </nav>
       <div className="ab-list" ref={listRef} tabIndex={0} onKeyDown={onKey} role="tree" aria-label={place ? place.name : 'Files'}>
         {!serverPlaces ? <div className="ab-empty"><Icon name="folder" size={22} /><p>Loading…</p></div>
           : local && !place!.available && !results ? localCard(place!, local)
@@ -359,7 +358,8 @@ function Preview({ entry, owner, info, autoPlay, setAutoPlay, add, disabled, onM
     }).catch(() => {});
     return done;
   }, [entry, owner, local]);
-  if (!entry || !owner) return <div className="ab-preview empty"><span>Select a file to preview it</span></div>;
+  // Nothing picked: no strip at all, the list keeps the height.
+  if (!entry || !owner) return null;
   const src = local ? localSrc : fileUrl(owner, entry.path), meta = [info?.width ? `${info.width}×${info.height}` : '', clock(info?.durationSeconds), entry.kind === 'image' ? '' : info?.codec?.toUpperCase() ?? '', bytes(info?.size ?? entry.size)].filter(Boolean).join(' · ');
   const duration = info?.durationSeconds ?? 0;
   const measured = (m: HTMLVideoElement | HTMLAudioElement) => { if (local) onMeta({ durationSeconds: Number.isFinite(m.duration) ? m.duration : undefined, ...('videoWidth' in m && m.videoWidth ? { width: m.videoWidth, height: m.videoHeight } : {}) }); };

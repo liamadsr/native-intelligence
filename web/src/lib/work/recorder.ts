@@ -274,6 +274,13 @@ class Recorder implements WorkHandle {
   private steps: WorkStep[]
   private readonly title: string
   private quiet: boolean
+  /**
+   * A Dreamer run's row (source.server_helper 'dreamer', agent-run-mirror.ts;
+   * docs/plans/dreamer.md): research for the main agent, never shown to the
+   * person, so no move writes a teammate report or asks for a home turn, in
+   * any status. Its findings reach the parent through its own report.
+   */
+  private readonly silent: boolean
   private readonly deadlines: WorkDeadlines
   /** Last write by THIS handle — the step-coalescing clock (0 on attach so a
    *  re-attached handle's first step always writes at once). */
@@ -311,6 +318,7 @@ class Recorder implements WorkHandle {
     this.startedAt = row.started_at
     this.title = row.title
     this.quiet = opts.quiet ?? row.source?.quiet === true
+    this.silent = row.source?.server_helper === 'dreamer'
     this.child = workLogFacts(row).child
     const flowId = (row.source as { flow_id?: unknown } | null | undefined)?.flow_id
     this.flowId = typeof flowId === 'string' && flowId ? flowId : null
@@ -639,7 +647,8 @@ class Recorder implements WorkHandle {
       // no push goes out too. A question or a failure keeps its push: a quiet
       // turn must never leave one unseen.
       // A `done` reports only when its producer asked (a meeting prep: FinishWorkArgs.reportDone).
-      const reportable = isTeammateReportStatus(to) && (to !== 'done' || opts.reportDone === true)
+      // Never a Dreamer's (this.silent): its row reports nothing, in any status.
+      const reportable = !this.silent && isTeammateReportStatus(to) && (to !== 'done' || opts.reportDone === true)
       // A question asks at home even when no chat asked for the work (P13: a
       // loop's run, a Start, a coding run's pre-check): never a For you card.
       const asksHome = to === 'needs_input' && !this.quiet && !opts.quiet

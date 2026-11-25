@@ -17,7 +17,11 @@
 //!   `studio-recorder://stopped` (the stop payload, or { sessionId, cancelled }),
 //!   `studio-recorder://error` { sessionId?, message, fatal },
 //!   `studio-recorder://upload` { sessionId, role, uploadedBytes, totalBytes, partsDone, partsTotal },
-//!   `studio-recorder://segment` { sessionId, role, index, kind, offset, length, endSeconds, startPts }.
+//!   `studio-recorder://segment` { sessionId, role, index, kind, offset, length, endSeconds, startPts },
+//!   `studio-recorder://live-words` { sessionId, seq, final, words: [{ text, startMs, endMs }] } (the words heard
+//!   while the take records, for the control's script and checklist: [`LiveGate`]; never sent off this computer);
+//! - `studio_recorder_control_size` grows the control into its script-and-checklist panel and back (only the
+//!   control's own page may call it: [`may_size_control`]).
 //!
 //! Uploads while recording: the sidecar writes each file in segments and says
 //! so (`segment`). The page, which holds the person's session, asks the Studio
@@ -75,6 +79,9 @@ pub const ERROR_EVENT: &str = "studio-recorder://error";
 pub const UPLOAD_EVENT: &str = "studio-recorder://upload";
 pub const SEGMENT_EVENT: &str = "studio-recorder://segment";
 pub const WORDS_EVENT: &str = "studio-recorder://words";
+pub const LIVE_WORDS_EVENT: &str = "studio-recorder://live-words";
+/// Interim words go to the page at most this often (the latest guess wins); final words go at once.
+const LIVE_INTERIM_EVERY: Duration = Duration::from_millis(150);
 /// Written into a take folder the page let go of, before it is removed (the sweep finishes a removal cut short).
 const RELEASED_FILE: &str = "released";
 /// The stop payload (without the trace), kept beside the take: what files a take no page has again (after a restart).
@@ -460,32 +467,108 @@ struct SttTap {
 }
 
 impl SttTap {
-    fn start(launch: crate::modules::manager::LaunchConfig, path: PathBuf) -> SttTap {
+    fn start(launch: crate::modules::manager::LaunchConfig, path: PathBuf, live: LiveOut) -> SttTap {
         let done = Arc::new(AtomicBool::new(false));
         let flag = done.clone();
-        let task = tauri::async_runtime::spawn(async move { tail(launch, path, flag).await });
+        let task = tauri::async_runtime::spawn(async move { tail(launch, path, flag, live).await });
         SttTap { done, task }
+    }
+}
+
+/// Where live-words events go (the app's own windows, from [`studio_recorder_start`]; a test's list).
+type LiveOut = Box<dyn FnMut(Value) + Send>;
+
+/// The words heard while a take records, paced for the page: every final at once, in order; interims (the
+/// recognizer's guess at the words being said, replaced by each next one) at most once per [`LIVE_INTERIM_EVERY`],
+/// the latest winning, and a guess still waiting when a final comes is dropped (the final says it). Each event has
+/// the next `seq`. Times are milliseconds from the microphone file's first sample. It only decides what to send:
+/// the words kept for the transcript after Stop are collected beside it, untouched ([`collect`]).
+#[derive(Default)]
+pub struct LiveGate {
+    seq: u64,
+    last_interim: Option<std::time::Instant>,
+    pending: Option<Vec<Value>>,
+}
+
+impl LiveGate {
+    fn words(words: &[stt::SttWord]) -> Vec<Value> {
+        words
+            .iter()
+            .filter(|w| !w.word.trim().is_empty())
+            .map(|w| {
+                let start = (w.start * 1000.0).round().max(0.0);
+                json!({ "text": w.word, "startMs": start, "endMs": (w.end * 1000.0).round().max(start) })
+            })
+            .collect()
+    }
+
+    fn event(&mut self, is_final: bool, words: Vec<Value>) -> Value {
+        let event = json!({ "seq": self.seq, "final": is_final, "words": words });
+        self.seq += 1;
+        event
+    }
+
+    /// What to send for one result heard at `now`.
+    pub fn heard(&mut self, results: &stt::SttResults, now: std::time::Instant) -> Vec<Value> {
+        let words = Self::words(&results.words);
+        if results.is_final {
+            self.pending = None;
+            if words.is_empty() {
+                return Vec::new();
+            }
+            return vec![self.event(true, words)];
+        }
+        let due = self.last_interim.map_or(true, |at| now.duration_since(at) >= LIVE_INTERIM_EVERY);
+        if due {
+            self.pending = None;
+            self.last_interim = Some(now);
+            return vec![self.event(false, words)];
+        }
+        self.pending = Some(words);
+        Vec::new()
+    }
+
+    /// The waiting interim, once it is due.
+    pub fn tick(&mut self, now: std::time::Instant) -> Option<Value> {
+        let due = self.last_interim.map_or(true, |at| now.duration_since(at) >= LIVE_INTERIM_EVERY);
+        if !due {
+            return None;
+        }
+        let words = self.pending.take()?;
+        self.last_interim = Some(now);
+        Some(self.event(false, words))
+    }
+}
+
+/// One event from the engine: its final words kept for the transcript (in the engine's order, whatever is sent
+/// live), a failure noted, and what the gate lets through sent to `live`.
+fn collect(event: stt::VoiceSttEvent, words: &mut Vec<stt::SttWord>, failed: &mut bool, gate: &mut LiveGate, live: &mut LiveOut, now: std::time::Instant) {
+    match event {
+        stt::VoiceSttEvent::Results(r) => {
+            for out in gate.heard(&r, now) {
+                live(out);
+            }
+            if r.is_final {
+                words.extend(r.words);
+            }
+        }
+        stt::VoiceSttEvent::Failed { reason } => {
+            log_to_file(&format!("[studio-recorder] local transcription failed: {reason}"));
+            *failed = true;
+        }
+        _ => {}
     }
 }
 
 /// Feed `path` (growing f32le PCM) to a local-stt session until `done` and
 /// the end of the file; the final words in order, or None if the engine
 /// failed.
-async fn tail(launch: crate::modules::manager::LaunchConfig, path: PathBuf, done: Arc<AtomicBool>) -> Option<Vec<stt::SttWord>> {
+async fn tail(launch: crate::modules::manager::LaunchConfig, path: PathBuf, done: Arc<AtomicBool>, mut live: LiveOut) -> Option<Vec<stt::SttWord>> {
     let (sink, mut handle) = stt::start_voice(launch);
     let mut words: Vec<stt::SttWord> = Vec::new();
     let mut failed = false;
-    // Final words are kept; a failure ends the transcript (the web falls back).
-    fn collect(event: stt::VoiceSttEvent, words: &mut Vec<stt::SttWord>, failed: &mut bool) {
-        match event {
-            stt::VoiceSttEvent::Results(r) if r.is_final => words.extend(r.words),
-            stt::VoiceSttEvent::Failed { reason } => {
-                log_to_file(&format!("[studio-recorder] local transcription failed: {reason}"));
-                *failed = true;
-            }
-            _ => {}
-        }
-    }
+    let mut gate = LiveGate::default();
+    // Final words are kept; a failure ends the transcript (the web falls back). Live words go out beside them.
 
     let mut file = loop {
         match tokio::fs::File::open(&path).await {
@@ -498,7 +581,10 @@ async fn tail(launch: crate::modules::manager::LaunchConfig, path: PathBuf, done
     let mut carry: Vec<u8> = Vec::new();
     while let Some(f) = file.as_mut() {
         while let Ok(event) = handle.events.try_recv() {
-            collect(event, &mut words, &mut failed);
+            collect(event, &mut words, &mut failed, &mut gate, &mut live, std::time::Instant::now());
+        }
+        if let Some(out) = gate.tick(std::time::Instant::now()) {
+            live(out);
         }
         if failed {
             return None;
@@ -531,7 +617,7 @@ async fn tail(launch: crate::modules::manager::LaunchConfig, path: PathBuf, done
     let flushed = tokio::time::timeout(TRANSCRIPT_TIMEOUT, async {
         while let Some(event) = handle.events.recv().await {
             let end = matches!(event, stt::VoiceSttEvent::Finished | stt::VoiceSttEvent::Failed { .. });
-            collect(event, &mut words, &mut failed);
+            collect(event, &mut words, &mut failed, &mut gate, &mut live, std::time::Instant::now());
             if end {
                 break;
             }
@@ -621,7 +707,15 @@ pub async fn studio_recorder_start(app: AppHandle, options: StudioRecorderStartO
         .filter(|p| p.starts_with(&dir));
     let launch = pcm.as_ref().and_then(|_| app.state::<crate::modules::ModuleManager>().launch_config(&app, stt::MODULE_ID));
     let stt = match (pcm, launch) {
-        (Some(path), Some(launch)) => Some(SttTap::start(launch, path)),
+        (Some(path), Some(launch)) => {
+            // To the app's own windows only (the control's script and checklist): live words never leave this computer.
+            let (app, session) = (app.clone(), session_id.clone());
+            let live: LiveOut = Box::new(move |mut event: Value| {
+                event["sessionId"] = json!(session);
+                let _ = app.emit(LIVE_WORDS_EVENT, event);
+            });
+            Some(SttTap::start(launch, path, live))
+        }
         _ => None,
     };
 
@@ -640,6 +734,8 @@ pub async fn studio_recorder_start(app: AppHandle, options: StudioRecorderStartO
 
     started["sessionId"] = json!(session_id);
     started["transcription"] = json!(if stt.is_some() { "local" } else { "none" });
+    // This build sends `studio-recorder://live-words` while the take records (older builds leave the field out).
+    started["liveWords"] = json!(stt.is_some());
     if let Some(map) = started.as_object_mut() {
         // Internal: the page never needs the raw paths of these.
         map.remove("transcriptionPcm");
@@ -2124,6 +2220,66 @@ pub fn studio_recorder_hide_control(app: AppHandle) {
     }
 }
 
+/// The biggest the control grows (its script-and-checklist panel), in points; never past its display.
+const PANEL_MAX_W: f64 = 720.0;
+const PANEL_MAX_H: f64 = 900.0;
+/// Kept between the control and its display's edges.
+const SCREEN_MARGIN: f64 = 8.0;
+
+/// Only the control's own page sizes the control.
+pub fn may_size_control(caller: &str) -> bool {
+    caller == CONTROL_LABEL
+}
+
+/// The control's frame `(x, y, w, h)` for a wanted size, given where it is and its display's work area
+/// `(x, y, w, h)`, all in points: the size between the pill's and the panel's largest (and the area's, less a
+/// margin), and the position moved just enough to keep all of it on that display.
+pub fn control_frame(want: (f64, f64), at: (f64, f64), area: (f64, f64, f64, f64)) -> (f64, f64, f64, f64) {
+    let (ax, ay, aw, ah) = area;
+    let fit = |want: f64, min: f64, max: f64, room: f64| {
+        let want = if want.is_finite() { want } else { min };
+        want.clamp(min, max.min(room - 2.0 * SCREEN_MARGIN).max(min)).round()
+    };
+    let w = fit(want.0, CONTROL_W, PANEL_MAX_W, aw);
+    let h = fit(want.1, CONTROL_H, PANEL_MAX_H, ah);
+    let place = |at: f64, start: f64, room: f64, size: f64| {
+        let (lo, hi) = (start + SCREEN_MARGIN, start + room - size - SCREEN_MARGIN);
+        let at = if at.is_finite() { at } else { lo };
+        if hi < lo { start } else { at.clamp(lo, hi).round() }
+    };
+    (place(at.0, ax, aw, w), place(at.1, ay, ah, h), w, h)
+}
+
+/// Grow the recording control into its panel (the script and checklist) or back to the pill: `{width, height}` in
+/// points, clamped ([`control_frame`]) and kept on its display, the one it is on now (after a display was
+/// unplugged or rearranged: the main one). Answers the frame it got. Only the control's own page may call it.
+#[tauri::command]
+pub fn studio_recorder_control_size(app: AppHandle, webview: tauri::WebviewWindow, width: f64, height: f64) -> Result<Value, String> {
+    if !may_size_control(webview.label()) {
+        return Err(refusal("forbidden", "only the recording control sizes itself"));
+    }
+    let window = app.get_webview_window(CONTROL_LABEL).ok_or_else(|| refusal("not-found", "the recording control is not open"))?;
+    let monitor = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.primary_monitor().ok().flatten())
+        .ok_or_else(|| refusal("window", "no display"))?;
+    let scale = monitor.scale_factor();
+    let area = monitor.work_area();
+    let area = (
+        area.position.x as f64 / scale,
+        area.position.y as f64 / scale,
+        area.size.width as f64 / scale,
+        area.size.height as f64 / scale,
+    );
+    let at = window.outer_position().map(|p| (p.x as f64 / scale, p.y as f64 / scale)).unwrap_or((area.0, area.1));
+    let (x, y, w, h) = control_frame((width, height), at, area);
+    window.set_size(tauri::LogicalSize::new(w, h)).map_err(|e| refusal("window", e))?;
+    window.set_position(tauri::LogicalPosition::new(x, y)).map_err(|e| refusal("window", e))?;
+    Ok(json!({ "width": w, "height": h }))
+}
+
 fn show_without_focus(window: &tauri::WebviewWindow) {
     #[cfg(target_os = "macos")]
     {
@@ -2160,6 +2316,114 @@ fn control_position(app: &AppHandle) -> (f64, f64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn results(is_final: bool, text: &str, at: f64) -> stt::SttResults {
+        let words: Vec<stt::SttWord> = text
+            .split(' ')
+            .enumerate()
+            .map(|(i, w)| stt::SttWord { word: w.into(), start: at + i as f64 * 0.3, end: at + i as f64 * 0.3 + 0.25, confidence: 0.9 })
+            .collect();
+        stt::SttResults { is_final, speech_final: is_final, from_finalize: false, transcript: text.into(), start: at, duration: 1.0, words }
+    }
+    fn texts(event: &Value) -> String {
+        event["words"].as_array().unwrap().iter().map(|w| w["text"].as_str().unwrap()).collect::<Vec<_>>().join(" ")
+    }
+
+    #[test]
+    fn live_words_send_finals_at_once_and_interims_at_most_every_150_ms() {
+        let t0 = std::time::Instant::now();
+        let ms = |n: u64| t0 + Duration::from_millis(n);
+        let mut gate = LiveGate::default();
+        let first = gate.heard(&results(false, "open the", 0.0), ms(0));
+        assert_eq!(first.len(), 1, "the first guess goes at once");
+        assert_eq!(first[0]["final"], json!(false));
+        assert!(gate.heard(&results(false, "open the deals", 0.0), ms(50)).is_empty(), "too soon: held");
+        assert!(gate.heard(&results(false, "open the deals board", 0.0), ms(100)).is_empty(), "the latest replaces it");
+        assert!(gate.tick(ms(120)).is_none());
+        let held = gate.tick(ms(160)).expect("due now");
+        assert_eq!(texts(&held), "open the deals board");
+        assert!(gate.tick(ms(400)).is_none(), "sent once");
+        // A guess waiting when a final comes is dropped; the final goes at once, however soon.
+        assert!(gate.heard(&results(false, "from the", 1.2), ms(200)).is_empty());
+        let fin = gate.heard(&results(true, "open the deals board from the sidebar", 0.0), ms(210));
+        assert_eq!(fin.len(), 1);
+        assert_eq!(fin[0]["final"], json!(true));
+        assert!(gate.tick(ms(1000)).is_none(), "the dropped guess never goes");
+        // Every event numbered in the order sent.
+        let seqs: Vec<u64> = [&first[0], &held, &fin[0]].iter().map(|e| e["seq"].as_u64().unwrap()).collect();
+        assert_eq!(seqs, [0, 1, 2]);
+        // Times are milliseconds from the microphone file's start.
+        assert_eq!(fin[0]["words"][1], json!({ "text": "the", "startMs": 300.0, "endMs": 550.0 }));
+        // A final with no words sends nothing.
+        assert!(gate.heard(&results(true, " ", 3.0), ms(2000)).is_empty());
+    }
+
+    #[test]
+    fn live_words_never_delay_or_reorder_the_words_kept_for_the_transcript() {
+        let t0 = std::time::Instant::now();
+        let events = [
+            results(false, "hello", 0.0),
+            results(false, "hello every", 0.0),
+            results(true, "hello everyone", 0.0),
+            results(false, "today we", 1.0),
+            results(false, "today we will", 1.0),
+            results(true, "today we will look", 1.0),
+            results(false, "at the", 2.0),
+            results(true, "at the board", 2.0),
+        ];
+        // Collected with the gate and a live sink, all at the same instant (the gate holding every interim it can)...
+        let sent = Arc::new(StdMutex::new(Vec::<Value>::new()));
+        let sink = sent.clone();
+        let mut live: LiveOut = Box::new(move |v| sink.lock().unwrap().push(v));
+        let (mut words, mut failed, mut gate) = (Vec::new(), false, LiveGate::default());
+        for e in events.iter().cloned() {
+            collect(stt::VoiceSttEvent::Results(e), &mut words, &mut failed, &mut gate, &mut live, t0);
+        }
+        // ...the kept words are exactly the finals' words, in order, at once: the same as with nothing sent live.
+        let expected: Vec<stt::SttWord> = events.iter().filter(|r| r.is_final).flat_map(|r| r.words.clone()).collect();
+        assert_eq!(words, expected);
+        assert!(!failed);
+        // And the finals went live in the same order, none held back.
+        let sent = sent.lock().unwrap();
+        let finals: Vec<String> = sent.iter().filter(|e| e["final"] == json!(true)).map(texts).collect();
+        assert_eq!(finals, ["hello everyone", "today we will look", "at the board"]);
+        let seqs: Vec<u64> = sent.iter().map(|e| e["seq"].as_u64().unwrap()).collect();
+        assert!(seqs.windows(2).all(|p| p[1] == p[0] + 1), "{seqs:?}");
+    }
+
+    #[test]
+    fn only_the_control_sizes_the_control() {
+        assert!(may_size_control(CONTROL_LABEL));
+        for other in ["main", "meeting-hud", "agent-hud", "call", "dictate", "workspace-1", ""] {
+            assert!(!may_size_control(other), "{other}");
+        }
+    }
+
+    #[test]
+    fn the_control_grows_within_its_bounds_and_stays_on_its_display() {
+        let laptop = (0.0, 25.0, 1512.0, 920.0);
+        // The panel where it was asked for.
+        assert_eq!(control_frame((420.0, 520.0), (546.0, 44.0), laptop), (546.0, 44.0, 420.0, 520.0));
+        // Never smaller than the pill, never bigger than the panel's most.
+        assert_eq!(control_frame((10.0, 10.0), (546.0, 44.0), laptop), (546.0, 44.0, CONTROL_W, CONTROL_H));
+        assert_eq!(control_frame((5000.0, 5000.0), (100.0, 44.0), laptop).2, PANEL_MAX_W);
+        assert_eq!(control_frame((5000.0, 5000.0), (100.0, 44.0), laptop).3, PANEL_MAX_H);
+        // Grown near the right and bottom edges: moved back in, all of it on screen.
+        let (x, y, w, h) = control_frame((600.0, 700.0), (1400.0, 600.0), laptop);
+        assert!(x + w <= 1512.0 - SCREEN_MARGIN && y + h <= 25.0 + 920.0 - SCREEN_MARGIN, "{x} {y} {w} {h}");
+        // A small display: the panel no bigger than it.
+        let small = (0.0, 0.0, 640.0, 480.0);
+        let (_, _, w, h) = control_frame((720.0, 900.0), (0.0, 0.0), small);
+        assert_eq!((w, h), (640.0 - 2.0 * SCREEN_MARGIN, 480.0 - 2.0 * SCREEN_MARGIN));
+        // Left on a display that went away (a position far off this one): brought onto it.
+        let (x, y, _, _) = control_frame((420.0, 520.0), (3500.0, -900.0), laptop);
+        assert!((0.0..1512.0).contains(&x) && (25.0..945.0).contains(&y), "{x} {y}");
+        // A second display to the left, at negative x.
+        let left = (-1920.0, 0.0, 1920.0, 1080.0);
+        assert_eq!(control_frame((420.0, 520.0), (-1000.0, 40.0), left), (-1000.0, 40.0, 420.0, 520.0));
+        // Nonsense in: the pill, in the corner.
+        assert_eq!(control_frame((f64::NAN, f64::INFINITY), (f64::NAN, 0.0), laptop), (SCREEN_MARGIN, 25.0 + SCREEN_MARGIN, CONTROL_W, CONTROL_H));
+    }
 
     fn part(index: u64, bytes: u64) -> UploadPart {
         UploadPart { index, bytes, url: "https://sb.nativeintelligence.dev/x".into(), headers: HashMap::new() }

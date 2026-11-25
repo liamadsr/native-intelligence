@@ -59,7 +59,7 @@ const memory = defineState<{ tokens: number }>('chat-agent.context-parts.memory'
  * read. lib/__tests__/context-parts.test.ts measures the file and holds this
  * within 10% of it: update it when the instructions grow or shrink.
  */
-export const STATIC_INSTRUCTIONS_TOKENS = 7_450
+export const STATIC_INSTRUCTIONS_TOKENS = 2_575
 
 /**
  * The static tools' definitions (../tools/*.ts as the cloud has them: ask_user,

@@ -17,7 +17,7 @@ const finite = z.number().finite(), frame = z.number().int().min(0).max(10_000_0
 const id = z.string().regex(/^[a-zA-Z0-9_-]{1,100}$/);
 const color = z.string().regex(/^#[\da-fA-F]{6}(?:[\da-fA-F]{2})?$/);
 
-export const layerKinds = ['text', 'box', 'highlight', 'arrow', 'spotlight', 'notification', 'card', 'chips', 'image', 'background', 'waveform', 'icons', 'ring', 'particles', 'code'] as const;
+export const layerKinds = ['text', 'box', 'highlight', 'arrow', 'spotlight', 'notification', 'card', 'chips', 'image', 'background', 'waveform', 'icons', 'ring', 'particles', 'code', 'blur'] as const;
 export type LayerKind = typeof layerKinds[number];
 /** In/out animations. The modern ones (blur-in, chars, streak, scatter, zoom-blur, drop) move fast, settle softly and carry motion blur. */
 export const animationPresets = ['none', 'fade', 'pop', 'slide-up', 'slide-down', 'slide-left', 'slide-right', 'zoom', 'blur', 'wipe', 'typewriter', 'words', 'draw',
@@ -197,6 +197,7 @@ export const layerKindInfo: Record<LayerKind, { label: string; help: string }> =
   particles: { label: 'Particles', help: 'Dots that travel from shape to shape — text bursting into dots, a line becoming a waveform, dots gathering into icons or swirling into a ring' },
   image: { label: 'Image', help: 'A picture from your project (logo, avatar, screenshot) that pops in and floats' },
   background: { label: 'Background', help: 'Fills the frame — gradient mesh, glow, colour or photo — for title beats between screens' },
+  blur: { label: 'Blur', help: 'Blurs whatever is under an area: a face, an email address, a number on screen' },
 };
 
 export const textLooks = {
@@ -231,6 +232,8 @@ export function createLayer(kind: LayerKind, layerId: string, startFrame: number
     highlight: { name: 'Highlight', x: 0.5, y: 0.5, width: 0.3, height: 0.08, rotate: 0, opacity: 1, style: { background: '#ffd84d55', stroke: '#ffd84d', strokeWidth: 3, radius: 10 }, enter: anim('wipe', 0.3), exit: anim('fade', 0.2), automation: [] },
     arrow: { name: 'Arrow', x: 0.5, y: 0.5, width: 0.05, height: 0.05, rotate: 0, opacity: 1, style: { stroke: '#ffd84d', strokeWidth: 10, fromX: 0.3, fromY: 0.3, curve: 0.25, shadow: true }, enter: anim('draw', 0.4), exit: anim('fade', 0.2), automation: [] },
     spotlight: { name: 'Spotlight', x: 0.5, y: 0.5, width: 0.35, height: 0.3, rotate: 0, opacity: 1, style: { dim: 0.65, radius: 24 }, enter: anim('fade', 0.35), exit: anim('fade', 0.35), automation: [] },
+    // Blurs what is under it (Liam, 11-24: "a blur thing where you can add it to blur out something"): strength in px at 1080p.
+    blur: { name: 'Blur', x: 0.5, y: 0.5, width: 0.3, height: 0.2, rotate: 0, opacity: 1, style: { blur: 24, radius: 16 }, enter: anim('fade', 0.25), exit: anim('fade', 0.25), automation: [] },
     notification: { name: 'Notification', x: 0.79, y: 0.12, width: 0.36, height: 0.11, rotate: 0, opacity: 1, style: { app: 'Messages', icon: '💬', title: 'New message', text: 'This is amazing!', glass: true, size: 0.022 }, enter: anim('drop', 0.45), exit: anim('blur-in', 0.3), automation: [] },
     card: { name: 'Card', x: 0.5, y: 0.5, width: 0.46, height: 0.18, rotate: 0, opacity: 1, style: { text: 'We’re looking to hire you! 💼', glass: true, size: 0.034 }, enter: anim('zoom-blur', 0.45), exit: anim('blur-in', 0.3), automation: [] },
     chips: { name: 'Chips', x: 0.72, y: 0.4, width: 0.3, height: 0.24, rotate: 0, opacity: 1, style: { items: ['First step', 'Second step', 'Third step'], background: '#f08c2e', color: '#ffffff', size: 0.026, stagger: 9 }, enter: anim('pop', 0.3), exit: anim('fade', 0.25), automation: [] },

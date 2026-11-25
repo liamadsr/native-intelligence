@@ -6,9 +6,8 @@
  *   ComposerTabs      under the box, first: the agent's name (the chat) and Code. The repo's
  *                     ToggleGroup (Radix, type single): one radio group with
  *                     roving focus, so the arrow keys move between the two and
- *                     the one in front is announced as checked. Code wears an
- *                     orange dot while a coding agent's work waits on your
- *                     review (Liam, 11-20), the Code view's own For you.
+ *                     the one in front is announced as checked. Code starts
+ *                     a new coding chat in place (Liam, 11-25).
  *   CodeAgentPicker   in the box's controls row, before the mic (Code only):
  *                     who you work with. Native Intelligence, then "Your
  *                     agents" (what the chat's Mac offers), then "Needs
@@ -47,6 +46,7 @@ import { useAssistantName } from '@/lib/voice/assistant-name-store'
 import type { CodeHeldMessage, ComposerCode } from './composer-code'
 import { Button } from '@/components/ui/button'
 import { useCodeForYouEntries } from './for-you-column'
+import { CODE_TAB_DOT } from './one-home-decisions'
 
 const stop = (e: SyntheticEvent) => e.stopPropagation()
 
@@ -69,8 +69,11 @@ const ROW =
 
 export function ComposerTabs({ tab, onTab }: { tab: ComposerTab; onTab: (tab: ComposerTab) => void }) {
   const { name: agentName } = useAssistantName()
-  // A coding agent's work waiting on your review: the Code tab's orange dot (Liam, 11-20), listed in the Code view's own For you.
-  const waiting = useCodeForYouEntries().length
+  // A coding agent's work waiting on your review. Its orange dot (Liam, 11-20) is on the chat's own row in Recent now
+  // (docs/plans/one-home.md): pressing Code starts a new chat, so a dot here would point at the wrong thing.
+  // one-home-decisions.ts CODE_TAB_DOT puts it back.
+  const reviews = useCodeForYouEntries().length
+  const waiting = CODE_TAB_DOT ? reviews : 0
   return (
     <ToggleGroup
       type="single"

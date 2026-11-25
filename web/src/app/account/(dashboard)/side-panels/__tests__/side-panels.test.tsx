@@ -1006,36 +1006,34 @@ describe('the panel’s two views (Liam, 11-11: “you can’t see both at the s
   })
 })
 
-describe('on Code: the Code view’s own For you (Liam, 11-20)', () => {
-  const codeBox = () => q('[data-side-panel-code-for-you]')
+describe('a coding chat’s panel (docs/plans/one-home.md)', () => {
   const forYouButton = () => q('[data-for-you-panel-toggle]')
 
-  it('tells the store whether it has cards, apart from the agent’s For you', () => {
-    forYou.shared = {}
-    forYou.codeEntries = [{ id: 'mac' }]
-    renderPanel()
-    expect(store.getSidePanelState()).toMatchObject({ forYouContent: false, codeForYouContent: true })
-  })
-
-  it('its button on Code opens a coding agent’s cards (only theirs) in the panel, and closes them; Esc too', () => {
+  it('is its details alone: no For you of its own, and the agent’s For you is not drawn there', () => {
     forYou.shared = {}
     forYou.entries = [{ id: 'brief' }]
     forYou.codeEntries = [{ id: 'mac' }, { id: 'cloud' }]
-    act(() => store.setCodeView(true))
+    act(() => store.setPanelChatKind('code'))
     renderPanel()
-    expect(forYouButton()?.getAttribute('aria-label')).toBe('For you, 2')
-    act(() => forYouButton()!.click())
-    rerender()
-    expect(codeBox()!.hidden).toBe(false)
-    expect(codeBox()!.textContent).toBe('mac,cloud')
+    expect(q('[data-side-panel-code]')).not.toBeNull()
+    expect(q('[data-side-panel-code-for-you]')).toBeNull()
     expect(q('[data-side-panel-for-you]')).toBeNull()
-    act(() => forYouButton()!.click())
+    expect(forYouButton()).toBeNull()
+    // The store holds nothing of a second For you.
+    expect(store.getSidePanelState()).not.toHaveProperty('codeForYou')
+    expect(store.getSidePanelState()).not.toHaveProperty('codeForYouContent')
+    // The agent's own For you still knows its cards, for the way back.
+    expect(store.getSidePanelState().forYouContent).toBe(true)
+  })
+
+  it('Esc closes the details, never the agent’s own panel', () => {
+    act(() => {
+      store.setRightPanelOpen(true)
+      store.setPanelChatKind('code')
+    })
+    renderPanel()
+    key({ key: 'Escape' }, q('[data-side-panel-code]')!)
     rerender()
-    expect(store.shownView(store.getSidePanelState())).toBeNull()
-    act(() => forYouButton()!.click())
-    rerender()
-    key({ key: 'Escape' }, codeBox()!)
-    rerender()
-    expect(store.getSidePanelState().codeForYou).toBe(false)
+    expect(store.getSidePanelState()).toMatchObject({ codeDetailsOpen: false, rightOpen: true })
   })
 })

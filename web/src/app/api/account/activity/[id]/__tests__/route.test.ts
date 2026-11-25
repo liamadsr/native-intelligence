@@ -196,12 +196,24 @@ describe('GET /api/account/activity/[id]?light=1', () => {
     ])
     const res = await GET(lightReq, ctx('mine'))
     expect(res.status).toBe(200)
-    expect(await readJson(res)).toEqual({ item: { id: 'mine', workspace_id: 'w2', ai_team_member_id: 'tm-writer', kind: 'work_run', title: 'Reply to Acme' } })
+    expect(await readJson(res)).toEqual({ item: { id: 'mine', workspace_id: 'w2', ai_team_member_id: 'tm-writer', kind: 'work_run', title: 'Reply to Acme', local_agent_session_id: null } })
   })
 
   it('a row with no teammate says so (null)', async () => {
     const res = await GET(lightReq, ctx('settled'))
-    expect(await readJson(res)).toEqual({ item: { id: 'settled', workspace_id: 'w1', ai_team_member_id: null, kind: 'flow_run', title: 't' } })
+    expect(await readJson(res)).toEqual({ item: { id: 'settled', workspace_id: 'w1', ai_team_member_id: null, kind: 'flow_run', title: 't', local_agent_session_id: null } })
+  })
+
+  it('a coding chat’s turn names its chat (docs/plans/one-home.md: a click opens the chat itself); a source that names none, or another kind’s, does not', async () => {
+    const SESSION = 'c0de0000-0000-4000-8000-000000000001'
+    fake.seed('tracked_job', [
+      { id: 'turn', workspace_id: 'w1', member_id: 'm1', kind: 'local_agent', title: 'Fix the export', status: 'needs_review', source: { local_agent_session_id: SESSION }, progress: {}, deliverables: [], created_at: '2026-11-20T08:00:00.000Z' },
+      { id: 'odd', workspace_id: 'w1', member_id: 'm1', kind: 'local_agent', title: 'No session', status: 'done', source: { local_agent_session_id: 'not-an-id' }, progress: {}, deliverables: [], created_at: '2026-11-20T08:00:00.000Z' },
+      { id: 'other', workspace_id: 'w1', member_id: 'm1', kind: 'work_run', title: 'Not a chat', status: 'done', source: { local_agent_session_id: SESSION }, progress: {}, deliverables: [], created_at: '2026-11-20T08:00:00.000Z' },
+    ])
+    expect(((await readJson(await GET(lightReq, ctx('turn')))) as { item: { local_agent_session_id: string | null } }).item.local_agent_session_id).toBe(SESSION)
+    expect(((await readJson(await GET(lightReq, ctx('odd')))) as { item: { local_agent_session_id: string | null } }).item.local_agent_session_id).toBeNull()
+    expect(((await readJson(await GET(lightReq, ctx('other')))) as { item: { local_agent_session_id: string | null } }).item.local_agent_session_id).toBeNull()
   })
 
   it('404s for a row the caller cannot see', async () => {

@@ -4,6 +4,7 @@
  */
 
 import { isDesktopApp } from "./platform";
+import { isLiveWordsEvent, type LiveWordsEvent } from "./studio/prompter/live-words";
 import { isWorkerId } from "./environments/types";
 import { disposeAll, listenScoped, toSafeUnlisten } from "./tauri-unlisten";
 import type { NudgeKind } from "./live-agent/nudge-channel";
@@ -1600,6 +1601,7 @@ export const STUDIO_RECORDER_STOPPED_EVENT = "studio-recorder://stopped";
 export const STUDIO_RECORDER_ERROR_EVENT = "studio-recorder://error";
 export const STUDIO_RECORDER_UPLOAD_EVENT = "studio-recorder://upload";
 export const STUDIO_RECORDER_SEGMENT_EVENT = "studio-recorder://segment";
+export const STUDIO_RECORDER_LIVE_WORDS_EVENT = "studio-recorder://live-words";
 
 const STUDIO_UNAVAILABLE = "The Studio recorder runs only in a Native Intelligence desktop app that has it.";
 
@@ -1751,6 +1753,27 @@ export const studioRecorder = {
   /** The on-device words of a stopped take, when they arrive: `{sessionId, transcript}` (transcript null when none came). */
   onWords: (cb: (event: { sessionId: string; transcript: unknown }) => void) =>
     onStudioEvent("studio-recorder://words", (raw): raw is { sessionId: string; transcript: unknown } => hasSession(raw), cb),
+  /** Grow the floating control into its script-and-checklist panel, or back to the pill (`{width, height}` in points;
+   *  the app clamps it and keeps it on its display, and answers the size it got). Only the control's own page may:
+   *  any other window is refused with code "forbidden", and a build without the panel answers "unavailable". */
+  controlSize: (width: number, height: number) =>
+    invokeStudio<{ width: number; height: number }>("studio_recorder_control_size", { width, height }, (raw) =>
+      isObject(raw) && typeof raw.width === "number" && typeof raw.height === "number"),
+  /** Whether this build can show the script and checklist in the floating control (asked from any other window:
+   *  the command refuses it, which is how a build that has it answers). Never throws. */
+  hasControlPanel: async (): Promise<boolean> => {
+    if (!isDesktopApp()) return false;
+    try {
+      await invokeStudio<unknown>("studio_recorder_control_size", { width: 0, height: 0 }, () => true);
+      return true;
+    } catch (e) {
+      return e instanceof StudioRecorderError && e.code === "forbidden";
+    }
+  },
+  /** The words heard while a take records (interim guesses and finals, in `seq` order): for the prompter only, they
+   *  go between the app's own windows and never leave this computer. */
+  onLiveWords: (cb: (event: LiveWordsEvent) => void) =>
+    onStudioEvent(STUDIO_RECORDER_LIVE_WORDS_EVENT, isLiveWordsEvent, cb),
   /** Takes on this computer linked to a take on the Studio and not recording now: what a quit or a crash left to send. */
   unfinishedTakes: (holder?: string) =>
     invokeStudio<{ takes: StudioUnfinishedTake[] }>("studio_recorder_unfinished_takes", { holder: holder ?? null }, (raw) => isObject(raw) && Array.isArray(raw.takes)),

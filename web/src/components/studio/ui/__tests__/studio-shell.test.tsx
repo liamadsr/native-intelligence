@@ -71,7 +71,7 @@ async function mount() {
 }
 const main = () => host!.querySelector<HTMLElement>('main.app')!
 const editor = () => main().querySelector<HTMLElement>(':scope > .app-main')!
-const rail = () => main().querySelector<HTMLElement>(':scope > nav[data-studio-rail]')!
+const rail = () => main().querySelector<HTMLElement>(':scope > .studio-top > nav[data-studio-rail]')!
 const page = () => host!.querySelector<HTMLElement>('[data-studio-chooser]')
 const before = (a: Node, b: Node) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
 /** What the Tab key could land on in the editor: its controls not under an inert ancestor. */
@@ -80,9 +80,17 @@ const reachable = (within: HTMLElement) => [...within.querySelectorAll<HTMLEleme
 describe('the Studio’s shell', () => {
   it('puts the pages rail first in the row and the reading order, before the editor, always there', async () => {
     await mount()
-    expect(main().firstElementChild).toBe(rail())
+    // The tab row comes first, and the page tabs first in it after the Browser's toggle.
+    expect(main().firstElementChild).toBe(rail().parentElement)
+    expect(rail().previousElementSibling?.querySelector('[aria-label="Browser"]')).not.toBeNull()
     expect(before(rail(), editor())).toBe(true)
     expect(rail().querySelectorAll('[data-rail-item]')).toHaveLength(6)
+    // The Edit page's side panels open and close from the tab row, each on its panel's side, not from the header
+    // (Liam, 11-24: there they were "easy to miss"): the Browser's before the tabs, the inspector's after them.
+    const row = [...rail().parentElement!.querySelectorAll('button')].map(b => b.getAttribute('aria-label'))
+    expect(row[0]).toBe('Browser')
+    expect(row.at(-1)).toBe('Inspector')
+    expect(host!.querySelector('.app-header [aria-label="Browser"], .app-header [aria-label="Inspector"]')).toBeNull()
     expect(editor().hasAttribute('inert')).toBe(false)
     expect(reachable(editor()).length).toBeGreaterThan(0)
   }, SLOW)

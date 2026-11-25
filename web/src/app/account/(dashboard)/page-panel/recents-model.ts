@@ -30,7 +30,9 @@
  * the list as their own (`sources`). The filter (Status on the dot, Type per
  * kind: filterRecents) narrows what shows.
  */
-import { recentTypeOf, type RecentKind, type RecentSourceEntry, type RecentTypeKey } from '@/lib/entities/recents-model'
+import { recentTypeOf, type RecentCodeInfo, type RecentKind, type RecentSourceEntry, type RecentTypeKey } from '@/lib/entities/recents-model'
+import { codeJobOpen, codeJobWorking } from '@/lib/local-agent/code-tab'
+import type { LocalAgentStatus } from '@/lib/local-agent/store'
 import type { CardSpec } from '@/lib/chat-cards/kinds'
 import type { FeedEntry } from '@/lib/entities/feed-model'
 import { entityOpenTarget } from '@/lib/entity-links/open-entity'
@@ -52,6 +54,71 @@ export interface RecentItem {
   needsYou: boolean
   /** The inbox event's time (ISO), what opening it marks seen; null for a record only in recent. */
   inboxAt: string | null
+  /** A coding chat (`code_job`): its state, as its row shows it. Absent for every other kind. */
+  codeState?: CodeRowState
+  /** A coding chat working an action: the action's identifier (ENG-42), before its title. */
+  codeAction?: string | null
+  /** A coding chat's current work item (ledger row): what its review hangs on. */
+  codeWorkItem?: string | null
+}
+
+/**
+ * A coding chat's state in Recent (docs/plans/one-home.md, "The model"):
+ *   working  its agent works now (a quiet pulse);
+ *   queued   it waits for the Mac (in its line, or for it to come online);
+ *   asks     its agent asked the person something and waits (the orange dot);
+ *   review   it finished and waits on the person's review (the orange dot);
+ *   done     reviewed, or idle after a turn: nothing to say;
+ *   failed   it failed, was stopped or expired (a small warning mark).
+ */
+export type CodeRowState = 'working' | 'queued' | 'asks' | 'review' | 'done' | 'failed'
+
+/** In words, for a screen reader and the row's tooltip; nothing for a chat with nothing to say. */
+export const CODE_ROW_STATE_WORDS: Readonly<Record<CodeRowState, string>> = {
+  working: 'working',
+  queued: 'waiting for your Mac',
+  asks: 'needs your answer',
+  review: 'waits on your review',
+  done: '',
+  failed: 'did not finish',
+}
+
+/** A coding chat's state from its session's columns, and whether its work waits on the person's review. Pure. */
+export function codeRowState(code: Pick<RecentCodeInfo, 'status' | 'lastSignal' | 'queuedOnMac'>, reviewWaiting = false): CodeRowState {
+  const status = code.status as LocalAgentStatus
+  if (!codeJobOpen(status)) return reviewWaiting ? 'review' : status === 'failed' || status === 'expired' || status === 'cancelled' ? 'failed' : 'done'
+  if (status === 'queued' || code.queuedOnMac) return 'queued'
+  if (codeJobWorking(status)) return 'working'
+  if (code.lastSignal === 'ask') return 'asks'
+  return reviewWaiting ? 'review' : 'done'
+}
+
+/** It waits on the person: the orange dot, and Status → Unread. */
+export const codeStateNeedsYou = (state: CodeRowState | undefined): boolean => state === 'asks' || state === 'review'
+
+/** A coding chat's row key (`code_job:<session id>`), as mergeRecents keys it. */
+export const codeChatRowKey = (sessionId: string): string => `code_job:${sessionId}`
+
+/**
+ * The list with one coding chat's row as its conversation's reader holds it
+ * now (the current chat's: no read of the list for what is already on
+ * screen). The same list when nothing changes.
+ */
+export function withLiveCodeChat(
+  items: readonly RecentItem[],
+  live: { sessionId: string; status: string; lastSignal: 'ask' | 'finish' | null; queuedOnMac?: boolean } | null,
+  codeReview: ReadonlySet<string> = NO_REVIEWS,
+): readonly RecentItem[] {
+  if (!live) return items
+  const key = codeChatRowKey(live.sessionId)
+  const at = items.findIndex((i) => i.key === key)
+  if (at < 0) return items
+  const item = items[at]
+  const state = codeRowState({ status: live.status, lastSignal: live.lastSignal, queuedOnMac: !!live.queuedOnMac }, !!item.codeWorkItem && codeReview.has(item.codeWorkItem))
+  if (item.codeState === state) return items
+  const next = [...items]
+  next[at] = { ...item, codeState: state, needsYou: codeStateNeedsYou(state) }
+  return next
 }
 
 /** What the person opened from the panel: `type:id` → the inbox time they saw. */
@@ -61,9 +128,10 @@ export type SeenMap = Readonly<Record<string, string>>
 export const SEEN_MAX = 200
 
 /** A record as either list holds it: a feed entry or a direct read's. */
-type RecentEntry = Pick<FeedEntry, 'id' | 'label' | 'context'> & { type: RecentKind }
+type RecentEntry = Pick<FeedEntry, 'id' | 'label' | 'context'> & { type: RecentKind; code?: RecentCodeInfo }
 
 const keyOf = (e: Pick<RecentEntry, 'type' | 'id'>) => `${e.type}:${e.id}`
+const NO_REVIEWS: ReadonlySet<string> = new Set()
 
 /** Whether a row of this kind opens: a record's card, or one of the kinds read from their own tables. */
 export function canOpenRecent(type: string, id: string, label?: string | null): boolean {
@@ -84,6 +152,7 @@ export function mergeRecents({
   recent,
   sources = null,
   seen = {},
+  codeReview = NO_REVIEWS,
   canOpen = (e) => canOpenRecent(e.type, e.id, e.label),
 }: {
   inbox: readonly FeedEntry[] | null
@@ -91,6 +160,8 @@ export function mergeRecents({
   /** What the person did to records the log doesn't hold, from their own tables (GET /api/account/recents). */
   sources?: readonly RecentSourceEntry[] | null
   seen?: SeenMap
+  /** The work items (ledger rows) of coding chats that wait on the person's review. */
+  codeReview?: ReadonlySet<string>
   canOpen?: (e: Pick<RecentEntry, 'type' | 'id' | 'label'>) => boolean
 }): RecentItem[] {
   const byKey = new Map<string, { entry: RecentEntry; mine: string | null; inboxAt: string | null }>()
@@ -115,7 +186,10 @@ export function mergeRecents({
   for (const [key, { entry, mine, inboxAt }] of byKey) {
     const at = ms(inboxAt) > ms(mine) ? inboxAt! : (mine ?? inboxAt ?? '')
     // It came after the person's own last touch, and after they last opened it here.
-    const needsYou = inboxAt !== null && ms(inboxAt) > ms(mine) && ms(inboxAt) > ms(seen[key])
+    const fromInbox = inboxAt !== null && ms(inboxAt) > ms(mine) && ms(inboxAt) > ms(seen[key])
+    // A coding chat says for itself whether it waits on the person (its state), opened here or not.
+    const codeState = entry.type === 'code_job' && entry.code ? codeRowState(entry.code, !!entry.code.workItemId && codeReview.has(entry.code.workItemId)) : undefined
+    const needsYou = codeState ? codeStateNeedsYou(codeState) : fromInbox
     out.push({
       key,
       type: entry.type,
@@ -125,6 +199,7 @@ export function mergeRecents({
       at,
       needsYou,
       inboxAt,
+      ...(codeState ? { codeState, codeAction: entry.code?.actionIdentifier ?? null, codeWorkItem: entry.code?.workItemId ?? null } : {}),
     })
   }
   return out.sort((a, b) => ms(b.at) - ms(a.at) || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))

@@ -39,7 +39,8 @@ export function defuseUntrustedMarkers(text: string): string {
  * (web_fetch, mirrored in agents/<name>/lib/untrusted.ts), a calendar event's
  * description, a file's text (an attachment, a chat upload), a browser page,
  * another service's tool result (an external MCP tool), or a meeting
- * transcript (what the other speakers said).
+ * transcript (what the other speakers said); and the Dreamer's research notes
+ * (docs/plans/dreamer.md), written from all of those.
  */
 export type UntrustedKind =
   | 'EMAIL'
@@ -52,6 +53,7 @@ export type UntrustedKind =
   | 'BROWSER'
   | 'TOOL'
   | 'TRANSCRIPT'
+  | 'NOTES'
 
 /** The opening marker for `kind`. */
 export function untrustedPrefix(kind: UntrustedKind = 'EMAIL'): string {

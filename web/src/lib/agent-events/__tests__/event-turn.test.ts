@@ -11,16 +11,33 @@
  */
 import { describe, it, expect } from 'vitest'
 import { makeFakeSupabase } from '@/lib/work/__tests__/fake-supabase'
-import { EVENT_TURN_MAX_LINES, eventTurnBody, eventTurnLine, markEventsDelivered, markWorkEventsDelivered, type EventTurnRow } from '../event-turn'
+import {
+  EVENT_TURN_MAX_LINES,
+  MEETING_HOLD_LEAD_MS,
+  eventTurnBody,
+  eventTurnLine,
+  hasSenderMail,
+  holdMeetingsOf,
+  inMeetingLine,
+  markEventsDelivered,
+  markWorkEventsDelivered,
+  meetingHold,
+  readHoldMeetings,
+  type EventTurnRow,
+  type HoldMeeting,
+} from '../event-turn'
 import { captureLiveFollowups, isOpenAsk } from '../live-followups'
 
 const r = (over: Partial<EventTurnRow>): EventTurnRow => ({ id: '1', kind: 'email.drafted', facts: {}, occurs_at: '2026-10-14T10:00:00.000Z', ref_type: null, ref_id: null, ...over })
 
 describe('eventTurnLine: a reply Native Intelligence was unsure of (E3)', () => {
-  it('tells the agent to ask the person, and to draft only on a yes', () => {
-    expect(eventTurnLine(r({ kind: 'email.needs_reply', ref_type: 'email_thread', ref_id: 'p1', facts: { from: 'healy@vendor.example', reason: 'unsure', known: true } }))).toBe(
-      "- Maybe a reply from healy@vendor.example: Native Intelligence wasn't sure one is needed, so none was drafted. Ask the person whether they want a reply; draft one only if they say yes. [email_thread p1]",
+  it('tells the agent to read it first, ask only if a reply is really in doubt (saying what it asks), and draft only on a yes', () => {
+    const line = eventTurnLine(r({ kind: 'email.needs_reply', ref_type: 'email_thread', ref_id: 'p1', facts: { from: 'healy@vendor.example', reason: 'unsure', known: true } }))
+    expect(line).toBe(
+      "- Maybe a reply from healy@vendor.example: Native Intelligence wasn't sure one is needed, so none was drafted. Read it first. Ask the person only if a reply is really in doubt, saying in a clause what it asks; draft one only if they say yes. [email_thread p1]",
     )
+    // Liam, 2026-11-24: never "want me to read it?" again.
+    expect(line).not.toContain('Ask the person whether they want a reply')
   })
 })
 
@@ -223,5 +240,110 @@ describe('quiet turns never hide what waits (A6 review)', () => {
     expect(eventTurnLine(r({ kind: 'email.needs_reply', facts: { from: 'Dana', reason: 'in_meeting' } }))).toBe(
       '- Reply needed from Dana. No draft: it arrived while they were in a meeting with the sender, so the meeting answers it. Do not draft it; tell the person.',
     )
+  })
+})
+
+describe('mail held while the person is in a meeting with its sender (Liam, 2026-11-24)', () => {
+  const NOW = Date.parse('2026-11-24T15:20:00.000Z')
+  const at = (min: number) => new Date(NOW + min * 60_000).toISOString()
+  const meeting = (over: Partial<HoldMeeting> = {}): HoldMeeting => ({
+    ref: 'calendar_event',
+    id: 'evt-sync',
+    title: 'Fernhill weekly sync',
+    startIso: at(-20),
+    endIso: at(10),
+    people: ['me@fernhill.example', 'dana@acme.example'],
+    ...over,
+  })
+  const mail = (id: string, from: string, over: Partial<EventTurnRow> = {}) =>
+    r({ id, kind: 'email.needs_reply', ref_type: 'email_thread', ref_id: `pt-${id}`, occurs_at: at(-2), facts: { from, known: true }, ...over })
+
+  it('holds mail from someone in the meeting going on now, until it ends; the rest is carried', () => {
+    const rows = [
+      mail('1', 'Dana@Acme.example'),
+      mail('2', 'sam@other.example'),
+      r({ id: '3', kind: 'reminder.due', facts: { title: 'Ship the deck' } }),
+      r({ id: '4', kind: 'email.drafted', ref_type: 'email_draft', ref_id: 'd-4', facts: { from: 'dana@acme.example' } }),
+    ]
+    const hold = meetingHold(rows, [meeting()], NOW)
+    expect(hold.heldIds).toEqual(['1', '4'])
+    expect(hold.carried.map((x) => x.id)).toEqual(['2', '3'])
+    expect(hold.heldUntil).toBe(at(10))
+    expect(hold.current).toEqual([{ meeting: meeting(), senders: ['dana@acme.example'], startsLater: false }])
+    expect(hold.during).toEqual({})
+  })
+
+  it('a meeting about to start (within the lead) holds too; one further off, or over, does not', () => {
+    const soon = meeting({ startIso: at(5), endIso: at(35) })
+    expect(meetingHold([mail('1', 'dana@acme.example')], [soon], NOW)).toMatchObject({ heldIds: ['1'], heldUntil: at(35), current: [{ startsLater: true }] })
+    const later = meeting({ startIso: new Date(NOW + MEETING_HOLD_LEAD_MS + 60_000).toISOString(), endIso: at(60) })
+    expect(meetingHold([mail('1', 'dana@acme.example')], [later], NOW)).toMatchObject({ heldIds: [], heldUntil: null, current: [] })
+    const over = meeting({ startIso: at(-60), endIso: at(-30) })
+    expect(meetingHold([mail('1', 'dana@acme.example')], [over], NOW).heldIds).toEqual([])
+  })
+
+  it('only mail with a sender is held: a meeting never holds a reminder, a failure or a mention', () => {
+    const rows = [
+      r({ id: '1', kind: 'reminder.due', facts: { title: 'Ship the deck' } }),
+      r({ id: '2', kind: 'work.failed', facts: { title: 'Import' } }),
+      r({ id: '3', kind: 'email.needs_reply', facts: { title: 'No sender' } }),
+    ]
+    expect(hasSenderMail(rows)).toBe(false)
+    expect(meetingHold(rows, [meeting()], NOW).carried).toHaveLength(3)
+    expect(hasSenderMail([mail('4', 'dana@acme.example')])).toBe(true)
+  })
+
+  it('mail that came during a meeting with its sender, now over, is carried with that meeting named before its pointer', () => {
+    const over = meeting({ startIso: '2026-11-24T14:00:00.000Z', endIso: '2026-11-24T14:30:00.000Z' })
+    const row = mail('1', 'dana@acme.example', { occurs_at: '2026-11-24T14:02:00.000Z' })
+    const hold = meetingHold([row, mail('2', 'dana@acme.example', { occurs_at: '2026-11-24T13:00:00.000Z' })], [over], NOW)
+    expect(hold.heldIds).toEqual([])
+    expect(Object.keys(hold.during)).toEqual(['1'])
+    const body = eventTurnBody(hold.carried, 'America/New_York', hold)!
+    expect(body.lines[0]).toBe(
+      '- Reply needed from dana@acme.example. No draft yet. It came while they were in “Fernhill weekly sync” with this sender (9:00 AM to 9:30 AM EST), now over: if it was about that meeting (they were there, a link, running late), it is moot: say nothing about it. [email_thread pt-1]',
+    )
+    // Mail from before the meeting is just mail.
+    expect(body.lines[1]).toBe('- Reply needed from dana@acme.example. No draft yet. [email_thread pt-2]')
+    expect(body.heldUntil).toBeUndefined()
+  })
+
+  it('the body names the meeting first, with its end in the person\'s zone, and carries heldUntil; all held is nothing to say', () => {
+    const rows = [mail('1', 'dana@acme.example'), mail('2', 'sam@other.example')]
+    const hold = meetingHold(rows, [meeting()], NOW)
+    const body = eventTurnBody(hold.carried, 'America/New_York', hold)!
+    expect(body.lines).toEqual([
+      '- They are in a meeting now, until 10:30 AM EST: “Fernhill weekly sync”, with dana@acme.example. Native Intelligence is holding mail from them until it ends and brings it back then: don\'t bring it up now. [calendar_event evt-sync]',
+      '- Reply needed from sam@other.example. No draft yet. [email_thread pt-2]',
+    ])
+    // Only the carried rows are delivered by this turn; the held one stays for the next.
+    expect(body.eventIds).toEqual(['2'])
+    expect(body.heldUntil).toBe(at(10))
+    const allHeld = meetingHold([mail('1', 'dana@acme.example')], [meeting()], NOW)
+    expect(eventTurnBody(allHeld.carried, null, allHeld)).toBeNull()
+    expect(allHeld.heldUntil).toBe(at(10))
+  })
+
+  it('a meeting about to start says when, and many senders are capped', () => {
+    const line = inMeetingLine(
+      { meeting: meeting({ startIso: at(5), endIso: at(35), title: null }), senders: ['a@x.example', 'b@x.example', 'c@x.example', 'd@x.example'], startsLater: true },
+      'America/New_York',
+    )
+    expect(line).toBe(
+      '- They have a meeting starting at 10:25 AM, until 10:55 AM EST: “Untitled meeting”, with a@x.example, b@x.example, c@x.example and 1 more. Native Intelligence is holding mail from them until it ends and brings it back then: don\'t bring it up now. [calendar_event evt-sync]',
+    )
+  })
+
+  it('holdMeetingsOf: attendees and the organizer, lower case; no end runs an hour; a block over the look-back, or with nobody on it, is no meeting', () => {
+    const base = { ref: 'calendar_event' as const, id: 'e1', title: 'Sync', startIso: at(-10), endIso: at(20), attendees: ['Me@Fernhill.example'], organizer: 'dana@acme.example' }
+    expect(holdMeetingsOf([base])).toEqual([{ ref: 'calendar_event', id: 'e1', title: 'Sync', startIso: at(-10), endIso: at(20), people: ['me@fernhill.example', 'dana@acme.example'] }])
+    expect(holdMeetingsOf([{ ...base, endIso: null }])[0].endIso).toBe(at(50))
+    expect(holdMeetingsOf([{ ...base, startIso: at(-60), endIso: at(4 * 60) }])).toEqual([])
+    expect(holdMeetingsOf([{ ...base, attendees: [], organizer: null }])).toEqual([])
+  })
+
+  it('readHoldMeetings reads the calendar around now (never throws: a failed read holds nothing)', async () => {
+    const throwing = { from: () => { throw new Error('down') } }
+    expect(await readHoldMeetings(throwing as never, { workspaceId: 'w1', userId: 'u1' }, NOW)).toEqual([])
   })
 })

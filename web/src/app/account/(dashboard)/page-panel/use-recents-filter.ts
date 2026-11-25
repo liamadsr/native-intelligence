@@ -5,7 +5,7 @@
  * remembered per device as the panel's open state is (localStorage), so it
  * holds across reloads. Blocked storage: it holds for this session only.
  */
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { RECENT_TYPES } from '@/lib/entities/recents-model'
 import { DEFAULT_RECENT_FILTER, parseRecentFilter, type RecentFilter } from './recents-model'
 
@@ -30,8 +30,26 @@ function writeFilter(filter: RecentFilter): void {
   }
 }
 
+/** Says the saved filter was set from outside the panel (showOnlyCoding): the panel reads it again. */
+const FILTER_SET_EVENT = 'ni:recents-filter-set'
+
+/**
+ * Recent on its coding chats only (the first-time line's "Show only coding",
+ * chat/code-chat-stage.tsx; docs/plans/one-home.md): the Type filter set to
+ * the coding chats', every status, kept as any choice in the menu is.
+ */
+export function showOnlyCoding(): void {
+  writeFilter({ status: 'all', types: ['agents'] })
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(FILTER_SET_EVENT))
+}
+
 export function useRecentsFilter(): [RecentFilter, (next: RecentFilter) => void] {
   const [filter, setFilter] = useState<RecentFilter>(readFilter)
+  useEffect(() => {
+    const onSet = () => setFilter(readFilter())
+    window.addEventListener(FILTER_SET_EVENT, onSet)
+    return () => window.removeEventListener(FILTER_SET_EVENT, onSet)
+  }, [])
   const set = useCallback((next: RecentFilter) => {
     setFilter(next)
     writeFilter(next)

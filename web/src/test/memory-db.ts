@@ -14,7 +14,8 @@
  *   maybeSingle.
  *
  * `unique[table](a, b)` true makes an insert or update that would collide
- * answer 23505, as a unique index does. Rows are the `tables` object's own,
+ * answer 23505, as a unique index does. `opts.order: 'bytes'` compares
+ * strings in byte order (a `collate "C"` column). Rows are the `tables` object's own,
  * so a test seeds and inspects them directly.
  */
 import { randomUUID } from 'node:crypto'
@@ -63,9 +64,16 @@ function likeFilter(col: string, pattern: string): Filter {
   }
 }
 
-function compare(a: unknown, b: unknown): number {
+function compareLocale(a: unknown, b: unknown): number {
   if (typeof a === 'number' && typeof b === 'number') return a - b
   return String(a ?? '').localeCompare(String(b ?? ''))
+}
+
+function compareBytes(a: unknown, b: unknown): number {
+  if (typeof a === 'number' && typeof b === 'number') return a - b
+  const x = String(a ?? '')
+  const y = String(b ?? '')
+  return x < y ? -1 : x > y ? 1 : 0
 }
 
 /**
@@ -80,7 +88,13 @@ function jsonText(row: Record<string, unknown>, path: string): unknown {
   return value === undefined || value === null ? null : String(value)
 }
 
-export function memoryDb(tables: Record<string, Row[]>, unique: Record<string, (a: Row, b: Row) => boolean> = {}): SupabaseClient {
+export function memoryDb(
+  tables: Record<string, Row[]>,
+  unique: Record<string, (a: Row, b: Row) => boolean> = {},
+  /** `bytes`: strings compare in byte order, as a `collate "C"` column does (the Dreamer's note paths). Default: localeCompare. */
+  opts: { order?: 'locale' | 'bytes' } = {},
+): SupabaseClient {
+  const compare = opts.order === 'bytes' ? compareBytes : compareLocale
   const from = (table: string) => {
     const filters: Filter[] = []
     let op: { kind: 'select' } | { kind: 'insert'; rows: Row[] } | { kind: 'upsert'; rows: Row[]; on: string[]; ignore: boolean } | { kind: 'update'; patch: Row } | { kind: 'delete' } = { kind: 'select' }

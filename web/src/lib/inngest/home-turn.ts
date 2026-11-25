@@ -5,7 +5,9 @@ import {
   HOME_TURN_DEBOUNCE_PERIOD,
   HOME_TURN_DEBOUNCE_TIMEOUT,
   HOME_TURN_REQUESTED_EVENT,
+  MEETING_HOLD_GRACE_MS,
   parseHomeTurnRequested,
+  type HomeTurnRequestedData,
 } from '@/lib/chat/home-turn'
 import {
   HOME_TURN_MAX_READ_STEPS,
@@ -29,6 +31,7 @@ import { markGuestAsksDelivered } from '@/lib/guests/guest-asks'
 import { markAgentAnswersDelivered } from '@/lib/agent-links/exchange'
 import { markApprovalsCarried } from '@/lib/safety/approval-turn'
 import { sendCheckInNotice } from '@/lib/now/check-in'
+import { dreamerFollowUpRequest, hasUndeliveredDreamerReports, markDreamerReportsDelivered } from '@/lib/dreamer/reports'
 import { routeRequestEvent } from '@/lib/reach/route'
 import { ROUTED_HOME_TURN_REASONS } from '@/lib/reach/route-policy'
 
@@ -50,6 +53,38 @@ export const HOME_TURN_LEASE_WAITS = 15
  */
 function turnDelivered(finished: { outcome: string; written: boolean }): boolean {
   return finished.written || finished.outcome === 'quiet' || finished.outcome === 'steered_quiet'
+}
+
+/**
+ * A Dreamer update that could not run now (its session parked on the
+ * person's question, or busy past every wait) asks again an hour later
+ * (src/lib/dreamer/reports.ts dreamerFollowUpRequest): no other reason does,
+ * and nothing is asked for any other reason's skip.
+ */
+async function requestDreamerRetry(step: HomeTurnRunContext['step'], data: HomeTurnRequestedData, reason: string): Promise<void> {
+  if (data.reason !== 'dreamer') return
+  const next = dreamerFollowUpRequest(data, { skipped: reason, nowMs: Date.now() })
+  if (next) await step.sendEvent('request-dreamer-retry', next)
+}
+
+/**
+ * The event turn left out mail from someone the person is in a meeting with
+ * (event-turn.ts meetingHold): once the meeting is over (its end, plus
+ * MEETING_HOLD_GRACE_MS), ask for one more event turn, which gathers every
+ * undelivered row again, the held ones included. Ids only, keyed on the
+ * conversation and the time, so runs held for the same meeting ask once.
+ * Before the run's log line: a sleep replays the run's code.
+ */
+async function askAfterMeeting(step: GetStepTools<typeof inngest>, data: HomeTurnRequestedData, heldUntil: string | undefined): Promise<void> {
+  if (data.reason !== 'event' || !heldUntil) return
+  const at = Date.parse(heldUntil) + MEETING_HOLD_GRACE_MS
+  if (!Number.isFinite(at)) return
+  await step.sleepUntil('held-for-meeting', new Date(at))
+  await step.sendEvent('after-meeting', {
+    id: `home-turn:after-meeting:${data.conversationId}:${at}`,
+    name: HOME_TURN_REQUESTED_EVENT,
+    data: { conversationId: data.conversationId, userId: data.userId, workspaceId: data.workspaceId, workItemIds: [], reason: 'event' },
+  })
 }
 
 /** The context a home turn's run gets (its event and Inngest's step tools). */
@@ -129,7 +164,9 @@ export async function runHomeTurn({ event, step }: HomeTurnRunContext) {
     if (!planned.ok) {
       const record = planned.record
       if (record) await step.run(`record-skip${suffix}`, () => recordSkippedHomeTurn(getServiceClient(), data, { reason: planned.reason, record }))
+      await askAfterMeeting(step, data, planned.heldUntil)
       console.info(homeTurnLogLine({ conversationId: data.conversationId, reports: record?.reports.length, outcome: planned.reason }))
+      await requestDreamerRetry(step, data, planned.reason)
       return { status: 'skipped', reason: planned.reason }
     }
     const claim = (await step.run(`claim${suffix}`, () => claimHomeTurn(getServiceClient(), data, planned))) as HomeTurnClaim
@@ -141,6 +178,7 @@ export async function runHomeTurn({ event, step }: HomeTurnRunContext) {
       if (attempt >= HOME_TURN_LEASE_WAITS) {
         // What it carried waits for the next turn (reports, the away section).
         console.info(homeTurnLogLine({ conversationId: data.conversationId, reports: planned.reports.length, outcome: 'busy' }))
+        await requestDreamerRetry(step, data, 'busy')
         return { status: 'skipped', reason: 'busy' }
       }
       await step.sleep(`lease-wait-${attempt + 1}`, HOME_TURN_LEASE_WAIT)
@@ -258,12 +296,30 @@ export async function runHomeTurn({ event, step }: HomeTurnRunContext) {
       }),
     )
   }
+  // A Dreamer's update (docs/plans/dreamer.md) delivered its reports whether
+  // the agent spoke or stayed quiet: they were for it, and it read them. One
+  // that wrote nothing it meant to (cut off at the read cap) carries them to
+  // the next update, within the day.
+  // A failed mark throws, so the step is retried rather than the report carried again later.
+  // Reports still waiting after a turn that delivered some get the next update at once.
+  const dreamer = turnPlan.dreamer
+  if (dreamer && delivered) {
+    const marked = await step.run('deliver-dreamer-reports', () =>
+      markDreamerReportsDelivered(getServiceClient(), { workspaceId: data.workspaceId, userId: data.userId, reportIds: dreamer.reportIds, homeTurnId: turnRow.id }),
+    )
+    if (marked > 0) {
+      const leftovers = await step.run('dreamer-leftovers', () => hasUndeliveredDreamerReports(getServiceClient(), { workspaceId: data.workspaceId, userId: data.userId }))
+      const next = dreamerFollowUpRequest(data, { delivered: marked, leftovers, homeTurnId: turnRow.id })
+      if (next) await step.sendEvent('request-dreamer-leftovers', next)
+    }
+  }
   // The agent spoke on its own: the router takes the message to the person
   // wherever they are (src/lib/reach/route.ts). Ids only; the router reads
   // the words back. The system picks the channel, never the agent.
   if (finished.written && ROUTED_HOME_TURN_REASONS.has(data.reason)) {
     await step.sendEvent('route', routeRequestEvent({ userId: data.userId, workspaceId: data.workspaceId, conversationId: data.conversationId }, `home-turn:${turnRow.id}`))
   }
+  await askAfterMeeting(step, data, events?.heldUntil)
   const outcome = read.done && read.end !== 'completed' ? `${finished.outcome}:${read.end}` : finished.outcome
   console.info(
     homeTurnLogLine({ conversationId: data.conversationId, rowId: turnRow.id, reports: turnPlan.reports.length, outcome, narrationChars: finished.narrationChars }),

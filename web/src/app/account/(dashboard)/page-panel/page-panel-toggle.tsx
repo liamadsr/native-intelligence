@@ -15,6 +15,9 @@
  *           hand, so it shows even where the row has no room for it,
  *           floating over the chat's left edge (side-panel-store.ts
  *           setPagePanelOpen). Remembered per device; open by default.
+ *   Dot     orange, on home's while it is off screen and a coding chat
+ *           needs the person (Liam, 11-20's dot, on the way to the chat's
+ *           own row: docs/plans/one-home.md).
  *   No key  no shortcut for now.
  *   Named   by the panel it opens (PAGE_PANEL_LABELS): Recent on home, the
  *           page's own on a page (Liam, 11-11: the Tasks sub-nav on My
@@ -31,6 +34,7 @@ import { useSelectedPlace } from '../rail/selected-place'
 import { isPageGroupId } from '../rail/page-groups'
 import { useRailEntry } from './page-group-panel'
 import { PAGE_PANEL_ID, PAGE_PANEL_LABELS } from './page-panel-types'
+import { useCodingNeedsYou } from './coding-attention'
 
 /** What home's panel and its button are called (the tooltip, the label). */
 export const PAGE_PANEL_LABEL = PAGE_PANEL_LABELS.home
@@ -39,7 +43,10 @@ export function PagePanelToggle() {
   const { pagePanel, pagePanelShown } = useSidePanelState()
   const place = useSelectedPlace()
   const group = useRailEntry(isPageGroupId(place) ? place : null)
+  const codingNeedsYou = useCodingNeedsYou()
   if (!pagePanel) return null
+  // Home's panel off screen with a coding chat waiting on the person: the orange dot of its row in Recent, on the way to it (coding-attention.ts).
+  const codingDot = place === 'home' && !pagePanelShown && codingNeedsYou
   const label: string = group?.label ?? (PAGE_PANEL_LABELS as Record<string, string>)[place] ?? PAGE_PANEL_LABEL
   return (
     <Tooltip>
@@ -60,6 +67,11 @@ export function PagePanelToggle() {
           )}
         >
           <PanelLeft data-page-panel-icon="" className="size-[18px]" strokeWidth={1.75} />
+          {codingDot && (
+            <span data-page-panel-coding-dot="" className="absolute right-1 top-1 size-2 rounded-full bg-orange-500 ring-2 ring-white dark:ring-black">
+              <span className="sr-only">, a coding chat needs you</span>
+            </span>
+          )}
         </button>
       </TooltipTrigger>
       <TooltipContent side="bottom" sideOffset={6} collisionPadding={8} avoidCollisions={false} className={TOP_BAR_TIP}>

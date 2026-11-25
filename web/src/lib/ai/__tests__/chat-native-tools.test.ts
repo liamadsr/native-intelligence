@@ -263,19 +263,22 @@ describe('the registries', () => {
     for (const name of [...RELAY, ...LOCAL, ...CLOUD]) expect(labels, name).toMatch(new RegExp(`\\b${name}: '`))
   })
 
-  it('the chat agent knows when to start a local agent and how to follow one up, and a home turn only answers its question', () => {
+  it('the chat agent knows when to start a local agent and how to follow one up, and a home turn only answers its question', async () => {
     const md = readFileSync(join(root, 'agents/chat-agent/instructions.md'), 'utf8').replace(/\s+/g, ' ')
-    // The standing part: where work runs, and what a local agent is, naming its tools.
-    const from = md.indexOf('## Where work runs')
-    expect(from).toBeGreaterThan(-1)
-    const where = md.slice(from, md.indexOf('## Background updates'))
-    for (const name of LOCAL.filter((n) => n !== 'local_agents')) expect(where, name).toContain(`\`${name}\``)
-    expect(where).toContain('`start_cloud_coding_run`')
-    expect(where).toContain('only when they ask in words')
-    expect(where).toContain('ask where to run before you start work')
-    expect(where).toContain('A local agent is you, the Native Intelligence agent')
-    // How rides the tools themselves (src/lib/ai/tool-guides.ts).
-    const guides = [...LOCAL.map((n) => toolGuide(n) ?? ''), TOOL_FAMILIES.find((f) => f.key === 'local_agents')!.guide].join(' ')
+    // The standing part (docs/plans/goal-driven-main-agent.md §1): what a local agent and a coding run are, in one line each.
+    expect(md).toContain("Local agents are you on one of their Macs, in a folder they added (`start_local_agent`).")
+    expect(md).toContain("Cloud coding runs work in a project's repository and open a pull request once a reviewer on another model approves.")
+    // Where work runs, and how, rides the tools themselves (src/lib/ai/tool-guides.ts) and their family's pack.
+    const family = TOOL_FAMILIES.find((f) => f.key === 'local_agents')!.guide
+    const guides = [...LOCAL.map((n) => toolGuide(n) ?? ''), toolGuide('start_cloud_coding_run') ?? '', family].join(' ')
+    for (const name of LOCAL.filter((n) => n !== 'local_agents')) expect(family, name).toContain(`\`${name}\``)
+    expect(family).toContain('`start_cloud_coding_run`')
+    expect(family).toContain('only when they ask in words')
+    expect(family).toContain('ask where to run before you start work')
+    expect(family).toContain('A local agent is you on their Mac')
+    expect(toolGuide('start_local_agent')).toContain('with no `environment` section, ask where to run first')
+    expect(toolGuide('start_cloud_coding_run')).toContain('with no `environment` section, ask where to run first')
+    for (const name of ['message_local_agent', 'stop_local_agent']) expect(toolGuide(name), name).toContain('`persons_own`')
     expect(guides).toContain('One agent per folder')
     expect(guides).toContain('`FOLDER_BUSY`')
     expect(guides).toContain('`cloud_fallback`')
@@ -288,20 +291,24 @@ describe('the registries', () => {
     for (const name of ['message_teammate', 'report_to_person', 'finish']) expect(mac, name).toContain(`\`${name}\``)
     expect(mac).toContain('past a few an hour it is refused')
     expect(mac).toContain('happens only after the person says yes on their Mac')
-    // The turn context names the environment rider, and a background update keeps its one exception.
-    expect(md).toContain('`environment` is this chat\'s environment')
+    // The turn context names the environment rider.
+    expect(md).toContain("`environment` is where this chat's work runs (a Mac and its folders, or a cloud environment).")
     expect(md).not.toContain('`folders` section')
-    const updates = md.slice(md.indexOf('## Background updates'))
-    expect(updates).toContain('answer it with `message_local_agent`')
-    expect(updates).toContain('never start one')
+    // A background update keeps its one exception, where local agents report (a helper's report, an event).
+    const { LOCAL_AGENT_GUIDANCE, buildHomeTurnBody } = await import('@/lib/chat/home-turn')
+    expect(LOCAL_AGENT_GUIDANCE).toContain("answer a local agent's open question with message_local_agent")
+    expect(LOCAL_AGENT_GUIDANCE).toContain('never start one')
+    expect(buildHomeTurnBody('r', 'event', { events: { lines: ['- a line'], eventIds: ['1'] } })).toContain(LOCAL_AGENT_GUIDANCE.trim())
   })
 
   it('the chat agent knows how a message reaches an agent, beside the other ways to talk to one', () => {
     const md = readFileSync(join(root, 'agents/chat-agent/instructions.md'), 'utf8').replace(/\s+/g, ' ')
-    expect(md.slice(md.indexOf('## Your agents'))).toContain('`send_bot_message`')
+    expect(md).toContain('Their own agents and teammates hold work and questions (`list_bot_work`).')
+    const agents = TOOL_FAMILIES.find((f) => f.key === 'agents')!.guide
+    expect(agents).toContain('`send_bot_message`')
     const guide = toolGuide('send_bot_message') ?? ''
     expect(guide).toContain('call `wait_for_bot_reply` with its `relay_id`; never send the message again')
-    expect(TOOL_FAMILIES.find((f) => f.key === 'agents')!.guide).toContain("The person can also talk to an agent on its page, with its chat on the left.")
+    expect(agents).toContain("The person can also talk to an agent on its page, with its chat on the left.")
   })
 
   it('the persona picker hides chat-native tools', () => {

@@ -71,6 +71,9 @@ function LayerView({ layer, state, previous, frame, width, height, fps, project,
   const common: React.CSSProperties = { position: 'absolute', left: cx, top: cy, transform, opacity: state.opacity, filter };
   let body: React.ReactNode;
   if (layer.kind === 'background') body = <Background layer={layer} state={state} frame={frame} fps={fps} width={width} height={height} project={project} assetPath={assetPath} filter={joinFilters(state.blur > 0.2 && `blur(${state.blur * unit}px)`)} />;
+  else if (layer.kind === 'blur') { const amount = `blur(${(s.blur ?? 24) * unit}px)`;
+    // What is under it, blurred: the picture and the layers below; a breath of tint so a flat area still reads as covered.
+    body = <div style={{ ...common, width: boxW, height: boxH, borderRadius: (s.radius ?? 16) * unit, backdropFilter: amount, WebkitBackdropFilter: amount, background: 'rgba(128,128,128,.06)' }} />; }
   else if (layer.kind === 'spotlight') body = <div style={{ ...common, width: boxW, height: boxH, borderRadius: (s.radius ?? 24) * unit, boxShadow: `0 0 0 ${Math.max(width, height) * 2}px rgba(0,0,0,${(s.dim ?? 0.65)})` }} />;
   else if (layer.kind === 'box' || layer.kind === 'highlight') {
     const wipe = state.wipe < 1 ? `inset(0 ${(1 - state.wipe) * 100}% 0 0 round ${(s.radius ?? 12) * unit}px)` : undefined;

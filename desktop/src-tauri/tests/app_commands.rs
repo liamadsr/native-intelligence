@@ -449,6 +449,7 @@ fn studio_recorder_commands_never_take_a_path() {
         commands,
         [
             "studio_recorder_cancel",
+            "studio_recorder_control_size",
             "studio_recorder_discard",
             "studio_recorder_draft_get",
             "studio_recorder_draft_put",

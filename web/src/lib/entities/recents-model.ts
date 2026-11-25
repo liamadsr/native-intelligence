@@ -21,6 +21,26 @@ export interface RecentSourceEntry {
   /** Where it sits, when that helps. */
   context: string | null
   at: string
+  /** A coding chat (`code_job`): what its row shows of it beyond its title. Absent for every other kind. */
+  code?: RecentCodeInfo
+}
+
+/**
+ * A coding chat as Recent's row needs it (docs/plans/one-home.md: "a coding
+ * chat is a row like any other", with its state): the session's own columns,
+ * read with the row, so the list makes no second read.
+ */
+export interface RecentCodeInfo {
+  /** The session's status (lib/local-agent/store.ts LocalAgentStatus). */
+  status: string
+  /** What its agent last signalled: a question, a finished turn, or neither. */
+  lastSignal: 'ask' | 'finish' | null
+  /** Its current turn's ledger row (the work item its review hangs on), or null. */
+  workItemId: string | null
+  /** The action it works (an action's Start), by its identifier (ENG-42), or null. */
+  actionIdentifier: string | null
+  /** The Mac has it waiting in its line (claimed, not begun). */
+  queuedOnMac: boolean
 }
 
 /** GET /api/account/recents's answer. */
@@ -52,12 +72,19 @@ export type RecentTypeKey =
   | 'captures'
   | 'flows'
 
+/**
+ * The Type's word for the person's coding chats (docs/plans/one-home.md, decision 3; listed with One Home's other
+ * decisions in app/account/(dashboard)/chat/one-home-decisions.ts). It was "Agents".
+ */
+export const CODING_TYPE_LABEL = 'Coding'
+
 /** In the filter's order, with their words. */
 export const RECENT_TYPES: ReadonlyArray<{ key: RecentTypeKey; label: string }> = [
   { key: 'channels', label: 'Channels' },
   { key: 'chats', label: 'Chats' },
   { key: 'email', label: 'Email' },
-  { key: 'agents', label: 'Agents' },
+  // The person's coding chats (code_job). The key is from when the word was "Agents": a saved filter holds.
+  { key: 'agents', label: CODING_TYPE_LABEL },
   { key: 'docs', label: 'Docs' },
   { key: 'actions', label: 'Actions' },
   { key: 'projects', label: 'Projects' },

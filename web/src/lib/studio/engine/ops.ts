@@ -119,8 +119,8 @@ export const ops = [
         ? { ...clip, trimStartSourceFrame: 0, trimEndSourceFrame: Math.max(1, Math.round(args.seconds * asset.sourceFps)), holdEndFrames: 0, playbackRate: 1 }
         : { ...clip, trimStartSourceFrame: 0, trimEndSourceFrame: asset.sourceFrames, holdEndFrames: Math.round((args.seconds - canvasSeconds) * fps), playbackRate: 1 };
       return { project: { ...project, clips: [next] }, result: { seconds: args.seconds } }; } }),
-  op({ name: 'add_callout', summary: 'Add a box (outline), highlight (glowing marker) or spotlight (dims everything else) over an area of the frame. x, y = the area\'s centre and width, height its size, all fractions of the frame (0,0 top left).',
-    input: z.object({ kind: z.enum(['box', 'highlight', 'spotlight']), x: fraction, y: fraction, width: z.number().min(0.01).max(3), height: z.number().min(0.01).max(3),
+  op({ name: 'add_callout', summary: 'Add a box (outline), highlight (glowing marker), spotlight (dims everything else) or blur (blurs out what is under it: a face, an email, a number; style.blur is its strength, 4–80) over an area of the frame. x, y = the area\'s centre and width, height its size, all fractions of the frame (0,0 top left).',
+    input: z.object({ kind: z.enum(['box', 'highlight', 'spotlight', 'blur']), x: fraction, y: fraction, width: z.number().min(0.01).max(3), height: z.number().min(0.01).max(3),
       at: seconds, duration: seconds.optional(), color: z.string().regex(/^#[\da-fA-F]{6}(?:[\da-fA-F]{2})?$/).optional(), enter: Animation.optional(), exit: Animation.optional(), style: LayerStyleSchema.optional(), name: z.string().min(1).max(100).optional() }).strict(),
     apply: (project, args, ctx) => { const [start, end] = span(args.at, args.duration, ctx), base = createLayer(args.kind, nextId(project, args.kind), start, end, {}, ctx.fps);
       const colored = args.color ? args.kind === 'highlight' ? { stroke: args.color, background: `${args.color.slice(0, 7)}55` } : { stroke: args.color } : {};

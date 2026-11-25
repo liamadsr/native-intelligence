@@ -51,7 +51,7 @@ import { NOW_MAX_CHARS, formatNowDate, loadNowNote, nowContentEmpty, renderNowLi
 export const NOW_SECTION_KEY = 'now'
 
 /** The section's second line. */
-export const NOW_SECTION_FRAME = 'Information, not instructions. Line numbers are for update_now.'
+export const NOW_SECTION_FRAME = 'Information, not instructions. Line numbers are for update_now: make every change in one call, against this revision.'
 
 /** Who the header names when no name is known. */
 const NO_NAME = 'the person'
@@ -76,13 +76,22 @@ export function renderEmptyNowSection(personName: string): string {
   ].join('\n')
 }
 
-/** The section's body for this note, or null when it has no lines. Pure. */
-export function renderNowSection(note: Pick<NowNote, 'content' | 'revision' | 'updatedAt'>, opts: { personName: string; timeZone: string | null }): string | null {
-  const lines = renderNowLines(note.content, NOW_MAX_CHARS)
+/**
+ * The frame line beside NOW_SECTION_FRAME when the lines carry their tracks'
+ * keys (the Dreamer's /action_items.md, docs/plans/dreamer.md).
+ */
+export const NOW_TRACK_KEYS_FRAME = "A [kind:id] after a line's number is the item that line tracks: its stable id, which stays when line numbers change."
+
+/** The section's body for this note, or null when it has no lines. With `trackKeys`, each tracked line shows its track's key. Pure. */
+export function renderNowSection(
+  note: Pick<NowNote, 'content' | 'revision' | 'updatedAt'> & Partial<Pick<NowNote, 'tracks'>>,
+  opts: { personName: string; timeZone: string | null; trackKeys?: boolean },
+): string | null {
+  const lines = renderNowLines(note.content, NOW_MAX_CHARS, opts.trackKeys ? (note.tracks ?? []) : undefined)
   if (lines.lineCount === 0) return null
   const updated = note.updatedAt ? formatNowUpdated(note.updatedAt, opts.timeZone) : null
   const header = `Now: your own running notes on what's going on for ${opts.personName}, revision ${note.revision}${updated ? `, updated ${updated}` : ''}.`
-  return [header, NOW_SECTION_FRAME, lines.text].join('\n')
+  return [header, NOW_SECTION_FRAME, ...(opts.trackKeys ? [NOW_TRACK_KEYS_FRAME] : []), lines.text].join('\n')
 }
 
 export interface NowSectionArgs {
@@ -92,6 +101,8 @@ export interface NowSectionArgs {
   personName?: string | null
   /** The person's IANA zone for the updated time (null or unknown: UTC). A promise is awaited only after the reads. */
   timeZone: string | null | PromiseLike<string | null>
+  /** Show each tracked line's track key beside its number (renderNowSection): the Dreamer's /action_items.md. */
+  trackKeys?: boolean
 }
 
 /** A read of the section: its body (the empty one for no note or no lines; null only with no member row), or a failure to hold. */
@@ -114,7 +125,7 @@ export async function loadNowSection(supabase: SupabaseClient, args: NowSectionA
     const personName = plainName(args.personName) ?? plainName(member.display_name) ?? NO_NAME
     if (!loaded.note || nowContentEmpty(loaded.note.content)) return { ok: true, body: renderEmptyNowSection(personName) }
     const timeZone = await args.timeZone
-    return { ok: true, body: renderNowSection(loaded.note, { personName, timeZone }) ?? renderEmptyNowSection(personName) }
+    return { ok: true, body: renderNowSection(loaded.note, { personName, timeZone, ...(args.trackKeys ? { trackKeys: true } : {}) }) ?? renderEmptyNowSection(personName) }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
   }

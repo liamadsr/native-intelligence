@@ -21,6 +21,7 @@ import {
   getToolSideEffect,
   isAttendedOnlyTool,
   isChatNativeTool,
+  isParentNotesTool,
 } from '@/lib/ai/tool-registry'
 
 /**
@@ -353,6 +354,16 @@ describe('computeWorkRunCeiling', () => {
         'record_time_offer_answer',
         'book_poll_time',
         'nudge_time_offer',
+        // The Dreamer (docs/plans/dreamer.md): its notes and its own tools, out
+        // whatever their class; ceilingForWorkRun gives them back to a Dreamer
+        // run alone.
+        'list_agent_notes',
+        'search_agent_notes',
+        'read_agent_notes',
+        'read_parent_thread',
+        'write_agent_notes',
+        'delete_agent_notes',
+        'notify_parent',
       ].sort(),
     )
   })
@@ -387,14 +398,14 @@ describe('computeWorkRunCeiling', () => {
 
   it('is exactly the registry tools classified read or internal-write', () => {
     const admitted = TOOL_CATEGORIES.flatMap((c) => c.tools)
-      .filter((t) => WORK_RUN_ADMITTED_SIDE_EFFECTS.has(t.sideEffect) && !isAttendedOnlyTool(t.name) && !isChatNativeTool(t.name))
+      .filter((t) => WORK_RUN_ADMITTED_SIDE_EFFECTS.has(t.sideEffect) && !isAttendedOnlyTool(t.name) && !isChatNativeTool(t.name) && !isParentNotesTool(t.name))
       .map((t) => t.name)
     expect([...ceiling].sort()).toEqual([...new Set(admitted)].sort())
   })
 
   it('WORK_RUN_EXCLUDED_TOOLS is derived: exactly the registry tools outside the admitted classes', () => {
     const notAdmitted = TOOL_CATEGORIES.flatMap((c) => c.tools)
-      .filter((t) => !WORK_RUN_ADMITTED_SIDE_EFFECTS.has(t.sideEffect) || isAttendedOnlyTool(t.name) || isChatNativeTool(t.name))
+      .filter((t) => !WORK_RUN_ADMITTED_SIDE_EFFECTS.has(t.sideEffect) || isAttendedOnlyTool(t.name) || isChatNativeTool(t.name) || isParentNotesTool(t.name))
       .map((t) => t.name)
     expect([...WORK_RUN_EXCLUDED_TOOLS].sort()).toEqual([...new Set(notAdmitted)].sort())
     // The two partition the registry: nothing is in both, nothing in neither.

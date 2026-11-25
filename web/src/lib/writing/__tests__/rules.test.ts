@@ -98,23 +98,31 @@ describe('the short rules', () => {
 })
 
 describe('the chat agent carries the same short rules', () => {
-  const md = readFileSync(join(process.cwd(), 'agents/chat-agent/instructions.md'), 'utf8').replace(/\s+/g, ' ')
-  const from = md.indexOf('Writing (your answers, and every draft you write for the person):')
-  const section = md.slice(from, md.indexOf('Suggest, don', from))
+  // Its voice line in "Working well" (docs/plans/goal-driven-main-agent.md §1): from the bullet to the next one, then on one line.
+  const raw = readFileSync(join(process.cwd(), 'agents/chat-agent/instructions.md'), 'utf8')
+  const from = raw.indexOf('- Write like a busy, plain-spoken person')
+  const end = raw.indexOf('\n- ', from + 1)
+  const section = raw.slice(from, end < 0 ? undefined : end).replace(/\s+/g, ' ')
+  /** The AI tells it quotes, as lint spells them: at least five. */
+  const VOICE_EXAMPLES = ['delve', 'leverage', 'robust', 'seamless', 'i hope this finds you well']
 
-  it('has a Writing section', () => {
+  it('has a voice line', () => {
     expect(from).toBeGreaterThan(-1)
     expect(section.length).toBeGreaterThan(0)
   })
 
-  it('quotes the same AI tells, the em-dash rule, "never narrate your permissions" and plain markdown links', () => {
-    for (const example of SHORT_EXAMPLES) expect(section.toLowerCase(), example).toContain(`"${example}"`)
+  it('quotes AI tells lint knows, the em-dash rule, "never narrate" and one link rule per place', () => {
+    const known = new Set(HOUSE.map((r) => r.phrase))
+    expect(VOICE_EXAMPLES.length).toBeGreaterThanOrEqual(5)
+    for (const example of VOICE_EXAMPLES) {
+      expect(known.has(example), example).toBe(true)
+      expect(section.toLowerCase(), example).toContain(`"${example}"`)
+    }
     expect(section).toContain(`"it's not X, it's Y"`)
-    expect(section).toMatch(/Em dashes rarely/)
-    expect(section).toMatch(/Never narrate your permissions/)
+    expect(section).toMatch(/em dashes rarely/)
+    expect(section).toMatch(/Never narrate your tools, permissions or Native Intelligence's machinery/)
     // One rule per place, never two that contradict: markdown in chat, bare URLs in email.
-    expect(section).toMatch(/in your answers, plain markdown, \[name\]\(url\); in an email draft, the bare URL/)
-    expect(section).not.toMatch(/Links as plain markdown, \[name\]\(url\)\. Never/)
+    expect(section).toMatch(/Links are \[name\]\(url\) in chat and bare URLs in mail/)
   })
 })
 

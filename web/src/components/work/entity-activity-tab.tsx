@@ -26,6 +26,7 @@ import { useMemo, useState } from 'react'
 import { CornerDownRight, Eye, Loader2, PenLine, Users } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+import { localAgentSessionIdOf } from '@/lib/local-agent/transcript-view'
 import { useEntityActivity } from '@/hooks/use-entity-activity'
 import { useAttentionItems, type AttentionItem } from '@/hooks/use-attention-items'
 import { cardEntityRef } from '@/lib/flows/card-entity'
@@ -275,7 +276,7 @@ export function EntityActivitySection({ entityType, entityId }: { entityType: En
       entityType={entityType}
       entityId={entityId}
       onOpenWorkItem={(item) =>
-        openWorkItem(item.id, [], { workspaceId: item.workspace_id, title: item.title, teammateId: item.ai_team_member_id ?? null })
+        openWorkItem(item.id, [], { workspaceId: item.workspace_id, title: item.title, teammateId: item.ai_team_member_id ?? null, codingSessionId: localAgentSessionIdOf(item) })
       }
     />
   )
