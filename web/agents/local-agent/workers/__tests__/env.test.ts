@@ -42,9 +42,19 @@ beforeAll(() => {
 afterAll(() => rmSync(root, { recursive: true, force: true }))
 
 describe('workerLaunchFromEnv', () => {
+  it('reads the person’s model and effort (721), only ones the entry lists; unset is the CLI’s defaults', () => {
+    expect(workerLaunchFromEnv({ ...env, LOCAL_AGENT_WORKER_MODEL: 'opus', LOCAL_AGENT_WORKER_EFFORT: 'max' }, REGISTRY)).toMatchObject({ model: 'opus', effort: 'max' })
+    expect(workerLaunchFromEnv({ ...env, LOCAL_AGENT_WORKER_MODEL: '', LOCAL_AGENT_WORKER_EFFORT: 'high' }, REGISTRY)).toMatchObject({ model: null, effort: 'high' })
+    expect(() => workerLaunchFromEnv({ ...env, LOCAL_AGENT_WORKER_MODEL: 'gpt-5' }, REGISTRY)).toThrow("can't be started on gpt-5")
+    expect(() => workerLaunchFromEnv({ ...env, LOCAL_AGENT_WORKER_EFFORT: 'very high' }, REGISTRY)).toThrow('unreadable effort')
+    expect(() => workerLaunchFromEnv({ ...env, LOCAL_AGENT_WORKER_MODEL: 'opus;rm' }, REGISTRY)).toThrow('unreadable model')
+  })
+
   it('reads the launch, with the CLI resolved through its symlink', () => {
     expect(workerLaunchFromEnv(env, REGISTRY)).toEqual({
       worker: 'claude-code',
+      model: null,
+      effort: null,
       entry: REGISTRY['claude-code'],
       bin: join(root, 'bin/claude-2.1'),
       fenceDir: join(root, 'fence'),

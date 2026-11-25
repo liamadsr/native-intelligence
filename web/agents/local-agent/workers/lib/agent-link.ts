@@ -51,6 +51,13 @@ export interface SessionParams {
   readonly instructions: string
   /** Streamable HTTP, with the per-launch bearer in an Authorization header (mcp-http.ts). */
   readonly mcp: { readonly name: string; readonly url: string; readonly token: string }
+  /**
+   * The model and effort the person chose (721): ids the registry entry
+   * lists, checked at launch. Null: the CLI's own default. Every launch of
+   * the job passes them again (a resume included), so the session keeps them.
+   */
+  readonly model?: string | null
+  readonly effort?: string | null
 }
 
 /** How a turn ended. The driver maps all but `end_turn` and `cancelled` to an `error` event. */

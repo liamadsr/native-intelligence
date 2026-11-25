@@ -95,6 +95,9 @@ export interface DriverOptions {
   readonly agentHome?: string
   /** The workspace tools' section text (the server's, from the tools file); absent when the job has none. */
   readonly workspaceInstructions?: string
+  /** The model and effort the person chose (721, checked against the entry); absent or null: the CLI's own defaults. */
+  readonly model?: string | null
+  readonly effort?: string | null
 }
 
 export interface DriverDeps {
@@ -252,6 +255,8 @@ export class WorkerDriver {
       cwd: this.opts.cwd,
       instructions: workerInstructions(this.opts.mode, this.opts.workspaceInstructions),
       mcp: { name: MANAGER_SERVER, url: this.opts.mcp.url, token: this.opts.mcp.token },
+      model: this.opts.model ?? null,
+      effort: this.opts.effort ?? null,
     }
   }
 

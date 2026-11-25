@@ -13,7 +13,49 @@
     "login": {
       "keychain": true
     },
-    "signInHint": "Claude Code isn't signed in on this Mac. Open Terminal, run `claude`, then `/login`."
+    "signInHint": "Claude Code isn't signed in on this Mac. Open Terminal, run `claude`, then `/login`.",
+    "models": [
+      {
+        "id": "opus",
+        "label": "Opus",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      },
+      {
+        "id": "sonnet",
+        "label": "Sonnet",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      },
+      {
+        "id": "haiku",
+        "label": "Haiku",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      }
+    ],
+    "efforts": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ]
   },
   "codex": {
     "label": "Codex",
@@ -34,6 +76,11 @@
         }
       ]
     },
-    "signInHint": "Codex isn't signed in on this Mac. Open Terminal and run `codex login`."
+    "signInHint": "Codex isn't signed in on this Mac. Open Terminal and run `codex login`.",
+    "efforts": [
+      "low",
+      "medium",
+      "high"
+    ]
   }
 }

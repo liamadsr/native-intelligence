@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { LINKS } from '../lib/driver'
-import { DRIVERS, entryEnv, loadRegistry, parseRegistry } from '../lib/registry'
+import { DRIVERS, entryEnv, loadRegistry, modelChoiceRefusal, parseRegistry } from '../lib/registry'
 const REGISTRY = loadRegistry()
 
 const good = {
@@ -26,7 +26,7 @@ describe('the shipped registry', () => {
     // Only the login file is shared, never the folder (its settings, rules and skills would run outside the fence).
     expect(REGISTRY.codex.login).toEqual({ files: [{ path: '.codex/auth.json', scratch: ['.auth-*', 'auth.json.lock', 'auth.lock'] }] })
     expect(REGISTRY['claude-code']).toMatchObject({ homeFolders: ['.claude'], login: { keychain: true, files: [] } })
-    for (const e of Object.values(REGISTRY)) expect(Object.keys(e).sort()).toEqual(['cli', 'driver', 'env', 'homeFolders', 'label', 'login', 'signInHint'])
+    for (const e of Object.values(REGISTRY)) expect(Object.keys(e).sort()).toEqual(['cli', 'driver', 'efforts', 'env', 'homeFolders', 'label', 'login', 'models', 'signInHint'])
   })
 
   it('names only links the driver has', () => {
@@ -71,5 +71,36 @@ describe('entryEnv', () => {
   it('fills the placeholders of the environment', () => {
     const entry = parseRegistry({ demo: good }).demo
     expect(entryEnv(entry, { cli: '/c/demo', tmp: '/private/tmp/t', home: '/h' })).toEqual({ DEMO_PATH: '/c/demo', DEMO_TMP: '/private/tmp/t' })
+  })
+})
+
+describe('the models and efforts a job may be started on (721)', () => {
+  it('ships Claude Code’s documented aliases and effort levels, and Codex’s efforts only (its models are its own list, read at run time later)', () => {
+    const levels = ['low', 'medium', 'high', 'xhigh', 'max']
+    expect(REGISTRY['claude-code'].models.map((m) => m.id)).toEqual(['opus', 'sonnet', 'haiku'])
+    for (const m of REGISTRY['claude-code'].models) expect(m.efforts).toEqual(levels)
+    expect(REGISTRY['claude-code'].efforts).toEqual(levels)
+    expect(REGISTRY.codex.models).toEqual([])
+    expect(REGISTRY.codex.efforts).toEqual(['low', 'medium', 'high'])
+  })
+
+  it('refuses a malformed list as a broken bundle', () => {
+    const base = { label: 'X', cli: 'x', driver: 'claude-stream', signInHint: 'Sign in.' }
+    expect(() => parseRegistry({ x: { ...base, models: [{ id: 'two words', label: 'Bad' }] } })).toThrow('model-choice id')
+    expect(() => parseRegistry({ x: { ...base, models: [{ id: 'a', label: 'A' }, { id: 'a', label: 'A again' }] } })).toThrow('distinct')
+    expect(() => parseRegistry({ x: { ...base, models: [{ id: 'a' }] } })).toThrow('label')
+    expect(() => parseRegistry({ x: { ...base, efforts: ['high', 'high'] } })).toThrow('efforts')
+    expect(() => parseRegistry({ x: { ...base, models: 'opus' } })).toThrow('models must be a list')
+    expect(parseRegistry({ x: base }).x).toMatchObject({ models: [], efforts: [] })
+  })
+
+  it('modelChoiceRefusal: only what the entry lists; an effort its model (or the default model) takes', () => {
+    const e = REGISTRY['claude-code']
+    expect(modelChoiceRefusal(e, null, null)).toBeNull()
+    expect(modelChoiceRefusal(e, 'opus', 'max')).toBeNull()
+    expect(modelChoiceRefusal(e, null, 'high')).toBeNull()
+    expect(modelChoiceRefusal(e, 'gpt-5', null)).toContain("can't be started on gpt-5")
+    expect(modelChoiceRefusal(REGISTRY.codex, null, 'max')).toContain("doesn't take max effort")
+    expect(modelChoiceRefusal(REGISTRY.codex, 'gpt-5.3-codex', null)).toContain("can't be started on gpt-5.3-codex")
   })
 })

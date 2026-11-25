@@ -57,6 +57,8 @@ export function threadParams(p: SessionParams) {
     sandbox: 'danger-full-access',
     developerInstructions: p.instructions,
     config: { mcp_servers: { [p.mcp.name]: { url: p.mcp.url, http_headers: { Authorization: `Bearer ${p.mcp.token}` } } } },
+    // The person's model (721): `thread/start` and `thread/resume` take `model`. Effort is a turn's (turn/start `effort`).
+    ...(p.model ? { model: p.model } : {}),
   }
 }
 
@@ -118,6 +120,8 @@ class CodexAppServer implements AgentLink {
   private turn: { resolve: (r: StopReason) => void; reject: (e: Error) => void } | null = null
   private cancelRequested = false
   private mcpName = ''
+  /** The effort the person chose (721), sent with every turn: `turn/start` takes `effort` ("this turn and subsequent turns"). */
+  private effort: string | null = null
   private mcpReported = false
   /** Agent messages whose text came as deltas: their completed text is not shown again. */
   private readonly streamed = new Set<string>()
@@ -213,6 +217,7 @@ class CodexAppServer implements AgentLink {
 
   async start(p: SessionParams): Promise<string> {
     this.mcpName = p.mcp.name
+    this.effort = p.effort ?? null
     await this.checkLogin()
     const res = obj(await this.conn().request('thread/start', threadParams(p)))
     const id = obj(res.thread).id
@@ -225,11 +230,13 @@ class CodexAppServer implements AgentLink {
   /** The thread's model and reasoning effort, as `thread/start` and `thread/resume` answer them (Codex's own settings). */
   private sayModel(res: Record<string, unknown>) {
     if (typeof res.model !== 'string' || !res.model) return
-    this.ev.model({ model: res.model, effort: typeof res.reasoningEffort === 'string' ? res.reasoningEffort : null })
+    // The thread answers its effort before a turn sets the person's: theirs, when they chose one.
+    this.ev.model({ model: res.model, effort: this.effort ?? (typeof res.reasoningEffort === 'string' ? res.reasoningEffort : null) })
   }
 
   async resume(sessionId: string, p: SessionParams): Promise<void> {
     this.mcpName = p.mcp.name
+    this.effort = p.effort ?? null
     await this.checkLogin()
     this.threadId = sessionId
     try {
@@ -246,7 +253,7 @@ class CodexAppServer implements AgentLink {
     this.cancelRequested = false
     this.turnId = null
     const done = new Promise<StopReason>((resolve, reject) => (this.turn = { resolve, reject }))
-    rpc.request('turn/start', { threadId: this.threadId, input: [{ type: 'text', text, text_elements: [] }] }).then(
+    rpc.request('turn/start', { threadId: this.threadId, input: [{ type: 'text', text, text_elements: [] }], ...(this.effort ? { effort: this.effort } : {}) }).then(
       (res) => {
         const id = obj(obj(res).turn).id
         if (typeof id === 'string' && this.turn) {

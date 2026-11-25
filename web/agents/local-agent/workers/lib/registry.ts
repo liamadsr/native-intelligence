@@ -17,6 +17,13 @@
  *                (`files`: each linked into the private home, with the
  *                `scratch` names its atomic save makes beside it)
  *   signInHint   the sentence for a person whose agent is not signed in
+ *   models       the models a job may be started on (721), each `{id, label,
+ *                efforts}`: `id` as the CLI takes it, the efforts that model
+ *                takes. Absent or empty: its default model only
+ *   efforts      the efforts its default model takes. A job names a model
+ *                and an effort from these lists or none (the CLI's own
+ *                default); the desktop offers them to the page and checks a
+ *                start's against them, and so does run.ts
  */
 import raw from '../registry.json'
 
@@ -32,7 +39,19 @@ export interface RegistryEntry {
   readonly homeFolders: readonly string[]
   readonly login: { readonly keychain?: boolean; readonly files: readonly LoginFile[] }
   readonly signInHint: string
+  readonly models: readonly RegistryModel[]
+  readonly efforts: readonly string[]
 }
+
+/** A model a job may be started on, as the CLI takes its id, with the efforts it takes. */
+export interface RegistryModel {
+  readonly id: string
+  readonly label: string
+  readonly efforts: readonly string[]
+}
+
+/** A model's or effort's id (the server's MODEL_CHOICE_RE, migration 721's CHECK). */
+export const MODEL_CHOICE = /^[A-Za-z0-9._:/-]{1,100}$/
 
 /** One login file of the real HOME, shared into the private home by a link; nothing else of its folder is. */
 export interface LoginFile {
@@ -110,6 +129,18 @@ export function parseRegistry(input: unknown): Registry {
     const homeFolders = r.homeFolders === undefined ? [] : r.homeFolders
     if (!Array.isArray(homeFolders) || !homeFolders.every((h) => typeof h === 'string' && NAME.test(h) && h.startsWith('.'))) fail(id, 'homeFolders must be hidden folder names')
     const signInHint = str(id, r.signInHint, 'signInHint')
+    const choices = (v: unknown, what: string): string[] => {
+      if (v === undefined) return []
+      if (!Array.isArray(v) || !v.every((c) => typeof c === 'string' && MODEL_CHOICE.test(c)) || new Set(v).size !== v.length) fail(id, `${what} must be distinct model-choice ids`)
+      return v as string[]
+    }
+    const models: RegistryModel[] = []
+    for (const m of r.models === undefined ? [] : Array.isArray(r.models) ? r.models : fail(id, 'models must be a list')) {
+      const o = (m ?? {}) as Record<string, unknown>
+      if (typeof o.id !== 'string' || !MODEL_CHOICE.test(o.id) || models.some((x) => x.id === o.id)) fail(id, `model ${JSON.stringify(o.id)} must be a distinct model-choice id`)
+      models.push({ id: o.id, label: str(id, o.label, `model ${o.id} label`), efforts: choices(o.efforts, `model ${o.id} efforts`) })
+    }
+    const efforts = choices(r.efforts, 'efforts')
     out[id] = {
       label,
       cli,
@@ -118,6 +149,8 @@ export function parseRegistry(input: unknown): Registry {
       homeFolders: homeFolders as string[],
       login: { ...(login.keychain ? { keychain: true } : {}), files },
       signInHint,
+      models,
+      efforts,
     }
   }
   return out
@@ -138,6 +171,19 @@ export function loadRegistry(input: unknown = raw): Registry {
   } catch (err) {
     throw new Error(`the list of agents shipped with this app is damaged (${err instanceof Error ? err.message : String(err)}): reinstall the app`)
   }
+}
+
+/**
+ * A job's model and effort, checked against its entry (721): each must be one
+ * the entry lists (the effort, one its model takes; with no model, one its
+ * default model takes). Null when they may run; else the sentence the person
+ * reads. The desktop checks the same before it launches.
+ */
+export function modelChoiceRefusal(entry: RegistryEntry, model: string | null, effort: string | null): string | null {
+  if (model !== null && !entry.models.some((m) => m.id === model)) return `${entry.label} can't be started on ${model} by this version of Native Intelligence: pick another model, or its default`
+  const efforts = model === null ? entry.efforts : (entry.models.find((m) => m.id === model)?.efforts ?? [])
+  if (effort !== null && !efforts.includes(effort)) return `${model ?? `${entry.label}'s default model`} doesn't take ${effort} effort here: pick another, or its default`
+  return null
 }
 
 /** `$NAME` placeholders in `s` replaced from `vars` (parseRegistry has already refused any other name). */

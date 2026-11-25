@@ -61,6 +61,21 @@ describe('codex-app-server', () => {
     await expect(t.link.initialize()).rejects.toThrow(/^Codex 9\.9\.9 on this Mac could not start its app server \(Error: failed to initialize sqlite state runtime\)\.$/)
   })
 
+  it('the person’s model (721) goes on thread/start, the effort on every turn/start; the effort said is theirs', async () => {
+    const t = await setup()
+    await t.link.initialize()
+    await t.link.start({ ...t.params, model: 'gpt-5.3-codex', effort: 'low' })
+    expect(t.requests().find((r) => r.method === 'thread/start')!.params).toMatchObject({ model: 'gpt-5.3-codex' })
+    expect(t.seen.models).toEqual([{ model: 'fake', effort: 'low' }])
+    expect(await t.link.prompt('hello')).toBe('end_turn')
+    expect(await t.link.prompt('again')).toBe('end_turn')
+    const turns = t.requests().filter((r) => r.method === 'turn/start')
+    expect(turns).toHaveLength(2)
+    for (const turn of turns) expect(turn.params).toMatchObject({ effort: 'low' })
+    // None chosen: nothing of ours in either.
+    expect(threadParams({ ...t.params, model: null })).not.toHaveProperty('model')
+  })
+
   it('starts a thread with our settings and runs two turns: text, tools, finish through our MCP server', async () => {
     const t = await setup()
     await t.link.initialize()

@@ -28,6 +28,21 @@ describe('claude-stream', () => {
     expect(t.children).toHaveLength(0) // a short command, not the agent
   })
 
+  it('the person’s model and effort (721) go on every launch as --model and --effort, and the effort is said with the model', async () => {
+    const t = await setup()
+    const params = { ...t.params, model: 'opus', effort: 'max' }
+    const id = await t.link.start(params)
+    const [launch] = t.requests().filter((r) => r.argv)
+    expect(launch.argv![launch.argv!.indexOf('--model') + 1]).toBe('opus')
+    expect(launch.argv![launch.argv!.indexOf('--effort') + 1]).toBe('max')
+    expect(claudeArgs(params, { resume: id })).toEqual(expect.arrayContaining(['--model', 'opus', '--effort', 'max', '--resume', id]))
+    expect(await t.link.prompt('hello')).toBe('end_turn')
+    expect(t.seen.models.at(-1)).toMatchObject({ effort: 'max' })
+    // None chosen: neither flag.
+    expect(claudeArgs({ ...t.params, model: null, effort: null }, { start: id })).not.toEqual(expect.arrayContaining(['--model']))
+    expect(claudeArgs(t.params, { start: id })).not.toContain('--effort')
+  })
+
   it('starts one process with our flags and its own session id, and runs two turns over the same stdin', async () => {
     const t = await setup()
     const id = await t.link.start(t.params)

@@ -75,6 +75,10 @@ export function claudeArgs(p: SessionParams, session: { start: string } | { resu
     JSON.stringify(mcp),
     '--append-system-prompt',
     p.instructions,
+    // The person's model and effort (721; documented flags, `--model <alias or name>`, `--effort <level>`).
+    // Passed on every launch: a resume keeps its saved model only without `--model`.
+    ...(p.model ? ['--model', p.model] : []),
+    ...(p.effort ? ['--effort', p.effort] : []),
     ...('start' in session ? ['--session-id', session.start] : ['--resume', session.resume]),
   ]
 }
@@ -111,6 +115,8 @@ class ClaudeStream implements AgentLink {
   private authFailed = false
   private mcpReported = false
   private mcpName = ''
+  /** The effort the person chose (721): the init line names none, so it is said with the model. */
+  private effort: string | null = null
   private messageId: string | null = null
   /** Message ids whose text came as deltas: their whole text blocks are not shown again. */
   private readonly streamed = new Set<string>()
@@ -153,6 +159,7 @@ class ClaudeStream implements AgentLink {
     if (this.proc) throw new Error('this job already has a session')
     this.sessionId = 'start' in session ? session.start : session.resume
     this.mcpName = p.mcp.name
+    this.effort = p.effort ?? null
     const proc = this.launch.spawn(claudeArgs(p, session))
     this.proc = proc
     proc.stdin.on('error', () => {}) // a CLI that died: its exit says why
@@ -268,8 +275,8 @@ class ClaudeStream implements AgentLink {
 
   private onInit(m: Record<string, unknown>) {
     if (typeof m.session_id === 'string' && m.session_id !== this.sessionId) this.ev.log(`[worker] ${this.ctx.label} reports session ${m.session_id.slice(0, 80)}, not ${this.sessionId}`)
-    // The model each turn runs on (Claude Code's own setting). It names no effort here.
-    if (typeof m.model === 'string' && m.model) this.ev.model({ model: m.model })
+    // The model each turn runs on. It names no effort here: the one the person chose (721), when they chose one.
+    if (typeof m.model === 'string' && m.model) this.ev.model(this.effort ? { model: m.model, effort: this.effort } : { model: m.model })
     if (this.mcpReported) return
     const servers = Array.isArray(m.mcp_servers) ? m.mcp_servers.map(obj) : []
     const ours = servers.find((s) => s.name === this.mcpName)
