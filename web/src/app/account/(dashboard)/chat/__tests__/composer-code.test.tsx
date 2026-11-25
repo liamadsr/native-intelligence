@@ -28,7 +28,7 @@ import { act, createElement as h, useEffect, useState } from 'react'
 import type { UIMessage } from '@ai-sdk/react'
 import { __resetCodeViewForTests, getCodeView, selectCodeChat, setCodeChatLive } from '../code-view-store'
 import { CodeHeldRow } from '../composer-code-controls'
-import { __resetCurrentChatForTests, currentChatKind, openCodingChat } from '../current-chat-store'
+import { __resetCurrentChatForTests, currentChatKind, getCurrentChat, openCodingChat } from '../current-chat-store'
 import { getSidePanelState } from '../../side-panels/side-panel-store'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -226,8 +226,8 @@ describe('who sees the tabs', () => {
   })
 })
 
-describe('the tab and the current chat are one thing', () => {
-  it('a coding chat opened from outside the composer (a Recent row) moves the tab to Code: the box never stays on the agent under it', async () => {
+describe('the toggle is Home’s current chat', () => {
+  it('a coding chat opened from outside the composer (a Recent row) moves the toggle to Code: the box never stays on the agent under it', async () => {
     await mount({ list: [STUDIO], chatEnv: STUDIO })
     expect(q('[data-composer-tab="chat"]')!.getAttribute('data-state')).toBe('on')
     act(() => openCodingChat('sess-1', { from: 'recents' }))
@@ -235,11 +235,9 @@ describe('the tab and the current chat are one thing', () => {
     expect(q('[data-composer-tab="code"]')!.getAttribute('data-state')).toBe('on')
     expect(currentChatKind()).toBe('code')
     expect(getSidePanelState().codeView).toBe(true)
-    // And the choice is the conversation's, as a press on the tab makes it.
-    expect(JSON.parse(localStorage.getItem(`${CODE_TAB_STORAGE_PREFIX}${CONV}`)!).tab).toBe('code')
   })
 
-  it('a press on a tab moves the current chat, and back', async () => {
+  it('Code starts a new coding chat in place, and the agent’s side goes back', async () => {
     await mount({ list: [STUDIO], chatEnv: STUDIO })
     press(q('[data-composer-tab="code"]')!)
     await flush()
@@ -250,12 +248,28 @@ describe('the tab and the current chat are one thing', () => {
     expect(getSidePanelState().codeView).toBe(false)
   })
 
-  it('the composer going puts the current chat back on the agent', async () => {
+  it('Code pressed with a coding chat open starts a new one, never that chat again (the toggle starts, Recent resumes)', async () => {
     await mount({ list: [STUDIO], chatEnv: STUDIO })
+    act(() => openCodingChat('sess-1', { from: 'recents' }))
+    await flush()
+    press(q('[data-composer-tab="chat"]')!)
+    await flush()
     press(q('[data-composer-tab="code"]')!)
     await flush()
-    act(() => root.render(null))
+    expect(getCurrentChat()).toEqual({ kind: 'code-new' })
+    expect(getCodeView().selected).toBeNull()
+  })
+
+  it('a conversation’s saved tab is no longer a mode: it opens on the agent whatever it says', async () => {
+    localStorage.setItem(`${CODE_TAB_STORAGE_PREFIX}${CONV}`, JSON.stringify({ tab: 'code', agent: null, folderId: 'f-site' }))
+    await mount({ list: [STUDIO], chatEnv: STUDIO })
+    expect(q('[data-composer-tab="chat"]')!.getAttribute('data-state')).toBe('on')
     expect(currentChatKind()).toBe('agent')
+    // The agent it kept (Native Intelligence, not the Mac's saved worker) is still what a new coding chat starts with.
+    press(q('[data-composer-tab="code"]')!)
+    await flush()
+    expect(q('[data-code-agent-picker]')!.getAttribute('data-code-agent-picker')).toBe('native')
+    expect(q('[data-code-folder-picker]')!.getAttribute('data-code-folder-picker')).toBe('f-site')
   })
 })
 
@@ -610,7 +624,7 @@ describe('the Code tab', () => {
     expect(started).toBe(2)
   })
 
-  it('a conversation with a Code job opens on Code with that job’s agent, and draws it as its line', async () => {
+  it('a conversation with a Code job opens on the agent, draws the job as its line, and a new coding chat there starts with that job’s agent', async () => {
     const started: UIMessage = { id: 'code-req-1', role: 'user', parts: [{ type: 'text', text: 'Fix it' }], metadata: { local_agent_code: { requestId: 'req-1' } } }
     await mount({
       list: [STUDIO],
@@ -618,7 +632,9 @@ describe('the Code tab', () => {
       initial: [started],
       routes: [{ url: `/api/local-agent/sessions?conversationId=${CONV}`, reply: () => json({ sessions: [session({ worker: null, codeRequestId: 'req-1', status: 'waiting' })] }) }],
     })
-    expect(q('[data-composer-tab="code"]')!.getAttribute('data-state')).toBe('on')
+    expect(q('[data-composer-tab="chat"]')!.getAttribute('data-state')).toBe('on')
+    press(q('[data-composer-tab="code"]')!)
+    await flush()
     expect(q('[data-code-agent-picker]')!.getAttribute('data-code-agent-picker')).toBe('native')
     // Its line, with the job's state as the list read it (finished, idle).
     expect(q('[data-code-line="sess-1"]')!.getAttribute('data-code-line-state')).toBe('done')

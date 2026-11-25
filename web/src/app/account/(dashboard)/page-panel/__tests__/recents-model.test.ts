@@ -24,7 +24,13 @@ import {
   recentGroupOf,
   shortRecentTime,
   type RecentItem,
+  CODE_ROW_STATE_WORDS,
+  codeChatRowKey,
+  codeRowState,
+  codeStateNeedsYou,
+  withLiveCodeChat,
 } from '../recents-model'
+import { CODING_TYPE_LABEL, RECENT_TYPES, recentTypeOf } from '@/lib/entities/recents-model'
 
 /** 3pm on Wednesday Nov 11 2026, local. */
 const NOW = new Date(2026, 10, 11, 15, 0, 0)
@@ -257,5 +263,71 @@ describe('the filter', () => {
     expect(parseRecentFilter('{oops', known)).toBe(DEFAULT_RECENT_FILTER)
     expect(parseRecentFilter(JSON.stringify({ status: 'weird' }), known)).toEqual({ status: 'all', types: [] })
     expect(parseRecentFilter(null, known)).toBe(DEFAULT_RECENT_FILTER)
+  })
+})
+
+describe('a coding chat’s state (docs/plans/one-home.md)', () => {
+  const code = (status: string, lastSignal: 'ask' | 'finish' | null = null, queuedOnMac = false) => ({ status, lastSignal, queuedOnMac })
+
+  it('working, queued, asks, review, done, failed', () => {
+    expect(codeRowState(code('running'))).toBe('working')
+    expect(codeRowState(code('starting'))).toBe('working')
+    expect(codeRowState(code('queued'))).toBe('queued')
+    // Claimed by the Mac and waiting in its line.
+    expect(codeRowState(code('starting', null, true))).toBe('queued')
+    expect(codeRowState(code('waiting', 'ask'))).toBe('asks')
+    expect(codeRowState(code('waiting', 'finish'))).toBe('done')
+    expect(codeRowState(code('waiting', 'finish'), true)).toBe('review')
+    expect(codeRowState(code('interrupted'))).toBe('done')
+    expect(codeRowState(code('failed'))).toBe('failed')
+    expect(codeRowState(code('expired'))).toBe('failed')
+    expect(codeRowState(code('cancelled'))).toBe('failed')
+    // Ended with its work still waiting on a review: the review is what it says.
+    expect(codeRowState(code('failed'), true)).toBe('review')
+    // While it works, a review left from its last turn doesn't speak over it.
+    expect(codeRowState(code('running'), true)).toBe('working')
+  })
+
+  it('only a chat that asks or waits on a review needs the person: the orange dot, and Status → Unread', () => {
+    expect((['working', 'queued', 'asks', 'review', 'done', 'failed'] as const).filter(codeStateNeedsYou)).toEqual(['asks', 'review'])
+    expect(codeStateNeedsYou(undefined)).toBe(false)
+  })
+
+  it('every state has its words, and a chat with nothing to say has none', () => {
+    expect(CODE_ROW_STATE_WORDS.done).toBe('')
+    for (const state of ['working', 'queued', 'asks', 'review', 'failed'] as const) expect(CODE_ROW_STATE_WORDS[state]).not.toBe('')
+  })
+
+  const JOB = 'c0000000-0000-4000-8000-0000000000b1'
+  const source = (over: Record<string, unknown> = {}) => ({ type: 'code_job' as const, id: JOB, label: 'Fix the export', context: 'Code', at: at(10, 11, 10), code: { status: 'waiting', lastSignal: 'finish' as const, workItemId: 'tj-1', actionIdentifier: 'ENG-42', queuedOnMac: false, ...over } })
+
+  it('the merged row carries its state, its action and its work item; it needs the person by its state, opened here or not', () => {
+    const [idle] = mergeRecents({ inbox: null, recent: null, sources: [source()] })
+    expect(idle).toMatchObject({ key: codeChatRowKey(JOB), codeState: 'done', codeAction: 'ENG-42', codeWorkItem: 'tj-1', needsYou: false })
+    const [review] = mergeRecents({ inbox: null, recent: null, sources: [source()], codeReview: new Set(['tj-1']) })
+    expect(review).toMatchObject({ codeState: 'review', needsYou: true })
+    // Seen here before: it still waits on the review.
+    const [seen] = mergeRecents({ inbox: null, recent: null, sources: [source({ lastSignal: 'ask' })], seen: { [codeChatRowKey(JOB)]: at(10, 11, 30) } })
+    expect(seen).toMatchObject({ codeState: 'asks', needsYou: true })
+    // A row from before the read carried the state: a plain coding row, nothing to say.
+    const [bare] = mergeRecents({ inbox: null, recent: null, sources: [{ type: 'code_job', id: JOB, label: 'Fix the export', context: 'Code', at: at(10, 11, 10) }] })
+    expect(bare.codeState).toBeUndefined()
+    expect(bare.needsYou).toBe(false)
+  })
+
+  it('the current chat’s row follows its conversation’s reader; the same list when nothing changes', () => {
+    const items = mergeRecents({ inbox: null, recent: null, sources: [source({ status: 'running', lastSignal: null })] })
+    expect(withLiveCodeChat(items, null)).toBe(items)
+    expect(withLiveCodeChat(items, { sessionId: JOB, status: 'running', lastSignal: null })).toBe(items)
+    expect(withLiveCodeChat(items, { sessionId: 'another', status: 'failed', lastSignal: null })).toBe(items)
+    const asked = withLiveCodeChat(items, { sessionId: JOB, status: 'waiting', lastSignal: 'ask' })
+    expect(asked[0]).toMatchObject({ codeState: 'asks', needsYou: true })
+    const finished = withLiveCodeChat(items, { sessionId: JOB, status: 'waiting', lastSignal: 'finish' }, new Set(['tj-1']))
+    expect(finished[0]).toMatchObject({ codeState: 'review', needsYou: true })
+  })
+
+  it('the Type filter’s word for them is "Coding", under the key a saved filter already holds', () => {
+    expect(RECENT_TYPES.find((t) => t.key === 'agents')).toEqual({ key: 'agents', label: CODING_TYPE_LABEL })
+    expect(recentTypeOf('code_job')).toBe('agents')
   })
 })

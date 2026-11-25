@@ -72,7 +72,7 @@ import { CodeJobLine } from './code-job-line'
 import { closeFrontCards } from '@/components/chat-cards/front-card'
 import { noteCodeChatsChanged } from '../page-panel/code-chats-store'
 import { getCodeView, openCodeChatKey, subscribeCodeView } from './code-view-store'
-import { backToAgent, isOnCode, openCodingChat, showCoding, subscribeCurrentChat } from './current-chat-store'
+import { backToAgent, isOnCode, openCodingChat, pressCode, subscribeCurrentChat } from './current-chat-store'
 import type { LocalAgentStatus } from '@/lib/local-agent/store'
 import { canMessageSession } from '@/lib/local-agent/transcript-view'
 import { workerLabel } from '@/lib/environments/types'
@@ -282,10 +282,14 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
   const agents = useMemo(() => codeAgentSections(mac, thisMac), [mac, thisMac])
   const folderOptions = useMemo(() => codeFolderOptions(mac), [mac])
   const defaults = useMemo(() => ({ agent: defaultCodeAgent(mac, agents), folderId: resolveCodeFolder(folderOptions, null) }), [mac, agents, folderOptions])
-  const current = choice ?? openingCodeChoice(stored, jobs, defaults)
+  // The toggle is Home's current chat (current-chat-store.ts): the agent's, or the coding side. Never a conversation's own mode:
+  // the conversation keeps the agent and the folder its coding chats start with, and its `tab` only says where the box was.
+  const onCode = useSyncExternalStore(subscribeCurrentChat, isOnCode, () => false)
+  const tab: ComposerTab = available && onCode ? 'code' : 'chat'
+  const chosen = choice ?? openingCodeChoice(stored, jobs, defaults)
+  const current = chosen.tab === tab ? chosen : { ...chosen, tab }
   const agent = isPickableAgent(agents, current.agent) ? current.agent : defaults.agent
   const folderId = resolveCodeFolder(folderOptions, current.folderId)
-  const tab: ComposerTab = available ? current.tab : 'chat'
   const active = tab === 'code'
   // What a NEW chat needs (a Mac, a folder). A coding chat open in the Code view takes a message without it.
   // Read as one string of what shows here (the chat's id, status, agent): the chat panel
@@ -365,39 +369,19 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
     },
     [setNotice],
   )
-  const updateRef = useRef(update)
-  updateRef.current = update
   const availableRef = useRef(available)
   availableRef.current = available
-  const setTab = useCallback(
-    (t: ComposerTab) => {
-      // Back on the agent's tab: its chat in front again, whatever page was open over it (Liam, 11-16).
-      if (t === 'chat' && currentRef.current.tab === 'code') closeFrontCards()
-      update({ tab: t })
-    },
-    [update],
-  )
-  // The current chat (current-chat-store.ts) follows the tab the conversation
-  // is on: its stored choice, a conversation with a Code job opening on Code,
-  // a press. Back on the agent when this composer goes.
-  useEffect(() => {
-    if (!enabled) return
-    if (active) showCoding({ from: 'composer' })
-    else backToAgent({ from: 'composer' })
-  }, [enabled, active])
-  useEffect(() => {
-    if (!enabled) return
-    return () => backToAgent({ from: 'composer' })
-  }, [enabled])
-  // And the tab follows the current chat when something else moved it (a
-  // Recent row, a job's line: openCodingChat), so the box never stays on the
-  // agent under a coding chat. Read live: the effect above may just have set it.
-  const onCode = useSyncExternalStore(subscribeCurrentChat, isOnCode, () => false)
-  useEffect(() => {
-    if (!enabled || !availableRef.current) return
-    const want: ComposerTab = isOnCode() ? 'code' : 'chat'
-    if (currentRef.current.tab !== want) updateRef.current({ tab: want })
-  }, [enabled, onCode])
+  const setTab = useCallback((t: ComposerTab) => {
+    setNotice(null)
+    if (t === 'code') {
+      // A new coding chat, in place (Liam, 11-25: "it just changes your main agent to the coding agent, and you see it as a new chat").
+      pressCode({ from: 'composer' })
+      return
+    }
+    // Back on the agent: its chat in front again, whatever page was open over it (Liam, 11-16).
+    closeFrontCards()
+    backToAgent({ from: 'composer' })
+  }, [setNotice])
   const pickAgent = useCallback((a: string | null) => update({ agent: a }), [update])
   const pickFolder = useCallback((f: string) => update({ folderId: f }), [update])
   const addFolder = useCallback(() => {

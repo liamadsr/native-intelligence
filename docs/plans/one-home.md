@@ -414,5 +414,34 @@ tab, Recent's coding row, the coding chats' list and the job's line all go throu
 `current-chat-store.test.ts` pins the panels' choice for each state the Code view had. Fixed on
 the way: a coding chat opened from Recent now moves the composer's tab with it
 (`open-recent-code.test.ts`, and "the tab and the current chat are one thing" in
-`composer-code.test.tsx`). Until phase 2, Code pressed still comes back to the chat you were on,
-and the conversation still remembers its tab.
+`composer-code.test.tsx`).
+
+**Phase 2: one left panel.** Pressing Code no longer changes the left panel.
+
+- **Recent** (`page-panel/home-recents.tsx`): the agent pinned first (`PinnedAgentRow`: its name
+  and icon, lit while current, a pulse while it replies and a dot for a reply finished unseen
+  while you are on another chat); "New coding chat" under it while that is the current chat; a
+  coding chat's row with the coding icon and its state (`recents-model.ts` `codeRowState`:
+  working, queued, asks, review, done, failed), the action's identifier first. The orange dot is
+  on a row that asks or waits on your review. With nothing in front the current chat's row is
+  lit; under a card it keeps a thin mark.
+- **The state comes with the row** (`lib/entities/recents.ts` `codeJobs`: the session's status,
+  last signal, ledger row and action, ordered by when it last moved). No second read, no
+  migration. The current chat's row follows its conversation's own reader between reads; a
+  review waiting comes from the shell's shared source.
+- **The filter's "Agents" type is "Coding"** (the key is unchanged, so a saved filter holds).
+- **The toggle** is the current chat: Code always starts a new coding chat (decision 2), the
+  agent's side goes back. A conversation's saved `tab` is no longer read as a mode.
+- **A reload** comes back on the chat this window was on (`sessionStorage`,
+  `ni:current-chat:<workspace id>`; decision 5), per workspace. The Code view's device memory
+  (`ni:code-view:selected:…`) is no longer read.
+- **The first-time line** in a new coding chat's clear middle, once per device, with **Show only
+  coding** (`code-chat-stage.tsx`). Where Recent is not on screen the coding chats are listed
+  there, as before.
+- **Every decision is one value** in `chat/one-home-decisions.ts`.
+- Gone: `CodeChatsPanel` and its swap, the list's "New chat" row.
+- Not yet (phase 5): the tab's own dot and the Code view's For you are still there; the dot on
+  the way back to Recent.
+
+Found by the tests on the way: with the pinned row lit, J/K would have opened every row it
+passed. A step flips only with a card in front, as before.

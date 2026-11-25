@@ -33,11 +33,15 @@ vi.mock('../../side-panels/side-panels', async () => {
 
 import { CodeChatStage, HIDE_THREAD_CSS } from '../code-chat-stage'
 import { __resetCodeViewForTests, selectCodeChat, setCodeChatLive, type CodeChatLive } from '../code-view-store'
+import { FIRST_TIME_KEY, FIRST_TIME_LINE } from '../one-home-decisions'
+import { RECENTS_FILTER_KEY } from '../../page-panel/use-recents-filter'
 import { setCodeDetailsOpen, setCodeView, setPagePanelShown, setRightPanelOpen } from '../../side-panels/side-panel-store'
 
 let container: HTMLDivElement
 let root: Root
 beforeEach(() => {
+  // The first-time line was dismissed on this device (its own tests say otherwise).
+  window.localStorage.setItem(FIRST_TIME_KEY, '1')
   container = document.createElement('div')
   document.body.append(container)
   root = createRoot(container)
@@ -164,5 +168,38 @@ describe('CodeChatStage', () => {
     })
     readChat('job-1')
     expect(container.querySelector('[data-fake-panel]')?.getAttribute('data-hide-finish')).toBe('false')
+  })
+
+  describe('the first time, for someone used to the Code tab’s own list', () => {
+    it('a new coding chat’s clear middle says once where the coding chats are; Dismiss keeps it gone on this device', () => {
+      window.localStorage.removeItem(FIRST_TIME_KEY)
+      act(() => root.render(h(CodeChatStage)))
+      act(() => {
+        setPagePanelShown(true)
+        setCodeView(true)
+      })
+      expect(container.querySelector('[data-code-first-time]')?.textContent).toContain(FIRST_TIME_LINE)
+      // With a chat open: its conversation, no line.
+      act(() => selectCodeChat('sess-1'))
+      expect(container.querySelector('[data-code-first-time]')).toBeNull()
+      act(() => selectCodeChat(null))
+      act(() => container.querySelector<HTMLButtonElement>('[data-code-first-time-dismiss]')!.click())
+      expect(container.querySelector('[data-code-first-time]')).toBeNull()
+      expect(window.localStorage.getItem(FIRST_TIME_KEY)).toBe('1')
+      expect(container.querySelector('[data-code-chat-stage]')).toBeNull()
+    })
+
+    it('Show only coding puts Recent on its coding chats, and the line is done', () => {
+      window.localStorage.removeItem(FIRST_TIME_KEY)
+      act(() => root.render(h(CodeChatStage)))
+      act(() => {
+        setPagePanelShown(true)
+        setCodeView(true)
+      })
+      act(() => container.querySelector<HTMLButtonElement>('[data-code-first-time-show]')!.click())
+      expect(JSON.parse(window.localStorage.getItem(RECENTS_FILTER_KEY)!)).toEqual({ status: 'all', types: ['agents'] })
+      expect(window.localStorage.getItem(FIRST_TIME_KEY)).toBe('1')
+      expect(container.querySelector('[data-code-first-time]')).toBeNull()
+    })
   })
 })

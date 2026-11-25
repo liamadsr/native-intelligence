@@ -10,10 +10,9 @@ import { codeChatTitle, codeChatsOf } from '../code-chats-model'
 import { groupCodeChats } from '../code-chats'
 import { getSidePanelState, rightShown, setCodeDetailsOpen, setCodeView, toggleRightPanel } from '../../side-panels/side-panel-store'
 import { vi } from 'vitest'
-import { SELECTED_KEY_PREFIX, __resetCodeViewForTests, getCodeView, selectCodeChat, setCodeChatError, setCodeChatLive, syncCodeViewWorkspace } from '../../chat/code-view-store'
+import { __resetCodeViewForTests, getCodeView, selectCodeChat, setCodeChatError, setCodeChatLive } from '../../chat/code-view-store'
 
-let workspace = 'ws-1'
-vi.mock('@/lib/workspace-fetch', () => ({ getClientWorkspaceId: () => workspace }))
+vi.mock('@/lib/workspace-fetch', () => ({ getClientWorkspaceId: () => 'ws-1' }))
 
 const session = (over: Partial<PanelSession> & { id: string }): PanelSession =>
   ({
@@ -160,60 +159,16 @@ describe('the Code view’s selected chat (code-view-store.ts)', () => {
   })
 })
 
-describe('the selected chat is remembered per workspace', () => {
-  afterEach(() => {
-    __resetCodeViewForTests()
-    window.localStorage.clear()
-    workspace = 'ws-1'
-  })
-
-  it('comes back after a reload, once, and never over a chat picked meanwhile', () => {
-    selectCodeChat('a')
-    expect(window.localStorage.getItem(`${SELECTED_KEY_PREFIX}ws-1`)).toBe('a')
-    // A reload: nothing in memory.
-    __resetCodeViewForTests()
-    expect(getCodeView().selected).toBeNull()
-    syncCodeViewWorkspace()
-    expect(getCodeView().selected).toBe('a')
-    expect(getSidePanelState().codeChat).toBe(true)
-    // New chat clears it for good.
-    selectCodeChat(null)
-    expect(window.localStorage.getItem(`${SELECTED_KEY_PREFIX}ws-1`)).toBeNull()
-    syncCodeViewWorkspace()
-    expect(getCodeView().selected).toBeNull()
-  })
-
-  it('another workspace has its own: the switch never carries a chat across, nor forgets the one left behind', () => {
-    syncCodeViewWorkspace()
-    selectCodeChat('a')
-    workspace = 'ws-2'
-    syncCodeViewWorkspace()
-    expect(getCodeView().selected).toBeNull()
-    expect(window.localStorage.getItem(`${SELECTED_KEY_PREFIX}ws-1`)).toBe('a')
-    selectCodeChat('b')
-    workspace = 'ws-1'
-    syncCodeViewWorkspace()
-    expect(getCodeView().selected).toBe('a')
-  })
-
-  it('ignores a stored value that is not an id', () => {
-    window.localStorage.setItem(`${SELECTED_KEY_PREFIX}ws-1`, '<script>')
-    syncCodeViewWorkspace()
-    expect(getCodeView().selected).toBeNull()
-  })
-})
-
 describe('a chat that cannot be read', () => {
   afterEach(() => {
     __resetCodeViewForTests()
     window.localStorage.clear()
   })
 
-  it('a read that only failed keeps it remembered, and picking it again reads it again', () => {
+  it('a read that failed says so, and picking the chat again reads it again', () => {
     selectCodeChat('a')
-    setCodeChatError('a', 'Could not load this local agent.', false)
+    setCodeChatError('a', 'Could not load this local agent.')
     expect(getCodeView()).toEqual({ selected: 'a', live: null, error: 'Could not load this local agent.', attempt: 0 })
-    expect(window.localStorage.getItem(`${SELECTED_KEY_PREFIX}ws-1`)).toBe('a')
     selectCodeChat('a')
     expect(getCodeView()).toEqual({ selected: 'a', live: null, error: null, attempt: 1 })
     // Picked again with nothing wrong: nothing to do.
@@ -222,13 +177,12 @@ describe('a chat that cannot be read', () => {
     expect(getCodeView()).toBe(same)
   })
 
-  it('gone: says so, and is no longer the chat a reload comes back to', () => {
+  it('gone: says so, for that chat only (what a reload comes back to is the current chat’s store’s: current-chat-store.test.ts)', () => {
     selectCodeChat('gone')
-    setCodeChatError('other', 'nope', true)
+    setCodeChatError('other', 'nope')
     expect(getCodeView().error).toBeNull()
-    setCodeChatError('gone', 'This local agent is no longer available.', true)
+    setCodeChatError('gone', 'This local agent is no longer available.')
     expect(getCodeView()).toEqual({ selected: 'gone', live: null, error: 'This local agent is no longer available.', attempt: 0 })
-    expect(window.localStorage.getItem(`${SELECTED_KEY_PREFIX}ws-1`)).toBeNull()
     // Another chat picked: the error goes with the old one.
     selectCodeChat('a')
     expect(getCodeView().error).toBeNull()
