@@ -15,8 +15,11 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
+  CHANGES_PANEL_WIDTH_PX,
   CHAT_CONTENT_MAX_PX,
   LEFT_RESERVE_PX,
+  PANEL_GUTTER_PX,
+  RIGHT_PANEL_WIDTH_PX,
   MIN_CHAT_PX,
   NO_PANELS,
   PANEL_BREATH_PX,
@@ -38,6 +41,24 @@ function edges(width: number, plan: SpacePlan, content = CHAT_CONTENT_MAX_PX) {
 const rightClear = (width: number) => width - RIGHT_RESERVE_PX - PANEL_BREATH_PX
 /** The page panel's inner edge, and the breath it keeps from the content. */
 const leftClear = LEFT_RESERVE_PX + PANEL_BREATH_PX
+
+describe('a wider right panel (a coding chat’s Changes)', () => {
+  it('the default width is the panel’s own: the same plan as before', () => {
+    for (const width of [900, 1200, 1300, 1600]) {
+      expect(planSpace({ width, right: true, rightWidth: RIGHT_PANEL_WIDTH_PX })).toEqual(planSpace({ width, right: true }))
+    }
+  })
+
+  it('makes room where it fits, the content clear of its wider edge; floats where it doesn’t', () => {
+    const plan = planSpace({ width: 1440, right: true, rightWidth: CHANGES_PANEL_WIDTH_PX })
+    expect(plan.right).toBe('room')
+    expect(edges(1440, plan).hi).toBeLessThanOrEqual(1440 - CHANGES_PANEL_WIDTH_PX - PANEL_GUTTER_PX - PANEL_BREATH_PX)
+    // 1200: the details make room, the Changes would leave the chat under MIN_CHAT_PX, so they float.
+    expect(planSpace({ width: 1200, right: true }).right).toBe('room')
+    expect(1200 - CHANGES_PANEL_WIDTH_PX - PANEL_GUTTER_PX).toBeLessThan(MIN_CHAT_PX)
+    expect(planSpace({ width: 1200, right: true, rightWidth: CHANGES_PANEL_WIDTH_PX })).toEqual({ right: 'float', left: 'off', insetLeft: 0, insetRight: 0 })
+  })
+})
 
 describe('the space plan', () => {
   it('wide: the panel fits beside the content, and nothing moves', () => {

@@ -31,6 +31,9 @@ import {
   VIEW_KEY,
   captureChatAnchor,
   chatScroller,
+  closeCodeChanges,
+  codeChangesShown,
+  openCodeChanges,
   CODE_DETAILS_OPEN_KEY,
   getServerSidePanelState,
   getSidePanelState,
@@ -383,6 +386,42 @@ describe('the current chat’s kind decides what the panel is', () => {
     expect(rightShown({ rightOpen: false, view: 'forYou', forYouContent: false, chatKind: 'code' })).toBe(true)
     expect(rightShown({ ...agentOpen, chatKind: 'code', codeDetailsOpen: false })).toBe(false)
     expect(shownView({ rightOpen: true, view: 'forYou', forYouContent: true, chatKind: 'code' })).toBe('panel')
+  })
+})
+
+describe('a coding chat’s Changes, in the right panel (Liam, 11-25: “changes should show on their own panel”)', () => {
+  it('opens on the details’ place, opening the panel when it was closed; ‹ Details goes back; never saved', () => {
+    setPanelChatKind('code')
+    setCodeDetailsOpen(false)
+    openCodeChanges()
+    expect(getSidePanelState()).toMatchObject({ codeDetailsOpen: true, codeChanges: true })
+    expect(codeChangesShown(getSidePanelState())).toBe(true)
+    expect(window.localStorage.getItem(CODE_DETAILS_OPEN_KEY)).toBeNull()
+    closeCodeChanges()
+    expect(getSidePanelState()).toMatchObject({ codeDetailsOpen: true, codeChanges: false })
+    expect(codeChangesShown(getSidePanelState())).toBe(false)
+  })
+
+  it('closing the panel closes them: it opens again on the details', () => {
+    setPanelChatKind('code')
+    openCodeChanges()
+    toggleRightPanel()
+    expect(getSidePanelState()).toMatchObject({ codeDetailsOpen: false, codeChanges: false })
+    toggleRightPanel()
+    expect(getSidePanelState()).toMatchObject({ codeDetailsOpen: true, codeChanges: false })
+  })
+
+  it('nothing with no coding chat on screen, and leaving the chat closes them', () => {
+    openCodeChanges()
+    expect(getSidePanelState().codeChanges).toBe(false)
+    setPanelChatKind('code-new')
+    openCodeChanges()
+    expect(getSidePanelState().codeChanges).toBe(false)
+    setPanelChatKind('code')
+    openCodeChanges()
+    setPanelChatKind('agent')
+    expect(getSidePanelState().codeChanges).toBe(false)
+    expect(codeChangesShown({ ...getSidePanelState(), codeChanges: true })).toBe(false)
   })
 })
 

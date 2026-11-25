@@ -12,7 +12,7 @@ import { act, createElement as h } from 'react'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
-type FakePanelProps = { sessionId: string; composer?: boolean; header?: boolean; hideFinish?: boolean }
+type FakePanelProps = { sessionId: string; composer?: boolean; header?: boolean; hideFinish?: boolean; onOpenChanges?: () => void }
 const panel = vi.fn((props: FakePanelProps) =>
   h('div', { 'data-fake-panel': props.sessionId, 'data-composer': String(props.composer), 'data-header': String(props.header), 'data-hide-finish': String(props.hideFinish) }),
 )
@@ -36,7 +36,7 @@ import { __resetCodeViewForTests, selectCodeChat, setCodeChatLive, type CodeChat
 import { FIRST_TIME_KEY, FIRST_TIME_LINE } from '../one-home-decisions'
 import { __resetCurrentChatForTests, backToAgent, currentChatKind, isOnCode, newCodingChat, openCodingChat, subscribeCurrentChat } from '../current-chat-store'
 import { RECENTS_FILTER_KEY } from '../../page-panel/use-recents-filter'
-import { setCodeDetailsOpen, setPagePanelShown, setRightPanelOpen } from '../../side-panels/side-panel-store'
+import { getSidePanelState, setCodeDetailsOpen, setPagePanelShown, setRightPanelOpen } from '../../side-panels/side-panel-store'
 import { hiddenThreadProps } from '../thread-hidden'
 import { useSyncExternalStore } from 'react'
 
@@ -148,6 +148,19 @@ describe('CodeChatStage', () => {
     act(() => openCodingChat('sess-1'))
     const stage = container.querySelector('[data-code-chat-stage="sess-1"]')!
     expect(stage.querySelector('[data-fake-panel="sess-1"]')?.getAttribute('data-composer')).toBe('false')
+  })
+
+  // Liam, 11-25: "it should just be the conversation, and changes should show on their own panel".
+  it('the conversation only: its Changes (the branch card’s) open in the right panel, and another chat opens on the details', () => {
+    act(() => root.render(h(CodeChatStage)))
+    act(() => openCodingChat('sess-1'))
+    act(() => setCodeDetailsOpen(false))
+    const props = panel.mock.calls.at(-1)![0]
+    expect(typeof props.onOpenChanges).toBe('function')
+    act(() => props.onOpenChanges!())
+    expect(getSidePanelState()).toMatchObject({ chatKind: 'code', codeDetailsOpen: true, codeChanges: true })
+    act(() => openCodingChat('sess-2'))
+    expect(getSidePanelState().codeChanges).toBe(false)
   })
 
   it('keeps the conversation’s own header only while the right panel isn’t showing the same things', () => {

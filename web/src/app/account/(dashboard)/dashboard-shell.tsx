@@ -15,9 +15,9 @@ import { startSkyFeed } from '@/lib/sky/sky-state'
 import { SkyDevPanelMount } from '@/components/sky/sky-dev-panel-mount'
 import { lazyComponent } from '@/lib/lazy-component'
 import { CardReplyBackdrop } from './chat/card-reply-chip'
-import { INSET_LEFT_VAR, INSET_RIGHT_VAR, RightSidePanel, useSidePanelPlan } from './side-panels/side-panels'
+import { INSET_LEFT_VAR, INSET_RIGHT_VAR, RightSidePanel, rightPanelWidth, useSidePanelPlan, useSidePanelState } from './side-panels/side-panels'
 import { PagePanelHost } from './page-panel/page-panel'
-import { RIGHT_RESERVE_PX, TOP_BAR_FADE_PX } from './side-panels/space-plan'
+import { PANEL_GUTTER_PX, TOP_BAR_FADE_PX } from './side-panels/space-plan'
 import { WorkspaceCacheProvider, useWorkspaceId } from '../workspace-switcher'
 import { AutomationMount } from '@/lib/automation/automation-mount'
 import { installPerfSnapshot, takePerfSnapshot } from '@/lib/perf/perf-snapshot'
@@ -187,6 +187,8 @@ function ChatRow({ avatarUrl, initials }: { avatarUrl: string | null; initials: 
   // (STRIP_STYLE).
   const rowRef = useRef<HTMLDivElement>(null)
   const plan = useSidePanelPlan(rowRef)
+  // The right panel's reserve, wider while it shows a coding chat's Changes: the voice nudge stays left of it.
+  const rightReserve = rightPanelWidth(useSidePanelState()) + PANEL_GUTTER_PX
   return (
     // `relative z-10` so the whole row sits above the shell-level photo.
     // While one of the chat composer's rising cards (Capture, Transcripts,
@@ -249,7 +251,7 @@ function ChatRow({ avatarUrl, initials }: { avatarUrl: string | null; initials: 
           left of the side panel while it is open, so the two never overlap. */}
       <div
         className="pointer-events-none absolute inset-y-0 right-0 z-40 hidden max-w-[45%] items-start justify-end pr-3 pt-[calc(var(--chat-top-inset,0px)+0.5rem)] md:flex"
-        style={plan.right !== 'off' ? { right: RIGHT_RESERVE_PX } : undefined}
+        style={plan.right !== 'off' ? { right: rightReserve } : undefined}
       >
         <div className="pointer-events-auto flex flex-col items-end gap-2">
           <VoiceNudgeCard />

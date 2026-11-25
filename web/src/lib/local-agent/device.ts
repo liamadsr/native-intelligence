@@ -50,6 +50,7 @@ import {
   type LocalAgentStatus,
 } from './store'
 import { codeJobClaimRequest } from './code-thread'
+import { revivalRefusedReason } from './transcript-view'
 
 type Svc = SupabaseClient
 
@@ -1459,6 +1460,44 @@ export async function ackMessage(
 }
 
 /**
+ * A revival the Mac refused (store.ts reviveSession; the message's `inbound`
+ * event says `revived`): the chat ends again, `cancelled` with the Mac's own
+ * reason, which is never continuable (transcript-view.ts isContinuableEnd), so
+ * the person's next message starts a new chat. One CAS from the idle state it
+ * was revived to, and only while no other message of theirs waits for the
+ * Mac (a later one may still reach it). Its open turn is cancelled.
+ */
+async function endRefusedRevival(svc: Svc, userId: string, row: DbSession, messageId: string, reason: string): Promise<void> {
+  if (row.status !== 'waiting') return
+  const { data: inbound } = await svc
+    .from('local_agent_event')
+    .select('payload')
+    .eq('session_id', row.id)
+    .eq('user_id', userId)
+    .eq('source', 'server')
+    .eq('kind', 'inbound')
+    .order('id', { ascending: false })
+    .limit(50)
+  const revival = ((inbound ?? []) as Array<{ payload?: Record<string, unknown> | null }>).some(
+    (e) => e.payload?.messageId === messageId && e.payload?.revived === true,
+  )
+  if (!revival) return
+  const { data: waiting } = await svc.from('local_agent_message').select('id').eq('session_id', row.id).eq('user_id', userId).eq('status', 'pending').limit(1)
+  if ((waiting ?? []).length > 0) return
+  const at = nowIso()
+  let q = svc
+    .from('local_agent_session')
+    .update({ status: 'cancelled', error: revivalRefusedReason(reason), ended_at: at, lease_expires_at: null })
+    .eq('id', row.id)
+    .eq('user_id', userId)
+    .eq('status', 'waiting')
+    .eq('updated_at', row.updated_at)
+  q = row.lease_expires_at ? q.eq('lease_expires_at', row.lease_expires_at) : q.is('lease_expires_at', null)
+  const { data: ended } = await q.select(SESSION_SELECT).maybeSingle()
+  if (ended) await moveTurn(svc, ledgerSessionOf(ended as DbSession), { type: 'cancel' })
+}
+
+/**
  * A message the Mac could not take: a server `error` event in the transcript
  * (the panel and read_local_agent show it) and, when its turn was waiting on
  * it, the ledger parks the turn on "send it again".
@@ -1481,6 +1520,8 @@ async function undelivered(svc: Svc, userId: string, msg: { id: string; session_
       .eq('user_id', userId)
       .maybeSingle()
     if (row) await moveTurn(svc, ledgerSessionOf(row as DbSession), { type: 'undelivered', reason })
+    // The message picked an ended chat up again and the Mac can't (its copy tidied, the job gone, the folder unshared): ended again.
+    if (row) await endRefusedRevival(svc, userId, row as DbSession, msg.id, reason)
     // An action's re-Start whose delivery failed: its turn is over (store.ts).
     if (row && isActionStartMessage(msg.idempotency_key)) await settleActionRunStatus(svc, null, row as DbSession)
   } catch (err) {

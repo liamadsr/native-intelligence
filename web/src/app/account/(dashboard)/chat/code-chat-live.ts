@@ -22,6 +22,7 @@
  */
 import type { LocalAgentPolicy } from '@/lib/tauri-bridge'
 import type { PanelSession } from '@/components/local-agent/session-api'
+import { canContinueSession } from '@/lib/local-agent/transcript-view'
 
 type Sent = { ok: true } | { ok: false; message: string }
 
@@ -31,6 +32,15 @@ export interface CodeChatLive {
   stopping: boolean
   send: (text: string, policy: LocalAgentPolicy, requestId: string) => Promise<Sent>
   stop: () => Promise<Sent>
+  /** A question is open on the Mac (the person answers it there): no pull request offer meanwhile. */
+  promptOpen: boolean
+  /** Its branch as last committed holds no change: nothing to open a pull request for. */
+  noChanges: boolean
+  /** How many files its branch changed, as its last branch card said; null when unknown. */
+  filesChanged: number | null
+  /** Its lines added and removed, as that branch card said; null when unknown. */
+  insertions: number | null
+  deletions: number | null
 }
 
 export interface CodeViewState {
@@ -80,7 +90,20 @@ export function setCodeChatLive(sessionId: string, live: CodeChatLive | null): v
   if (state.selected !== sessionId) return
   const was = state.live
   if (was === live) return
-  if (was && live && was.session === live.session && was.stopping === live.stopping && was.send === live.send && was.stop === live.stop) return
+  if (
+    was &&
+    live &&
+    was.session === live.session &&
+    was.stopping === live.stopping &&
+    was.send === live.send &&
+    was.stop === live.stop &&
+    was.promptOpen === live.promptOpen &&
+    was.noChanges === live.noChanges &&
+    was.filesChanged === live.filesChanged &&
+    was.insertions === live.insertions &&
+    was.deletions === live.deletions
+  )
+    return
   set({ ...state, live, error: live ? null : state.error })
 }
 
@@ -104,7 +127,8 @@ export function setCodeChatError(sessionId: string, message: string): void {
 export function openCodeChatKey(): string | null {
   const { selected, live } = state
   if (!selected || !live || live.session.id !== selected) return null
-  return `${selected}\n${live.session.status}\n${live.session.worker ?? ''}`
+  // Its fourth line: an ended chat the person's next message picks up again (canContinueSession).
+  return `${selected}\n${live.session.status}\n${live.session.worker ?? ''}\n${canContinueSession(live.session) ? 'continues' : ''}`
 }
 
 export function __resetCodeViewForTests(): void {

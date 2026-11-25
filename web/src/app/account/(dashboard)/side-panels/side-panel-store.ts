@@ -106,6 +106,15 @@ export interface SidePanelState {
    * default): closing them never closes the agent's own panel, nor the other way round.
    */
   codeDetailsOpen: boolean
+  /**
+   * The coding chat's details show its Changes (code-chat-sections.tsx
+   * CodeChangesPanel): the files, their diff and notes back to the agent, in
+   * the details' place and at CHANGES_PANEL_WIDTH_PX (space-plan.ts). Opened by
+   * the Changes card's "View changes" and the transcript's branch card
+   * (openCodeChanges), closed by its "‹ Details", with the details, or when
+   * another chat becomes the current one. Never saved.
+   */
+  codeChanges: boolean
   /** The page panel has something to show beside the navigation (page-panel/page-panel.tsx). */
   pagePanel: boolean
   /** What the page panel shows is a page's sub-nav, with that page's card in front: it shows while open, room or not. Never saved. */
@@ -166,6 +175,7 @@ const SERVER: SidePanelState = {
   captureDock: false,
   chatKind: 'agent',
   codeDetailsOpen: true,
+  codeChanges: false,
   pagePanel: false,
   pagePanelPage: false,
   pagePanelOpen: true,
@@ -263,6 +273,7 @@ function readSaved(): SidePanelState {
     captureDock: false,
     chatKind: 'agent',
     codeDetailsOpen: readKey(CODE_DETAILS_OPEN_KEY) !== '0',
+    codeChanges: false,
     pagePanel: false,
     pagePanelPage: false,
     pagePanelOpen: readKey(PAGE_PANEL_OPEN_KEY) !== '0',
@@ -276,7 +287,7 @@ function readSaved(): SidePanelState {
  * Open on For you with none, it waits off screen (rightOpen and the view
  * kept), and the space plan gives the chat its room back.
  */
-type ChatPanelFields = 'chatKind' | 'codeDetailsOpen'
+type ChatPanelFields = 'chatKind' | 'codeDetailsOpen' | 'codeChanges'
 
 export function rightShown(s: Pick<SidePanelState, 'rightOpen' | 'view' | 'forYouContent'> & Partial<Pick<SidePanelState, ChatPanelFields>>): boolean {
   // A coding chat: its details, open or closed by their own switch. A new one: nothing to show yet.
@@ -291,6 +302,11 @@ export function shownView(s: Pick<SidePanelState, 'rightOpen' | 'view' | 'forYou
   // A coding chat's panel has one view: its details (the side panel's button is theirs).
   if (s.chatKind && s.chatKind !== 'agent') return rightShown(s) ? 'panel' : null
   return rightShown(s) ? s.view : null
+}
+
+/** The coding chat's Changes are on screen: the right panel is its Changes panel, at its wider width. */
+export function codeChangesShown(s: Pick<SidePanelState, 'rightOpen' | 'view' | 'forYouContent'> & Partial<Pick<SidePanelState, ChatPanelFields>>): boolean {
+  return s.chatKind === 'code' && s.codeChanges === true && rightShown(s)
 }
 
 /** The page panel asks the row for the left: it has something to show and is open. */
@@ -470,7 +486,8 @@ export function setPagePanelShown(shown: boolean): void {
 export function setPanelChatKind(kind: PanelChatKind): void {
   if (getSidePanelState().chatKind === kind) return
   captureChatAnchor()
-  set({ chatKind: kind })
+  // Changes are one coding chat's: leaving it closes them.
+  set({ chatKind: kind, codeChanges: false })
 }
 
 /** Open or close the coding chat's details. Nothing with no coding chat on screen (there is nothing to show). */
@@ -479,7 +496,29 @@ export function setCodeDetailsOpen(open: boolean): void {
   if (current.chatKind !== 'code' || current.codeDetailsOpen === open) return
   writeKey(CODE_DETAILS_OPEN_KEY, open ? null : '0')
   captureChatAnchor()
-  set({ codeDetailsOpen: open })
+  // Closed, the panel opens again on the details.
+  set({ codeDetailsOpen: open, ...(open ? {} : { codeChanges: false }) })
+}
+
+/**
+ * Show the coding chat's Changes in the right panel (opened first if it was
+ * closed): the Changes card's "View changes" and the transcript's branch card.
+ * Nothing with no coding chat on screen.
+ */
+export function openCodeChanges(): void {
+  const current = getSidePanelState()
+  if (current.chatKind !== 'code') return
+  if (current.codeChanges && current.codeDetailsOpen) return
+  if (!current.codeDetailsOpen) writeKey(CODE_DETAILS_OPEN_KEY, null)
+  captureChatAnchor()
+  set({ codeDetailsOpen: true, codeChanges: true })
+}
+
+/** Back from the Changes to the details ("‹ Details"), or closed because another chat is current. */
+export function closeCodeChanges(): void {
+  if (!getSidePanelState().codeChanges) return
+  captureChatAnchor()
+  set({ codeChanges: false })
 }
 
 function toggleCodeDetails(): void {

@@ -68,7 +68,7 @@ vi.mock('@/components/ui/message', () => ({
   MessageAction: ({ children }: { children?: unknown }) => children as never,
 }))
 
-import { LocalAgentHeader, LocalAgentPanel, RENDER_WINDOW } from '../local-agent-panel'
+import { LocalAgentHeader, LocalAgentPanel, RENDER_WINDOW, viewChangesLabel } from '../local-agent-panel'
 import { EVENTS_PAGE } from '../session-api'
 import { pollIntervalFor, POLL_IDLE_MS, POLL_WORKING_MS } from '../use-local-agent-session'
 
@@ -134,7 +134,7 @@ async function settle(ms = 0) {
 }
 
 /** `events`: what the session holds; the page read serves them newest first, the route after an id. */
-async function mount(session: SessionRow = sessionRow(), events: unknown[] = EVENTS, props: { hideFinish?: boolean } = {}) {
+async function mount(session: SessionRow = sessionRow(), events: unknown[] = EVENTS, props: { hideFinish?: boolean; onOpenChanges?: () => void; onLive?: (live: unknown) => void } = {}) {
   db.events = events as Array<{ id: number }>
   db.reads = []
   routes = {
@@ -564,6 +564,36 @@ describe('pollIntervalFor', () => {
     expect(q('[data-local-agent-ended]')?.textContent).not.toContain('Ask the Native Intelligence agent')
   })
 
+  it('a chat the person stopped, or that sat idle a day, keeps its box: the next message picks it up again', async () => {
+    for (const ended of [
+      { status: 'cancelled' as const, error: null, line: 'This local agent was stopped. Your next message picks it up again.' },
+      { status: 'expired' as const, error: 'it sat idle for 24 hours', line: 'It sat idle for 24 hours, so it ended. Your next message picks it up again.' },
+    ]) {
+      await act(async () => root.unmount())
+      root = createRoot(container)
+      fetchMock.mockClear()
+      await mount(sessionRow({ status: ended.status, error: ended.error, attended: true, startedBy: 'person', codeRequestId: 'req-1' }), [])
+      expect(q('[data-local-agent-ended="continuable"]')?.textContent).toBe(ended.line)
+      // No Stop: nothing runs.
+      expect(q('[data-local-agent-stop]')).toBeNull()
+      const box = q<HTMLTextAreaElement>('[data-local-agent-composer] textarea')!
+      await act(async () => type(box, 'Pick it up from where you left off'))
+      await act(async () => q<HTMLFormElement>('[data-local-agent-composer]')!.requestSubmit())
+      await settle()
+      const post = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST')!
+      expect(post[0]).toBe(`/api/local-agent/sessions/${SID}/messages`)
+      expect(JSON.parse(String(post[1]!.body))).toMatchObject({ text: 'Pick it up from where you left off' })
+    }
+    // Ended any other way (failed; not the person's own chat): the ended line, no box, as before.
+    for (const over of [{ status: 'failed' as const, error: null, attended: true }, { status: 'cancelled' as const, error: null, attended: false }]) {
+      await act(async () => root.unmount())
+      root = createRoot(container)
+      await mount(sessionRow(over), [])
+      expect(q('[data-local-agent-composer]')).toBeNull()
+      expect(q('[data-local-agent-ended=""]')).not.toBeNull()
+    }
+  })
+
   it('2 s while it works, slower while it idles, never once it ended', () => {
     expect(pollIntervalFor('running')).toBe(POLL_WORKING_MS)
     expect(pollIntervalFor('queued')).toBe(POLL_WORKING_MS)
@@ -626,21 +656,64 @@ describe('an edit job’s results: Open pull request and Changes', () => {
     }
   })
 
-  it('the branch card opens Changes; off the job’s Mac it says where to read them', async () => {
-    await mount(finished())
-    expect([...container.querySelectorAll('[data-local-agent-view]')].map((t) => t.textContent)).toEqual(['Conversation', 'Changes'])
+  it('no tabs: with no panel of its own for them, the branch card and View changes show Changes in place, ‹ Conversation back; off the job’s Mac it says where to read them', async () => {
+    const branch = { id: 20, source: 'device', kind: 'branch', payload: { kind: 'branch', branch: 'dial8/native-intelligence-1a2b', commit: '6cfa56d', filesChanged: 3, insertions: 9, deletions: 1 } }
+    await mount(finished(), [branch])
+    expect(q('[role="tablist"]')).toBeNull()
+    expect(q('[data-local-agent-views]')).toBeNull()
+    // The way in names the file count from the branch card.
+    expect(q('[data-local-agent-open-changes]')?.textContent).toBe('View changes · 3 files')
     await act(async () => q<HTMLButtonElement>('[data-local-agent-branch-changes]')!.click())
-    expect(q('[data-local-agent-view="changes"]')?.getAttribute('aria-selected')).toBe('true')
+    expect(q('[data-local-agent-changes]')).not.toBeNull()
+    // Elsewhere the branch card is whole, as today.
+    expect(q('[data-local-agent-branch-note]')).toBeNull()
     expect(q('[data-changes-elsewhere]')?.textContent).toBe('The changes can be read in the Native Intelligence app on Liam’s MacBook.')
-    // The conversation is kept, hidden, with its box.
+    // The conversation is kept, hidden, with its box; its pull request offer waits for it.
     expect(q<HTMLElement>('[role="log"]')?.hidden).toBe(true)
-    await act(async () => q<HTMLButtonElement>('[data-local-agent-view="conversation"]')!.click())
+    expect(q('[data-local-agent-pr-offer]')).toBeNull()
+    await act(async () => q<HTMLButtonElement>('[data-local-agent-back-to-conversation]')!.click())
     expect(q<HTMLElement>('[role="log"]')?.hidden).toBe(false)
+    expect(q('[data-local-agent-changes]')).toBeNull()
+    expect(q('[data-local-agent-open-pr]')).not.toBeNull()
+    await act(async () => q<HTMLButtonElement>('[data-local-agent-open-changes]')!.click())
+    expect(q('[data-local-agent-changes]')).not.toBeNull()
   })
 
-  it('a read job has no results tabs', async () => {
-    await mount()
-    expect(q('[data-local-agent-views]')).toBeNull()
+  it('with a panel of its own for them (Home’s coding chat): the conversation only, the branch a quiet line with nothing to press, no pull request offer here', async () => {
+    const onOpenChanges = vi.fn()
+    const onLive = vi.fn()
+    const branch = { id: 20, source: 'device', kind: 'branch', payload: { kind: 'branch', branch: 'dial8/native-intelligence-1a2b', commit: '6cfa56d', filesChanged: 2, insertions: 4, deletions: 0 } }
+    await mount(finished(), [branch], { onOpenChanges, onLive })
+    expect(q('[role="tablist"]')).toBeNull()
+    expect(q('[data-local-agent-changes-bar]')).toBeNull()
+    expect(q('[data-local-agent-pr-offer]')).toBeNull()
+    expect(q('[data-local-agent-open-pr]')).toBeNull()
+    // The branch card is a quiet line: its details and controls are on the host's Changes card.
+    const note = q<HTMLElement>('[data-local-agent-branch-note]')!
+    expect(note.textContent).toBe('Made branch dial8/native-intelligence-1a2b · 2 files changed · +4 −0')
+    expect(q('[data-local-agent-branch]')!.querySelectorAll('button')).toHaveLength(0)
     expect(q('[data-local-agent-branch-changes]')).toBeNull()
+    expect(q('[data-local-agent-branch-copy]')).toBeNull()
+    expect(container.textContent).not.toContain('On your Mac, in a separate copy')
+    expect(onOpenChanges).not.toHaveBeenCalled()
+    // Still the conversation here.
+    expect(q('[data-local-agent-changes]')).toBeNull()
+    expect(q<HTMLElement>('[role="log"]')?.hidden).toBe(false)
+    // The host is told what its card needs: the branch's counts, nothing open on the Mac.
+    expect(onLive).toHaveBeenLastCalledWith(expect.objectContaining({ filesChanged: 2, insertions: 4, deletions: 0, noChanges: false, promptOpen: false }))
+  })
+
+  it('a read job has no way to Changes', async () => {
+    await mount()
+    expect(q('[data-local-agent-changes-bar]')).toBeNull()
+    expect(q('[data-local-agent-open-changes]')).toBeNull()
+    expect(q('[data-local-agent-branch-changes]')).toBeNull()
+  })
+
+  it('View changes names its file count when the branch card said it', () => {
+    expect(viewChangesLabel(null)).toBe('View changes')
+    expect(viewChangesLabel(0)).toBe('View changes')
+    expect(viewChangesLabel(1)).toBe('View changes · 1 file')
+    expect(viewChangesLabel(12)).toBe('View changes · 12 files')
   })
 })

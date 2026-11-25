@@ -524,3 +524,32 @@ out there, since it would point at a Recent that is not on screen.
 
 **Not proven**: a real coding chat's send and stream after these changes (no Mac on the test
 account), a notification's click in the desktop app, a second workspace, a real phone.
+
+## The coding chat's Changes, on their own panel (2026-11-25)
+
+Liam: "it should just be the conversation, and changes should show on their own panel. The
+button to open that view should be on the Changes panel, not on the main chat view."
+
+- **The middle is the conversation only.** No Conversation | Changes tabs in a coding chat
+  (`LocalAgentPanel` with `onOpenChanges`), and no "Open pull request" row under it.
+- **The Changes open in the right panel**, in the details' place, the panel's whole height and
+  wider (560px, `CHANGES_PANEL_WIDTH_PX`; it makes room where that fits and floats where it
+  doesn't), "‹ Details" back (`CodeChangesPanel`, `side-panel-store.ts` `codeChanges`, never
+  saved). Everything the Changes view did is there: the files, the diff, notes sent to the agent.
+- **The way in:** the Changes card's "View changes" (with the file count from the branch card when
+  known), and the transcript's branch card, whose Changes button now opens the panel (opening it
+  when it was closed). "Open pull request" is on the Changes card and at the top of the panel, on
+  the same rule as before (`pullRequestOffered`).
+- **The branch card's details move to the Changes card** (Liam: the main chat "clean"): the branch
+  with Copy, files and lines changed, the commit, and "On your Mac, in a separate copy…". The
+  transcript keeps one quiet line where the branch was made ("Made branch <name> · 2 files changed ·
+  +10 −3"), with nothing to press: it marks when the work landed in the conversation's order.
+- **Phones:** the right panel floats over the conversation there, so the same buttons open the same
+  panel, capped to the screen's width.
+- **The other places the panel draws** (an action's Mac tab, a work item's panel, a bot's page)
+  have no right panel: no tabs there either. The branch card and a "View changes" button show the
+  Changes in the conversation's place, "‹ Conversation" back; their pull request offer stays under
+  the conversation.
+
+**Not proven**: a real diff read on the job's own Mac in the desktop app (the test account has no
+Mac; the stubbed chat shows the "read it on that Mac" line), notes sent from the panel to a real job.

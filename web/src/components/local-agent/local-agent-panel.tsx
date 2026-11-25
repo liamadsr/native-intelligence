@@ -27,13 +27,23 @@
  *               (message_teammate) says Native Intelligence answers it, though you may too
  *   on the Mac  while a native question is open there (a push, a folder):
  *               "Waiting for you on your Mac" (invariant 5)
- *   results     an edit job with a branch: "Conversation" and "Changes"
- *               (changes-view.tsx, read from that Mac; the branch card opens
- *               it too), and, once its turn ended with no pull request,
+ *   results     an edit job with a branch has Changes (changes-view.tsx, read
+ *               from that Mac) and, once its turn ended with no pull request,
  *               "Open pull request", which sends the job the follow-up that
  *               asks for one (the agent writes it; the Mac still asks before
- *               anything is pushed). Never for a branch with nothing on it. From any device; hidden when the job
- *               can't take a message
+ *               anything is pushed). Never for a branch with nothing on it.
+ *               From any device; hidden when the job can't take a message.
+ *               No tabs (Liam, 11-25: "it should just be the conversation,
+ *               and changes should show on their own panel"). Home's coding
+ *               chat (`onOpenChanges`) opens them in the right panel, with
+ *               "Open pull request" on its Changes card, which also carries
+ *               the branch card's branch, counts, commit and Copy: the
+ *               transcript keeps only a quiet line where the branch was made
+ *               (Liam, 11-25: the main chat "clean"). A host with no panel beside it (an
+ *               action's Mac tab, a work item's panel, a bot's page) shows
+ *               them here instead of the conversation, from the branch card
+ *               or "View changes", "‹ Conversation" back; its pull request
+ *               offer stays under the conversation
  *   composer    Steer / Queue, as you (local-agent-composer.tsx); an ended
  *               session says how to get a new one instead
  *
@@ -41,10 +51,9 @@
  * events and row, with a catch-up poll). Render cost stays flat: rows are
  * memoized per item and deltas land once per frame.
  */
-import { pageTabClass } from '@/components/views/page-tabs'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { ExternalLink, GitPullRequest, Laptop, Loader2, MessageCircleQuestion, Square } from 'lucide-react'
+import { ChevronLeft, ExternalLink, FileDiff, GitPullRequest, Laptop, Loader2, MessageCircleQuestion, Square } from 'lucide-react'
 import { OPEN_PULL_REQUEST_MESSAGE, offersPullRequest } from '@/lib/local-agent/changes'
 import { AgentIcon } from '@/components/agents/agent-icon'
 import { Button } from '@/components/ui/button'
@@ -53,7 +62,9 @@ import { isGithubPullRequestUrl } from '@/lib/local-agent/pull-request'
 import { macTeammateName } from '@/lib/local-agent/teammate'
 import { workerLabel } from '@/lib/environments/types'
 import {
+  canContinueSession,
   canMessageSession,
+  CONTINUE_TEXT,
   canStopSession,
   isPromptOpen,
   isSessionEnded,
@@ -69,6 +80,12 @@ import { BranchCardActions } from './branch-card'
 import { ChangesView } from './changes-view'
 import type { PanelSession } from './session-api'
 import type { LocalAgentPolicy } from '@/lib/tauri-bridge'
+
+/** "View changes", with its file count when the branch card said it ("View changes · 3 files"). */
+export function viewChangesLabel(filesChanged: number | null): string {
+  if (filesChanged === null || filesChanged <= 0) return 'View changes'
+  return `View changes · ${filesChanged === 1 ? '1 file' : `${filesChanged} files`}`
+}
 
 /** Within this many px of the bottom, the transcript follows the stream. */
 const STICK_PX = 48
@@ -124,6 +141,99 @@ export function modelLine(session: Pick<PanelSession, 'model' | 'effort'>): stri
 function liveFor(item: TranscriptItem, live: boolean, last: TranscriptItem | undefined): boolean {
   // Text streams only at the conversation's end: anything after it means it is whole (its Copy and Read aloud show).
   return live && (item.type === 'tool' || (item.type === 'assistant' && item === last))
+}
+
+/** Where the pull request ask stands: pressed and sending, sent (until the job works again), or not asked. */
+export type PullRequestAsk = 'sending' | 'sent' | null
+
+/**
+ * "Open pull request", as one piece for every place it shows (this panel's
+ * results; Home's Changes card and Changes panel, code-chat-sections.tsx):
+ * pressing it sends the job the follow-up that asks for one. Hidden again
+ * once the job works (its turn on the request). `send` is the job's queue.
+ */
+export function usePullRequestAsk(
+  send: ((text: string) => Promise<{ ok: true } | { ok: false; message: string }>) | null,
+  status: PanelSession['status'] | undefined,
+): { asked: PullRequestAsk; ask: () => Promise<void> } {
+  const [asked, setAsked] = useState<PullRequestAsk>(null)
+  useEffect(() => {
+    if (status && status !== 'waiting') setAsked(null)
+  }, [status])
+  const ask = useCallback(async () => {
+    if (!send) return
+    setAsked('sending')
+    const res = await send(OPEN_PULL_REQUEST_MESSAGE)
+    if (res.ok) setAsked('sent')
+    else {
+      setAsked(null)
+      toast.error(res.message)
+    }
+  }, [send])
+  return { asked, ask }
+}
+
+/** The pull request offer's row: the work is on its branch with none yet, and the button; or that it was asked. */
+export function PullRequestOffer({ asked, onAsk, className, compact = false }: { asked: PullRequestAsk; onAsk: () => void; className?: string; compact?: boolean }) {
+  // Compact (a card that already says there is no pull request yet): the button alone, or that it was asked.
+  if (compact) {
+    return asked === 'sent' ? (
+      <p data-local-agent-pr-offer="sent" className={cn('text-foreground/80', className)}>
+        Asked it to open a pull request. Your Mac asks you before anything is pushed.
+      </p>
+    ) : (
+      <Button size="sm" variant="outline" data-local-agent-pr-offer={asked ?? ''} data-local-agent-open-pr="" className={cn('h-7 shrink-0 gap-1.5 text-xs', className)} disabled={asked === 'sending'} onClick={onAsk}>
+        {asked === 'sending' ? <Loader2 className="h-3 w-3 animate-spin" /> : <GitPullRequest className="h-3 w-3" />}
+        Open pull request
+      </Button>
+    )
+  }
+  return (
+    <div data-local-agent-pr-offer={asked ?? ''} className={cn('flex shrink-0 items-center gap-2 rounded-xl border border-border/60 bg-card/50 px-3 py-2 text-xs', className)}>
+      <GitPullRequest aria-hidden className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+      {asked === 'sent' ? (
+        <p className="min-w-0 flex-1 text-foreground/80">Asked it to open a pull request. Your Mac asks you before anything is pushed.</p>
+      ) : (
+        <>
+          <p className="min-w-0 flex-1 text-foreground/80">The work is on its branch, with no pull request yet.</p>
+          <Button size="sm" variant="outline" data-local-agent-open-pr="" className="h-7 shrink-0 gap-1.5 text-xs" disabled={asked === 'sending'} onClick={onAsk}>
+            {asked === 'sending' ? <Loader2 className="h-3 w-3 animate-spin" /> : <GitPullRequest className="h-3 w-3" />}
+            Open pull request
+          </Button>
+        </>
+      )}
+    </div>
+  )
+}
+
+/** One message to the job, queued (the notes from Changes, the pull request ask). */
+export function queueOne(send: (text: string, policy: LocalAgentPolicy, requestId: string) => Promise<{ ok: true } | { ok: false; message: string }>) {
+  return (text: string) => {
+    const requestId = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`
+    return send(text, 'queue', requestId)
+  }
+}
+
+/**
+ * What the conversation knows of its results that the session row doesn't:
+ * a question open on the Mac, and its branch as last committed (its file
+ * count; none changed). For a host that offers them elsewhere (onLive). Pure.
+ */
+export function resultsOf(
+  items: readonly TranscriptItem[],
+  session: Pick<PanelSession, 'status' | 'branch'> | null,
+): { promptOpen: boolean; noChanges: boolean; filesChanged: number | null; insertions: number | null; deletions: number | null } {
+  const lastPrompt = items.findLast((it): it is Extract<TranscriptItem, { type: 'prompt' }> => it.type === 'prompt')
+  const promptOpen = !!session && !isSessionEnded(session.status) && !!lastPrompt && isPromptOpen(lastPrompt)
+  const lastBranch = items.findLast((it): it is Extract<TranscriptItem, { type: 'branch' }> => it.type === 'branch')
+  const onBranch = !!session?.branch && !!lastBranch && lastBranch.name === session.branch
+  return {
+    promptOpen,
+    noChanges: onBranch && lastBranch!.filesChanged === 0,
+    filesChanged: onBranch ? lastBranch!.filesChanged : null,
+    insertions: onBranch ? lastBranch!.insertions : null,
+    deletions: onBranch ? lastBranch!.deletions : null,
+  }
 }
 
 export function LocalAgentHeader({
@@ -227,8 +337,17 @@ export function LocalAgentPanel({
   onError,
   hideScrollbar = false,
   hideFinish = false,
+  onOpenChanges,
 }: {
   sessionId: string
+  /**
+   * The host shows the job's Changes in a panel of its own (Home's coding
+   * chat: the right panel, code-chat-sections.tsx), with "Open pull request"
+   * there, and its branch card's details and controls: the transcript draws
+   * only a quiet line for the branch, and none of them is drawn here.
+   * Absent, they show here, in place of the conversation.
+   */
+  onOpenChanges?: () => void
   /**
    * Leave out its `finish` summary card: for a host that shows the job's
    * record, with the same summary, beside the conversation (the Code view, with
@@ -241,7 +360,14 @@ export function LocalAgentPanel({
   /** Draw its own box to message it. A host whose own composer messages it (the Code view) leaves it out. */
   composer?: boolean
   /** What it holds, for a host that shows it elsewhere too (the Code view's right panel and composer): the session as read, its send and Stop. Null until read, and when it goes. */
-  onLive?: (live: { session: PanelSession; stopping: boolean; send: (text: string, policy: LocalAgentPolicy, requestId: string) => Promise<{ ok: true } | { ok: false; message: string }>; stop: () => Promise<{ ok: true } | { ok: false; message: string }> } | null) => void
+  onLive?: (
+    live: {
+      session: PanelSession
+      stopping: boolean
+      send: (text: string, policy: LocalAgentPolicy, requestId: string) => Promise<{ ok: true } | { ok: false; message: string }>
+      stop: () => Promise<{ ok: true } | { ok: false; message: string }>
+    } & ReturnType<typeof resultsOf> | null,
+  ) => void
   /** Draw its own header (folder, status, Stop). A host with its own Stop and title can leave it out. */
   header?: boolean
   autoFocus?: boolean
@@ -251,10 +377,12 @@ export function LocalAgentPanel({
   const { session, transcript, loading, error, stopping, hasEarlier, loadingEarlier, loadEarlier, send, stop } =
     useLocalAgentSession(sessionId)
   const items = transcript.items
+  const results = useMemo(() => resultsOf(items, session), [items, session])
+  const { promptOpen, noChanges, filesChanged, insertions, deletions } = results
   useEffect(() => {
     if (!onLive) return
-    onLive(session ? { session, stopping, send, stop } : null)
-  }, [onLive, session, stopping, send, stop])
+    onLive(session ? { session, stopping, send, stop, promptOpen, noChanges, filesChanged, insertions, deletions } : null)
+  }, [onLive, session, stopping, send, stop, promptOpen, noChanges, filesChanged, insertions, deletions])
   useEffect(() => () => onLive?.(null), [onLive])
   useEffect(() => {
     if (error && !session) onError?.(error)
@@ -296,34 +424,19 @@ export function LocalAgentPanel({
     })
   }, [stop])
 
-  // An edit job's results: its conversation, or its Changes (read from the Mac).
+  // An edit job's Changes (read from the Mac): the host's panel (onOpenChanges), else here in the conversation's place.
   const [view, setView] = useState<'conversation' | 'changes'>('conversation')
-  const openChanges = useCallback(() => setView('changes'), [])
+  const changesBeside = !!onOpenChanges
+  const openChanges = useCallback(() => {
+    if (onOpenChanges) onOpenChanges()
+    else setView('changes')
+  }, [onOpenChanges])
   // Only an edit job's branch has Changes to open (a read job's branch card offers none).
   const resultsOn = session?.mode === 'edit' && !!session.branch
-  const branchActions = useMemo(() => (resultsOn ? { openChanges } : {}), [resultsOn, openChanges])
-  // "Open pull request" was pressed: hidden until the job works again (its turn on the request).
-  const [prAsked, setPrAsked] = useState<'sending' | 'sent' | null>(null)
-  const status = session?.status
-  useEffect(() => {
-    if (status && status !== 'waiting') setPrAsked(null)
-  }, [status])
-  const sendOne = useCallback(
-    async (text: string) => {
-      const requestId = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`
-      return send(text, 'queue', requestId)
-    },
-    [send],
-  )
-  const askForPullRequest = useCallback(async () => {
-    setPrAsked('sending')
-    const res = await sendOne(OPEN_PULL_REQUEST_MESSAGE)
-    if (res.ok) setPrAsked('sent')
-    else {
-      setPrAsked(null)
-      toast.error(res.message)
-    }
-  }, [sendOne])
+  // Home's coding chat: the branch and its controls are on the right panel's Changes card; here, a quiet line marks the moment.
+  const branchActions = useMemo(() => (changesBeside ? { quiet: true } : resultsOn ? { openChanges } : {}), [changesBeside, resultsOn, openChanges])
+  const sendOne = useMemo(() => queueOne(send), [send])
+  const { asked: prAsked, ask: askForPullRequest } = usePullRequestAsk(sendOne, session?.status)
 
   if (error && !session) {
     return (
@@ -346,15 +459,17 @@ export function LocalAgentPanel({
   const lastAsk = items.findLast((it): it is Extract<TranscriptItem, { type: 'report' | 'ask' | 'finish' | 'error' }> => it.type === 'ask')
   const askedTeammate = asking && lastAsk?.teammate === true
   // A native question is open on the Mac (C3): the person answers it there, never here.
-  const lastPrompt = items.findLast((it): it is Extract<TranscriptItem, { type: 'prompt' }> => it.type === 'prompt')
-  const waitingOnMac = !isSessionEnded(session.status) && !!lastPrompt && isPromptOpen(lastPrompt)
-  const canMessage = canMessageSession(session.status)
-  const hasResults = resultsOn
-  const showChanges = hasResults && view === 'changes'
-  // Its branch as last committed holds no change (the app commits at every finish, a job that changed nothing too).
-  const lastBranch = items.findLast((it): it is Extract<TranscriptItem, { type: 'branch' }> => it.type === 'branch')
-  const noChanges = !!lastBranch && lastBranch.name === session.branch && lastBranch.filesChanged === 0
-  const offerPr = canMessage && offersPullRequest(session, { promptOpen: waitingOnMac, noChanges })
+  const waitingOnMac = promptOpen
+  // An ended chat the person's next message picks up again (isContinuableEnd) takes one too.
+  const canMessage = canContinueSession(session)
+  const continuable = canMessage && isSessionEnded(session.status)
+  // Changes here, in the conversation's place: only for a host with no panel of its own for them.
+  const changesHere = resultsOn && !changesBeside
+  const showChanges = changesHere && view === 'changes'
+  // Its branch as last committed holds no change (the app commits at every finish, a job that changed nothing too):
+  // `noChanges`. The offer is the host's while its Changes are beside the conversation, and only for a chat that
+  // can take a message now (never an ended one, continuable or not).
+  const offerPr = !changesBeside && canMessageSession(session.status) && offersPullRequest(session, { promptOpen: waitingOnMac, noChanges })
   // The person's own request: one they started here, or a card's Start they pressed. The chat agent's: its own.
   const requestAuthor = session.startedBy === 'person' || session.requestedByPerson === true ? 'person' : 'agent'
 
@@ -362,26 +477,38 @@ export function LocalAgentPanel({
     <div data-local-agent-panel={sessionId} data-local-agent-session-status={session.status} className={cn('flex h-full min-h-0 flex-col gap-3', className)}>
       {header && <LocalAgentHeader session={session} stopping={stopping} onStop={onStop} />}
 
-      {hasResults && (
-        <div role="tablist" aria-label="This job" data-local-agent-views="" className="flex shrink-0 items-center gap-1">
-          {(['conversation', 'changes'] as const).map((v) => (
+      {/* No tabs: a way to the Changes, or back from them (a host with its own panel for them draws neither). */}
+      {changesHere && (
+        <div data-local-agent-changes-bar={view} className="flex shrink-0 items-center gap-2">
+          {showChanges ? (
+            <>
+              <button
+                type="button"
+                data-local-agent-back-to-conversation=""
+                onClick={() => setView('conversation')}
+                className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full px-2 text-xs text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <ChevronLeft aria-hidden className="size-3.5" />
+                Conversation
+              </button>
+              <h3 className="min-w-0 truncate text-sm font-medium text-foreground">Changes</h3>
+            </>
+          ) : (
             <button
-              key={v}
               type="button"
-              role="tab"
-              aria-selected={view === v}
-              data-local-agent-view={v}
-              onClick={() => setView(v)}
-              className={pageTabClass(view === v)}
+              data-local-agent-open-changes=""
+              onClick={openChanges}
+              className="ml-auto inline-flex h-7 shrink-0 items-center gap-1 rounded-full px-2 text-xs text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
-              {v === 'conversation' ? 'Conversation' : 'Changes'}
+              <FileDiff aria-hidden className="size-3.5" />
+              {viewChangesLabel(filesChanged)}
             </button>
-          ))}
+          )}
         </div>
       )}
 
       {showChanges && (
-        <div className={cn('flex min-h-0 flex-1 flex-col overflow-y-auto', hideScrollbar ? 'scrollbar-hide' : 'pr-1')}>
+        <div data-local-agent-changes="" className={cn('flex min-h-0 flex-1 flex-col overflow-y-auto', hideScrollbar ? 'scrollbar-hide' : 'pr-1')}>
           <ChangesView
             sessionId={session.id}
             deviceId={session.deviceId}
@@ -432,29 +559,7 @@ export function LocalAgentPanel({
       </div>
       </BranchCardActions.Provider>
 
-      {!showChanges && (offerPr || prAsked === 'sent') && (
-        <div data-local-agent-pr-offer={prAsked ?? ''} className="flex shrink-0 items-center gap-2 rounded-xl border border-border/60 bg-card/50 px-3 py-2 text-xs">
-          <GitPullRequest aria-hidden className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
-          {prAsked === 'sent' ? (
-            <p className="min-w-0 flex-1 text-foreground/80">Asked it to open a pull request. Your Mac asks you before anything is pushed.</p>
-          ) : (
-            <>
-              <p className="min-w-0 flex-1 text-foreground/80">The work is on its branch, with no pull request yet.</p>
-              <Button
-                size="sm"
-                variant="outline"
-                data-local-agent-open-pr=""
-                className="h-7 shrink-0 gap-1.5 text-xs"
-                disabled={prAsked === 'sending'}
-                onClick={() => void askForPullRequest()}
-              >
-                {prAsked === 'sending' ? <Loader2 className="h-3 w-3 animate-spin" /> : <GitPullRequest className="h-3 w-3" />}
-                Open pull request
-              </Button>
-            </>
-          )}
-        </div>
-      )}
+      {!showChanges && !changesBeside && (offerPr || prAsked === 'sent') && <PullRequestOffer asked={prAsked} onAsk={() => void askForPullRequest()} />}
 
       {!showChanges && waitingOnMac && (
         <div data-local-agent-on-mac="" className="flex shrink-0 items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs">
@@ -483,7 +588,14 @@ export function LocalAgentPanel({
 
       <div className="shrink-0" hidden={showChanges}>
         {canMessage ? (
-          composer ? <LocalAgentComposer onSend={send} working={live} asking={asking} autoFocus={autoFocus} /> : null
+          <>
+            {continuable && (
+              <p data-local-agent-ended="continuable" className="py-2 text-center text-xs text-muted-foreground">
+                {sessionEndedText(session.status, session.error)} {CONTINUE_TEXT}
+              </p>
+            )}
+            {composer ? <LocalAgentComposer onSend={send} working={live} asking={asking} autoFocus={autoFocus} /> : null}
+          </>
         ) : (
           <p data-local-agent-ended="" className="py-2 text-center text-xs text-muted-foreground">
             {sessionEndedText(session.status, session.error)}{' '}
