@@ -42,6 +42,7 @@ import {
 import { useComposerCode } from './composer-code'
 import { useOptionalOpenWorkItem } from '@/hooks/use-open-teammate'
 import { CodeChatStage } from './code-chat-stage'
+import { useChatDrafts } from './use-chat-drafts'
 import { applyChatRetention, MAX_LIVE_MESSAGES, needsChatRetention } from '@/lib/chat/message-retention'
 import { caughtUpThread } from '@/lib/chat/thread-catch-up'
 import { ChevronDown } from 'lucide-react'
@@ -698,6 +699,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
   // (the transport's onSessionBusy): the waiting orb says so instead.
   const [tidying, setTidying] = useState(false)
   const [input, setInput] = useState(initialInput)
+  /** The agent's draft, for the chat's saved copy (use-chat-drafts.ts): the box's own words until the hook below says. */
+  const agentDraftOfRef = useRef<(boxText: string) => string>((boxText) => boxText)
   // The composer's mentions and files: the shared state every ChatInput host
   // keeps (composer-state.ts), so a teammate's or a run's chat can't drift.
   const {
@@ -1712,6 +1715,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
     openWorkItem: openCodeJob,
     clearWords: clearCodeWords,
   })
+  // A half-typed message stays with the chat it was typed in (use-chat-drafts.ts; docs/plans/one-home.md): the home thread's box only.
+  const { agentDraftOf } = useChatDrafts({ enabled: isHomeThread === true, input, setInput })
+  agentDraftOfRef.current = agentDraftOf
   // This render's, as submitTurnRef is: a dictation's send reads the words it just merged.
   const submitCodeRef = useRef<() => boolean>(() => false)
   submitCodeRef.current = () => {
@@ -1767,7 +1773,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
   // the reply goes back in, so a reload never loses it — but not one already
   // on its way to eve as a steer: eve has it.
   const composerSnapshot = useCallback(() => {
-    let text = inputRef.current
+    // The agent's own draft: while a coding chat is the current one, the box's words are that chat's (chat-drafts.ts).
+    let text = agentDraftOfRef.current(inputRef.current)
     for (const waiting of [followUpTurnRef.current, queuedTurnRef.current]) {
       if (!waiting || waiting.spokenOnly || (waiting.steer && waiting.steer.state !== 'held')) continue
       text = composerTextWithQueued(waiting.text, text)

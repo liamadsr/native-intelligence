@@ -73,7 +73,8 @@ import { CodeJobLine } from './code-job-line'
 import { closeFrontCards } from '@/components/chat-cards/front-card'
 import { noteCodeChatsChanged } from '../page-panel/code-chats-store'
 import { getCodeView, openCodeChatKey, subscribeCodeView } from './code-view-store'
-import { backToAgent, isOnCode, openCodingChat, pressCode, subscribeCurrentChat } from './current-chat-store'
+import { backToAgent, getCurrentChat, isOnCode, openCodingChat, pressCode, subscribeCurrentChat } from './current-chat-store'
+import { draftSent } from './chat-drafts'
 import type { LocalAgentStatus } from '@/lib/local-agent/store'
 import { canMessageSession } from '@/lib/local-agent/transcript-view'
 import { workerLabel } from '@/lib/environments/types'
@@ -553,6 +554,8 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
               : { requestId, sessionId: session.id, start: true, worker: now.agent, ...(folder ? { folder } : {}) },
           ),
         )
+        // The new chat's words went with the send: they are no draft of its when it becomes this chat (chat-drafts.ts).
+        draftSent(getCurrentChat())
         // The person lands in the job's own chat.
         openJob(session.trackedJobId ?? null, session.id)
         if (!started.value.deviceOnline) {

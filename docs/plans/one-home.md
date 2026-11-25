@@ -466,3 +466,10 @@ pressed on Home with nothing in front (`rail/app-rail.tsx` `pressHome`, decision
 Left as they were, on purpose: an in-app toast has no action; work that is not a coding chat (a
 bot's research, a cloud coding run) opens its page or card; a caller that passes its own
 `openHere` still shows the item in place.
+
+**Phase 4: a draft per chat.** `chat/chat-drafts.ts` (the rules) and `chat/use-chat-drafts.ts`
+(the home thread's box): each chat keeps its own words for the window's session, per workspace.
+The one carry is between the agent and a new coding chat when the other box is empty. A new
+chat's first send leaves no draft behind (`draftSent`). The chat's saved copy keeps the agent's
+own draft whatever chat is on screen (`agentDraft`). The bug seen in the browser, a note for the
+agent sitting in the box under a coding chat, is pinned by `chat-drafts.test.tsx`.
