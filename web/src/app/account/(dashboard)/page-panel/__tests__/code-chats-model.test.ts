@@ -100,7 +100,7 @@ describe('the current coding chat, live (code-chat-live.ts)', () => {
   afterEach(() => __resetCodeViewForTests())
 
   it('selects a chat, holds what its conversation reads for it only, and clears with New chat', () => {
-    const live = { session: session({ id: 'a' }), stopping: false, send: async () => ({ ok: true as const }), stop: async () => ({ ok: true as const }) }
+    const live = { session: session({ id: 'a' }), stopping: false, send: async () => ({ ok: true as const }), stop: async () => ({ ok: true as const }), promptOpen: false, noChanges: false, filesChanged: null, insertions: null, deletions: null }
     selectCodeChat('a')
     expect(getCodeView()).toEqual({ selected: 'a', live: null, error: null, attempt: 0 })
     // Another chat's reader reporting late changes nothing.
