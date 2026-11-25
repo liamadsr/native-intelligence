@@ -16,6 +16,13 @@
  *   CodeFolderPicker  under the box, after the environment (Code only): the
  *                     folder on that Mac a new job works in, and Select
  *                     folder… in the desktop app.
+ *   CodeModelLine     under the box, after the folder (Code only; Liam, 11-25:
+ *                     "pinned to the chat panel like in other apps"): a new
+ *                     chat's model and effort, two pickers, only when the
+ *                     picked agent's Mac says it takes them (721); an open
+ *                     chat's, read-only, as its agent reports them (or as it
+ *                     was started, until it says). The model a chat runs on
+ *                     doesn't change mid-chat: a new one picks another.
  *   CodeNoticeLine    under the box: why it doesn't send (a cloud
  *                     environment, no folder), what the last send came back
  *                     with (a second send to an open job: Open it), or that what is staged for Chat (files, mentions,
@@ -27,7 +34,9 @@
  */
 import type { SyntheticEvent } from 'react'
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu'
-import { Check, ChevronDown, Clock, FolderGit2, FolderOpen, Plus } from 'lucide-react'
+import { Check, ChevronDown, Clock, Cpu, FolderGit2, FolderOpen, Plus } from 'lucide-react'
+import { effortLabel } from '@/lib/local-agent/transcript-view'
+import { useCodeView } from './use-code-view'
 import { cn } from '@/lib/utils'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import {
@@ -255,6 +264,94 @@ export function CodeFolderPicker({ code, onOpenChange }: { code: ComposerCode; o
         )}
       </DropdownMenuContent>
     </DropdownMenu>
+  )
+}
+
+/** A model's or effort's name in the line: Default for the agent's own. */
+const DEFAULT_CHOICE = 'Default'
+
+/** One of the line's two pickers: its options with Default first, the choice checked. */
+function ChoicePicker({
+  kind,
+  value,
+  options,
+  onPick,
+  onOpenChange,
+}: {
+  kind: 'model' | 'effort'
+  value: string | null
+  options: ReadonlyArray<{ id: string; label: string }>
+  onPick: (id: string | null) => void
+  onOpenChange?: (open: boolean) => void
+}) {
+  const name = kind === 'model' ? 'Model' : 'Effort'
+  const current = value === null ? DEFAULT_CHOICE : (options.find((o) => o.id === value)?.label ?? value)
+  const DEFAULT_VALUE = ':default'
+  return (
+    <DropdownMenu modal={false} onOpenChange={onOpenChange}>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          data-code-model-picker={kind}
+          data-code-model-value={value ?? 'default'}
+          aria-label={`${name}: ${current}`}
+          title={value === null ? `${name}: the coding agent’s own default` : `${name}: ${current}`}
+          className={cn(CHIP, 'max-w-[11rem]')}
+        >
+          {kind === 'model' && <Cpu aria-hidden className="size-3.5 shrink-0" />}
+          <span className="min-w-0 truncate">{current}</span>
+          <ChevronDown aria-hidden className="size-3 shrink-0 opacity-70" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent side="top" align="start" className="w-60" data-code-model-menu={kind} aria-label={name} onMouseDown={stop} onClick={stop} onKeyDown={stop}>
+        <DropdownMenuRadioGroup value={value ?? DEFAULT_VALUE} onValueChange={(v) => onPick(v === DEFAULT_VALUE ? null : v)} aria-label={name}>
+          <MenuHeading>{name}</MenuHeading>
+          {[{ id: DEFAULT_VALUE, label: DEFAULT_CHOICE }, ...options].map((o) => (
+            <DropdownMenuPrimitive.RadioItem key={o.id} value={o.id} data-code-model-option={o.id === DEFAULT_VALUE ? 'default' : o.id} className={ROW}>
+              <span className="min-w-0 flex-1 truncate">{o.label}</span>
+              <Check aria-hidden className={cn('size-3.5 shrink-0', (value ?? DEFAULT_VALUE) === o.id ? 'text-foreground' : 'invisible')} />
+            </DropdownMenuPrimitive.RadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+/**
+ * The coding chat's model and effort, pinned under the box (721): a new
+ * chat's pickers when its agent takes them; an open chat's, read-only.
+ * Nothing when there is nothing to say.
+ */
+export function CodeModelLine({ code, onOpenChange }: { code: ComposerCode; onOpenChange?: (open: boolean) => void }) {
+  const { live } = useCodeView()
+  if (code.messaging) {
+    // The open chat's, as its agent reports them (else as it was started): it keeps them until it ends.
+    const session = live?.session
+    const model = session?.model ?? session?.requestedModel ?? null
+    const effort = session?.model ? (session.effort ?? null) : (session?.requestedEffort ?? null)
+    if (!model) return null
+    const text = `${model} · ${effort ? effortLabel(effort) : DEFAULT_CHOICE}`
+    return (
+      <span
+        data-code-model-line="open"
+        title="The model this chat runs on, and its effort. A new chat can start on another."
+        className="flex h-7 min-w-0 max-w-[16rem] shrink items-center gap-1.5 px-1.5 text-[13px] text-muted-foreground"
+      >
+        <Cpu aria-hidden className="size-3.5 shrink-0" />
+        <span className="min-w-0 truncate">{text}</span>
+      </span>
+    )
+  }
+  const choice = code.modelChoice
+  if (!choice) return null
+  return (
+    <span data-code-model-line="new" className="flex min-w-0 shrink items-center">
+      <ChoicePicker kind="model" value={choice.model} options={choice.models} onPick={choice.pickModel} onOpenChange={onOpenChange} />
+      {choice.efforts.length > 0 && (
+        <ChoicePicker kind="effort" value={choice.effort} options={choice.efforts.map((e) => ({ id: e, label: effortLabel(e) }))} onPick={choice.pickEffort} onOpenChange={onOpenChange} />
+      )}
+    </span>
   )
 }
 
