@@ -869,10 +869,10 @@ describe('a message to the open chat while its agent works (Liam, 11-20: as the 
  * it is on screen, never the agent's under it.
  */
 describe('a coding chat open with no Mac (no toggle)', () => {
-  async function open(status: string) {
+  async function open(status: string, over: Record<string, unknown> = {}) {
     await mount({ list: [cloud()], chatEnv: cloud() })
     expect(q('[data-composer-tabs]')).toBeNull()
-    const live = { session: session({ id: 'sess-open', status }), stopping: false, send: vi.fn(async () => ({ ok: true as const })), stop: vi.fn() }
+    const live = { session: session({ id: 'sess-open', status, ...over }), stopping: false, send: vi.fn(async () => ({ ok: true as const })), stop: vi.fn() }
     act(() => {
       openCodingChat('sess-open', { from: 'notification' })
       setCodeChatLive('sess-open', live as never)
@@ -897,6 +897,25 @@ describe('a coding chat open with no Mac (no toggle)', () => {
     expect(live.send).not.toHaveBeenCalled()
     expect(host.value).toBe('Try again')
     expect(posts()).toEqual([])
+  })
+
+  it.each([
+    ['stopped', 'cancelled', null],
+    ['sat idle a day', 'expired', 'it sat idle for 24 hours'],
+  ] as const)('a chat the person %s: the message picks it up again, no new job', async (_name, status, error) => {
+    const live = await open(status, { error, attended: true })
+    type('Carry on from there')
+    await send()
+    expect(live.send).toHaveBeenCalledWith('Carry on from there', 'steer', expect.any(String))
+    expect(host.value).toBe('')
+    expect(posts()).toEqual([])
+  })
+
+  it('stopped, but not the person’s own chat (unattended): it takes nothing', async () => {
+    const live = await open('cancelled', { error: null, attended: false })
+    type('Carry on')
+    await send()
+    expect(live.send).not.toHaveBeenCalled()
   })
 
   it('back on the agent, the box is the agent’s again', async () => {
