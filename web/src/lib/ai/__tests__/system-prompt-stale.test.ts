@@ -32,9 +32,14 @@ describe('the base prompt keeps its stale lines out', () => {
     const prompt = await buildSystemPrompt('user-1', stubSupabase(), undefined, { workspaceId: 'ws-1', webAccess: 'never' })
     expect(prompt).toContain("You are Assistant, the user's always-on agent in Native Intelligence, for them and their team.")
     // The person runs a skill by typing / and its name (chat-input.tsx); the agent loads one.
-    expect(prompt).toContain('the person runs one by typing / and its name, and you load one with `load_skill`')
+    expect(prompt).toContain('the person runs one by typing / and its name, and you `load_skill` the one a request matches')
+    // What skill and work runs keep from the old base prompt (they read no instructions.md).
+    expect(prompt).toContain("Never share their mail, private notes, Now file or anything they told you in confidence with another person, guest or agent; other people's details only as far as that person needs.")
+    expect(prompt).toContain("Don't narrate your lookups or tool calls.")
+    expect(prompt).toContain('build the structure (initiative → projects → milestones → actions)')
+    expect(prompt).toContain('search from several angles (the person, the company, the topic) with a limit of 15')
     const md = readFileSync(join(process.cwd(), 'agents/chat-agent/instructions.md'), 'utf8').replace(/\s+/g, ' ')
-    expect(md).toContain("In the user's main in-app chat you are their always-on agent, under the name they gave you in Settings → Preferences (\"Assistant\" by default; Native Intelligence is the product)")
+    expect(md).toContain("In the person's main chat you are their always-on agent in Native Intelligence, under the name they gave you (\"Assistant\" unless")
     expect(md).not.toContain("Native Intelligence's chat assistant")
   })
 })

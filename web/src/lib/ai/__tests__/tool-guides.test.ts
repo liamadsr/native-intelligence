@@ -173,12 +173,50 @@ describe('tool guides', () => {
     expect(guide('get_dashboard_summary')).toContain('not a page to send them to')
   })
 
+  it('what left the standing instructions (docs/plans/goal-driven-main-agent.md §4) rides the tool it is about', () => {
+    // Showing things: no nav, show again for a change, open = unfinished, rows by read_card.
+    const show = guide('show')
+    expect(show).toContain('There is no nav: never tell them to go to a page; show it.')
+    expect(show).toContain('show again: a new card')
+    expect(show).toContain('status_type none of `completed` and `canceled`')
+    expect(show).toContain('`read_card` for their ids')
+    // Suggest, don't narrate: stage what they didn't ask for outright, do what they did.
+    const suggest = guide('suggest_changes')
+    expect(suggest).toContain('one they asked for ("close GEN-12") you make with the normal tool, and when you can\'t tell, stage it')
+    expect(suggest).toContain('never say you suggested it')
+    expect(suggest).toContain('Never stage a dismissed one again.')
+    // Remembering: their words, scope, the admin's wait, the chip.
+    const remember = guide('remember')
+    for (const part of ['in their words, one per call', 'Never a guess about what they might like, a secret or sensitive data', "Workspace scope only when they say it's how the whole team works", 'it waits for an admin to accept: say so', '"Remembered" chip with Undo', '`<remembered>`']) {
+      expect(remember, part).toContain(part)
+    }
+    // The Now file: when to change it, empty, move, track, never shared, who writes it; the revision rides its section's frame.
+    const now = guide('update_now')
+    for (const part of ['never for a question alone', "never say you can't see it", '`move` its line', '`track` on its `add`', 'Lasting facts go to `remember`', "never share it with another person's agent or a guest", 'only their own chat and your check-in write it']) {
+      expect(now, part).toContain(part)
+    }
+    // Connections: check first, the Connect card, never a secret, disconnect and loosening are the person's card.
+    expect(guide('list_connections')).toContain("before you say something is or isn't connected")
+    const connect = guide('connect')
+    expect(connect).toContain('instead of sending them to Settings')
+    expect(connect).toContain('pass the MCP server URL they gave')
+    expect(connect).toContain('Never ask for, accept or repeat a password, API key or token')
+    expect(connect).toContain('`Connections changed`')
+    expect(guide('disconnect')).toContain('always their approval card')
+    expect(guide('set_tool_access')).toContain('Loosening (turning a tool on, adding one, or letting it run without asking) is always their approval card')
+    expect(guide('set_tool_access')).toContain('tightening (off, or ask first) applies at once')
+    // What's pending or missed: their agents' work first; For you holds only delivered work (the rest in the Your agents pack).
+    expect(guide('get_notifications')).toContain('`list_bot_work` first')
+    expect(guide('list_bot_work')).toContain('For you holds only delivered work')
+  })
+
   it('the base prompt keeps the core and drops the manuals', async () => {
     const prompt = await buildSystemPrompt('user-1', stubSupabase(), undefined, { workspaceId: 'ws-1', webAccess: 'never' })
-    for (const kept of ["You are Assistant, the user's always-on agent in Native Intelligence", '## How You Work', '## Response Style', '## Things to Avoid Saying', '## Things to Say Instead', '## Safety', '`find` is the front door']) {
+    for (const kept of ["You are Assistant, the user's always-on agent in Native Intelligence", '## How You Work', '## Response Style', '## Finding things', '## Safety', '`find` is the front door']) {
       expect(prompt, kept).toContain(kept)
     }
-    for (const gone of ['Important Workflows', '### Email Tools', '### Knowledge Graph', '### Documents', '### Attachment Search', '### Calendar ↔ Captures', '### Cycles', '/account/wiki', '/api/account/']) {
+    // The goal-driven rewrite (docs/plans/goal-driven-main-agent.md §2) dropped the phrasebooks: "Get it done" and the voice line cover them.
+    for (const gone of ['Important Workflows', '### Email Tools', '### Knowledge Graph', '### Documents', '### Attachment Search', '### Calendar ↔ Captures', '### Cycles', '/account/wiki', '/api/account/', '## Things to Avoid Saying', '## Things to Say Instead']) {
       expect(prompt, gone).not.toContain(gone)
     }
   })
@@ -195,14 +233,18 @@ describe('tool guides', () => {
     const web = tokens(instructions) + tokens(parts.base) + tokens(parts.webAccess ?? '') + tokens(renderHelperModelRoster(10)) + coreNotes
     // Was 25.3K before the trim (10-27). Grow it on purpose, never by drift:
     // a tool's how-to goes in its note, an area's in its pack. 11,000 → 11,050
-    // on purpose (10-27): the Now file's empty line, after the agent told the
-    // person it couldn't see a note that had never been written. 11,050 →
-    // 11,130 on purpose (11-09): the product's new name, Native Intelligence,
-    // is longer than the old one was. It adds 80 here and 84 with the desktop
-    // notes; both limits moved by that much and nothing else.
-    expect(web).toBeLessThanOrEqual(11_130)
-    expect(web + desktopNotes).toBeLessThanOrEqual(11_585)
-    expect(tokens(parts.base)).toBeLessThanOrEqual(2_500)
-    expect(coreNotes).toBeLessThanOrEqual(700)
+    // on purpose (10-27): the Now file's empty line. 11,050 → 11,130 on
+    // purpose (11-09): the product's new name, Native Intelligence. 11,130 →
+    // 5,200 (11-24, docs/plans/goal-driven-main-agent.md): the goal-driven
+    // instructions (~2,575 tokens) and base prompt (~810, with the review's
+    // restored rules: the full injection rule, privacy, "Never" bullets, posts,
+    // research angles, planning), the how-to they dropped moved into the
+    // tools' notes (core notes ~590 with show's and suggest_changes') and the
+    // packs. Each limit is the size measured then (4,956; 5,484; 812; 587),
+    // plus about 5%, so the prompt can't silently regrow.
+    expect(web).toBeLessThanOrEqual(5_200)
+    expect(web + desktopNotes).toBeLessThanOrEqual(5_760)
+    expect(tokens(parts.base)).toBeLessThanOrEqual(855)
+    expect(coreNotes).toBeLessThanOrEqual(620)
   })
 })

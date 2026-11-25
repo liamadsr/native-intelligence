@@ -25,7 +25,7 @@ describe('the search scope guidance', () => {
   it('the base prompt says to search narrow first; find\'s guide says how to widen; the picker section is gone', async () => {
     const prompt = await buildSystemPrompt('user-1', stubSupabase(), undefined, { workspaceId: 'ws-1', webAccess: 'never' })
     expect(prompt).toContain('`find` is the front door')
-    expect(prompt).toContain('Start narrow, widen when it comes back thin')
+    expect(prompt).toContain('Start narrow, widen if it comes back thin')
     const guide = toolGuide('find') ?? ''
     expect(guide).toContain('You choose the scope on every search')
     expect(guide).toContain('in the chat, no `since` or `all_time` covers the past 4 weeks of captures and emails')
