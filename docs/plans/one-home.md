@@ -445,3 +445,24 @@ the way: a coding chat opened from Recent now moves the composer's tab with it
 
 Found by the tests on the way: with the pinned row lit, J/K would have opened every row it
 passed. A step flips only with a card in front, as before.
+
+**Phase 3: every way in, and every way out.** `openCodingChat(sessionId, { from, workspaceId? })`
+is the one way in (`chat/current-chat-store.ts`).
+
+| Way in | Built in | Test |
+| --- | --- | --- |
+| A work item pressed anywhere: a desktop notification, a For you card's Open, the Agents rows | `lib/bots/open-teammate.ts` `goToItem` (`on: 'chat'`), the nav's `openCodingChat` (`hooks/use-open-teammate.ts`) | `ways-into-a-coding-chat.test.tsx` |
+| A settled item nothing on screen holds | the light read names its chat (`/api/account/activity/[id]?light=1` → `local_agent_session_id`; `lib/bots/item-lookup.ts`) | the same, and the route's test |
+| Incoming's row | `components/inbox/inbox-store.ts` `inboxOpen` | the same |
+| A coding chat the agent started | "Open chat" on its chip (`components/prompt-kit/tool.tsx` `startedCodingChat`); it never takes the middle | the same |
+| A link | `/account?code=<session id>` (`chat/coding-chat-link.ts`, read at boot in `main-chat-context.tsx`); "Copy link" in the chat's details | the same |
+| Another workspace's chat | the store asks for the switch (`SWITCH_FOR_CODING_CHAT_EVENT`), the chat opens when the workspace arrives | the same |
+| An action's Mac tab | "Open chat" above its conversation (`action-detail-panel.tsx`) | (one button; not rendered in a test: the panel has no test harness for its Mac tab) |
+| No Mac | the middle is mounted for every person; the box is the open chat's (`composer-code.tsx`) | `composer-code.test.tsx` |
+
+Ways out: "‹ Joseph" where Recent is not on screen (`code-chat-stage.tsx`); the rail's Home
+pressed on Home with nothing in front (`rail/app-rail.tsx` `pressHome`, decision 6).
+
+Left as they were, on purpose: an in-app toast has no action; work that is not a coding chat (a
+bot's research, a cloud coding run) opens its page or card; a caller that passes its own
+`openHere` still shows the item in place.

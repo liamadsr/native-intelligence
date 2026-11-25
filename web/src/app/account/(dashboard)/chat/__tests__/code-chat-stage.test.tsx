@@ -34,6 +34,7 @@ vi.mock('../../side-panels/side-panels', async () => {
 import { CodeChatStage, HIDE_THREAD_CSS } from '../code-chat-stage'
 import { __resetCodeViewForTests, selectCodeChat, setCodeChatLive, type CodeChatLive } from '../code-view-store'
 import { FIRST_TIME_KEY, FIRST_TIME_LINE } from '../one-home-decisions'
+import { __resetCurrentChatForTests, currentChatKind, newCodingChat, openCodingChat } from '../current-chat-store'
 import { RECENTS_FILTER_KEY } from '../../page-panel/use-recents-filter'
 import { setCodeDetailsOpen, setCodeView, setPagePanelShown, setRightPanelOpen } from '../../side-panels/side-panel-store'
 
@@ -54,8 +55,11 @@ afterEach(() => {
     setPagePanelShown(false)
     setRightPanelOpen(false)
     __resetCodeViewForTests()
+    __resetCurrentChatForTests()
   })
   window.localStorage.clear()
+  // The window's memory of its current chat (current-chat-store.ts): the next test starts on the agent.
+  window.sessionStorage.clear()
   chats.items = []
   chats.readAt = null
   shell.shared = {}
@@ -117,22 +121,25 @@ describe('CodeChatStage', () => {
     act(() => setCodeDetailsOpen(true))
   })
 
-  it('where the list isn’t on screen beside the navigation, offers it in the middle and a way back from a chat', () => {
+  it('where Recent isn’t on screen, a new chat’s middle lists the coding chats, and a chat has its way back to the agent', () => {
     chats.items = [{ key: 'sess-1' }]
     chats.readAt = new Date()
     act(() => root.render(h(CodeChatStage)))
     act(() => setCodeView(true))
     // No panel beside the navigation (a narrow window): the list is here.
     expect(container.querySelector('[data-code-chat-stage="list"] [data-fake-rows="1"]')).not.toBeNull()
-    act(() => selectCodeChat('sess-1'))
+    act(() => openCodingChat('sess-1'))
+    // A chat on screen: its way back to the agent, by the agent's own name ("‹ Joseph").
     const back = container.querySelector<HTMLButtonElement>('[data-code-chat-back]')!
-    expect(back).not.toBeNull()
+    expect(back.textContent).toBe('Joseph')
     act(() => back.click())
-    expect(container.querySelector('[data-code-chat-stage="list"]')).not.toBeNull()
-    // With the panel on screen: neither.
+    expect(currentChatKind()).toBe('agent')
+    expect(container.innerHTML).toBe('')
+    // With Recent on screen: neither the list (its rows are Recent's) nor the crumb (the pinned row is the way back).
     act(() => setPagePanelShown(true))
+    act(() => newCodingChat())
     expect(container.querySelector('[data-code-chat-stage]')).toBeNull()
-    act(() => selectCodeChat('sess-1'))
+    act(() => openCodingChat('sess-1'))
     expect(container.querySelector('[data-code-chat-back]')).toBeNull()
   })
 

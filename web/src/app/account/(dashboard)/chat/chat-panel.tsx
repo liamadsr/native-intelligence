@@ -3653,8 +3653,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
              card, this stops painting while the composer below keeps on
              (tailwind.css; Liam, 11-11). */
           <div data-chat-thread-stage="" className="relative flex min-h-0 flex-1 flex-col">
-          {/* The Code view's middle: the selected coding chat's conversation in the thread's place (code-chat-stage.tsx; Liam, 11-16). The main chat's only. */}
-          {composerCode.available && (
+          {/* A coding chat as Home's current chat: its conversation in the thread's place (code-chat-stage.tsx; Liam, 11-16, 11-25).
+              The main chat's only, for every person: a chat that exists opens here with or without a Mac (docs/plans/one-home.md). */}
+          {isHomeThread === true && (
             // Its messages carry the chat's Read aloud (transcript-rows.tsx RowActions): the same reader as the thread's.
             <ReadAloudContext.Provider value={readAloud}>
               <CodeChatStage />

@@ -36,6 +36,8 @@ import {
   writeStoredChat,
 } from './main-chat-storage'
 import type { ChatSlice } from './types'
+import { SWITCH_FOR_CODING_CHAT_EVENT, cancelCodingChatSwitch, openCodingChat } from '../chat/current-chat-store'
+import { CODING_CHAT_DEEP_LINK, deepLinkCodingChat } from '../chat/coding-chat-link'
 
 /**
  * A card waiting to be put in the main chat (lib/chat-cards/open-card.ts),
@@ -207,6 +209,7 @@ export function MainChatProvider({ children }: { children: React.ReactNode }) {
   // the workspace was still the pointer's guess, waits for the real id.
   const pendingCrossWorkspaceCardRef = useRef<{ workspaceId: string; request: OpenCardRequest } | null>(null)
   const pendingDeepLinkCardRef = useRef<OpenCardRequest | null>(null)
+  const pendingCodingChatRef = useRef<{ sessionId: string; workspaceId: string | null } | null>(null)
 
   // Boot: the device's copy of the chat, read in a LAYOUT effect (after
   // hydration, so no mismatch; before paint, so nothing flashes). The panel
@@ -228,8 +231,18 @@ export function MainChatProvider({ children }: { children: React.ReactNode }) {
       // A Studio export to download on arrival (components/studio/ui/export-arrival.ts): kept for the Studio only
       // beside `page=studio&video=`, and taken off the address either way, so it never acts later.
       const tookExport = takeExportFromAddress(params)
-      const link = deepLinkCard(params)
-      if (!link && tookExport) {
+      // A coding chat (`?code=<session id>`; docs/plans/one-home.md): no card, Home's current chat. Taken off the
+      // address, and opened once the real workspace id says whether its workspace is another one.
+      const codeChat = deepLinkCodingChat(params)
+      if (codeChat) {
+        pendingCodingChatRef.current = codeChat
+        params.delete(CODING_CHAT_DEEP_LINK)
+        params.delete(DEEP_LINK_WORKSPACE)
+        const rest = params.toString()
+        window.history.replaceState({}, '', window.location.pathname + (rest ? `?${rest}` : ''))
+      }
+      const link = codeChat ? null : deepLinkCard(params)
+      if (!link && tookExport && !codeChat) {
         const rest = params.toString()
         window.history.replaceState({}, '', window.location.pathname + (rest ? `?${rest}` : ''))
       }
@@ -281,6 +294,10 @@ export function MainChatProvider({ children }: { children: React.ReactNode }) {
       prunePersistedEvents()
       let card = pendingDeepLinkCardRef.current ?? takeParkedCard()
       pendingDeepLinkCardRef.current = null
+      // A link to a coding chat: now the window knows its workspace (another one is switched to first).
+      const codeChat = pendingCodingChatRef.current
+      pendingCodingChatRef.current = null
+      if (codeChat) openCodingChat(codeChat.sessionId, { from: 'link', ...(codeChat.workspaceId ? { workspaceId: codeChat.workspaceId } : {}) })
       // A deep link into another workspace: switched to, and opened there (as a card asked for there is).
       if (card?.workspaceId && card.workspaceId !== workspaceId) {
         pendingCrossWorkspaceCardRef.current = { workspaceId: card.workspaceId, request: card }
@@ -348,6 +365,20 @@ export function MainChatProvider({ children }: { children: React.ReactNode }) {
     window.addEventListener(OPEN_CARD_EVENT, onOpenCard)
     return () => window.removeEventListener(OPEN_CARD_EVENT, onOpenCard)
   }, [deliver])
+
+  // A coding chat asked for in another workspace (chat/current-chat-store.ts
+  // openCodingChat; docs/plans/one-home.md): that workspace is switched to,
+  // and the chat is its current chat when it arrives. A refused switch (a
+  // capture recording, a workspace no longer the member's) opens nothing.
+  useEffect(() => {
+    const onSwitch = (e: Event) => {
+      const target = (e as CustomEvent<{ workspaceId?: unknown }>).detail?.workspaceId
+      if (typeof target !== 'string' || !target || target === workspaceIdRef.current) return
+      if (!switchWorkspaceRef.current(target)) cancelCodingChatSwitch(target)
+    }
+    window.addEventListener(SWITCH_FOR_CODING_CHAT_EVENT, onSwitch)
+    return () => window.removeEventListener(SWITCH_FOR_CODING_CHAT_EVENT, onSwitch)
+  }, [])
 
   const resetChat = useCallback(() => {
     const next = createChatSlice()

@@ -105,6 +105,8 @@ function remembered(): CurrentChat {
 /** Where a move came from ('recents', 'composer', 'notification'…), and what it leaves alone. */
 export interface CurrentChatFrom {
   from?: string
+  /** The workspace the chat belongs to: another one than the window's is switched to first. Absent: the one on screen. */
+  workspaceId?: string | null
   /** Leave a full-screen card in front where it is (a restore: nothing the person pressed). */
   keepCards?: boolean
 }
@@ -151,10 +153,38 @@ export function subscribeCurrentChat(listener: () => void): () => void {
   }
 }
 
-/** Make a coding chat the current chat, from anywhere. The one way in. */
+/**
+ * Asks the dashboard to switch to another workspace for a coding chat there:
+ * `detail` is `{ workspaceId }`. The main chat's provider answers
+ * (main-chat/main-chat-context.tsx: it holds the switch), and says whether it
+ * could with cancelCodingChatSwitch.
+ */
+export const SWITCH_FOR_CODING_CHAT_EVENT = 'ni:switch-for-coding-chat'
+
+/** A coding chat asked for in another workspace, until that workspace is the window's. */
+let pendingElsewhere: { workspaceId: string; sessionId: string } | null = null
+
+/**
+ * Make a coding chat the current chat, from anywhere. The one way in
+ * (docs/plans/one-home.md, "Every way in"): a row in Recent, a job's line, a
+ * notification, a For you card, the agent's chip, a link. A chat of another
+ * workspace than the window's: that workspace is switched to first, and the
+ * chat is its current chat when it arrives.
+ */
 export function openCodingChat(sessionId: string, opts: CurrentChatFrom = {}): void {
   if (!sessionId) return
+  const here = getClientWorkspaceId() ?? null
+  if (opts.workspaceId && here && opts.workspaceId !== here) {
+    pendingElsewhere = { workspaceId: opts.workspaceId, sessionId }
+    if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(SWITCH_FOR_CODING_CHAT_EVENT, { detail: { workspaceId: opts.workspaceId } }))
+    return
+  }
   apply({ kind: 'code', sessionId }, opts)
+}
+
+/** The switch for a coding chat in `workspaceId` was refused (a capture recording, a workspace no longer theirs): nothing opens. */
+export function cancelCodingChatSwitch(workspaceId: string): void {
+  if (pendingElsewhere?.workspaceId === workspaceId) pendingElsewhere = null
 }
 
 /** A new coding chat: nothing selected, the next send starts one. */
@@ -212,6 +242,13 @@ export function syncCurrentChatWorkspace(): void {
   if (syncedFor === workspaceId) return
   const moved = syncedFor !== undefined
   syncedFor = workspaceId
+  // The chat this workspace was switched to for (openCodingChat from another one): it opens as any press does.
+  const asked = pendingElsewhere
+  pendingElsewhere = null
+  if (asked && asked.workspaceId === workspaceId) {
+    apply({ kind: 'code', sessionId: asked.sessionId }, { from: 'workspace' })
+    return
+  }
   // Something already moved it in this workspace's first moments (a link): it stands.
   if (!moved && onCode) return
   // A restore, not a press: a card in front stays, and the memory is as it was.
@@ -237,6 +274,7 @@ export function __resetCurrentChatForTests(): void {
   onCode = false
   agentUnseen = false
   syncedFor = undefined
+  pendingElsewhere = null
   cache = { onCode: false, selected: null, chat: AGENT }
   listeners.clear()
   setCodeView(false)

@@ -28,7 +28,7 @@ import { act, createElement as h, useEffect, useState } from 'react'
 import type { UIMessage } from '@ai-sdk/react'
 import { __resetCodeViewForTests, getCodeView, selectCodeChat, setCodeChatLive } from '../code-view-store'
 import { CodeHeldRow } from '../composer-code-controls'
-import { __resetCurrentChatForTests, currentChatKind, getCurrentChat, openCodingChat } from '../current-chat-store'
+import { __resetCurrentChatForTests, backToAgent, currentChatKind, getCurrentChat, openCodingChat } from '../current-chat-store'
 import { getSidePanelState } from '../../side-panels/side-panel-store'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -189,6 +189,7 @@ beforeEach(() => {
   opened.length = 0
   __resetCodeViewForTests()
   __resetCurrentChatForTests()
+  sessionStorage.clear()
   hostOpts.conversation = CONV
   hostOpts.notes = []
   resetEnvironmentStore()
@@ -860,3 +861,51 @@ describe('a message to the open chat while its agent works (Liam, 11-20: as the 
     expect(q('[data-code-held]')).toBeNull()
   })
 })
+
+/**
+ * No Mac, so no toggle (nothing to start a coding chat with). A coding chat
+ * that exists still opens as the current chat (a notification, a link:
+ * docs/plans/one-home.md, "Every way in"), and the box is that chat's while
+ * it is on screen, never the agent's under it.
+ */
+describe('a coding chat open with no Mac (no toggle)', () => {
+  async function open(status: string) {
+    await mount({ list: [cloud()], chatEnv: cloud() })
+    expect(q('[data-composer-tabs]')).toBeNull()
+    const live = { session: session({ id: 'sess-open', status }), stopping: false, send: vi.fn(async () => ({ ok: true as const })), stop: vi.fn() }
+    act(() => {
+      openCodingChat('sess-open', { from: 'notification' })
+      setCodeChatLive('sess-open', live as never)
+    })
+    await flush()
+    return live
+  }
+
+  it('a message goes to that chat, and nothing to the agent or to a new job', async () => {
+    const live = await open('waiting')
+    type('Now the tests')
+    await send()
+    expect(live.send).toHaveBeenCalledWith('Now the tests', 'steer', expect.any(String))
+    expect(host.value).toBe('')
+    expect(posts()).toEqual([])
+  })
+
+  it('a chat that ended takes nothing: the words stay in the box, and no job starts', async () => {
+    const live = await open('failed')
+    type('Try again')
+    await send()
+    expect(live.send).not.toHaveBeenCalled()
+    expect(host.value).toBe('Try again')
+    expect(posts()).toEqual([])
+  })
+
+  it('back on the agent, the box is the agent’s again', async () => {
+    const live = await open('waiting')
+    act(() => backToAgent())
+    await flush()
+    type('Hello')
+    await send()
+    expect(live.send).not.toHaveBeenCalled()
+  })
+})
+

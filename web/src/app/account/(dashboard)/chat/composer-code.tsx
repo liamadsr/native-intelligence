@@ -27,6 +27,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type { UIMessage } from '@ai-sdk/react'
+import { toast } from 'sonner'
 import {
   ENVIRONMENTS_FRESH_MS,
   addEnvironmentFolder,
@@ -286,11 +287,14 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
   // the conversation keeps the agent and the folder its coding chats start with, and its `tab` only says where the box was.
   const onCode = useSyncExternalStore(subscribeCurrentChat, isOnCode, () => false)
   const tab: ComposerTab = available && onCode ? 'code' : 'chat'
+  // With no Mac there is no toggle (nothing to start a chat with), yet a coding chat that exists still opens
+  // (a notification, a link): the box is that chat's while it is on screen, never the agent's under it.
+  const openWithoutToggle = enabled && !available && onCode
   const chosen = choice ?? openingCodeChoice(stored, jobs, defaults)
   const current = chosen.tab === tab ? chosen : { ...chosen, tab }
   const agent = isPickableAgent(agents, current.agent) ? current.agent : defaults.agent
   const folderId = resolveCodeFolder(folderOptions, current.folderId)
-  const active = tab === 'code'
+  const active = tab === 'code' || openWithoutToggle
   // What a NEW chat needs (a Mac, a folder). A coding chat open in the Code view takes a message without it.
   // Read as one string of what shows here (the chat's id, status, agent): the chat panel
   // never re-renders on a working chat's other updates (code-view-store.ts openCodeChatKey).
@@ -475,6 +479,12 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
           setSending(false)
         }
       }
+      // No toggle here (no Mac): the chat on screen can't take a message (it ended), and a new one can't start.
+      // Said out loud, since the line under the box is the toggle's: the words stay in the box.
+      if (!availableRef.current) {
+        toast(view.selected ? 'This coding chat has ended. Go back to your agent to keep chatting.' : 'A coding chat needs the Mac app. Go back to your agent to keep chatting.')
+        return false
+      }
       if (now.blocker) {
         setNotice(now.blocker)
         return false
@@ -615,5 +625,5 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
     [available, tab, setTab, agents, agent, agentLabel, pickAgent, mac, folderOptions, folderId, pickFolder, folders.canPick, addFolder, blocker, notice, noticeActions, sending, messaging],
   )
 
-  return { available, active: available && active, code, submit, thread, held, sendHeldNow, takeHeld }
+  return { available, active, code, submit, thread, held, sendHeldNow, takeHeld }
 }

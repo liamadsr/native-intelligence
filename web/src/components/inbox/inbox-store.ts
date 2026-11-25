@@ -28,6 +28,8 @@
  * With nothing subscribed at all, it is forgotten (a test, a sign-out): the
  * next one reads afresh. Flat cost: one read a minute while on screen.
  */
+import { lookupWorkItem } from '@/lib/bots/item-lookup'
+import { openCodingChat } from '@/app/account/(dashboard)/chat/current-chat-store'
 import { useEffect, useSyncExternalStore } from 'react'
 import { toast } from 'sonner'
 import { fillHeaders, withCachedHeaders } from '@/lib/email/header-cache'
@@ -483,6 +485,15 @@ export async function inboxOpen(item: InboxItem, opts: { beside?: () => void; on
     set({ record: { ...record, n: ++recordAsks } })
     opts.beside?.()
     return
+  }
+  // A coding chat's work ("needs you", "failed"): the chat itself, as Home's current chat (docs/plans/one-home.md:
+  // every way in lands in the same place), never its work item's card. One light read says which it is.
+  if (target.type === 'work_item') {
+    const facts = await lookupWorkItem(target.id)
+    if (facts?.codingSessionId) {
+      openCodingChat(facts.codingSessionId, { from: 'inbox', workspaceId: facts.workspaceId })
+      return
+    }
   }
   const card = notificationCardTarget(target)
   if (card) openTarget(card, { from: 'inbox', flip: true, ...(card.type === 'team_chat' ? { reuse: true } : {}) })

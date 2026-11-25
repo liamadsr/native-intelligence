@@ -15,6 +15,8 @@ export interface ItemFacts {
   workspaceId: string
   teammateId: string | null
   title: string | null
+  /** The coding chat it is a turn of (a local agent's session), or null for any other work. */
+  codingSessionId: string | null
 }
 
 const isId = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 128
@@ -37,6 +39,7 @@ export async function lookupWorkItem(itemId: string): Promise<ItemFacts | null> 
       workspaceId: item.workspace_id,
       teammateId: isId(item.ai_team_member_id) ? item.ai_team_member_id : null,
       title: typeof item.title === 'string' && item.title.trim() ? item.title.trim() : null,
+      codingSessionId: isId(item.local_agent_session_id) ? item.local_agent_session_id : null,
     }
   } catch {
     return null

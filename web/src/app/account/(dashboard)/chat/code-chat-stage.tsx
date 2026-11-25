@@ -41,7 +41,8 @@ import { setCodeChatError, setCodeChatLive, type CodeChatLive } from './code-vie
 import { rightShown } from '../side-panels/side-panel-store'
 import { CodeChatsRows, useCodeChats } from '../page-panel/code-chats'
 import { useCodeView } from './use-code-view'
-import { forgetCodingChat, newCodingChat, syncCurrentChatWorkspace } from './current-chat-store'
+import { backToAgent, forgetCodingChat, syncCurrentChatWorkspace } from './current-chat-store'
+import { useAssistantName } from '@/lib/voice/assistant-name-store'
 import { FIRST_TIME_KEY, FIRST_TIME_LINE } from './one-home-decisions'
 import { showOnlyCoding } from '../page-panel/use-recents-filter'
 import { setHomeSide } from '../page-panel/home-side'
@@ -77,9 +78,10 @@ export function CodeChatStage() {
     [selected],
   )
   if (!codeView) return null
-  // The list isn't on screen beside the navigation (a narrow window, or the
-  // panel closed): it is offered here, so a chat can always be picked, and a
-  // chat on screen has a way back to it.
+  // Recent isn't on screen beside the navigation (a narrow window, a phone,
+  // the panel closed): a new chat's middle lists the coding chats, so one can
+  // always be picked, and a chat on screen has its way back to the agent
+  // here ("‹ Joseph"; the pinned row and the toggle are the other two).
   const listHere = !state.pagePanelShown
   // The right panel shows the chat's agent, folder, status and Stop: the conversation's own header would say them twice.
   const detailsShown = rightShown(state)
@@ -122,6 +124,7 @@ function Stage({
   back: boolean
   hideFinish: boolean
 }) {
+  const { name: agentName } = useAssistantName()
   return (
     <div data-code-chat-stage={selected} className={STAGE}>
       <div className="chat-reading-col flex h-full min-h-0 w-full flex-col px-5 pb-2 pt-1">
@@ -129,11 +132,11 @@ function Stage({
           <button
             type="button"
             data-code-chat-back=""
-            onClick={() => newCodingChat({ from: 'stage' })}
+            onClick={() => backToAgent({ from: 'stage' })}
             className="mb-1 inline-flex h-7 shrink-0 items-center gap-1 self-start rounded-full px-2 text-xs text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <ChevronLeft aria-hidden className="size-3.5" />
-            Coding chats
+            {agentName}
           </button>
         )}
         {/* Keyed by the chat: another one is another conversation, read afresh. */}
