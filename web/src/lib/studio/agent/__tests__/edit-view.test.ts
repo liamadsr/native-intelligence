@@ -61,6 +61,7 @@ const everything: OpCall[] = [
   { op: 'add_callout', args: { kind: 'box', x: 0.3, y: 0.4, width: 0.2, height: 0.1, at: 1, color: '#ff5f0f' } },
   { op: 'add_callout', args: { kind: 'highlight', x: 0.3, y: 0.5, width: 0.2, height: 0.05, at: 1 } },
   { op: 'add_callout', args: { kind: 'spotlight', x: 0.6, y: 0.5, width: 0.3, height: 0.3, at: 2, style: { dim: 0.8 } } },
+  { op: 'add_callout', args: { kind: 'blur', x: 0.7, y: 0.2, width: 0.2, height: 0.1, at: 2, style: { blur: 40 } } },
   { op: 'add_arrow', args: { x: 0.7, y: 0.7, fromX: 0.4, fromY: 0.4, at: 1, color: '#00aa88', curve: -0.3 } },
   { op: 'add_notification', args: { app: 'Mail', text: 'Payment received', title: 'Invoice 555-0142', icon: '💸', at: 3 } },
   { op: 'add_card', args: { text: 'We would love to work with you', title: 'Offer', icon: '💼', at: 4 } },
@@ -109,6 +110,8 @@ describe('the overview of a video', () => {
     })
     expect(layerOf(view, 'box-1')).toMatchObject({ x: 0.3, y: 0.4, width: 0.2, height: 0.1, style: { stroke: '#ff5f0f', strokeWidth: 8, radius: 18, shadow: true } })
     expect(layerOf(view, 'spotlight-1')).toMatchObject({ style: { dim: 0.8 } })
+    // A blur's strength, as the command set it.
+    expect(layerOf(view, 'blur-1')).toMatchObject({ style: { blur: 40 } })
     expect(layerOf(view, 'arrow-1')).toMatchObject({ style: { stroke: '#00aa88', fromX: 0.4, fromY: 0.4, curve: -0.3 } })
     expect(layerOf(view, 'notification-1')).toMatchObject({ text: said('Payment received'), style: { app: 'Mail', title: 'Invoice 555-0142', icon: '💸' } })
     expect(layerOf(view, 'card-1')).toMatchObject({ style: { title: 'Offer', icon: '💼' } })
