@@ -22,18 +22,18 @@
  *   The agent       while the person is on another chat: whether a reply of
  *                   its finished unseen (the pinned row's dot).
  *
- * What it still stands on, until the plan's last phase folds them in:
- *   - the coding chat it holds is code-view-store.ts's `selected` (the
+ * What it stands on:
+ *   - the coding chat it holds is code-chat-live.ts's `selected` (the
  *     conversation's reader publishes that chat's `live` there);
- *   - side-panel-store.ts's `codeView` and `codeChat` are its mirror, never
+ *   - side-panel-store.ts's `chatKind` is the kind it hands the panels, never
  *     written by anyone else.
  *
  * A plain module. Flat cost: a few values, one cached object, its listeners.
  */
 import { closeFrontCards } from '@/components/chat-cards/front-card'
 import { getClientWorkspaceId } from '@/lib/workspace-fetch'
-import { setCodeView } from '../side-panels/side-panel-store'
-import { getCodeView, selectCodeChat, subscribeCodeView } from './code-view-store'
+import { setPanelChatKind } from '../side-panels/side-panel-store'
+import { getCodeView, selectCodeChat, subscribeCodeView } from './code-chat-live'
 import { CODE_PRESS_STARTS_NEW, RELOAD_RESTORES } from './one-home-decisions'
 
 export type CurrentChat = { kind: 'agent' } | { kind: 'code'; sessionId: string } | { kind: 'code-new' }
@@ -118,11 +118,9 @@ function apply(next: CurrentChat, opts: CurrentChatFrom, save = true): void {
   if (next.kind !== 'agent') selectCodeChat(next.kind === 'code' ? next.sessionId : null)
   const nextOnCode = next.kind !== 'agent'
   if (next.kind === 'agent' && agentUnseen) agentUnseen = false
-  if (onCode !== nextOnCode) {
-    onCode = nextOnCode
-    // The panels' mirror (side-panel-store.ts): they read the current chat through it for now.
-    setCodeView(nextOnCode)
-  }
+  onCode = nextOnCode
+  // The panels show the current chat's own (side-panel-store.ts chatKind): told here, by its one writer.
+  setPanelChatKind(getCurrentChat().kind)
   if (save) remember(next)
   if (chatKey(was) !== chatKey(getCurrentChat()) || next.kind === 'agent') emit()
 }
@@ -216,7 +214,7 @@ export function setCurrentChat(next: CurrentChat, opts: CurrentChatFrom = {}): v
 /**
  * The coding chat on screen is gone (deleted, or not this person's): it is
  * no longer the chat a reload comes back to. The chat stays on screen, saying
- * so (code-view-store.ts setCodeChatError).
+ * so (code-chat-live.ts setCodeChatError).
  */
 export function forgetCodingChat(sessionId: string): void {
   const chat = remembered()
@@ -277,5 +275,5 @@ export function __resetCurrentChatForTests(): void {
   pendingElsewhere = null
   cache = { onCode: false, selected: null, chat: AGENT }
   listeners.clear()
-  setCodeView(false)
+  setPanelChatKind('agent')
 }

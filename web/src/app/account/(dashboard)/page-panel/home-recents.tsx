@@ -129,6 +129,7 @@ import { useRecentsFilter } from './use-recents-filter'
 import { keepFocusAfterFlip, useOpenedRow } from './hub-open'
 import { setHomeSide, useHomeSide } from './home-side'
 import { PanelSwitch } from './panel-switch'
+import { setCodingRowsWaiting, useCodingNeedsYou } from './coding-attention'
 import { InboxPanel } from './inbox-panel'
 import { useInbox } from '@/components/inbox/inbox-store'
 import type { PagePanelProps } from './page-panel-types'
@@ -220,13 +221,20 @@ const HOME_SIDES = [
 /**
  * Home's Recent | Incoming (home-side.ts; Liam, 11-24: "the split between
  * recent and notification or incoming in the sub-navigation", as Team chat's
- * All | Recent). Incoming carries a dot while something in it is unread.
+ * All | Recent). Incoming carries a dot while something in it is unread;
+ * Recent an orange one while a coding chat needs the person (11-25).
  */
 export function HomeSideSwitch() {
   const side = useHomeSide()
   const { data } = useInbox(false)
   const unread = !!data?.items.some((i) => i.unread)
-  const options = HOME_SIDES.map((o) => ({ ...o, dot: o.id === 'inbox' && unread && side !== 'inbox' }))
+  // A coding chat that needs the person: the orange dot of its row, on the way back to Recent while Incoming shows (coding-attention.ts).
+  const coding = useCodingNeedsYou()
+  const options = HOME_SIDES.map((o) =>
+    o.id === 'inbox'
+      ? { ...o, dot: unread && side !== 'inbox' }
+      : { ...o, dot: coding && side !== 'recent', dotTone: 'orange' as const, dotWords: 'a coding chat needs you' },
+  )
   return <PanelSwitch options={options} value={side} onChange={setHomeSide} label="Show" data="data-home-side" />
 }
 
@@ -274,6 +282,11 @@ function RecentsPanel({ active, mode, front, onContent, shown }: PagePanelProps 
 
   const items = useMemo(() => filterRecents(all, filter), [all, filter])
   const present = useMemo(() => recentTypesPresent(all), [all])
+  // How many coding chats wait on the person, for the way back to Recent while it is off screen (coding-attention.ts).
+  const codingWaiting = useMemo(() => all.filter((i) => i.type === 'code_job' && i.needsYou).length, [all])
+  useEffect(() => {
+    if (readAt) setCodingRowsWaiting(codingWaiting)
+  }, [readAt, codingWaiting])
   const [limit, setLimit] = useState(RECENTS_PAGE)
   const windowed = useMemo(() => items.slice(0, limit), [items, limit])
   const groups = useMemo(() => (readAt ? groupRecents(windowed, readAt) : []), [windowed, readAt])

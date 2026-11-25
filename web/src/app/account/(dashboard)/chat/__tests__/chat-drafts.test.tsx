@@ -26,7 +26,7 @@ vi.mock('@/lib/workspace-fetch', () => ({ getClientWorkspaceId: () => ws.id }))
 import { __resetChatDraftsForTests, agentDraft, draftOf, draftSent, swapDraft } from '../chat-drafts'
 import { useChatDrafts } from '../use-chat-drafts'
 import { __resetCurrentChatForTests, backToAgent, getCurrentChat, newCodingChat, openCodingChat, pressCode, type CurrentChat } from '../current-chat-store'
-import { __resetCodeViewForTests } from '../code-view-store'
+import { __resetCodeViewForTests } from '../code-chat-live'
 import { DRAFT_CARRIES_TO_NEW_CODING_CHAT, DRAFT_PER_CHAT } from '../one-home-decisions'
 import { resetSidePanelStore } from '../../side-panels/side-panel-store'
 

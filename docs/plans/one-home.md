@@ -473,3 +473,40 @@ The one carry is between the agent and a new coding chat when the other box is e
 chat's first send leaves no draft behind (`draftSent`). The chat's saved copy keeps the agent's
 own draft whatever chat is on screen (`agentDraft`). The bug seen in the browser, a note for the
 agent sitting in the box under a coding chat, is pinned by `chat-drafts.test.tsx`.
+
+**Phase 5: clean-up.**
+
+- **The four flags are gone** from `side-panel-store.ts` (`codeView`, `codeChat`, `codeForYou`,
+  `codeForYouContent`). The store holds one value, `chatKind`, the current chat's kind, handed to
+  it by `current-chat-store.ts` (`setPanelChatKind`). `rightShown`, `shownView` and the toggles
+  read it. `codeDetailsOpen` and its key stay.
+- **The Code view's own For you is gone** (decision 1). While a coding chat is the current one
+  the panel is its details and the top bar has no For you button. The agent's For you still
+  never lists coding work.
+- **The orange dot** is off the Code tab (`CODE_TAB_DOT` in `one-home-decisions.ts` puts it
+  back). It is on the chat's row, and, while Recent is off screen, on the switch's Recent side
+  and on the panel's button (`page-panel/coding-attention.ts`).
+- **`HIDE_THREAD_CSS` is gone.** The thread's own element (its messages, or its empty state) is
+  `inert` with `visibility: hidden` and `opacity: 0` from the same render that draws the coding
+  chat (`chat/thread-hidden.ts`, `chat-panel.tsx`). `code-chat-stage.test.tsx` holds the 11-16
+  rule: through every move between the three kinds of chat, the thread is out exactly when a
+  coding chat is drawn.
+- `code-view-store.ts` is `code-chat-live.ts` (what the conversation's reader holds; the
+  functions kept their names).
+
+**Where the build differs from the design above**
+
+- The store's state is `chat` plus the coding chat it holds, with `pressCode`, `newCodingChat`,
+  `openCodingChat`, `backToAgent` and `setCurrentChat` as its writers (the design sketched
+  `setCurrentChat` and `draftOf`); the drafts are their own module (`chat-drafts.ts`).
+- The side panel store keeps the current chat's kind as one value it is told, in place of
+  reading the other store: the two would otherwise import each other.
+- A coding row's tooltip says its state, not its folder (the folder is not in Recent's read).
+- A row's state between reads follows the conversation's reader for the current chat and the
+  shared source for a waiting review. A chat that is not current and starts asking is seen at
+  Recent's next read (focus, a card closing, a chat started or messaged here), as the old list.
+- "Copy link" is a small button under the details' cards.
+
+**Not proven in a browser** (the test account has no Mac; coding chats were stubbed in the
+browser for the look of phases 1 and 2): a real coding chat's send and stream after these
+changes, a notification's click on the desktop app, a second workspace, a phone.

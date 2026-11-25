@@ -1,13 +1,13 @@
 /**
- * The Code view's coding chat (Liam, 11-16: the coding chat lives in the
- * dashboard as the agent's does: its list on the left, its conversation in
- * the middle, its details on the right): which chat is selected, and that
- * chat as its conversation holds it live.
+ * The current coding chat, live (docs/plans/one-home.md; it was the Code
+ * view's own store, code-chat-live.ts, before Home had one current chat):
+ * the chat its conversation's reader holds, for the composer and the panel.
  *
- *   selected  the coding chat on screen in the Code view (a local agent's
- *             session id), or null: a new one starts with the next send.
- *             The list selects it (page-panel/code-chats.tsx), a send that
- *             starts one selects it (composer-code.tsx), "New chat" clears it.
+ *   selected  the coding chat Home's current chat names (a local agent's
+ *             session id), or null. Home's current chat is its one writer
+ *             (current-chat-store.ts, the only caller of selectCodeChat):
+ *             which chat is on screen, across a reload and per workspace, is
+ *             decided there.
  *   live      that chat as the conversation in the middle reads it
  *             (code-chat-stage.tsx: the one reader), for the composer (its
  *             send) and the right panel (its status, branch, Stop): no
@@ -17,15 +17,11 @@
  * agents the same whether it's NI, claude code, or codex"): nothing here
  * knows the agent.
  *
- * A plain module, so the composer, the list, the stage and the panel never
- * import each other. Flat cost: one object and its listeners. Which chat is
- * selected is Home's current chat's to say (current-chat-store.ts, the one
- * caller of selectCodeChat): it also keeps it across a reload and per
- * workspace.
+ * A plain module, so the composer, the stage and the panel never import each
+ * other. Flat cost: one object and its listeners.
  */
 import type { LocalAgentPolicy } from '@/lib/tauri-bridge'
 import type { PanelSession } from '@/components/local-agent/session-api'
-import { setCodeChatSelected } from '../side-panels/side-panel-store'
 
 type Sent = { ok: true } | { ok: false; message: string }
 
@@ -76,7 +72,6 @@ export function selectCodeChat(sessionId: string | null): void {
     }
     return
   }
-  setCodeChatSelected(sessionId !== null)
   set({ selected: sessionId, live: null, error: null, attempt: 0 })
 }
 

@@ -72,7 +72,7 @@ import type { ComposerEnvironment, ComposerFolders } from './composer-state'
 import { CodeJobLine } from './code-job-line'
 import { closeFrontCards } from '@/components/chat-cards/front-card'
 import { noteCodeChatsChanged } from '../page-panel/code-chats-store'
-import { getCodeView, openCodeChatKey, subscribeCodeView } from './code-view-store'
+import { getCodeView, openCodeChatKey, subscribeCodeView } from './code-chat-live'
 import { backToAgent, getCurrentChat, isOnCode, openCodingChat, pressCode, subscribeCurrentChat } from './current-chat-store'
 import { draftSent } from './chat-drafts'
 import type { LocalAgentStatus } from '@/lib/local-agent/store'
@@ -108,7 +108,7 @@ export interface ComposerCode {
   sending: boolean
   /**
    * A coding chat is open in the Code view and takes the next send as its
-   * message (chat/code-view-store.ts): who it goes to (the chat's own agent,
+   * message (chat/code-chat-live.ts): who it goes to (the chat's own agent,
    * whoever the picker names for a new chat) and whether it works right now.
    * Null: the next send starts a new chat.
    */
@@ -298,7 +298,7 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
   const active = tab === 'code' || openWithoutToggle
   // What a NEW chat needs (a Mac, a folder). A coding chat open in the Code view takes a message without it.
   // Read as one string of what shows here (the chat's id, status, agent): the chat panel
-  // never re-renders on a working chat's other updates (code-view-store.ts openCodeChatKey).
+  // never re-renders on a working chat's other updates (code-chat-live.ts openCodeChatKey).
   const openKey = useSyncExternalStore(subscribeCodeView, openCodeChatKey, () => null)
   const [openId, openStatus, openWorker] = openKey ? openKey.split('\n') : [null, null, null]
   const messagesOpenChat = active && !!openId && canMessageSession(openStatus as LocalAgentStatus)

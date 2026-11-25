@@ -31,12 +31,14 @@ vi.mock('../../side-panels/side-panels', async () => {
   return { useSidePanelState: () => React.useSyncExternalStore(store.subscribeSidePanels, store.getSidePanelState, store.getSidePanelState) }
 })
 
-import { CodeChatStage, HIDE_THREAD_CSS } from '../code-chat-stage'
-import { __resetCodeViewForTests, selectCodeChat, setCodeChatLive, type CodeChatLive } from '../code-view-store'
+import { CodeChatStage } from '../code-chat-stage'
+import { __resetCodeViewForTests, selectCodeChat, setCodeChatLive, type CodeChatLive } from '../code-chat-live'
 import { FIRST_TIME_KEY, FIRST_TIME_LINE } from '../one-home-decisions'
-import { __resetCurrentChatForTests, currentChatKind, newCodingChat, openCodingChat } from '../current-chat-store'
+import { __resetCurrentChatForTests, backToAgent, currentChatKind, isOnCode, newCodingChat, openCodingChat, subscribeCurrentChat } from '../current-chat-store'
 import { RECENTS_FILTER_KEY } from '../../page-panel/use-recents-filter'
-import { setCodeDetailsOpen, setCodeView, setPagePanelShown, setRightPanelOpen } from '../../side-panels/side-panel-store'
+import { setCodeDetailsOpen, setPagePanelShown, setRightPanelOpen } from '../../side-panels/side-panel-store'
+import { hiddenThreadProps } from '../thread-hidden'
+import { useSyncExternalStore } from 'react'
 
 let container: HTMLDivElement
 let root: Root
@@ -51,7 +53,6 @@ afterEach(() => {
   act(() => root.unmount())
   container.remove()
   act(() => {
-    setCodeView(false)
     setPagePanelShown(false)
     setRightPanelOpen(false)
     __resetCodeViewForTests()
@@ -78,41 +79,82 @@ function readChat(trackedJobId: string | null) {
 
 describe('CodeChatStage', () => {
   it('is nothing on the agent’s tab, even with a chat selected', () => {
-    act(() => selectCodeChat('sess-1'))
+    act(() => {
+      openCodingChat('sess-1')
+      backToAgent()
+    })
     act(() => root.render(h(CodeChatStage)))
     expect(container.innerHTML).toBe('')
   })
 
-  it('on Code, hides the agent’s thread with its own rule, with no chat selected too', () => {
-    act(() => root.render(h(CodeChatStage)))
-    act(() => setCodeView(true))
-    expect(container.querySelector('style[data-code-view-style]')?.textContent).toBe(HIDE_THREAD_CSS)
+  /**
+   * The thread and the coding chat as chat-panel.tsx draws them: the thread's
+   * own element wearing hiddenThreadProps from the same read of Home's
+   * current chat that the stage draws by.
+   */
+  function ThreadAndStage() {
+    const codingChatUp = useSyncExternalStore(subscribeCurrentChat, isOnCode, () => false)
+    return h('div', { 'data-chat-thread-stage': '' }, h(CodeChatStage), h('div', { 'data-thread': '', ...hiddenThreadProps(codingChatUp) }, 'the agent’s thread'))
+  }
+  const thread = () => container.querySelector<HTMLElement>('[data-thread]')!
+  const threadOut = () => thread().hasAttribute('inert') && thread().style.visibility === 'hidden' && thread().style.opacity === '0' && thread().getAttribute('aria-hidden') === 'true'
+
+  // Liam, 11-16: "the main chat and the agents chats are showing at the same time" must never happen.
+  it('the agent’s thread is out of sight and reach whenever a coding chat stands in its place, in the same render, and back with the agent', () => {
+    act(() => root.render(h(ThreadAndStage)))
+    expect(threadOut()).toBe(false)
+    expect(thread().getAttribute('style')).toBeNull()
+    // A coding chat: its conversation is in the document, and in that same commit the thread is inert and hidden.
+    act(() => openCodingChat('sess-1'))
+    expect(container.querySelector('[data-code-chat-stage="sess-1"]')).not.toBeNull()
+    expect(threadOut()).toBe(true)
+    // Still mounted, where it was, for the way back.
+    expect(thread().textContent).toBe('the agent’s thread')
+    // A new coding chat (a clear middle): hidden too.
+    act(() => newCodingChat())
+    expect(threadOut()).toBe(true)
+    act(() => backToAgent())
     expect(container.querySelector('[data-code-chat-stage]')).toBeNull()
-    // The rule spares this conversation and the stage full-screen pages draw on.
-    expect(HIDE_THREAD_CSS).toContain(':not([data-code-chat-stage])')
-    expect(HIDE_THREAD_CSS).toContain(':not([data-chat-card-stage])')
-    // Back on the agent's tab: the rule goes with the view.
-    act(() => setCodeView(false))
+    expect(threadOut()).toBe(false)
+  })
+
+  it('never both at once, through every move between the three kinds of chat', () => {
+    act(() => root.render(h(ThreadAndStage)))
+    const moves = [() => openCodingChat('sess-1'), () => openCodingChat('sess-2'), () => newCodingChat(), () => backToAgent(), () => newCodingChat(), () => openCodingChat('sess-1'), () => backToAgent()]
+    for (const move of moves) {
+      act(move)
+      const codingChatDrawn = container.querySelector('[data-code-chat-stage]') !== null || currentChatKind() !== 'agent'
+      expect(threadOut()).toBe(codingChatDrawn)
+    }
+  })
+
+  it('by the thread’s own props, never a rule: no <style> is injected, and nothing is exported to hide it by', async () => {
+    act(() => root.render(h(ThreadAndStage)))
+    act(() => openCodingChat('sess-1'))
     expect(container.querySelector('style')).toBeNull()
+    expect(hiddenThreadProps(false)).toEqual({})
+    expect(hiddenThreadProps(true)).toMatchObject({ inert: true, 'aria-hidden': true, style: { visibility: 'hidden', opacity: 0, pointerEvents: 'none' } })
+    const fs = await import('node:fs')
+    const path = await import('node:path')
+    const read = (rel: string) => fs.readFileSync(path.resolve(__dirname, rel), 'utf8')
+    expect(read('../code-chat-stage.tsx')).not.toContain('<style')
+    expect(read('../code-chat-stage.tsx')).not.toContain('HIDE_THREAD_CSS')
+    // chat-panel.tsx puts them on both things the thread can be: its messages, and its empty state.
+    expect(read('../chat-panel.tsx').match(/\{\.\.\.threadHidden\}/g)).toHaveLength(2)
   })
 
   it('draws the selected chat’s conversation, without a box of its own', () => {
     act(() => root.render(h(CodeChatStage)))
-    act(() => {
-      setCodeView(true)
-      selectCodeChat('sess-1')
-    })
+    act(() => openCodingChat('sess-1'))
     const stage = container.querySelector('[data-code-chat-stage="sess-1"]')!
     expect(stage.querySelector('[data-fake-panel="sess-1"]')?.getAttribute('data-composer')).toBe('false')
-    expect(container.querySelector('style[data-code-view-style]')).not.toBeNull()
   })
 
   it('keeps the conversation’s own header only while the right panel isn’t showing the same things', () => {
     act(() => root.render(h(CodeChatStage)))
     act(() => {
       setPagePanelShown(true)
-      setCodeView(true)
-      selectCodeChat('sess-1')
+      openCodingChat('sess-1')
     })
     // The details are open by default: they name the agent, folder and status, so the header stays out.
     expect(container.querySelector('[data-fake-panel]')?.getAttribute('data-header')).toBe('false')
@@ -125,7 +167,7 @@ describe('CodeChatStage', () => {
     chats.items = [{ key: 'sess-1' }]
     chats.readAt = new Date()
     act(() => root.render(h(CodeChatStage)))
-    act(() => setCodeView(true))
+    act(() => newCodingChat())
     // No panel beside the navigation (a narrow window): the list is here.
     expect(container.querySelector('[data-code-chat-stage="list"] [data-fake-rows="1"]')).not.toBeNull()
     act(() => openCodingChat('sess-1'))
@@ -147,8 +189,7 @@ describe('CodeChatStage', () => {
     act(() => root.render(h(CodeChatStage)))
     act(() => {
       setPagePanelShown(true)
-      setCodeView(true)
-      selectCodeChat('sess-1')
+      openCodingChat('sess-1')
     })
     const hideFinish = () => container.querySelector('[data-fake-panel]')?.getAttribute('data-hide-finish')
     // Not read yet, then read with no record: nothing beside it says the summary.
@@ -170,8 +211,7 @@ describe('CodeChatStage', () => {
     act(() => root.render(h(CodeChatStage)))
     act(() => {
       setPagePanelShown(true)
-      setCodeView(true)
-      selectCodeChat('sess-1')
+      openCodingChat('sess-1')
     })
     readChat('job-1')
     expect(container.querySelector('[data-fake-panel]')?.getAttribute('data-hide-finish')).toBe('false')
@@ -183,7 +223,7 @@ describe('CodeChatStage', () => {
       act(() => root.render(h(CodeChatStage)))
       act(() => {
         setPagePanelShown(true)
-        setCodeView(true)
+        newCodingChat()
       })
       expect(container.querySelector('[data-code-first-time]')?.textContent).toContain(FIRST_TIME_LINE)
       // With a chat open: its conversation, no line.
@@ -201,7 +241,7 @@ describe('CodeChatStage', () => {
       act(() => root.render(h(CodeChatStage)))
       act(() => {
         setPagePanelShown(true)
-        setCodeView(true)
+        newCodingChat()
       })
       act(() => container.querySelector<HTMLButtonElement>('[data-code-first-time-show]')!.click())
       expect(JSON.parse(window.localStorage.getItem(RECENTS_FILTER_KEY)!)).toEqual({ status: 'all', types: ['agents'] })

@@ -37,7 +37,7 @@
  *                view and see it's chat and go to the action item from it's
  *                properties panel").
  *
- * Read from the conversation's own reader (chat/code-view-store.ts `live`):
+ * Read from the conversation's own reader (chat/code-chat-live.ts `live`):
  * no read of its own, no timer. Until that first read, blank cards.
  */
 import { EntityIcon } from '@/components/entities/entity-icon'

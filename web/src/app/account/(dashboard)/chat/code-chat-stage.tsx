@@ -12,15 +12,15 @@
  * (composer-code.tsx). The same for every coding agent, ours or the
  * person's own (Liam, 11-16). It is the session's one reader: what it holds
  * goes to the Code view's store for the composer and the right panel
- * (code-view-store.ts).
+ * (code-chat-live.ts).
  *
- * Nothing while the composer is on the agent's tab. On Code it stops the
- * agent's thread painting (Liam, 11-16: "everything clears up"; mounted and
- * where it was for the way back), with a chat selected or not: with none
- * the Code view is clear, and the next send starts a chat. The rule is its
- * own <style>, here, not the app's stylesheet: it comes and goes with the
- * view in the same commit, and is never a stale copy of a big file (Liam,
- * 11-16: "the main chat and the agents chats are showing at the same time").
+ * Nothing while the agent's chat is the current one. While a coding chat (or
+ * a new one) is, the agent's thread is out of sight (Liam, 11-16:
+ * "everything clears up"), mounted and where it was for the way back: by the
+ * thread's own props, set by the same render that draws this (chat-panel.tsx,
+ * thread-hidden.ts), never by a rule in a stylesheet or an injected style element,
+ * which can be a commit apart from what it hides (Liam, 11-16: "the main chat
+ * and the agents chats are showing at the same time").
  * Mounted in the thread's stage (chat-panel.tsx).
  *
  * Its turn's summary (the `finish` card) is not drawn while the right panel
@@ -37,7 +37,7 @@ import { getClientWorkspaceId } from '@/lib/workspace-fetch'
 import { LocalAgentPanel } from '@/components/local-agent/local-agent-panel'
 import { SESSION_GONE_MESSAGE } from '@/components/local-agent/session-api'
 import { useSidePanelState } from '../side-panels/side-panels'
-import { setCodeChatError, setCodeChatLive, type CodeChatLive } from './code-view-store'
+import { setCodeChatError, setCodeChatLive, type CodeChatLive } from './code-chat-live'
 import { rightShown } from '../side-panels/side-panel-store'
 import { CodeChatsRows, useCodeChats } from '../page-panel/code-chats'
 import { useCodeView } from './use-code-view'
@@ -51,7 +51,7 @@ import { useOptionalAgentWorkShared } from '@/components/work/agent-work-provide
 
 export function CodeChatStage() {
   const state = useSidePanelState()
-  const { codeView } = state
+  const onCode = state.chatKind !== 'agent'
   const { selected, attempt, live } = useCodeView()
   // As code-chat-sections.tsx decides it: the Review card is drawn only in the shell, once the job has its record.
   const inShell = useOptionalAgentWorkShared() !== null
@@ -77,7 +77,7 @@ export function CodeChatStage() {
     },
     [selected],
   )
-  if (!codeView) return null
+  if (!onCode) return null
   // Recent isn't on screen beside the navigation (a narrow window, a phone,
   // the panel closed): a new chat's middle lists the coding chats, so one can
   // always be picked, and a chat on screen has its way back to the agent
@@ -89,7 +89,6 @@ export function CodeChatStage() {
   const summaryBeside = detailsShown && inShell && !!live?.session.trackedJobId
   return (
     <>
-      <style data-code-view-style="">{HIDE_THREAD_CSS}</style>
       {selected ? (
         <Stage key={attempt} selected={selected} onLive={onLive} onError={onError} header={!detailsShown} back={listHere} hideFinish={summaryBeside} />
       ) : (
@@ -98,14 +97,6 @@ export function CodeChatStage() {
     </>
   )
 }
-
-/**
- * Everything of the thread's stage but this conversation and the stage full
- * screen pages draw on: out of sight and out of the pointer's way. Opacity
- * too: a child with a visibility of its own (the scroll button) would show.
- */
-export const HIDE_THREAD_CSS =
-  '#ni-chat-strip-slot [data-chat-thread-stage] > :not([data-code-chat-stage]):not([data-chat-card-stage]):not(style){visibility:hidden!important;opacity:0!important;pointer-events:none!important}'
 
 const STAGE = 'absolute inset-x-0 bottom-[var(--chat-bottom-inset,0px)] top-[var(--chat-top-inset,0px)] z-20 flex min-h-0 justify-center'
 

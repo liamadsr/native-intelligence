@@ -44,7 +44,7 @@ import {
   openCodingChat,
   syncCurrentChatWorkspace,
 } from '../current-chat-store'
-import { __resetCodeViewForTests } from '../code-view-store'
+import { __resetCodeViewForTests } from '../code-chat-live'
 import { AGENT_STARTED_CHAT_TAKES_THE_MIDDLE, HOME_PRESS_GOES_TO_AGENT } from '../one-home-decisions'
 import { CODING_CHAT_DEEP_LINK, CODING_CHAT_LINK_WORKSPACE, codingChatLink, deepLinkCodingChat } from '../coding-chat-link'
 import { DEEP_LINK_WORKSPACE, deepLinkCard } from '../../main-chat/main-chat-context'

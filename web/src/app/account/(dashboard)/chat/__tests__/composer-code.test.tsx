@@ -26,7 +26,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createRoot, type Root } from 'react-dom/client'
 import { act, createElement as h, useEffect, useState } from 'react'
 import type { UIMessage } from '@ai-sdk/react'
-import { __resetCodeViewForTests, getCodeView, selectCodeChat, setCodeChatLive } from '../code-view-store'
+import { __resetCodeViewForTests, getCodeView, selectCodeChat, setCodeChatLive } from '../code-chat-live'
 import { CodeHeldRow } from '../composer-code-controls'
 import { __resetCurrentChatForTests, backToAgent, currentChatKind, getCurrentChat, openCodingChat } from '../current-chat-store'
 import { getSidePanelState } from '../../side-panels/side-panel-store'
@@ -235,7 +235,7 @@ describe('the toggle is Home’s current chat', () => {
     await flush()
     expect(q('[data-composer-tab="code"]')!.getAttribute('data-state')).toBe('on')
     expect(currentChatKind()).toBe('code')
-    expect(getSidePanelState().codeView).toBe(true)
+    expect(getSidePanelState().chatKind).toBe('code')
   })
 
   it('Code starts a new coding chat in place, and the agent’s side goes back', async () => {
@@ -246,7 +246,7 @@ describe('the toggle is Home’s current chat', () => {
     press(q('[data-composer-tab="chat"]')!)
     await flush()
     expect(currentChatKind()).toBe('agent')
-    expect(getSidePanelState().codeView).toBe(false)
+    expect(getSidePanelState().chatKind).toBe('agent')
   })
 
   it('Code pressed with a coding chat open starts a new one, never that chat again (the toggle starts, Recent resumes)', async () => {

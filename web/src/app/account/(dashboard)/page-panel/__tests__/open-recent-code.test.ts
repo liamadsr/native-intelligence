@@ -14,7 +14,7 @@ vi.mock('@/components/files/global-file-viewer', () => ({ openAttachmentById: vi
 
 import { openRecent } from '../home-recents'
 import { __resetCurrentChatForTests, getCurrentChat } from '../../chat/current-chat-store'
-import { __resetCodeViewForTests } from '../../chat/code-view-store'
+import { __resetCodeViewForTests } from '../../chat/code-chat-live'
 import { getSidePanelState, resetSidePanelStore } from '../../side-panels/side-panel-store'
 
 beforeEach(() => {
@@ -33,8 +33,7 @@ describe('a coding chat’s row in Recent', () => {
   it('makes it the current chat, through the one way in', () => {
     expect(openRecent({ type: 'code_job', id: 'sess-7', title: 'Fix the export' })).toBe(true)
     expect(getCurrentChat()).toEqual({ kind: 'code', sessionId: 'sess-7' })
-    // The panels' mirror agrees: the view and the chat, set together.
-    expect(getSidePanelState().codeView).toBe(true)
-    expect(getSidePanelState().codeChat).toBe(true)
+    // The panels are told the same chat, in the same move.
+    expect(getSidePanelState().chatKind).toBe('code')
   })
 })

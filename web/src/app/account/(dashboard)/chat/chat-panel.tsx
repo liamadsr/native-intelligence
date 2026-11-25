@@ -43,6 +43,8 @@ import { useComposerCode } from './composer-code'
 import { useOptionalOpenWorkItem } from '@/hooks/use-open-teammate'
 import { CodeChatStage } from './code-chat-stage'
 import { useChatDrafts } from './use-chat-drafts'
+import { hiddenThreadProps } from './thread-hidden'
+import { isOnCode, subscribeCurrentChat } from './current-chat-store'
 import { applyChatRetention, MAX_LIVE_MESSAGES, needsChatRetention } from '@/lib/chat/message-retention'
 import { caughtUpThread } from '@/lib/chat/thread-catch-up'
 import { ChevronDown } from 'lucide-react'
@@ -1715,6 +1717,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
     openWorkItem: openCodeJob,
     clearWords: clearCodeWords,
   })
+  // A coding chat (or a new one) is Home's current chat: this thread steps out of sight where it stands, mounted for the way back.
+  // Read here, beside the stage that draws the coding chat, so both change in one render (thread-hidden.ts).
+  const codingChatUp = useSyncExternalStore(subscribeCurrentChat, isOnCode, () => false)
+  const threadHidden = hiddenThreadProps(isHomeThread === true && codingChatUp)
   // A half-typed message stays with the chat it was typed in (use-chat-drafts.ts; docs/plans/one-home.md): the home thread's box only.
   const { agentDraftOf } = useChatDrafts({ enabled: isHomeThread === true, input, setInput })
   agentDraftOfRef.current = agentDraftOf
@@ -3677,6 +3683,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
           />
           {showMessages ? (
           <ChatContainerRoot
+            // Out of sight and reach while a coding chat stands here, by its own props, in the same render (thread-hidden.ts).
+            {...threadHidden}
             instance={stickToBottom}
             resize="smooth"
             onScroll={handleManagedChatScroll}
@@ -3854,7 +3862,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
                (composerSuggestions), not here. The main chat greets the
                person, with what it's like outside, centred above the
                composer (components/sky/conditions-line.tsx). */
-            <div className="flex min-h-0 flex-1 flex-col items-center justify-center pb-[var(--chat-bottom-inset,0px)] pt-[var(--chat-top-inset,0px)]">
+            <div {...threadHidden} className="flex min-h-0 flex-1 flex-col items-center justify-center pb-[var(--chat-bottom-inset,0px)] pt-[var(--chat-top-inset,0px)]">
               {alwaysShowMessages && !botPageUp && <ConditionsLine />}
             </div>
           )}

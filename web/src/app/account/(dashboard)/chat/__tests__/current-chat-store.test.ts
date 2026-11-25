@@ -11,7 +11,7 @@
  *     workspace; a new window opens on the agent; a chat that is gone is
  *     forgotten;
  *   - the agent's unseen reply, while the person is on another chat;
- *   - the panels' mirror (side-panel-store.ts codeView / codeChat) never
+ *   - the kind it hands the panels (side-panel-store.ts chatKind) never
  *     disagrees with it, and what the right panel comes to for each kind.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -39,7 +39,7 @@ import {
   syncCurrentChatWorkspace,
 } from '../current-chat-store'
 import { CODE_PRESS_STARTS_NEW, RELOAD_RESTORES } from '../one-home-decisions'
-import { __resetCodeViewForTests, getCodeView } from '../code-view-store'
+import { __resetCodeViewForTests, getCodeView } from '../code-chat-live'
 import { holdFrontCard } from '@/components/chat-cards/front-card'
 import {
   getSidePanelState,
@@ -197,7 +197,7 @@ describe('this window’s memory (decision 5)', () => {
     expect(currentChatKind()).toBe('agent')
     syncCurrentChatWorkspace()
     expect(getCurrentChat()).toEqual({ kind: 'code', sessionId: 's1' })
-    expect(getSidePanelState().codeView).toBe(true)
+    expect(getSidePanelState().chatKind).toBe('code')
   })
 
   it('a new coding chat comes back as one; the agent is remembered as nothing at all', () => {
@@ -299,21 +299,21 @@ describe('the agent, while the person is on another chat', () => {
   })
 })
 
-describe('the panels’ mirror never disagrees', () => {
-  const mirror = () => ({ codeView: getSidePanelState().codeView, codeChat: getSidePanelState().codeChat })
+describe('the kind it hands the panels never disagrees', () => {
+  const told = () => getSidePanelState().chatKind
 
   it('follows every move', () => {
-    expect(mirror()).toEqual({ codeView: false, codeChat: false })
+    expect(told()).toBe('agent')
     pressCode()
-    expect(mirror()).toEqual({ codeView: true, codeChat: false })
+    expect(told()).toBe('code-new')
     openCodingChat('s1')
-    expect(mirror()).toEqual({ codeView: true, codeChat: true })
+    expect(told()).toBe('code')
     newCodingChat()
-    expect(mirror()).toEqual({ codeView: true, codeChat: false })
+    expect(told()).toBe('code-new')
     openCodingChat('s1')
     backToAgent()
-    expect(mirror().codeView).toBe(false)
-    expect(currentChatKind()).toBe('agent')
+    expect(told()).toBe('agent')
+    expect(told()).toBe(currentChatKind())
   })
 })
 
