@@ -27,6 +27,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type { UIMessage } from '@ai-sdk/react'
+import { toast } from 'sonner'
 import {
   ENVIRONMENTS_FRESH_MS,
   addEnvironmentFolder,
@@ -70,9 +71,10 @@ import { fetchConversationSessions, fetchSessionPage, postCodeStart, postSession
 import type { ComposerEnvironment, ComposerFolders } from './composer-state'
 import { CodeJobLine } from './code-job-line'
 import { closeFrontCards } from '@/components/chat-cards/front-card'
-import { setCodeView } from '../side-panels/side-panel-store'
 import { noteCodeChatsChanged } from '../page-panel/code-chats-store'
-import { getCodeView, openCodeChatKey, selectCodeChat, subscribeCodeView } from './code-view-store'
+import { getCodeView, openCodeChatKey, subscribeCodeView } from './code-chat-live'
+import { backToAgent, getCurrentChat, isOnCode, openCodingChat, pressCode, subscribeCurrentChat } from './current-chat-store'
+import { draftSent } from './chat-drafts'
 import type { LocalAgentStatus } from '@/lib/local-agent/store'
 import { canMessageSession } from '@/lib/local-agent/transcript-view'
 import { workerLabel } from '@/lib/environments/types'
@@ -106,7 +108,7 @@ export interface ComposerCode {
   sending: boolean
   /**
    * A coding chat is open in the Code view and takes the next send as its
-   * message (chat/code-view-store.ts): who it goes to (the chat's own agent,
+   * message (chat/code-chat-live.ts): who it goes to (the chat's own agent,
    * whoever the picker names for a new chat) and whether it works right now.
    * Null: the next send starts a new chat.
    */
@@ -282,14 +284,21 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
   const agents = useMemo(() => codeAgentSections(mac, thisMac), [mac, thisMac])
   const folderOptions = useMemo(() => codeFolderOptions(mac), [mac])
   const defaults = useMemo(() => ({ agent: defaultCodeAgent(mac, agents), folderId: resolveCodeFolder(folderOptions, null) }), [mac, agents, folderOptions])
-  const current = choice ?? openingCodeChoice(stored, jobs, defaults)
+  // The toggle is Home's current chat (current-chat-store.ts): the agent's, or the coding side. Never a conversation's own mode:
+  // the conversation keeps the agent and the folder its coding chats start with, and its `tab` only says where the box was.
+  const onCode = useSyncExternalStore(subscribeCurrentChat, isOnCode, () => false)
+  const tab: ComposerTab = available && onCode ? 'code' : 'chat'
+  // With no Mac there is no toggle (nothing to start a chat with), yet a coding chat that exists still opens
+  // (a notification, a link): the box is that chat's while it is on screen, never the agent's under it.
+  const openWithoutToggle = enabled && !available && onCode
+  const chosen = choice ?? openingCodeChoice(stored, jobs, defaults)
+  const current = chosen.tab === tab ? chosen : { ...chosen, tab }
   const agent = isPickableAgent(agents, current.agent) ? current.agent : defaults.agent
   const folderId = resolveCodeFolder(folderOptions, current.folderId)
-  const tab: ComposerTab = available ? current.tab : 'chat'
-  const active = tab === 'code'
+  const active = tab === 'code' || openWithoutToggle
   // What a NEW chat needs (a Mac, a folder). A coding chat open in the Code view takes a message without it.
   // Read as one string of what shows here (the chat's id, status, agent): the chat panel
-  // never re-renders on a working chat's other updates (code-view-store.ts openCodeChatKey).
+  // never re-renders on a working chat's other updates (code-chat-live.ts openCodeChatKey).
   const openKey = useSyncExternalStore(subscribeCodeView, openCodeChatKey, () => null)
   const [openId, openStatus, openWorker] = openKey ? openKey.split('\n') : [null, null, null]
   const messagesOpenChat = active && !!openId && canMessageSession(openStatus as LocalAgentStatus)
@@ -365,27 +374,19 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
     },
     [setNotice],
   )
-  const updateRef = useRef(update)
-  updateRef.current = update
   const availableRef = useRef(available)
   availableRef.current = available
-  const setTab = useCallback(
-    (t: ComposerTab) => {
-      // Back on the agent's tab: its chat in front again, whatever page was open over it (Liam, 11-16).
-      if (t === 'chat' && currentRef.current.tab === 'code') closeFrontCards()
-      update({ tab: t })
-    },
-    [update],
-  )
-  // The Code view (Liam, 11-16): the agent's side panel and thread step aside
-  // while the composer is on Code, and home's panel lists the coding chats
-  // (side-panel-store.ts codeView). Back as they were on the agent's tab, and
-  // when this composer goes.
-  useEffect(() => {
-    if (!enabled) return
-    setCodeView(active)
-    return () => setCodeView(false)
-  }, [enabled, active])
+  const setTab = useCallback((t: ComposerTab) => {
+    setNotice(null)
+    if (t === 'code') {
+      // A new coding chat, in place (Liam, 11-25: "it just changes your main agent to the coding agent, and you see it as a new chat").
+      pressCode({ from: 'composer' })
+      return
+    }
+    // Back on the agent: its chat in front again, whatever page was open over it (Liam, 11-16).
+    closeFrontCards()
+    backToAgent({ from: 'composer' })
+  }, [setNotice])
   const pickAgent = useCallback((a: string | null) => update({ agent: a }), [update])
   const pickFolder = useCallback((f: string) => update({ folderId: f }), [update])
   const addFolder = useCallback(() => {
@@ -406,8 +407,8 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
     // where its session isn't known.
     // Only where the Code view is (a Mac environment): without one the job's own page opens, as before.
     if (sessionId && availableRef.current) {
-      selectCodeChat(sessionId)
-      if (currentRef.current.tab !== 'code') updateRef.current({ tab: 'code' })
+      // The current chat's one way in: the tab follows it (above).
+      openCodingChat(sessionId, { from: 'composer' })
       return
     }
     if (workItemId) {
@@ -479,6 +480,12 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
           setSending(false)
         }
       }
+      // No toggle here (no Mac): the chat on screen can't take a message (it ended), and a new one can't start.
+      // Said out loud, since the line under the box is the toggle's: the words stay in the box.
+      if (!availableRef.current) {
+        toast(view.selected ? 'This coding chat has ended. Go back to your agent to keep chatting.' : 'A coding chat needs the Mac app. Go back to your agent to keep chatting.')
+        return false
+      }
       if (now.blocker) {
         setNotice(now.blocker)
         return false
@@ -547,6 +554,8 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
               : { requestId, sessionId: session.id, start: true, worker: now.agent, ...(folder ? { folder } : {}) },
           ),
         )
+        // The new chat's words went with the send: they are no draft of its when it becomes this chat (chat-drafts.ts).
+        draftSent(getCurrentChat())
         // The person lands in the job's own chat.
         openJob(session.trackedJobId ?? null, session.id)
         if (!started.value.deviceOnline) {
@@ -619,5 +628,5 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
     [available, tab, setTab, agents, agent, agentLabel, pickAgent, mac, folderOptions, folderId, pickFolder, folders.canPick, addFolder, blocker, notice, noticeActions, sending, messaging],
   )
 
-  return { available, active: available && active, code, submit, thread, held, sendHeldNow, takeHeld }
+  return { available, active, code, submit, thread, held, sendHeldNow, takeHeld }
 }

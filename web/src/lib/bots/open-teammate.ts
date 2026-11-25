@@ -75,6 +75,7 @@ import type { CardRunRow, LightWorkRow } from '@/lib/work/queries'
 import type { WorkItem } from '@/lib/work/types'
 import { batchKeyOf, batchWorkItemId, isBatchKey } from './batch'
 import type { ItemFacts } from './item-lookup'
+import { localAgentSessionIdOf } from '@/lib/local-agent/transcript-view'
 import type { TeammateChatItem } from './teammate-chat-tab'
 import { asBotCharacter } from './teammate-faces'
 
@@ -124,6 +125,11 @@ export interface OpenTeammateNav {
    * teammate the roster doesn't hold: deleted, or behind a private team).
    */
   openItemPage?: (teammateId: string, item: TeammateChatItem) => boolean
+  /**
+   * A coding chat (a local agent's session) as Home's current chat, in `workspaceId` when it is another one
+   * (chat/current-chat-store.ts openCodingChat); false where there is no Home to show it (then its page or card).
+   */
+  openCodingChat?: (sessionId: string, workspaceId: string | null) => boolean
   /** Who an item the source doesn't hold is (lib/bots/item-lookup.ts lookupWorkItem); null when it can't say. */
   lookup?: (itemId: string) => Promise<ItemFacts | null>
   /** Its bot's page couldn't open and there is nothing else to show: say so (useOpenTeammate: a toast). */
@@ -135,10 +141,22 @@ export interface OpenTeammateNav {
  * workspace, how it was found (a row, or a card's run), and its teammate
  * (`ai_team_member_id`; null for none).
  */
-export type ItemPlace = { kind: 'item'; workItemId: string; workspaceId: string; via: 'row' | 'card'; teammateId: string | null }
+export type ItemPlace = {
+  kind: 'item'
+  workItemId: string
+  workspaceId: string
+  via: 'row' | 'card'
+  teammateId: string | null
+  /** The coding chat it is a turn of (a local agent's session), when the row says: it opens as Home's current chat. */
+  codingSessionId?: string | null
+}
 
-/** One item, opened: on its teammate's bot's page (`on: 'bot-page'`), or its panel on a card of its own (`on: 'card'`). */
-export type ItemOutcome = ItemPlace & { on: 'bot-page' | 'card' }
+/**
+ * One item, opened: as Home's current chat when it is a coding chat's turn (`on: 'chat'`; docs/plans/one-home.md:
+ * every way into a coding chat lands in the same place), else on its teammate's bot's page (`on: 'bot-page'`), or
+ * its panel on a card of its own (`on: 'card'`).
+ */
+export type ItemOutcome = ItemPlace & { on: 'chat' | 'bot-page' | 'card' }
 
 /** An item nothing on screen could place, asked about first (the nav's `lookup`): `settled` is where it then went. */
 export type LookingOutcome = { kind: 'looking'; workItemId: string; settled: Promise<OpenTeammateOutcome> }
@@ -179,7 +197,7 @@ function raisedBy(card: Pick<OwnedCard, 'payload'>): string | null {
  */
 export function resolveItem(itemId: string, source: OpenTeammateSource): ItemPlace | null {
   const row = source.rows.find((r) => r.id === itemId)
-  if (row) return { kind: 'item', workItemId: row.id, workspaceId: row.workspace_id, via: 'row', teammateId: row.ai_team_member_id ?? null }
+  if (row) return { kind: 'item', workItemId: row.id, workspaceId: row.workspace_id, via: 'row', teammateId: row.ai_team_member_id ?? null, ...codingChatOf(row) }
   const held = cardLookupRows(source.rows, source.cardRows)
   const card = isBatchKey(itemId)
     ? source.cards.find((c) => batchKeyOf(c) === itemId)
@@ -190,14 +208,20 @@ export function resolveItem(itemId: string, source: OpenTeammateSource): ItemPla
     const run = held.find((r) => r.id === named)
     const workspaceId = run?.workspace_id ?? card.workspace_id
     if (workspaceId) {
-      return { kind: 'item', workItemId: named, workspaceId, via: 'card', teammateId: run ? (run.ai_team_member_id ?? null) : raisedBy(card) }
+      return { kind: 'item', workItemId: named, workspaceId, via: 'card', teammateId: run ? (run.ai_team_member_id ?? null) : raisedBy(card), ...(run ? codingChatOf(run) : {}) }
     }
   }
   if (card.source_flow_run_id) {
     const run = held.find((r) => r.flow_run_id === card.source_flow_run_id)
-    if (run) return { kind: 'item', workItemId: run.id, workspaceId: run.workspace_id, via: 'card', teammateId: run.ai_team_member_id ?? null }
+    if (run) return { kind: 'item', workItemId: run.id, workspaceId: run.workspace_id, via: 'card', teammateId: run.ai_team_member_id ?? null, ...codingChatOf(run) }
   }
   return null
+}
+
+/** The coding chat a held row is a turn of (`kind: 'local_agent'`, its source naming the session), for its place; nothing for any other row. */
+function codingChatOf(row: unknown): { codingSessionId?: string } {
+  const sessionId = localAgentSessionIdOf(row as { kind?: string | null; source?: Record<string, unknown> | null })
+  return sessionId ? { codingSessionId: sessionId } : {}
 }
 
 /** Where `open` lands for these teammates, read off the source: the one new item, else null (the bot's page). */
@@ -253,6 +277,9 @@ export function itemCardTarget(workItemId: string, title: string): OpenTarget {
  */
 function goToItem(place: ItemPlace, source: OpenTeammateSource, nav: OpenTeammateNav, title?: string | null, fallback?: string | null): ItemOutcome {
   const name = title || titleFor(place, source, fallback)
+  const foreignChat = nav.currentWorkspaceId && place.workspaceId && place.workspaceId !== nav.currentWorkspaceId ? place.workspaceId : null
+  // A coding chat's turn: the chat itself, as Home's current chat, from wherever it was pressed.
+  if (place.codingSessionId && nav.openCodingChat?.(place.codingSessionId, foreignChat)) return { ...place, on: 'chat' }
   if (place.teammateId && nav.openItemPage?.(place.teammateId, { itemId: place.workItemId, title: name })) return { ...place, on: 'bot-page' }
   const foreign = nav.currentWorkspaceId && place.workspaceId && place.workspaceId !== nav.currentWorkspaceId ? place.workspaceId : null
   nav.open(itemCardTarget(place.workItemId, name), foreign)
@@ -311,11 +338,16 @@ function botPageOrSay(teammateIds: readonly string[], source: OpenTeammateSource
  *   title        its name, for its label.
  *   teammateId   its teammate: null for none; absent when the caller doesn't
  *                know (then it's looked up).
+ *   codingSessionId  the coding chat it is a turn of (a local agent's
+ *                session): null for any other work; absent when the caller
+ *                doesn't know (then, where a coding chat can open, it's
+ *                looked up: a coding chat's turn opens the chat itself).
  */
 export interface KnownRow {
   workspaceId?: string | null
   title?: string | null
   teammateId?: string | null
+  codingSessionId?: string | null
 }
 
 /**
@@ -342,12 +374,24 @@ export function openItem(
   const title = known?.title ?? null
   // A card (or a run's cards) is no work item: nothing to ask about, nor a panel to show.
   const isCard = isBatchKey(itemId) || source.cards.some((c) => c.id === itemId)
-  if (known?.workspaceId && known.teammateId !== undefined) {
-    return goToItem({ kind: 'item', workItemId: itemId, workspaceId: known.workspaceId, via: 'row', teammateId: known.teammateId }, source, nav, title)
+  // What the caller knows places it, unless it can't say whether this is a coding chat's turn and one could open here: then it's asked.
+  const knowsChat = known?.codingSessionId !== undefined || !nav.openCodingChat || !nav.lookup
+  if (known?.workspaceId && known.teammateId !== undefined && (knowsChat || isCard)) {
+    return goToItem(
+      { kind: 'item', workItemId: itemId, workspaceId: known.workspaceId, via: 'row', teammateId: known.teammateId, ...(known.codingSessionId ? { codingSessionId: known.codingSessionId } : {}) },
+      source,
+      nav,
+      title,
+    )
   }
   const unplaced = (): OpenTeammateOutcome => {
     if (known?.workspaceId) {
-      return goToItem({ kind: 'item', workItemId: itemId, workspaceId: known.workspaceId, via: 'row', teammateId: known.teammateId ?? null }, source, nav, title)
+      return goToItem(
+        { kind: 'item', workItemId: itemId, workspaceId: known.workspaceId, via: 'row', teammateId: known.teammateId ?? null, ...(known.codingSessionId ? { codingSessionId: known.codingSessionId } : {}) },
+        source,
+        nav,
+        title,
+      )
     }
     if (teammateIds.length > 0) {
       const page = isCard ? botPageOrSay(teammateIds, source, nav) : goToBotPage(teammateIds, source, nav)
@@ -362,7 +406,7 @@ export function openItem(
     (facts): OpenTeammateOutcome =>
       facts
         ? goToItem(
-            { kind: 'item', workItemId: facts.workItemId, workspaceId: facts.workspaceId, via: 'row', teammateId: teammateOf(facts) },
+            { kind: 'item', workItemId: facts.workItemId, workspaceId: facts.workspaceId, via: 'row', teammateId: teammateOf(facts), ...(facts.codingSessionId ? { codingSessionId: facts.codingSessionId } : {}) },
             source,
             nav,
             title || facts.title,

@@ -99,6 +99,8 @@ import { openCreateDialog } from '@/lib/create/open-create'
 import { useModKeyLabel } from '@/lib/hotkeys'
 import { goToFor, goToKeys, keysChips } from '@/lib/shortcuts'
 import { frontCard, minimizeFrontCards, subscribeFrontCard } from '@/components/chat-cards/front-card'
+import { backToAgent } from '../chat/current-chat-store'
+import { HOME_PRESS_GOES_TO_AGENT } from '../chat/one-home-decisions'
 import { CardHistory, CardHistoryButtons } from '@/components/chat-cards/card-history'
 import { COLUMN_CARD_SKIN } from '@/components/attention/card-skin'
 import { isDefaultRailPrefs, type RailPrefs } from '@/lib/rail-prefs'
@@ -417,6 +419,20 @@ function CustomizeBar({
   )
 }
 
+/**
+ * The rail's Home: a page in front goes back into its tile, as its X and Esc
+ * do (minimizeFrontCards). Pressed on Home with nothing in front, it goes to
+ * the agent's chat (docs/plans/one-home.md, decision 6: Home's own button is
+ * a way home from a coding chat; one-home-decisions.ts).
+ */
+export function pressHome(): void {
+  if (frontCard()) {
+    minimizeFrontCards()
+    return
+  }
+  if (HOME_PRESS_GOES_TO_AGENT) backToAgent({ from: 'rail' })
+}
+
 export function AppRail() {
   // Hydration-safe (false on the server and the first client render), as the
   // top bar's controls are: the icons mount after hydration, the band itself
@@ -623,7 +639,7 @@ export function AppRail() {
                   {/* A hairline between Create and Home (Liam, 11-21). */}
                   <div aria-hidden data-app-rail-create-line="" className={HAIRLINE} />
                   {/* Home (Liam, 11-11), fixed at the top: the chat, every card in front put away. Not one of the person's pages. */}
-                  <RailButton label="Home" hint={<GoToHint home />} active={active === 'home'} onClick={minimizeFrontCards} data={{ 'data-app-rail-item': 'home' }} className="relative">
+                  <RailButton label="Home" hint={<GoToHint home />} active={active === 'home'} onClick={pressHome} data={{ 'data-app-rail-item': 'home' }} className="relative">
                     <House className="size-[18px]" strokeWidth={1.75} />
                     <HomeInboxDot />
                   </RailButton>

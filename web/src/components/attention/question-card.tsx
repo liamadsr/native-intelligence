@@ -37,6 +37,7 @@ import { WORK_STATUS_TEXT, kindLabel, relativeTime, waitingSince } from '@/lib/w
 import { questionIsStale, requestStopWaiting } from '@/lib/work/stop-waiting'
 import type { WorkItem } from '@/lib/work/types'
 import { cn } from '@/lib/utils'
+import { localAgentSessionIdOf } from '@/lib/local-agent/transcript-view'
 import { CardControlBar } from './card-control-bar'
 import { COLUMN_CARD_SKIN, useCardImpression } from './attention-card'
 
@@ -85,7 +86,7 @@ export function QuestionCard({
 
   // Where any item opens, as the bubble's Answer: its bot's page, beside its run's chat.
   const openItem = () => {
-    openWorkItem(row.id, [teammateId], { workspaceId: row.workspace_id, title: read?.item.title ?? null, teammateId })
+    openWorkItem(row.id, [teammateId], { workspaceId: row.workspace_id, title: read?.item.title ?? null, teammateId, codingSessionId: localAgentSessionIdOf(row) })
   }
   const stopWaiting = async () => {
     setStopping(true)

@@ -34,6 +34,10 @@ function fakeClient(answers: Record<string, { data: unknown[] | null; error: { m
           call.limit = n
           return Promise.resolve(answers[table] ?? { data: [], error: null })
         },
+        in(col: string, values: unknown[]) {
+          call.eq.push([col, values])
+          return Promise.resolve(answers[table] ?? { data: [], error: null })
+        },
       }
       return chain
     },
@@ -61,24 +65,52 @@ describe('Recent’s direct reads', () => {
     })
   })
 
-  it('coding jobs: the viewer’s own, titled by what they asked, at when they last moved', async () => {
+  it('coding chats: the viewer’s own, titled by what they asked, at when they last moved, each with its state', async () => {
     const { client, calls } = fakeClient({
       local_agent_session: {
         data: [
-          { id: 'j1', request: '\n Fix the   export\nand more', created_at: '2026-11-20T09:00:00Z', updated_at: '2026-11-20T11:00:00Z' },
-          { id: 'j2', request: '', created_at: '2026-11-19T09:00:00Z', updated_at: null },
+          { id: 'j1', request: '\n Fix the   export\nand more', created_at: '2026-11-20T09:00:00Z', updated_at: '2026-11-20T11:00:00Z', status: 'waiting', last_signal: 'ask', tracked_job_id: 'tj-old', current_tracked_job_id: 'tj-1', mac_queued_at: null, action_id: null },
+          { id: 'j2', request: '', created_at: '2026-11-19T09:00:00Z', updated_at: null, status: 'starting', last_signal: null, tracked_job_id: null, current_tracked_job_id: null, mac_queued_at: '2026-11-19T09:00:05Z', action_id: null },
         ],
         error: null,
       },
     })
     expect(await codeJobs(client, VIEWER)).toEqual([
-      { type: 'code_job', id: 'j1', label: 'Fix the export', context: 'Code', at: '2026-11-20T11:00:00Z' },
-      { type: 'code_job', id: 'j2', label: 'Untitled', context: 'Code', at: '2026-11-19T09:00:00Z' },
+      { type: 'code_job', id: 'j1', label: 'Fix the export', context: 'Code', at: '2026-11-20T11:00:00Z', code: { status: 'waiting', lastSignal: 'ask', workItemId: 'tj-1', actionIdentifier: null, queuedOnMac: false } },
+      { type: 'code_job', id: 'j2', label: 'Untitled', context: 'Code', at: '2026-11-19T09:00:00Z', code: { status: 'starting', lastSignal: null, workItemId: null, actionIdentifier: null, queuedOnMac: true } },
     ])
     expect(calls[0].eq).toEqual([
       ['workspace_id', 'ws-1'],
       ['user_id', 'user-ana'],
     ])
+    // By when they last moved: an old chat that just asked something is among the ones read.
+    expect(calls[0].order).toBe('updated_at')
+    expect(calls[0].limit).toBe(RECENTS_SOURCE_MAX)
+    // No action among them: no second read.
+    expect(calls).toHaveLength(1)
+  })
+
+  it('a coding chat working an action goes by the action: its title, and its identifier for the row', async () => {
+    const { client, calls } = fakeClient({
+      local_agent_session: {
+        data: [{ id: 'j1', request: 'A long brief the agent wrote for itself', created_at: '2026-11-20T09:00:00Z', updated_at: '2026-11-20T09:30:00Z', status: 'running', last_signal: null, tracked_job_id: 'tj-1', current_tracked_job_id: null, action_id: 'act-1' }],
+        error: null,
+      },
+      actions: { data: [{ id: 'act-1', identifier: 'ENG-42', title: 'Fix the date picker' }], error: null },
+    })
+    expect(await codeJobs(client, VIEWER)).toEqual([
+      { type: 'code_job', id: 'j1', label: 'Fix the date picker', context: 'Code', at: '2026-11-20T09:30:00Z', code: { status: 'running', lastSignal: null, workItemId: 'tj-1', actionIdentifier: 'ENG-42', queuedOnMac: false } },
+    ])
+    // The actions are read in the viewer's own workspace, on the client given (their RLS).
+    expect(calls[1]).toMatchObject({ table: 'actions', eq: [['workspace_id', 'ws-1'], ['id', ['act-1']]] })
+  })
+
+  it('an action that can’t be read leaves the chat named by its request', async () => {
+    const { client } = fakeClient({
+      local_agent_session: { data: [{ id: 'j1', request: 'Ship it', created_at: '2026-11-20T09:00:00Z', updated_at: null, status: 'failed', last_signal: null, action_id: 'act-1' }], error: null },
+      actions: { data: null, error: { message: 'no' } },
+    })
+    expect((await codeJobs(client, VIEWER))[0]).toMatchObject({ label: 'Ship it', code: { status: 'failed', actionIdentifier: null } })
   })
 
   it('a source that fails is left out; the others still answer', async () => {

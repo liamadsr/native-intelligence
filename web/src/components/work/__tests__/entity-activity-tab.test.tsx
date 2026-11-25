@@ -146,7 +146,8 @@ describe('EntityActivitySection (as the detail panels mount it)', () => {
   it('a row opens its work item where any item opens: with its workspace, title and teammate, never over the Agents page', () => {
     act(() => root.render(h(EntityActivitySection, { entityType: 'capture', entityId: CAPTURE })))
     act(() => button('Job w-write').click())
-    expect(hoisted.openWorkItem).toHaveBeenCalledWith('w-write', [], { workspaceId: 'w1', title: 'Job w-write', teammateId: 't1' })
+    // It says it is no coding chat's turn (null), so nothing is looked up to find out (docs/plans/one-home.md).
+    expect(hoisted.openWorkItem).toHaveBeenCalledWith('w-write', [], { workspaceId: 'w1', title: 'Job w-write', teammateId: 't1', codingSessionId: null })
   })
 
   it('a row with no teammate is opened known to have none (over the Inbox)', () => {

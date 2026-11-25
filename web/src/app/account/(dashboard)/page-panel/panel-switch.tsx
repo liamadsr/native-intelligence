@@ -15,6 +15,10 @@ export interface PanelSwitchOption<T extends string> {
   label: string
   /** Something waits on that side (Inbox's unread): a small dot after its label. */
   dot?: boolean
+  /** The dot's colour: the theme's own, or orange (a coding chat needs the person: home-recents.tsx). */
+  dotTone?: 'orange'
+  /** What the dot says to a screen reader (default: "something new"). */
+  dotWords?: string
 }
 
 export function PanelSwitch<T extends string>({
@@ -64,8 +68,8 @@ export function PanelSwitch<T extends string>({
           >
             {o.label}
             {o.dot && (
-              <span data-panel-switch-dot="" className="size-1.5 shrink-0 rounded-full bg-primary">
-                <span className="sr-only">, something new</span>
+              <span data-panel-switch-dot={o.dotTone ?? ''} className={cn('size-1.5 shrink-0 rounded-full', o.dotTone === 'orange' ? 'bg-orange-500' : 'bg-primary')}>
+                <span className="sr-only">, {o.dotWords ?? 'something new'}</span>
               </span>
             )}
           </button>

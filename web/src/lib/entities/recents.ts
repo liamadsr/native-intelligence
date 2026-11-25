@@ -62,23 +62,77 @@ export const driveUploads: Source = async (supabase, viewer) => {
   }))
 }
 
-/** Their coding jobs, by when they last moved. */
+type CodeJobRow = {
+  id: string
+  request: string | null
+  created_at: string
+  updated_at: string | null
+  status?: string | null
+  last_signal?: string | null
+  tracked_job_id?: string | null
+  current_tracked_job_id?: string | null
+  mac_queued_at?: string | null
+  action_id?: string | null
+}
+
+const CODE_JOB_COLUMNS = 'id, request, created_at, updated_at, status, last_signal, tracked_job_id, current_tracked_job_id'
+/** Migration 659's columns: read when they are there (the row is as good without them). */
+const CODE_JOB_COLUMNS_659 = `${CODE_JOB_COLUMNS}, mac_queued_at, action_id`
+
+/**
+ * Their coding chats, by when they last moved, each with what its row shows
+ * of it (its state, the action it works): docs/plans/one-home.md. Ordered by
+ * the last move, so an old chat that just asked something is among the ones
+ * read. An action's job goes by its action (its request is the agent's long
+ * brief), as the coding chats' list named it.
+ */
 export const codeJobs: Source = async (supabase, viewer) => {
-  const { data, error } = await supabase
-    .from('local_agent_session')
-    .select('id, request, created_at, updated_at')
-    .eq('workspace_id', viewer.workspaceId)
-    .eq('user_id', viewer.userId)
-    .order('created_at', { ascending: false })
-    .limit(RECENTS_SOURCE_MAX)
+  const read = (columns: string) =>
+    supabase
+      .from('local_agent_session')
+      .select(columns)
+      .eq('workspace_id', viewer.workspaceId)
+      .eq('user_id', viewer.userId)
+      .order('updated_at', { ascending: false })
+      .limit(RECENTS_SOURCE_MAX)
+  let { data, error } = await read(CODE_JOB_COLUMNS_659)
+  if (error) ({ data, error } = await read(CODE_JOB_COLUMNS))
   if (error) throw new Error(`code jobs: ${error.message}`)
-  return ((data ?? []) as Array<{ id: string; request: string | null; created_at: string; updated_at: string | null }>).map((r) => ({
-    type: 'code_job',
-    id: r.id,
-    label: firstLineTitle(r.request),
-    context: 'Code',
-    at: r.updated_at && r.updated_at > r.created_at ? r.updated_at : r.created_at,
-  }))
+  const rows = (data ?? []) as unknown as CodeJobRow[]
+  const actions = await codeJobActions(supabase, viewer, rows)
+  return rows.map((r) => {
+    const action = r.action_id ? actions.get(r.action_id) : undefined
+    const actionTitle = clean(action?.title)
+    return {
+      type: 'code_job',
+      id: r.id,
+      label: actionTitle ? firstLineTitle(actionTitle) : firstLineTitle(r.request),
+      context: 'Code',
+      at: r.updated_at && r.updated_at > r.created_at ? r.updated_at : r.created_at,
+      code: {
+        status: typeof r.status === 'string' ? r.status : '',
+        lastSignal: r.last_signal === 'ask' || r.last_signal === 'finish' ? r.last_signal : null,
+        workItemId: r.current_tracked_job_id ?? r.tracked_job_id ?? null,
+        actionIdentifier: clean(action?.identifier) || null,
+        queuedOnMac: r.status === 'starting' && !!r.mac_queued_at,
+      },
+    }
+  })
+}
+
+/** The actions those jobs work, named, in one read under the viewer's own RLS. Fail-soft: unnamed. */
+async function codeJobActions(
+  supabase: SupabaseClient,
+  viewer: RecentsViewer,
+  rows: readonly CodeJobRow[],
+): Promise<Map<string, { identifier: string | null; title: string | null }>> {
+  const out = new Map<string, { identifier: string | null; title: string | null }>()
+  const ids = [...new Set(rows.map((r) => r.action_id).filter((id): id is string => !!id))]
+  if (!ids.length) return out
+  const { data, error } = await supabase.from('actions').select('id, identifier, title').eq('workspace_id', viewer.workspaceId).in('id', ids)
+  if (error) return out
+  for (const a of (data ?? []) as Array<{ id: string; identifier: string | null; title: string | null }>) out.set(a.id, { identifier: a.identifier, title: a.title })
+  return out
 }
 
 /** How far back the direct reads look. */

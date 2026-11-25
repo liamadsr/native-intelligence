@@ -144,7 +144,9 @@ import {
   MessageCircleQuestion,
   AlarmClock,
   Laptop,
+  ArrowUpRight,
 } from 'lucide-react'
+import { openCodingChat } from '../chat/current-chat-store'
 import {
   Tooltip,
   TooltipContent,
@@ -2031,6 +2033,16 @@ export function ActionDetailPanel({
       ) : panelView === 'mac' && macJob ? (
         // The same inset as Details' reading column.
         <div data-action-mac-job={macJob.sessionId} className="mx-auto flex min-h-0 w-full max-w-[736px] flex-1 flex-col px-8 pb-4">
+          {/* Its chat, as Home's current chat (Liam, 11-20: the two-way link; docs/plans/one-home.md): the chat's details link back here. */}
+          <button
+            type="button"
+            data-action-open-coding-chat={macJob.sessionId}
+            onClick={() => openCodingChat(macJob.sessionId, { from: 'action' })}
+            className="mb-1 inline-flex h-7 shrink-0 items-center gap-1 self-end rounded-full px-2 text-xs text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            Open chat
+            <ArrowUpRight aria-hidden className="size-3.5" />
+          </button>
           <LocalAgentPanel key={macJob.sessionId} sessionId={macJob.sessionId} />
         </div>
       ) : panelView === 'cloud' && canShowCloudTab ? (

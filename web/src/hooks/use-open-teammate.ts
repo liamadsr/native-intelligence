@@ -23,6 +23,7 @@ import { openTarget, type OpenTarget } from '@/lib/chat-cards/open-card'
 import { useWorkspaces } from '@/app/account/workspace-switcher'
 import { openBotPage, openBotPageItem } from '@/lib/bots/bot-page'
 import { lookupWorkItem } from '@/lib/bots/item-lookup'
+import { openCodingChat } from '@/app/account/(dashboard)/chat/current-chat-store'
 import {
   openItem,
   openTeammate,
@@ -56,6 +57,11 @@ function latestOf(s: { currentId: string | null } & Pick<AgentWorkShared, 'work'
       openPage: (teammateId: string) => openBotPage(teammateId, { focus: 'work' }),
       // An item, on its bot's page; and who an item nothing here holds is.
       openItemPage: openBotPageItem,
+      // A coding chat's turn opens the chat itself, as Home's current chat (docs/plans/one-home.md).
+      openCodingChat: (sessionId, workspaceId) => {
+        openCodingChat(sessionId, { from: 'work-item', ...(workspaceId ? { workspaceId } : {}) })
+        return true
+      },
       lookup: lookupWorkItem,
       // A bot whose page can't open (deleted, or behind a private team) and nothing else to show.
       botNotFound: () => toast('Couldn’t find that agent'),
