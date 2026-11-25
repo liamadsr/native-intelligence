@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { EditorProject } from '@/lib/studio/engine/contracts'
-import { arrowEnds, handlePlaces, resizeLayer, rotationFrom } from '../PreviewLayerControls'
+import { arrowEnds, handlePlaces, resizeLayer, rotationFrom, turnBy } from '../PreviewLayerControls'
 
 type Layer = NonNullable<EditorProject['layers']>[number]
 // A 1000×500 preview of the frame; the box is 200×100 preview pixels, centred.
@@ -49,6 +49,16 @@ describe('resizeLayer', () => {
     expect(resizeLayer(text, 1, 0, 100, 0, FW, FH).style).toBeUndefined()
   })
 
+  it('a layer made thinner or bigger than the drag limits never jumps on the first move', () => {
+    // the agent's 1%-tall underline: a small drag grows it a little, not to twice its size
+    const thin = resizeLayer(box({ width: 0.4, height: 0.01 }), 1, 1, 2, 0, FW, FH)
+    expect(thin.width!).toBeGreaterThan(0.4); expect(thin.width!).toBeLessThan(0.41)
+    // an image twice the frame's width: a small drag inward shrinks it a little, not to three quarters
+    const big = resizeLayer(box({ width: 2, height: 0.5 }), 1, 1, -2, 0, FW, FH)
+    expect(big.width!).toBeLessThan(2); expect(big.width!).toBeGreaterThan(1.99)
+    expect(resizeLayer(box({ width: 2 }), 1, 0, -2, 0, FW, FH).width!).toBeGreaterThan(1.99)
+  })
+
   it('never collapses or runs away', () => {
     expect(resizeLayer(box(), 1, 1, -5000, -5000, FW, FH).width).toBeGreaterThanOrEqual(0.02)
     expect(resizeLayer(box(), 1, 0, 9000, 0, FW, FH).width).toBeLessThanOrEqual(1.5)
@@ -67,6 +77,15 @@ describe('rotationFrom', () => {
     expect(rotationFrom(0, 0, 80)).toBe(80)
     expect(rotationFrom(0, 0, 37, true)).toBe(30)
     expect(rotationFrom(0, 0, 179)).toBe(180)
+  })
+})
+
+describe('turnBy', () => {
+  it('turns by the step from the keyboard, Shift landing on the 15° steps, within ±180', () => {
+    expect(turnBy(0, 1)).toBe(1)
+    expect(turnBy(7, 15, true)).toBe(15)
+    expect(turnBy(179, 1)).toBe(180)
+    expect(turnBy(180, 1)).toBe(-179)
   })
 })
 

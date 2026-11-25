@@ -20,13 +20,15 @@ type Layer = NonNullable<EditorProject['layers']>[number]
 const layer = (over: Partial<Layer>) => ({ id: 'l', kind: 'box', name: 'Box', x: 0.5, y: 0.5, width: 0.3, height: 0.3, rotate: 0, opacity: 1, style: {}, startFrame: 0, endFrame: 100,
   enter: { preset: 'none', frames: 1 }, exit: { preset: 'none', frames: 1 }, automation: [], ...over }) as unknown as Layer
 
-function render(l: Layer, change = vi.fn(), edits = { begin: vi.fn(), end: vi.fn() }) {
+function render(l: Layer, change = vi.fn(), edits = { begin: vi.fn(), end: vi.fn() }, enabled = true) {
   const project = { id: 'p', output: { width: 1920, height: 1080, fps: 30 }, layers: [l], assets: [] } as unknown as EditorProject
-  host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host)
-  act(() => root!.render(<PreviewLayerControls project={project} frame={10} previewWidth={960} enabled disabled={false} selectedLayerId={l.id}
+  if (!host) { host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host) }
+  act(() => root!.render(<PreviewLayerControls project={project} frame={10} previewWidth={960} enabled={enabled} disabled={false} selectedLayerId={l.id}
     select={() => {}} change={change} beginEdit={edits.begin} endEdit={edits.end} />))
   return host
 }
+/** What the last change did to a layer. */
+const applied = (change: ReturnType<typeof vi.fn>, l: Layer) => change.mock.calls.at(-1)![0]({ layers: [l] } as unknown as EditorProject).layers[0]
 const labels = (el: HTMLElement) => [...el.querySelectorAll('button')].map(b => b.getAttribute('aria-label'))
 
 describe('PreviewLayerControls handles', () => {
@@ -66,5 +68,31 @@ describe('PreviewLayerControls handles', () => {
     expect(edits.begin).toHaveBeenCalledTimes(1); expect(edits.end).toHaveBeenCalledWith(false)
     const turned = change.mock.calls.at(-1)![0]({ layers: [layer({})] } as unknown as EditorProject)
     expect(turned.layers[0].rotate).toBe(90)
+  })
+
+  it('the keyboard sizes and turns too (dragging is never the only way), one undo step a press', () => {
+    const l = layer({}), change = vi.fn(), edits = { begin: vi.fn(), end: vi.fn() }
+    const el = render(l, change, edits)
+    const press = (label: string, key: string, shiftKey = false) => act(() => { (el.querySelector(`[aria-label="${label}"]`) as HTMLElement).dispatchEvent(new KeyboardEvent('keydown', { key, shiftKey, bubbles: true })) })
+    press('Resize', 'ArrowRight')
+    expect(applied(change, l).width).toBeCloseTo(0.3 * 1.02); expect(applied(change, l).height).toBeCloseTo(0.3 * 1.02); expect(applied(change, l).x).toBeCloseTo(0.5)
+    press('Change the width', 'ArrowLeft', true)
+    expect(applied(change, l).width).toBeCloseTo(0.2); expect(applied(change, l).height).toBeCloseTo(0.3)
+    press('Rotate', 'ArrowRight')
+    expect(applied(change, l).rotate).toBe(1)
+    press('Rotate', 'ArrowLeft', true)
+    expect(applied(change, l).rotate).toBe(-15)
+    expect(edits.begin).toHaveBeenCalledTimes(4); expect(edits.end).toHaveBeenCalledTimes(4)
+  })
+
+  it('a drag the controls stop showing for (playback starts) still closes its undo step', () => {
+    HTMLElement.prototype.setPointerCapture ??= () => {}
+    const l = layer({}), change = vi.fn(), edits = { begin: vi.fn(), end: vi.fn() }
+    const el = render(l, change, edits)
+    const grab = el.querySelector('[aria-label="Box: drag to move"]') as HTMLElement
+    act(() => { grab.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, pointerId: 1, clientX: 480, clientY: 270 })); grab.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerId: 1, clientX: 520, clientY: 270 })) })
+    expect(edits.begin).toHaveBeenCalledTimes(1); expect(edits.end).not.toHaveBeenCalled()
+    render(l, change, edits, false)
+    expect(edits.end).toHaveBeenCalledWith(false)
   })
 })

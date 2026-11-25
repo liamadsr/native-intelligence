@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { EditorProject } from '@/lib/studio/engine/contracts';
 
 type Layer = NonNullable<EditorProject['layers']>[number];
@@ -15,8 +15,9 @@ const SNAP = 0.012;
  * selected, so it never covers the others' handles, and once selected it moves and resizes on the screen like the
  * rest (Liam, 11-24: "when you add background … you can't resize it via the screen"). Drawn first, it stays under them.
  */
-export function grabbableLayers(project: EditorProject, frame: number, selectedLayerId: string | null = null) {
-  const fullFrame = (l: Layer) => l.kind === 'background' || (l.width >= 0.97 && l.height >= 0.97);
+export function grabbableLayers(project: EditorProject, frame: number, selectedLayerId: string | null = null, dragged?: Layer) {
+  // The layer being dragged is placed as it was when the drag began, so it never moves in the stack mid-drag.
+  const fullFrame = (l: Layer) => { const at = dragged && l.id === dragged.id ? dragged : l; return at.kind === 'background' || (at.width >= 0.97 && at.height >= 0.97); };
   const here = (project.layers ?? []).filter(l => frame >= l.startFrame && frame < l.endFrame && (l.id === selectedLayerId || !fullFrame(l)));
   // Full-frame ones first, under the others, however late they were added: the overlays on them stay clickable.
   return [...here.filter(fullFrame), ...here.filter(l => !fullFrame(l))];
@@ -34,20 +35,30 @@ export function resizeLayer(base: Layer, sx: Side, sy: Side, dx: number, dy: num
   let width = base.width, height = base.height, ux = 0, uy = 0, f = 1;
   if (sx && sy) { // a corner: one factor for both sides, from how far the pointer went along the corner's diagonal
     const cx = sx * bw / 2, cy = sy * bh / 2;
-    f = clamp(1 + k * (lx * cx + ly * cy) / (2 * (cx * cx + cy * cy) || 1), Math.max(0.02 / base.width, 0.02 / base.height), Math.min(1.5 / base.width, 1.5 / base.height));
+    // The limits always take in the starting size (1), so a layer made thinner or bigger than them (the agent's 1%
+    // underline, an image twice the frame) never jumps on the first move; it only can't be dragged further out.
+    f = clamp(1 + k * (lx * cx + ly * cy) / (2 * (cx * cx + cy * cy) || 1), Math.min(1, Math.max(0.02 / base.width, 0.02 / base.height)), Math.max(1, Math.min(1.5 / base.width, 1.5 / base.height)));
     width = base.width * f; height = base.height * f;
     if (!fromCentre) { ux = (f - 1) * cx; uy = (f - 1) * cy; }
   } else if (sx) {
-    const next = clamp(bw + k * lx * sx, 0.02 * frameW, 1.5 * frameW); width = next / frameW;
+    const next = clamp(bw + k * lx * sx, Math.min(bw, 0.02 * frameW), Math.max(bw, 1.5 * frameW)); width = next / frameW;
     if (!fromCentre) ux = sx * (next - bw) / 2;
   } else if (sy) {
-    const next = clamp(bh + k * ly * sy, 0.02 * frameH, 1.5 * frameH); height = next / frameH;
+    const next = clamp(bh + k * ly * sy, Math.min(bh, 0.02 * frameH), Math.max(bh, 1.5 * frameH)); height = next / frameH;
     if (!fromCentre) uy = sy * (next - bh) / 2;
   }
   // The centre moves by the grown half, turned back into the frame's axes.
   const out: Partial<Layer> = { x: round(base.x + (ux * cos - uy * sin) / frameW), y: round(base.y + (ux * sin + uy * cos) / frameH), width: round(width), height: round(height) };
   if (base.kind === 'text' && sx && sy && typeof base.style?.size === 'number') out.style = { ...base.style, size: round(clamp(base.style.size * f, 0.01, 0.5)) };
   return out;
+}
+
+/** A turn from the keyboard: `by` degrees from `rotate`; with `steps` it lands on the 15° steps. Within ±180. */
+export function turnBy(rotate: number, by: number, steps = false): number {
+  let deg = (((rotate + by + 180) % 360) + 360) % 360 - 180;
+  if (steps) deg = Math.round(deg / 15) * 15;
+  deg = Math.round(deg);
+  return deg === -180 ? 180 : deg;
 }
 
 /** The rotation after turning the pointer around the centre from `startAngle` to `angle` (degrees): Shift steps 15°, and it settles on straight (0, ±90, 180) within 4°. */
@@ -90,8 +101,8 @@ const HANDLES: [Side, Side][] = [[-1, -1], [0, -1], [1, -1], [1, 0], [1, 1], [0,
  * rotate and move and resize and no need for these controls"): click one to select it, drag it to move (snaps to the
  * centre lines), drag a corner to resize keeping its shape or a side to stretch it (Alt: from the centre), drag the
  * knob under it to turn it (Shift: 15° steps, double-click: straight). An arrow is moved by its two ends. Arrow keys
- * nudge, B puts it behind or in front of the people. Positions are the edit's own (the Original frame); in a platform
- * format the controls step aside.
+ * nudge, B puts it behind or in front of the people; on a handle or the knob they size or turn it. Positions are the
+ * edit's own (the Original frame); in a platform format the controls step aside and the layer panel sets them.
  */
 export function PreviewLayerControls({ project, frame, previewWidth, enabled, disabled, selectedLayerId, select, change, beginEdit, endEdit }: {
   project: EditorProject; frame: number; previewWidth: number; enabled: boolean; disabled: boolean; selectedLayerId: string | null;
@@ -99,8 +110,14 @@ export function PreviewLayerControls({ project, frame, previewWidth, enabled, di
 }) {
   const gesture = useRef<Gesture | null>(null), [guides, setGuides] = useState<{ x: boolean; y: boolean }>({ x: false, y: false });
   const reframed = !!project.delivery?.format && project.delivery.format !== 'original';
+  // A drag the controls can't finish (they step aside mid-drag, as playback starts, or go away) still closes its undo
+  // step, so later changes never join it.
+  const endRef = useRef(endEdit); endRef.current = endEdit;
+  const drop = () => { const g = gesture.current; gesture.current = null; if (g?.moved) endRef.current(false); };
+  useEffect(() => { if (!enabled || reframed) { drop(); setGuides({ x: false, y: false }); } }, [enabled, reframed]);
+  useEffect(() => drop, []);
   if (!enabled || reframed) return null;
-  const W = project.output.width, H = project.output.height, scale = previewWidth / W, layers = grabbableLayers(project, frame, selectedLayerId);
+  const W = project.output.width, H = project.output.height, scale = previewWidth / W, layers = grabbableLayers(project, frame, selectedLayerId, gesture.current?.base);
   const patch = (id: string, fn: (l: Layer) => Partial<Layer>) => change(p => ({ ...p, layers: (p.layers ?? []).map(l => l.id === id ? { ...l, ...fn(l) } as Layer : l) }));
   // An arrow moves whole: its tail goes with its tip.
   const shift = (l: Layer, dx: number, dy: number): Partial<Layer> => ({ x: round(l.x + dx), y: round(l.y + dy),
@@ -135,7 +152,21 @@ export function PreviewLayerControls({ project, frame, previewWidth, enabled, di
     if (event.key === 'b' || event.key === 'B') { event.preventDefault(); event.stopPropagation(); once(l.id, x => ({ behind: x.behind ? undefined : true })); return; }
     const d = event.shiftKey ? 0.02 : 0.005, dx = event.key === 'ArrowRight' ? d : event.key === 'ArrowLeft' ? -d : 0, dy = event.key === 'ArrowDown' ? d : event.key === 'ArrowUp' ? -d : 0;
     if (!dx && !dy) return; event.preventDefault(); event.stopPropagation(); once(l.id, x => shift(x, dx, dy)); };
-  const handlers = { onPointerMove: move, onPointerUp: end(false), onPointerCancel: end(true) };
+  const handlers = { onPointerMove: move, onPointerUp: end(false), onPointerCancel: end(true), onLostPointerCapture: end(false) };
+  // The keyboard's way to size and turn (WCAG 2.5.7: dragging is never the only way): on a corner, the arrows grow
+  // (up, right) or shrink (down, left) the layer by 2% keeping its shape, 10% with Shift; on a side, they stretch it;
+  // on the knob, they turn it 1°, 15° with Shift. Each press is one undo step; the centre stays put.
+  const sizeKey = (event: React.KeyboardEvent, l: Layer, sx: Side, sy: Side) => {
+    const sign = event.key === 'ArrowUp' || event.key === 'ArrowRight' ? 1 : event.key === 'ArrowDown' || event.key === 'ArrowLeft' ? -1 : 0;
+    if (!sign) return; event.preventDefault(); event.stopPropagation();
+    const step = sign * (event.shiftKey ? 0.1 : 0.02), fw = W * scale, fh = H * scale, t = l.rotate * Math.PI / 180;
+    // the move along the layer's own axes that grows it by that step from its centre, turned into the screen's
+    const lx = sx && sy ? sx * l.width * fw / 2 * step : sx * step * fw / 2, ly = sx && sy ? sy * l.height * fh / 2 * step : sy * step * fh / 2;
+    once(l.id, x => resizeLayer(x, sx, sy, lx * Math.cos(t) - ly * Math.sin(t), lx * Math.sin(t) + ly * Math.cos(t), fw, fh, true)); };
+  const turnKey = (event: React.KeyboardEvent, l: Layer) => {
+    const sign = event.key === 'ArrowUp' || event.key === 'ArrowRight' ? 1 : event.key === 'ArrowDown' || event.key === 'ArrowLeft' ? -1 : 0;
+    if (!sign) return; event.preventDefault(); event.stopPropagation();
+    once(l.id, x => ({ rotate: turnBy(x.rotate, sign * (event.shiftKey ? 15 : 1), event.shiftKey) })); };
   return <div className="preview-layer-controls" aria-label="Overlays on the preview">
     {guides.x ? <i className="layer-guide vertical" /> : null}{guides.y ? <i className="layer-guide horizontal" /> : null}
     {layers.map(l => { const on = l.id === selectedLayerId, label = l.kind === 'text' ? String(l.style?.text ?? 'Text') : l.name;
@@ -156,11 +187,11 @@ export function PreviewLayerControls({ project, frame, previewWidth, enabled, di
         {grab}
         {on ? <>
           {HANDLES.filter(([sx, sy]) => (sx && sy) || (sx ? h >= 36 : w >= 36 && l.kind !== 'text')).map(([sx, sy]) => <button key={`${sx}${sy}`} className={`layer-hit-handle${sx && sy ? ' corner' : ''}`} disabled={disabled}
-            aria-label={sx && sy ? 'Resize' : sx ? 'Change the width' : 'Change the height'} title={sx && sy ? 'Drag to resize · Alt: from the centre' : 'Drag to stretch · Alt: from the centre'}
-            style={{ left: `${(sx + 1) * 50}%`, top: `${(sy + 1) * 50}%`, cursor: cursorFor(sx, sy, l.rotate) }} onPointerDown={e => start(e, l, 'resize', sx, sy)} {...handlers} />)}
+            aria-label={sx && sy ? 'Resize' : sx ? 'Change the width' : 'Change the height'} title={sx && sy ? 'Drag to resize · Alt: from the centre · arrow keys too' : 'Drag to stretch · Alt: from the centre · arrow keys too'}
+            style={{ left: `${(sx + 1) * 50}%`, top: `${(sy + 1) * 50}%`, cursor: cursorFor(sx, sy, l.rotate) }} onPointerDown={e => start(e, l, 'resize', sx, sy)} {...handlers} onKeyDown={e => sizeKey(e, l, sx, sy)} />)}
           {places.knob !== 'inside' ? <i className={`layer-hit-stem ${places.knob}`} /> : null}
-          <button className={`layer-hit-rotate ${places.knob}`} disabled={disabled} aria-label="Rotate" title="Drag to rotate · Shift: 15° steps · double-click: straight"
-            onPointerDown={e => start(e, l, 'rotate')} {...handlers} onDoubleClick={() => once(l.id, () => ({ rotate: 0 }))} />
+          <button className={`layer-hit-rotate ${places.knob}`} disabled={disabled} aria-label="Rotate" title="Drag to rotate · Shift: 15° steps · double-click: straight · arrow keys turn 1°"
+            onPointerDown={e => start(e, l, 'rotate')} {...handlers} onKeyDown={e => turnKey(e, l)} onDoubleClick={() => once(l.id, () => ({ rotate: 0 }))} />
           {behind}
         </> : null}
       </div>; })}
