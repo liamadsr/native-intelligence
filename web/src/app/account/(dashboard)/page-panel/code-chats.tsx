@@ -146,7 +146,8 @@ export function CodeChatsRows({ items, readAt, onLimit }: { items: readonly Code
                     {item.title}
                   </span>
                   {item.needsYou && (
-                    <span className="size-1.5 shrink-0 rounded-full bg-primary">
+                    // Orange, as the chat's row in Recent wears it (docs/plans/one-home.md; Liam, 11-20's dot).
+                    <span data-code-chat-dot="" className="size-1.5 shrink-0 rounded-full bg-orange-500">
                       <span className="sr-only">, needs your answer</span>
                     </span>
                   )}

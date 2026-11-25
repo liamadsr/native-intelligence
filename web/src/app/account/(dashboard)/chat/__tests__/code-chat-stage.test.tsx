@@ -236,6 +236,20 @@ describe('CodeChatStage', () => {
       expect(container.querySelector('[data-code-chat-stage]')).toBeNull()
     })
 
+    it('not where Recent is off screen (a phone, the panel closed): the line would point at nothing, and the chats are listed right there', () => {
+      window.localStorage.removeItem(FIRST_TIME_KEY)
+      chats.items = [{ key: 'sess-1' }]
+      chats.readAt = new Date()
+      act(() => root.render(h(CodeChatStage)))
+      act(() => newCodingChat())
+      expect(container.querySelector('[data-code-chat-stage="list"]')).not.toBeNull()
+      expect(container.querySelector('[data-code-first-time]')).toBeNull()
+      // Recent on screen again: the line is still owed, once.
+      act(() => setPagePanelShown(true))
+      expect(container.querySelector('[data-code-first-time]')).not.toBeNull()
+      expect(window.localStorage.getItem(FIRST_TIME_KEY)).toBeNull()
+    })
+
     it('Show only coding puts Recent on its coding chats, and the line is done', () => {
       window.localStorage.removeItem(FIRST_TIME_KEY)
       act(() => root.render(h(CodeChatStage)))

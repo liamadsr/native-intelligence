@@ -507,6 +507,20 @@ agent sitting in the box under a coding chat, is pinned by `chat-drafts.test.tsx
   Recent's next read (focus, a card closing, a chat started or messaged here), as the old list.
 - "Copy link" is a small button under the details' cards.
 
-**Not proven in a browser** (the test account has no Mac; coding chats were stubbed in the
-browser for the look of phases 1 and 2): a real coding chat's send and stream after these
-changes, a notification's click on the desktop app, a second workspace, a phone.
+**Looked at in a local browser** (2026-11-25, the test account; it has no Mac, so the
+environment and four coding sessions were stubbed in the browser only, nothing written):
+
+| | |
+| --- | --- |
+| A coding chat opened from Recent: its row lit, its details on the right, the box its own (the note typed for the agent is not in it) | ![A coding chat](one-home/built-1-coding-chat.jpg) |
+| On Incoming with a coding chat waiting: the orange dot on the way back to Recent | ![The dot on Recent's side](one-home/built-2-incoming-dot.jpg) |
+| Code pressed: Recent stays, "New coding chat" under the pinned agent, the words carried across | ![A new coding chat](one-home/built-3-new-coding-chat.jpg) |
+
+Also checked there: the pinned row goes back and the agent's draft is in the box again; a reload
+returns to the chat; no For you button and no dot on the Code tab; no injected style, and the
+thread carries its hidden props while a coding chat is up. At a phone's width, a new coding
+chat's middle lists the coding chats (their dot orange too), and the first-time line is left
+out there, since it would point at a Recent that is not on screen.
+
+**Not proven**: a real coding chat's send and stream after these changes (no Mac on the test
+account), a notification's click in the desktop app, a second workspace, a real phone.

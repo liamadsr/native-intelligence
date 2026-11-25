@@ -157,6 +157,8 @@ function NewChat({ listHere }: { listHere: boolean }) {
   const [hint, setHint] = useState(false)
   // After mount: the server and the first client render agree (no line), then the device says.
   useEffect(() => setHint(!firstTimeSeen()), [])
+  // Only beside Recent itself: where it is not on screen (a phone, the panel closed) the line would point at nothing, and the chats are listed right here.
+  const showHint = hint && !listHere
   const dismiss = () => {
     try {
       window.localStorage.setItem(FIRST_TIME_KEY, '1')
@@ -166,11 +168,11 @@ function NewChat({ listHere }: { listHere: boolean }) {
     setHint(false)
   }
   const list = listHere && readAt !== null && items.length > 0
-  if (!hint && !list) return null
+  if (!showHint && !list) return null
   return (
     <div data-code-chat-stage={list ? 'list' : 'new'} className={STAGE}>
       <div className="chat-reading-col flex h-full min-h-0 w-full flex-col gap-2 px-5 pb-2 pt-1">
-        {hint && (
+        {showHint && (
           <div data-code-first-time="" className={cn('flex shrink-0 items-center gap-2 self-start px-3 py-2 text-xs text-muted-foreground', FLOATING_CARD_CLASS)}>
             <span>{FIRST_TIME_LINE}</span>
             <button
