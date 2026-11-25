@@ -27,7 +27,7 @@ vi.mock('@/lib/oauth/token-manager', () => ({
   getAllValidTokens: vi.fn(async () => accounts.all),
 }))
 
-import { indexGmailThread, indexOutlookThread, syncEmailThreads } from '@/lib/crm/email-sync'
+import { historyThreadIdsNewestFirst, indexGmailThread, indexOutlookThread, SYNC_MAX_THREADS, syncEmailThreads } from '@/lib/crm/email-sync'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 const GMAIL = 'https://gmail.googleapis.com/gmail/v1/users/me'
@@ -40,6 +40,8 @@ interface Reply {
 }
 let urls: string[] = []
 let gmailList: Reply
+/** Gmail history pages by pageToken ('' is the first), or one answer for every page. */
+let gmailHistory: Record<string, Reply> | Reply
 let gmailThreads: Record<string, Reply>
 let deletedItems: Reply
 let graphList: Reply
@@ -52,6 +54,11 @@ const fetchMock = vi.fn(async (input: unknown) => {
   const url = String(input)
   urls.push(url)
   if (url.startsWith(`${GMAIL}/threads?`)) return respond(gmailList)
+  if (url.startsWith(`${GMAIL}/history?`)) {
+    const page = new URL(url).searchParams.get('pageToken') ?? ''
+    const pages = gmailHistory as Record<string, Reply>
+    return respond('status' in gmailHistory ? (gmailHistory as Reply) : pages[page] ?? { status: 404 })
+  }
   if (url.startsWith(`${GMAIL}/threads/`)) {
     const id = decodeURIComponent(url.slice(`${GMAIL}/threads/`.length).split('?')[0])
     const answer = respond(gmailThreads[id] ?? { status: 404 })
@@ -123,6 +130,7 @@ beforeEach(() => {
   accounts.all = []
   urls = []
   gmailList = { status: 200, body: { threads: [] } }
+  gmailHistory = { status: 404 }
   gmailThreads = {}
   deletedItems = { status: 200, body: { id: 'folder-deleted' } }
   graphList = { status: 200, body: { value: [] } }
@@ -531,5 +539,100 @@ describe('a sync that read the mailbox before a local change does not undo it', 
     afterRead = localChange({ folder: 'archive', is_unread: false, provider_message_id: 'msg-1-moved' })
     await indexOutlookThread(db(), target({ threadId: 'conv-1' }))
     expect(rows()[0]).toMatchObject({ folder: 'archive', is_unread: false, provider_message_id: 'msg-1-moved', needs_reply: true })
+  })
+})
+
+/**
+ * The daily cron's and the Sync button's Gmail pass (syncEmailThreads,
+ * incremental): its cursor is the mailbox's own checkpoint, the push path's
+ * email_sync_state.gmail_history_id, read and never moved here. Every page of
+ * history is read and the newest changes are kept under the cap; an expired
+ * checkpoint reads the last 30 days, and any other refusal says so.
+ */
+describe('the Gmail sync’s cursor', () => {
+  const GOOGLE_ACCOUNT = { token: 'g-tok', email: 'liam@dial8.ai', provider: 'google', accountId: 'acct-work' }
+  const added = (...threadIds: string[]) => ({ messagesAdded: threadIds.map((threadId) => ({ message: { id: `m-${threadId}`, threadId } })) })
+  const read = () => urls.filter((u) => u.startsWith(`${GMAIL}/threads/`)).map((u) => decodeURIComponent(u.slice(`${GMAIL}/threads/`.length).split('?')[0]))
+  let warn: ReturnType<typeof vi.spyOn>
+  let error: ReturnType<typeof vi.spyOn>
+  beforeEach(() => {
+    accounts.all = [GOOGLE_ACCOUNT]
+    warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    error = vi.spyOn(console, 'error').mockImplementation(() => {})
+  })
+  afterEach(() => {
+    warn.mockRestore()
+    error.mockRestore()
+  })
+
+  it('reads history from the mailbox’s own checkpoint, and leaves the checkpoint where it was', async () => {
+    fake.seed('email_sync_state', [{ id: 's-1', user_id: 'user-1', provider: 'google', account_id: 'acct-work', gmail_history_id: '500' }])
+    gmailHistory = { '': { status: 200, body: { history: [added('thr-1')], historyId: '520' } } }
+    gmailThreads['thr-1'] = { status: 200, body: { id: 'thr-1', messages: [SIMON] } }
+    await expect(syncEmailThreads('user-1', WS, false)).resolves.toEqual({ synced: 1 })
+    const history = urls.find((u) => u.startsWith(`${GMAIL}/history?`))!
+    expect(new URL(history).searchParams.get('startHistoryId')).toBe('500')
+    expect(urls.some((u) => u.startsWith(`${GMAIL}/threads?`))).toBe(false)
+    // The push path moves it (it triages what it passes); this pass never does.
+    expect(fake.rows('email_sync_state')[0].gmail_history_id).toBe('500')
+  })
+
+  it('a legacy index row’s history_id (one a triage stamped newest) no longer steers it: no checkpoint is the last 30 days', async () => {
+    fake.seed('email_thread_index', [{ id: 'idx-old', workspace_id: WS, user_id: 'user-1', provider: 'google', provider_thread_id: 'thr-9', history_id: 'stale-1', synced_at: '2026-11-25T00:00:00.000Z' }])
+    gmailList = { status: 200, body: { threads: [{ id: 'thr-1' }] } }
+    gmailThreads['thr-1'] = { status: 200, body: { id: 'thr-1', messages: [SIMON] } }
+    await syncEmailThreads('user-1', WS, false)
+    expect(urls.some((u) => u.includes('stale-1'))).toBe(false)
+    expect(urls.some((u) => u.startsWith(`${GMAIL}/history?`))).toBe(false)
+    expect(read()).toEqual(['thr-1'])
+    // Left on the row (nothing reads it now).
+    expect(fake.rows('email_thread_index').find((r) => r.id === 'idx-old')!.history_id).toBe('stale-1')
+  })
+
+  it('an expired checkpoint (404) reads the last 30 days instead, said once', async () => {
+    fake.seed('email_sync_state', [{ id: 's-1', user_id: 'user-1', provider: 'google', account_id: 'acct-work', gmail_history_id: '1' }])
+    gmailHistory = { status: 404 }
+    gmailList = { status: 200, body: { threads: [{ id: 'thr-1' }] } }
+    gmailThreads['thr-1'] = { status: 200, body: { id: 'thr-1', messages: [SIMON] } }
+    await expect(syncEmailThreads('user-1', WS, false)).resolves.toEqual({ synced: 1 })
+    expect(read()).toEqual(['thr-1'])
+    const expired = warn.mock.calls.filter((c) => String(c[0]).includes('checkpoint expired'))
+    expect(expired).toHaveLength(1)
+    expect(error).not.toHaveBeenCalled()
+  })
+
+  it('another refusal is logged with its status, never a silent nothing (and the last 30 days are read)', async () => {
+    fake.seed('email_sync_state', [{ id: 's-1', user_id: 'user-1', provider: 'google', account_id: 'acct-work', gmail_history_id: '500' }])
+    gmailHistory = { status: 500 }
+    gmailList = { status: 200, body: { threads: [{ id: 'thr-1' }] } }
+    gmailThreads['thr-1'] = { status: 200, body: { id: 'thr-1', messages: [SIMON] } }
+    await expect(syncEmailThreads('user-1', WS, false)).resolves.toEqual({ synced: 1 })
+    expect(error.mock.calls.some((c) => /Gmail history read failed.*500/.test(String(c[0])))).toBe(true)
+  })
+
+  it('reads every page of history', async () => {
+    fake.seed('email_sync_state', [{ id: 's-1', user_id: 'user-1', provider: 'google', account_id: 'acct-work', gmail_history_id: '500' }])
+    gmailHistory = {
+      '': { status: 200, body: { history: [added('thr-1')], historyId: '510', nextPageToken: 'p2' } },
+      p2: { status: 200, body: { history: [{ labelsRemoved: [{ message: { id: 'm-2', threadId: 'thr-2' }, labelIds: ['INBOX'] }] }], historyId: '520' } },
+    }
+    for (const id of ['thr-1', 'thr-2']) gmailThreads[id] = { status: 200, body: { id, messages: [SIMON] } }
+    await syncEmailThreads('user-1', WS, false)
+    expect(read().sort()).toEqual(['thr-1', 'thr-2'])
+  })
+
+  it('over the cap, keeps the newest changes (history comes oldest first)', async () => {
+    fake.seed('email_sync_state', [{ id: 's-1', user_id: 'user-1', provider: 'google', account_id: 'acct-work', gmail_history_id: '500' }])
+    const ids = Array.from({ length: SYNC_MAX_THREADS + 20 }, (_, i) => `t-${String(i).padStart(3, '0')}`)
+    gmailHistory = { '': { status: 200, body: { history: ids.map((id) => added(id)), historyId: '900' } } }
+    for (const id of ids) gmailThreads[id] = { status: 200, body: { id, messages: [SIMON] } }
+    await syncEmailThreads('user-1', WS, false)
+    expect(read()).toHaveLength(SYNC_MAX_THREADS)
+    expect(new Set(read())).toEqual(new Set(ids.slice(20)))
+    expect(read()[0]).toBe(ids.at(-1))
+  })
+
+  it('historyThreadIdsNewestFirst: each thread once, by its newest change', () => {
+    expect(historyThreadIdsNewestFirst([added('a', 'b'), { labelsAdded: [{ message: { threadId: 'a' } }] }, added('c')])).toEqual(['c', 'a', 'b'])
   })
 })
