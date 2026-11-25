@@ -87,8 +87,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useSidePanelState } from '../side-panels/side-panels'
-import { setCodeView } from '../side-panels/side-panel-store'
-import { selectCodeChat } from '../chat/code-view-store'
+import { openCodingChat } from '../chat/current-chat-store'
 import { CodeChatsPanel } from './code-chats'
 import { PagePanelFrame } from './page-panel-frame'
 import {
@@ -131,8 +130,8 @@ export function openRecent(item: Pick<RecentItem, 'type' | 'id' | 'title'>): boo
     return true
   }
   if (item.type === 'code_job') {
-    setCodeView(true)
-    selectCodeChat(item.id)
+    // The current chat's one way in: the composer's tab follows it (it stayed on the agent before).
+    openCodingChat(item.id, { from: 'recents' })
     return true
   }
   const target = entityOpenTarget(item.type, item.id, item.title)

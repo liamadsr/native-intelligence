@@ -28,6 +28,8 @@ import { act, createElement as h, useEffect, useState } from 'react'
 import type { UIMessage } from '@ai-sdk/react'
 import { __resetCodeViewForTests, getCodeView, selectCodeChat, setCodeChatLive } from '../code-view-store'
 import { CodeHeldRow } from '../composer-code-controls'
+import { __resetCurrentChatForTests, currentChatKind, openCodingChat } from '../current-chat-store'
+import { getSidePanelState } from '../../side-panels/side-panel-store'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 ;(globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
@@ -186,6 +188,7 @@ async function mount(opts: { list: unknown[]; chatEnv: unknown; routes?: FakeRou
 beforeEach(() => {
   opened.length = 0
   __resetCodeViewForTests()
+  __resetCurrentChatForTests()
   hostOpts.conversation = CONV
   hostOpts.notes = []
   resetEnvironmentStore()
@@ -220,6 +223,39 @@ describe('who sees the tabs', () => {
     expect(q('[data-code-agent-picker]')).toBeNull()
     expect(q('[data-worker-toggle]')).toBeNull()
     expect(q('[data-code-folder-picker]')).toBeNull()
+  })
+})
+
+describe('the tab and the current chat are one thing', () => {
+  it('a coding chat opened from outside the composer (a Recent row) moves the tab to Code: the box never stays on the agent under it', async () => {
+    await mount({ list: [STUDIO], chatEnv: STUDIO })
+    expect(q('[data-composer-tab="chat"]')!.getAttribute('data-state')).toBe('on')
+    act(() => openCodingChat('sess-1', { from: 'recents' }))
+    await flush()
+    expect(q('[data-composer-tab="code"]')!.getAttribute('data-state')).toBe('on')
+    expect(currentChatKind()).toBe('code')
+    expect(getSidePanelState().codeView).toBe(true)
+    // And the choice is the conversation's, as a press on the tab makes it.
+    expect(JSON.parse(localStorage.getItem(`${CODE_TAB_STORAGE_PREFIX}${CONV}`)!).tab).toBe('code')
+  })
+
+  it('a press on a tab moves the current chat, and back', async () => {
+    await mount({ list: [STUDIO], chatEnv: STUDIO })
+    press(q('[data-composer-tab="code"]')!)
+    await flush()
+    expect(currentChatKind()).toBe('code-new')
+    press(q('[data-composer-tab="chat"]')!)
+    await flush()
+    expect(currentChatKind()).toBe('agent')
+    expect(getSidePanelState().codeView).toBe(false)
+  })
+
+  it('the composer going puts the current chat back on the agent', async () => {
+    await mount({ list: [STUDIO], chatEnv: STUDIO })
+    press(q('[data-composer-tab="code"]')!)
+    await flush()
+    act(() => root.render(null))
+    expect(currentChatKind()).toBe('agent')
   })
 })
 

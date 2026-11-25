@@ -70,9 +70,9 @@ import { fetchConversationSessions, fetchSessionPage, postCodeStart, postSession
 import type { ComposerEnvironment, ComposerFolders } from './composer-state'
 import { CodeJobLine } from './code-job-line'
 import { closeFrontCards } from '@/components/chat-cards/front-card'
-import { setCodeView } from '../side-panels/side-panel-store'
 import { noteCodeChatsChanged } from '../page-panel/code-chats-store'
-import { getCodeView, openCodeChatKey, selectCodeChat, subscribeCodeView } from './code-view-store'
+import { getCodeView, openCodeChatKey, subscribeCodeView } from './code-view-store'
+import { backToAgent, isOnCode, openCodingChat, showCoding, subscribeCurrentChat } from './current-chat-store'
 import type { LocalAgentStatus } from '@/lib/local-agent/store'
 import { canMessageSession } from '@/lib/local-agent/transcript-view'
 import { workerLabel } from '@/lib/environments/types'
@@ -377,15 +377,27 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
     },
     [update],
   )
-  // The Code view (Liam, 11-16): the agent's side panel and thread step aside
-  // while the composer is on Code, and home's panel lists the coding chats
-  // (side-panel-store.ts codeView). Back as they were on the agent's tab, and
-  // when this composer goes.
+  // The current chat (current-chat-store.ts) follows the tab the conversation
+  // is on: its stored choice, a conversation with a Code job opening on Code,
+  // a press. Back on the agent when this composer goes.
   useEffect(() => {
     if (!enabled) return
-    setCodeView(active)
-    return () => setCodeView(false)
+    if (active) showCoding({ from: 'composer' })
+    else backToAgent({ from: 'composer' })
   }, [enabled, active])
+  useEffect(() => {
+    if (!enabled) return
+    return () => backToAgent({ from: 'composer' })
+  }, [enabled])
+  // And the tab follows the current chat when something else moved it (a
+  // Recent row, a job's line: openCodingChat), so the box never stays on the
+  // agent under a coding chat. Read live: the effect above may just have set it.
+  const onCode = useSyncExternalStore(subscribeCurrentChat, isOnCode, () => false)
+  useEffect(() => {
+    if (!enabled || !availableRef.current) return
+    const want: ComposerTab = isOnCode() ? 'code' : 'chat'
+    if (currentRef.current.tab !== want) updateRef.current({ tab: want })
+  }, [enabled, onCode])
   const pickAgent = useCallback((a: string | null) => update({ agent: a }), [update])
   const pickFolder = useCallback((f: string) => update({ folderId: f }), [update])
   const addFolder = useCallback(() => {
@@ -406,8 +418,8 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
     // where its session isn't known.
     // Only where the Code view is (a Mac environment): without one the job's own page opens, as before.
     if (sessionId && availableRef.current) {
-      selectCodeChat(sessionId)
-      if (currentRef.current.tab !== 'code') updateRef.current({ tab: 'code' })
+      // The current chat's one way in: the tab follows it (above).
+      openCodingChat(sessionId, { from: 'composer' })
       return
     }
     if (workItemId) {

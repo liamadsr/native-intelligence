@@ -37,10 +37,11 @@ import { getClientWorkspaceId } from '@/lib/workspace-fetch'
 import { LocalAgentPanel } from '@/components/local-agent/local-agent-panel'
 import { SESSION_GONE_MESSAGE } from '@/components/local-agent/session-api'
 import { useSidePanelState } from '../side-panels/side-panels'
-import { selectCodeChat, setCodeChatError, setCodeChatLive, syncCodeViewWorkspace, type CodeChatLive } from './code-view-store'
+import { setCodeChatError, setCodeChatLive, syncCodeViewWorkspace, type CodeChatLive } from './code-view-store'
 import { rightShown } from '../side-panels/side-panel-store'
 import { CodeChatsRows, useCodeChats } from '../page-panel/code-chats'
 import { useCodeView } from './use-code-view'
+import { newCodingChat } from './current-chat-store'
 import { useOptionalAgentWorkShared } from '@/components/work/agent-work-provider'
 
 export function CodeChatStage() {
@@ -121,7 +122,7 @@ function Stage({
           <button
             type="button"
             data-code-chat-back=""
-            onClick={() => selectCodeChat(null)}
+            onClick={() => newCodingChat({ from: 'stage' })}
             className="mb-1 inline-flex h-7 shrink-0 items-center gap-1 self-start rounded-full px-2 text-xs text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <ChevronLeft aria-hidden className="size-3.5" />

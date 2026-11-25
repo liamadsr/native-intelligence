@@ -31,7 +31,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { Code2, Plus } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { fetchSessions } from '@/components/local-agent/session-api'
-import { selectCodeChat } from '../chat/code-view-store'
+import { newCodingChat, openCodingChat } from '../chat/current-chat-store'
 import { useCodeView } from '../chat/use-code-view'
 import { useScrollFades } from '@/components/attention/scroll-fades'
 import { getClientWorkspaceId } from '@/lib/workspace-fetch'
@@ -119,7 +119,7 @@ export function CodeChatsRows({ items, readAt, onLimit }: { items: readonly Code
     onLimit?.(windowed.length)
   }, [onLimit, windowed.length])
   const { selected } = useCodeView()
-  const open = useCallback((item: CodeChatItem) => selectCodeChat(item.sessionId), [])
+  const open = useCallback((item: CodeChatItem) => openCodingChat(item.sessionId, { from: 'list' }), [])
   return (
     <>
       {/* A new chat: nothing selected, so the next send starts one. */}
@@ -127,7 +127,7 @@ export function CodeChatsRows({ items, readAt, onLimit }: { items: readonly Code
         type="button"
         data-code-chats-new=""
         aria-pressed={selected === null}
-        onClick={() => selectCodeChat(null)}
+        onClick={() => newCodingChat({ from: 'list' })}
         className={cn(
           'flex h-8 w-full items-center gap-2.5 rounded-xl px-2 text-left text-[13px] text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring motion-reduce:transition-none',
           selected === null ? ROW_LIT : 'hover:bg-muted/60',

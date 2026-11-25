@@ -1,6 +1,7 @@
 # One Home, one current chat
 
-Branch `claude/one-home`. A design, not built yet. No migration expected. Merged is not live: see
+Branch `claude/one-home`. Approved by the owner on 2026-11-25 (every recommendation in 8 taken),
+built phase by phase: see "Built" at the end. No migration. Merged is not live: see
 "How production works" in `CLAUDE.md`.
 
 ## What the owner said (2026-11-25, lightly cleaned)
@@ -403,3 +404,15 @@ plumbing and behaviour fixes.
 - The 11-16 regression: with the coding stage in the document, the thread's wrapper is inert and
   hidden, in the same render.
 - The existing Code view tests are rewritten against the store, none skipped.
+
+## Built
+
+**Phase 1: the store, behind today's screen.** `chat/current-chat-store.ts` is the one writer of
+the current chat (`openCodingChat`, `newCodingChat`, `showCoding`, `backToAgent`). The composer's
+tab, Recent's coding row, the coding chats' list and the job's line all go through it;
+`side-panel-store.ts`'s `codeView` and `codeChat` are its mirror. The screen is as it was:
+`current-chat-store.test.ts` pins the panels' choice for each state the Code view had. Fixed on
+the way: a coding chat opened from Recent now moves the composer's tab with it
+(`open-recent-code.test.ts`, and "the tab and the current chat are one thing" in
+`composer-code.test.tsx`). Until phase 2, Code pressed still comes back to the chat you were on,
+and the conversation still remembers its tab.
