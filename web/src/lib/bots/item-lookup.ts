@@ -15,8 +15,8 @@ export interface ItemFacts {
   workspaceId: string
   teammateId: string | null
   title: string | null
-  /** The coding chat it is a turn of (a local agent's session), or null for any other work. */
-  codingSessionId: string | null
+  /** The coding chat it is a turn of (a local agent's session); null or absent for any other work. */
+  codingSessionId?: string | null
 }
 
 const isId = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 128
