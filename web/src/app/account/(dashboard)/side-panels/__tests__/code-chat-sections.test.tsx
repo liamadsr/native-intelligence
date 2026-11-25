@@ -52,6 +52,8 @@ function onJob(over: Record<string, unknown> = {}) {
       promptOpen: false,
       noChanges: false,
       filesChanged: null,
+      insertions: null,
+      deletions: null,
       ...((over.live as object) ?? {}),
     },
   }
@@ -126,6 +128,23 @@ describe('the Changes card', () => {
     expect(changesCard().textContent).not.toContain('Changes tab')
     expect(changesCard().textContent).toContain('No pull request yet.')
     expect(changesCard().querySelector('[data-code-chat-view-changes]')?.textContent).toBe('View changes · 3 files')
+  })
+
+  it('carries what the transcript’s branch card did: the branch with Copy, files and lines changed, the commit, where the work is', async () => {
+    const writeText = vi.fn(async () => undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    onJob({ ...FINISHED, live: { filesChanged: 2, insertions: 10, deletions: 3 } })
+    await render()
+    expect(changesCard().querySelector('[data-code-chat-branch]')?.textContent).toBe('dial8/sample-repo-1a2b')
+    expect(changesCard().querySelector('[data-code-chat-branch-stats]')?.textContent).toBe('2 files changed · +10 −3')
+    expect(changesCard().querySelector('[data-code-chat-commit]')?.textContent).toBe('6cfa56d')
+    expect(changesCard().textContent).toContain('On your Mac, in a separate copy')
+    const copy = changesCard().querySelector<HTMLButtonElement>('[data-code-chat-branch-copy]')!
+    expect(copy.getAttribute('aria-label')).toBe('Copy branch dial8/sample-repo-1a2b')
+    await act(async () => copy.click())
+    for (let i = 0; i < 3; i++) await act(async () => new Promise((r) => setTimeout(r, 0)))
+    expect(writeText).toHaveBeenCalledWith('dial8/sample-repo-1a2b')
+    expect(copy.getAttribute('aria-label')).toBe('Copied')
   })
 
   it('View changes opens them in the right panel, opening it when it was closed', async () => {

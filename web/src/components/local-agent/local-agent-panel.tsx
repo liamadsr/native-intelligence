@@ -36,8 +36,10 @@
  *               No tabs (Liam, 11-25: "it should just be the conversation,
  *               and changes should show on their own panel"). Home's coding
  *               chat (`onOpenChanges`) opens them in the right panel, with
- *               "Open pull request" on its Changes card: the branch card's
- *               Changes calls the host. A host with no panel beside it (an
+ *               "Open pull request" on its Changes card, which also carries
+ *               the branch card's branch, counts, commit and Copy: the
+ *               transcript keeps only a quiet line where the branch was made
+ *               (Liam, 11-25: the main chat "clean"). A host with no panel beside it (an
  *               action's Mac tab, a work item's panel, a bot's page) shows
  *               them here instead of the conversation, from the branch card
  *               or "View changes", "‹ Conversation" back; its pull request
@@ -215,12 +217,21 @@ export function queueOne(send: (text: string, policy: LocalAgentPolicy, requestI
  * a question open on the Mac, and its branch as last committed (its file
  * count; none changed). For a host that offers them elsewhere (onLive). Pure.
  */
-export function resultsOf(items: readonly TranscriptItem[], session: Pick<PanelSession, 'status' | 'branch'> | null): { promptOpen: boolean; noChanges: boolean; filesChanged: number | null } {
+export function resultsOf(
+  items: readonly TranscriptItem[],
+  session: Pick<PanelSession, 'status' | 'branch'> | null,
+): { promptOpen: boolean; noChanges: boolean; filesChanged: number | null; insertions: number | null; deletions: number | null } {
   const lastPrompt = items.findLast((it): it is Extract<TranscriptItem, { type: 'prompt' }> => it.type === 'prompt')
   const promptOpen = !!session && !isSessionEnded(session.status) && !!lastPrompt && isPromptOpen(lastPrompt)
   const lastBranch = items.findLast((it): it is Extract<TranscriptItem, { type: 'branch' }> => it.type === 'branch')
   const onBranch = !!session?.branch && !!lastBranch && lastBranch.name === session.branch
-  return { promptOpen, noChanges: onBranch && lastBranch!.filesChanged === 0, filesChanged: onBranch ? lastBranch!.filesChanged : null }
+  return {
+    promptOpen,
+    noChanges: onBranch && lastBranch!.filesChanged === 0,
+    filesChanged: onBranch ? lastBranch!.filesChanged : null,
+    insertions: onBranch ? lastBranch!.insertions : null,
+    deletions: onBranch ? lastBranch!.deletions : null,
+  }
 }
 
 export function LocalAgentHeader({
@@ -330,7 +341,8 @@ export function LocalAgentPanel({
   /**
    * The host shows the job's Changes in a panel of its own (Home's coding
    * chat: the right panel, code-chat-sections.tsx), with "Open pull request"
-   * there: the branch card's Changes calls this, and neither is drawn here.
+   * there, and its branch card's details and controls: the transcript draws
+   * only a quiet line for the branch, and none of them is drawn here.
    * Absent, they show here, in place of the conversation.
    */
   onOpenChanges?: () => void
@@ -364,11 +376,11 @@ export function LocalAgentPanel({
     useLocalAgentSession(sessionId)
   const items = transcript.items
   const results = useMemo(() => resultsOf(items, session), [items, session])
-  const { promptOpen, noChanges, filesChanged } = results
+  const { promptOpen, noChanges, filesChanged, insertions, deletions } = results
   useEffect(() => {
     if (!onLive) return
-    onLive(session ? { session, stopping, send, stop, promptOpen, noChanges, filesChanged } : null)
-  }, [onLive, session, stopping, send, stop, promptOpen, noChanges, filesChanged])
+    onLive(session ? { session, stopping, send, stop, promptOpen, noChanges, filesChanged, insertions, deletions } : null)
+  }, [onLive, session, stopping, send, stop, promptOpen, noChanges, filesChanged, insertions, deletions])
   useEffect(() => () => onLive?.(null), [onLive])
   useEffect(() => {
     if (error && !session) onError?.(error)
@@ -419,7 +431,8 @@ export function LocalAgentPanel({
   }, [onOpenChanges])
   // Only an edit job's branch has Changes to open (a read job's branch card offers none).
   const resultsOn = session?.mode === 'edit' && !!session.branch
-  const branchActions = useMemo(() => (resultsOn ? { openChanges } : {}), [resultsOn, openChanges])
+  // Home's coding chat: the branch and its controls are on the right panel's Changes card; here, a quiet line marks the moment.
+  const branchActions = useMemo(() => (changesBeside ? { quiet: true } : resultsOn ? { openChanges } : {}), [changesBeside, resultsOn, openChanges])
   const sendOne = useMemo(() => queueOne(send), [send])
   const { asked: prAsked, ask: askForPullRequest } = usePullRequestAsk(sendOne, session?.status)
 

@@ -37,6 +37,9 @@ export interface CodeChatLive {
   noChanges: boolean
   /** How many files its branch changed, as its last branch card said; null when unknown. */
   filesChanged: number | null
+  /** Its lines added and removed, as that branch card said; null when unknown. */
+  insertions: number | null
+  deletions: number | null
 }
 
 export interface CodeViewState {
@@ -95,7 +98,9 @@ export function setCodeChatLive(sessionId: string, live: CodeChatLive | null): v
     was.stop === live.stop &&
     was.promptOpen === live.promptOpen &&
     was.noChanges === live.noChanges &&
-    was.filesChanged === live.filesChanged
+    was.filesChanged === live.filesChanged &&
+    was.insertions === live.insertions &&
+    was.deletions === live.deletions
   )
     return
   set({ ...state, live, error: live ? null : state.error })

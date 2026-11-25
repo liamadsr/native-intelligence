@@ -635,6 +635,8 @@ describe('an edit job’s results: Open pull request and Changes', () => {
     expect(q('[data-local-agent-open-changes]')?.textContent).toBe('View changes · 3 files')
     await act(async () => q<HTMLButtonElement>('[data-local-agent-branch-changes]')!.click())
     expect(q('[data-local-agent-changes]')).not.toBeNull()
+    // Elsewhere the branch card is whole, as today.
+    expect(q('[data-local-agent-branch-note]')).toBeNull()
     expect(q('[data-changes-elsewhere]')?.textContent).toBe('The changes can be read in the Native Intelligence app on Liam’s MacBook.')
     // The conversation is kept, hidden, with its box; its pull request offer waits for it.
     expect(q<HTMLElement>('[role="log"]')?.hidden).toBe(true)
@@ -647,7 +649,7 @@ describe('an edit job’s results: Open pull request and Changes', () => {
     expect(q('[data-local-agent-changes]')).not.toBeNull()
   })
 
-  it('with a panel of its own for them (Home’s coding chat): the conversation only, the branch card calls the host, no pull request offer here', async () => {
+  it('with a panel of its own for them (Home’s coding chat): the conversation only, the branch a quiet line with nothing to press, no pull request offer here', async () => {
     const onOpenChanges = vi.fn()
     const onLive = vi.fn()
     const branch = { id: 20, source: 'device', kind: 'branch', payload: { kind: 'branch', branch: 'dial8/native-intelligence-1a2b', commit: '6cfa56d', filesChanged: 2, insertions: 4, deletions: 0 } }
@@ -656,13 +658,19 @@ describe('an edit job’s results: Open pull request and Changes', () => {
     expect(q('[data-local-agent-changes-bar]')).toBeNull()
     expect(q('[data-local-agent-pr-offer]')).toBeNull()
     expect(q('[data-local-agent-open-pr]')).toBeNull()
-    await act(async () => q<HTMLButtonElement>('[data-local-agent-branch-changes]')!.click())
-    expect(onOpenChanges).toHaveBeenCalledTimes(1)
+    // The branch card is a quiet line: its details and controls are on the host's Changes card.
+    const note = q<HTMLElement>('[data-local-agent-branch-note]')!
+    expect(note.textContent).toBe('Made branch dial8/native-intelligence-1a2b · 2 files changed · +4 −0')
+    expect(q('[data-local-agent-branch]')!.querySelectorAll('button')).toHaveLength(0)
+    expect(q('[data-local-agent-branch-changes]')).toBeNull()
+    expect(q('[data-local-agent-branch-copy]')).toBeNull()
+    expect(container.textContent).not.toContain('On your Mac, in a separate copy')
+    expect(onOpenChanges).not.toHaveBeenCalled()
     // Still the conversation here.
     expect(q('[data-local-agent-changes]')).toBeNull()
     expect(q<HTMLElement>('[role="log"]')?.hidden).toBe(false)
-    // The host is told what the offer needs: the branch's file count, nothing open on the Mac.
-    expect(onLive).toHaveBeenLastCalledWith(expect.objectContaining({ filesChanged: 2, noChanges: false, promptOpen: false }))
+    // The host is told what its card needs: the branch's counts, nothing open on the Mac.
+    expect(onLive).toHaveBeenLastCalledWith(expect.objectContaining({ filesChanged: 2, insertions: 4, deletions: 0, noChanges: false, promptOpen: false }))
   })
 
   it('a read job has no way to Changes', async () => {

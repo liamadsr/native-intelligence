@@ -52,7 +52,9 @@
  */
 import { EntityIcon } from '@/components/entities/entity-icon'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { ArrowUpRight, ChevronLeft, ExternalLink, FileDiff, Link2, Square } from 'lucide-react'
+import { ArrowUpRight, Check, ChevronLeft, Copy, ExternalLink, FileDiff, Link2, Square } from 'lucide-react'
+import { copyTextToClipboard } from '@/lib/clipboard'
+import { branchStats } from '@/components/local-agent/branch-card'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -258,6 +260,28 @@ export function CodeChangesPanel({ pr: given }: { pr?: PullRequestState } = {}) 
   )
 }
 
+/** Copy the branch's name, as the transcript's branch card did. */
+function CopyBranch({ name }: { name: string }) {
+  const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    if (!copied) return
+    const t = setTimeout(() => setCopied(false), 1500)
+    return () => clearTimeout(t)
+  }, [copied])
+  return (
+    <button
+      type="button"
+      data-code-chat-branch-copy=""
+      onClick={() => void copyTextToClipboard(name).then((ok) => ok && setCopied(true))}
+      aria-label={copied ? 'Copied' : `Copy branch ${name}`}
+      title={copied ? 'Copied' : 'Copy branch name'}
+      className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      {copied ? <Check aria-hidden className="size-3" /> : <Copy aria-hidden className="size-3" />}
+    </button>
+  )
+}
+
 export function CodeChatSections({ pr: given }: { pr?: PullRequestState } = {}) {
   const { selected, live, error } = useCodeView()
   const own = usePullRequestState(given ? null : live)
@@ -337,16 +361,28 @@ export function CodeChatSections({ pr: given }: { pr?: PullRequestState } = {}) 
           <p>Read only: it changes nothing in this folder.</p>
         ) : session.branch ? (
           <>
-            <Line label="Branch">
-              <span className="font-mono text-[11px]" title={session.branch}>
-                {session.branch}
+            <p className="flex min-w-0 items-baseline justify-between gap-2">
+              <span className="shrink-0">Branch</span>
+              <span className="flex min-w-0 items-center gap-1">
+                <span data-code-chat-branch="" className="min-w-0 truncate font-mono text-[11px] text-foreground/90" title={session.branch}>
+                  {session.branch}
+                </span>
+                <CopyBranch name={session.branch} />
               </span>
-            </Line>
-            {session.commitSha && (
-              <Line label="Commit">
-                <span className="font-mono text-[11px]">{session.commitSha.slice(0, 7)}</span>
+            </p>
+            {live.filesChanged !== null && (
+              <Line label="Changed">
+                <span data-code-chat-branch-stats="">{branchStats({ filesChanged: live.filesChanged, insertions: live.insertions ?? 0, deletions: live.deletions ?? 0 })}</span>
               </Line>
             )}
+            {session.commitSha && (
+              <Line label="Commit">
+                <span data-code-chat-commit="" className="font-mono text-[11px]" title={session.commitSha}>
+                  {session.commitSha.slice(0, 7)}
+                </span>
+              </Line>
+            )}
+            <p className="text-[11px] text-muted-foreground/80">On your Mac, in a separate copy; your checkout is as it was. It’s pushed only when you say yes on your Mac.</p>
             {prUrl ? (
               <a href={prUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-foreground/90 underline-offset-2 hover:underline" data-code-chat-pr={prUrl}>
                 Pull request{prNumber ? ` #${prNumber}` : ''}

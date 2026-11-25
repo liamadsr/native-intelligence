@@ -8,6 +8,10 @@
  * pull request line says when it was. So the card says where the work is,
  * copies the branch name and, inside a job's panel, opens its Changes
  * (changes-view.tsx: read from that Mac, never stored).
+ *
+ * Quiet (Home's coding chat, whose right panel's Changes card carries all of
+ * this, its controls too: Liam, 11-25, the main chat "clean"): one plain line
+ * marking when the branch was made, nothing to press.
  */
 import { createContext, memo, useContext, useState } from 'react'
 import { Check, Copy, FileDiff, GitBranch } from 'lucide-react'
@@ -29,12 +33,35 @@ export function branchStats(b: Pick<BranchCardProps, 'filesChanged' | 'insertion
   return `${files} · +${b.insertions} −${b.deletions}`
 }
 
-/** What the job's panel lets a branch card open: its Changes view. Absent outside a panel. */
-export const BranchCardActions = createContext<{ openChanges?: () => void }>({})
+/**
+ * What the job's panel lets a branch card do: open its Changes view (absent
+ * outside a panel), or, `quiet`, draw only a one-line note (the host shows
+ * the branch and its controls beside the conversation).
+ */
+export const BranchCardActions = createContext<{ openChanges?: () => void; quiet?: boolean }>({})
+
+/** The quiet note's words: "Made branch dial8/x · 2 files changed · +10 −3". */
+export function branchNote(b: Pick<BranchCardProps, 'name' | 'filesChanged' | 'insertions' | 'deletions'>): string {
+  return `Made branch ${b.name} · ${branchStats(b)}`
+}
 
 export const BranchCard = memo(function BranchCard({ name, commit, filesChanged, insertions, deletions, className }: BranchCardProps) {
+  const { openChanges, quiet } = useContext(BranchCardActions)
+  if (quiet) {
+    return (
+      <p data-local-agent-branch={name} data-local-agent-branch-note="" className={cn('flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground', className)}>
+        <GitBranch aria-hidden className="h-3 w-3 shrink-0" />
+        <span className="min-w-0 truncate" title={name}>
+          {branchNote({ name, filesChanged, insertions, deletions })}
+        </span>
+      </p>
+    )
+  }
+  return <BranchCardFull name={name} commit={commit} filesChanged={filesChanged} insertions={insertions} deletions={deletions} className={className} openChanges={openChanges} />
+})
+
+function BranchCardFull({ name, commit, filesChanged, insertions, deletions, className, openChanges }: BranchCardProps & { openChanges?: () => void }) {
   const [copied, setCopied] = useState(false)
-  const { openChanges } = useContext(BranchCardActions)
   const copy = async () => {
     if (await copyTextToClipboard(name)) {
       setCopied(true)
@@ -91,4 +118,4 @@ export const BranchCard = memo(function BranchCard({ name, commit, filesChanged,
       </p>
     </div>
   )
-})
+}

@@ -540,6 +540,10 @@ button to open that view should be on the Changes panel, not on the main chat vi
   known), and the transcript's branch card, whose Changes button now opens the panel (opening it
   when it was closed). "Open pull request" is on the Changes card and at the top of the panel, on
   the same rule as before (`pullRequestOffered`).
+- **The branch card's details move to the Changes card** (Liam: the main chat "clean"): the branch
+  with Copy, files and lines changed, the commit, and "On your Mac, in a separate copy…". The
+  transcript keeps one quiet line where the branch was made ("Made branch <name> · 2 files changed ·
+  +10 −3"), with nothing to press: it marks when the work landed in the conversation's order.
 - **Phones:** the right panel floats over the conversation there, so the same buttons open the same
   panel, capped to the screen's width.
 - **The other places the panel draws** (an action's Mac tab, a work item's panel, a bot's page)
