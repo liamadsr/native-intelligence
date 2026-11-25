@@ -21,20 +21,12 @@ export function rememberInspectorOpen(storage: Pick<Storage, 'setItem'> | null |
   try { storage?.setItem(inspectorOpenKey, String(open)); } catch { /* private mode */ }
 }
 
-/** The tabs on the strip of icons, in its order. Cursor is not one: it lives in the ⋯ menu. */
+/** The tabs along the inspector's top, in their order (a tab shows its pane; the header's toggle opens and closes the
+ * panel). Cursor is not one: it lives in the ⋯ menu. */
 export const railTabs = ['background', 'clip', 'motion', 'presenter', 'zoom', 'audio', 'transcript'] as const satisfies readonly InspectorTab[];
 export type RailTab = (typeof railTabs)[number];
 
 export interface InspectorPanel { open: boolean; tab: InspectorTab }
-
-/**
- * An icon on the strip: opens the panel on its tab; the icon of the tab already showing closes the panel.
- * `showsTab` false: a picked layer or beat fills the panel instead of its tab, so the icon shows its tab (the editor
- * lets go of that pick) and never closes the panel.
- */
-export function pressRailTab(panel: InspectorPanel, tab: RailTab, showsTab = true): InspectorPanel {
-  return showsTab && panel.open && panel.tab === tab ? { open: false, tab } : { open: true, tab };
-}
 
 /** The person asked for this tab (the ⋯ menu's Cursor, a layer just added): the panel opens on it. */
 export function showInspectorTab(panel: InspectorPanel, tab: InspectorTab = panel.tab): InspectorPanel {
