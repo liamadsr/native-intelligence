@@ -160,6 +160,19 @@ describe('startUnattendedLocalAgent', () => {
     }
   })
 
+  it('a loop’s job that was stopped, or sat idle a day, is never picked up again by a fire: a new job starts, nothing is written to the old one', async () => {
+    for (const end of [{ status: 'cancelled', error: null }, { status: 'expired', error: 'it sat idle for 24 hours' }]) {
+      const d = db()
+      await startUnattendedLocalAgent(d as never, input, deps)
+      const row = d.tables.local_agent_session[0]
+      Object.assign(row, end, { ended_at: new Date().toISOString() })
+      const next = await startUnattendedLocalAgent(d as never, { ...input, origin: { ...input.origin, fireKey: 'run-2' } }, deps)
+      expect(next, end.status).toMatchObject({ status: 'started', created: true })
+      expect(row, end.status).toMatchObject(end)
+      expect(d.tables.local_agent_message ?? [], end.status).toHaveLength(0)
+    }
+  })
+
   it('a job being stopped is never joined: busy, the fire is skipped; idle, it ends and a new job starts', async () => {
     const d = db()
     const first = (await startUnattendedLocalAgent(d as never, input, deps)) as { session: { id: string } }

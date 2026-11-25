@@ -348,7 +348,11 @@ describe('person routes', () => {
       const token = await (await tokenPOST(post({}), params('id', id))).json()
       expect(verifyModelToken(token.modelToken)).toMatchObject({ ok: true, claims: { sid: id, uid: USER } })
     }
-    // Another person can't pick it up.
+    // The author is the route's (the signed-in person), never the body's: one claiming the agent is still the person's.
+    Object.assign(db.tables.local_agent_session[0], { status: 'cancelled', error: null })
+    expect((await messagePOST(post({ text: 'as you', author: 'agent' }), params('id', id))).status).toBe(200)
+    expect(db.tables.local_agent_message.at(-1)).toMatchObject({ author: 'person', text: 'as you' })
+    // Another person can't pick it up: their sign-in scopes the read and the revival to their own rows.
     db.tables.local_agent_session[0].status = 'cancelled'
     m.user = OTHER
     expect((await messagePOST(post({ text: 'mine now' }), params('id', id))).status).toBe(404)

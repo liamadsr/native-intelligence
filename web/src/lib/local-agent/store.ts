@@ -1755,7 +1755,7 @@ export async function addMessage(
   // Mac resumes the same session in the same folder, or says why it can't.
   let revived = false
   if ((TERMINAL_STATUSES as string[]).includes(row.status) && input.author === 'person' && isContinuableEnd(row.status, row.error, isAttendedSession(row))) {
-    row = await reviveSession(svc, row)
+    row = await reviveSession(svc, input.userId, row)
     revived = true
   }
   if ((TERMINAL_STATUSES as string[]).includes(row.status)) {
@@ -1937,13 +1937,13 @@ export const REVIVE_FOLDER_BUSY = 'Another chat is working in this folder now, s
  * removed, or another live chat holds the folder now (migration 419's index).
  * Lost to a concurrent change, the row as it is now (the caller decides on it).
  */
-async function reviveSession(svc: Svc, r: DbSession): Promise<DbSession> {
+async function reviveSession(svc: Svc, userId: string, r: DbSession): Promise<DbSession> {
   if (!r.folder || r.folder.revoked_at || !r.folder.grant_id) throw new LocalAgentError('conflict', REVIVE_FOLDER_GONE, { status: r.status })
   if (r.device?.removed_at) throw macRemoved()
   // Its lane of the folder (migration 659) holds another live chat: the index would refuse it too.
   const myAction = actionIdOfJobKey(r.idempotency_key)
   const inLane = (cur: DbSession) => (isCardEditJob(r) ? actionIdOfJobKey(cur.idempotency_key) === myAction : !isCardEditJob(cur))
-  if ((await liveInFolder(svc, r.user_id, r.folder_id)).some((cur) => cur.id !== r.id && inLane(cur))) {
+  if ((await liveInFolder(svc, userId, r.folder_id)).some((cur) => cur.id !== r.id && inLane(cur))) {
     throw new LocalAgentError('conflict', REVIVE_FOLDER_BUSY, { code: FOLDER_BUSY_CODE, status: r.status })
   }
   const at = nowIso()
@@ -1951,7 +1951,8 @@ async function reviveSession(svc: Svc, r: DbSession): Promise<DbSession> {
     .from('local_agent_session')
     .update({ status: 'waiting', error: null, ended_at: null, stop_requested_at: null, lease_expires_at: null, updated_at: at })
     .eq('id', r.id)
-    .eq('user_id', r.user_id)
+    // The signed-in person's own row only (loadSession's scope too).
+    .eq('user_id', userId)
     .eq('status', r.status)
   q = r.error ? q.eq('error', r.error) : q.is('error', null)
   const { data, error } = await q.select(SESSION_SELECT).maybeSingle()
@@ -1960,7 +1961,7 @@ async function reviveSession(svc: Svc, r: DbSession): Promise<DbSession> {
     throw new Error(`local agent revive failed: ${error.message}`)
   }
   if (data) return data as DbSession
-  return (await loadSession(svc, r.user_id, r.id)) ?? r
+  return (await loadSession(svc, userId, r.id)) ?? r
 }
 
 /** A session's queue life: an unattended job (a loop's, an action's) waits 15 minutes, a person's 6 hours. */

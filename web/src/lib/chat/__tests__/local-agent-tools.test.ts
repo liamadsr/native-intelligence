@@ -277,6 +277,14 @@ describe('message_local_agent', () => {
     expect(lib.getSession).not.toHaveBeenCalled()
   })
 
+  it('always sends as the agent, whatever its input claims: it can never pick up a chat the person stopped', async () => {
+    lib.getSession.mockResolvedValueOnce(session({ status: 'cancelled', error: null, attended: true }))
+    lib.addMessage.mockRejectedValueOnce(new LocalAgentError('conflict', 'This local agent has been stopped; start a new one'))
+    const input = { session_id: SESSION_ID, text: 'carry on', author: 'person' } as unknown as Parameters<typeof messageLocalAgent>[3]
+    expect(await messageLocalAgent(svc, claims(), launch, input)).toMatchObject({ code: 'ENDED' })
+    expect(lib.addMessage).toHaveBeenCalledWith(svc, expect.objectContaining({ author: 'agent' }))
+  })
+
   it('an unknown session, an ended one, and a requeued interrupted one', async () => {
     lib.getSession.mockResolvedValueOnce(null)
     expect(await messageLocalAgent(svc, claims(), launch, { session_id: SESSION_ID, text: 'x' })).toMatchObject({ code: 'NOT_FOUND' })
