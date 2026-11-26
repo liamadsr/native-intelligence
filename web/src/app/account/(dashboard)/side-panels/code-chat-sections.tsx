@@ -7,15 +7,28 @@
  * panel's own look. The same cards for every coding agent, ours or the
  * person's own (Liam, 11-16: "treat all coding agents the same").
  *
- *   Review       the job's own record, the one its page shows (the work
- *                item's panel, embedded: work-item-detail-panel.tsx): what
- *                needs the person ("Review the result": Mark reviewed,
- *                Dismiss), what happened, its steps and details. The same
- *                component, so a job reads and is reviewed the same here as
- *                on its page (Liam, 11-16: "how come I see needs review
- *                here but not on the full screen view?"). Only in the shell
- *                (its openers need the agents' shared source), and once the
- *                job has its turn's record.
+ * One card skin for all (Liam, 11-26: the cards kept apart, "cleaned up",
+ * as Claude's right panel reads): a small muted sentence-case title, rows of
+ * icon and label with the value on the right, truncated, its whole text in a
+ * tooltip, and one quiet button style.
+ *
+ *   Status       the action the job works first, when it works one (its
+ *                Start; Liam, 11-20: "a two way connection where I can start
+ *                an action items work from the action item then I can go to
+ *                the coding view and see it's chat and go to the action item
+ *                from it's properties panel": its identifier and title, a
+ *                press opening it). Then what it is doing now, in the
+ *                conversation's own words, a dot for its state, its question
+ *                when it asked one, and Stop while it can be stopped (Liam,
+ *                11-26: "the action and status could be the same card").
+ *   Needs you    the job's own record, only while it needs the person (its
+ *                review: Mark reviewed, Dismiss; its question), the same
+ *                component its page shows (work-item-detail-panel.tsx,
+ *                `needsOnly`). Its summary, steps and details are not drawn
+ *                here (Liam, 11-26: "I'm not sure we need the summary and the
+ *                steps, details"): the conversation says what happened. Only
+ *                in the shell (its openers need the agents' shared source),
+ *                once the job has its turn's record.
  *   (The model and effort are not here: they are pinned under the composer,
  *   as other apps show them (Liam, 11-25; composer-code-controls.tsx
  *   CodeModelLine), where a new chat also picks them.)
@@ -27,15 +40,14 @@
  *                (CodeChangesPanel, below), and "Open pull request" is here
  *                once its turn ended with none (Liam, 11-25: the button to
  *                open the changes is on the Changes panel, not the chat).
+ *                The branch and the pull request live here; the conversation
+ *                keeps only a line where each happened. Where the branch is
+ *                ("on your Mac, in a separate copy…") is the info icon's
+ *                tooltip by the title (Liam, 11-26).
  *   Environment  the Mac and the folder it works in.
  *   Agent        who does the work: Native Intelligence on that Mac, or the
  *                person's own coding agent by name.
- *   Action       first, when the job works an action (its Start): the
- *                action's identifier and title, a press opening it (Liam,
- *                11-20: "a two way connection where I can start an action
- *                items work from the action item then I can go to the coding
- *                view and see it's chat and go to the action item from it's
- *                properties panel").
+ *   Copy link    last.
  *
  * Read from the conversation's own reader (chat/code-chat-live.ts `live`):
  * no read of its own, no timer. Until that first read, blank cards.
@@ -47,10 +59,10 @@
  * by the transcript's branch card (code-chat-stage.tsx).
  */
 import { EntityIcon } from '@/components/entities/entity-icon'
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { ArrowUpRight, Check, ChevronLeft, Copy, ExternalLink, FileDiff, Link2, Square } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { ArrowUpRight, Bot, Check, ChevronLeft, Copy, FileDiff, Folder, GitBranch, GitCommitHorizontal, GitPullRequest, Info, Laptop, Link2, Square, type LucideIcon } from 'lucide-react'
 import { copyTextToClipboard } from '@/lib/clipboard'
-import { branchStats } from '@/components/local-agent/branch-card'
+import { BRANCH_WHERE, branchStats } from '@/components/local-agent/branch-card'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -64,7 +76,7 @@ import { ChangesView } from '@/components/local-agent/changes-view'
 import { PullRequestOffer, queueOne, usePullRequestAsk, viewChangesLabel, type PullRequestAsk } from '@/components/local-agent/local-agent-panel'
 import type { PanelSession } from '@/components/local-agent/session-api'
 import { useCodeView } from '../chat/use-code-view'
-import { useOptionalAgentWorkShared } from '@/components/work/agent-work-provider'
+import { useOptionalAgentWork, useOptionalAgentWorkShared } from '@/components/work/agent-work-provider'
 import { WorkItemDetailPanel } from '@/components/work/work-item-detail-panel'
 import { openTarget } from '@/lib/chat-cards/open-card'
 import { getClientWorkspaceId } from '@/lib/workspace-fetch'
@@ -85,21 +97,42 @@ export function codeChatStatus(session: PanelSession, stopping: boolean): string
   return sessionStatusText(session.status, session.lastSignal)
 }
 
-function Card({ id, title, children }: { id: string; title: string; children: ReactNode }) {
+/** The one quiet button every card uses (Liam, 11-26: "buttons in one quiet style"). */
+export const CARD_BUTTON_CLASS = 'h-7 gap-1.5 px-2.5 text-xs font-normal'
+
+/**
+ * A card, one skin for all (Liam, 11-26, as Claude's right panel reads: the
+ * same padding and radius everywhere, a small muted sentence-case title).
+ * `aside`: a small control at the title's right (the Changes card's info).
+ */
+function Card({ id, title, aside, children }: { id: string; title: string; aside?: ReactNode; children: ReactNode }) {
   return (
     <section aria-label={title} data-code-chat-section={id} className={cn('pointer-events-auto relative shrink-0 px-3 py-2.5', FLOATING_CARD_CLASS)}>
-      <h3 className="text-[13px] text-foreground">{title}</h3>
-      <div className="mt-1.5 space-y-1 text-xs text-muted-foreground">{children}</div>
+      <h3 className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+        {title}
+        {aside}
+      </h3>
+      <div className="mt-2 space-y-1.5 text-xs text-muted-foreground">{children}</div>
     </section>
   )
 }
 
-function Line({ label, children }: { label: string; children: ReactNode }) {
+/**
+ * A key/value row: a small icon and the label on the left, the value on the
+ * right, truncated, its whole text in a tooltip (`full`, or the value's own
+ * words when it is plain text).
+ */
+function Line({ icon: Icon, label, full, children }: { icon?: LucideIcon; label: string; full?: string; children: ReactNode }) {
   return (
-    <p className="flex min-w-0 items-baseline justify-between gap-3">
-      <span className="shrink-0">{label}</span>
-      <span className="min-w-0 truncate text-foreground/90">{children}</span>
-    </p>
+    <div className="flex min-h-5 min-w-0 items-center justify-between gap-3">
+      <span className="flex shrink-0 items-center gap-1.5">
+        {Icon && <Icon aria-hidden className="size-3.5 shrink-0" />}
+        {label}
+      </span>
+      <span className="flex min-w-0 items-center justify-end gap-1 text-right text-foreground/90" title={full ?? (typeof children === 'string' ? children : undefined)}>
+        {children}
+      </span>
+    </div>
   )
 }
 
@@ -146,9 +179,9 @@ export function useJobAction(actionId: string | undefined): JobAction | null {
  * see the action item the agent is working on… a two way connection"): its
  * identifier and title, a press opening it, as any action opens.
  */
-function ActionCard({ action }: { action: JobAction }) {
+function ActionRow({ action }: { action: JobAction }) {
   return (
-    <Card id="action" title="Action">
+    <div data-code-chat-section="action">
       <button
         type="button"
         data-code-chat-action={action.id}
@@ -161,7 +194,7 @@ function ActionCard({ action }: { action: JobAction }) {
         <span className="min-w-0 flex-1 truncate">{action.title || 'Untitled action'}</span>
         <ArrowUpRight aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
       </button>
-    </Card>
+    </div>
   )
 }
 
@@ -315,68 +348,72 @@ export function CodeChatSections({ pr: given }: { pr?: PullRequestState } = {}) 
       if (!res.ok) toast.error(res.message)
     })
   }
+  const failed = session.status === 'failed'
   return (
     <div data-code-chat-sections={session.id} className="ph-no-capture flex flex-col gap-2.5">
-      {action && <ActionCard action={action} />}
+      {/* One card for the job's state, its action first (Liam, 11-26: "the action and status could be the same card"). */}
       <Card id="status" title="Status">
-        <p data-code-chat-status={session.status} className={cn('text-foreground/90', asking && 'text-amber-600 dark:text-amber-400', session.status === 'failed' && 'text-destructive')}>
-          {codeChatStatus(session, stopping)}
+        {action && <ActionRow action={action} />}
+        <p data-code-chat-status={session.status} className={cn('flex min-w-0 items-center gap-2 text-foreground/90', failed && 'text-destructive')}>
+          <span aria-hidden className={cn('size-1.5 shrink-0 rounded-full', statusDot(session, asking))} />
+          <span className="min-w-0">{codeChatStatus(session, stopping)}</span>
         </p>
-        {asking && session.lastSignalText && <p className="line-clamp-4">{session.lastSignalText}</p>}
+        {asking && session.lastSignalText && <p className="line-clamp-4 pl-3.5">{session.lastSignalText}</p>}
         {canStopSession(session.status) && (
-          <Button type="button" variant="outline" size="sm" className="mt-1 h-7 gap-1.5" disabled={stopping} onClick={onStop} data-code-chat-stop="">
-            <Square className="size-3" />
+          <Button type="button" variant="outline" size="sm" className={cn(CARD_BUTTON_CLASS, 'mt-0.5')} disabled={stopping} onClick={onStop} data-code-chat-stop="">
+            <Square className="size-2.5" fill="currentColor" />
             Stop
           </Button>
         )}
       </Card>
-      {inShell && session.trackedJobId && (
-        <section
-          aria-label="Review"
-          data-code-chat-section="review"
-          className={cn('pointer-events-auto relative flex max-h-[min(34rem,60vh)] min-h-0 shrink-0 flex-col overflow-hidden', FLOATING_CARD_CLASS)}
-        >
-          {/* Keyed by its turn's record: the next turn has its own. The conversation is the middle's (`conversationBeside`). */}
-          <WorkItemDetailPanel key={session.trackedJobId} itemId={session.trackedJobId} embedded shown conversationBeside />
-        </section>
-      )}
-      <Card id="changes" title="Changes">
+      {inShell && session.trackedJobId && <NeedsYouCard key={session.trackedJobId} jobId={session.trackedJobId} />}
+      <Card
+        id="changes"
+        title="Changes"
+        aside={
+          session.mode === 'edit' && session.branch ? (
+            <span data-code-chat-branch-where="" title={BRANCH_WHERE} aria-label={BRANCH_WHERE} className="inline-flex cursor-help text-muted-foreground/80 hover:text-foreground">
+              <Info aria-hidden className="size-3" />
+            </span>
+          ) : null
+        }
+      >
         {session.mode !== 'edit' ? (
           <p>Read only: it changes nothing in this folder.</p>
         ) : session.branch ? (
           <>
-            <p className="flex min-w-0 items-baseline justify-between gap-2">
-              <span className="shrink-0">Branch</span>
-              <span className="flex min-w-0 items-center gap-1">
-                <span data-code-chat-branch="" className="min-w-0 truncate font-mono text-[11px] text-foreground/90" title={session.branch}>
-                  {session.branch}
-                </span>
-                <CopyBranch name={session.branch} />
+            <Line icon={GitBranch} label="Branch" full={session.branch}>
+              <span data-code-chat-branch="" className="min-w-0 truncate font-mono text-[11px]">
+                {session.branch}
               </span>
-            </p>
+              <CopyBranch name={session.branch} />
+            </Line>
             {live.filesChanged !== null && (
-              <Line label="Changed">
-                <span data-code-chat-branch-stats="">{branchStats({ filesChanged: live.filesChanged, insertions: live.insertions ?? 0, deletions: live.deletions ?? 0 })}</span>
+              <Line icon={FileDiff} label="Changed">
+                <span data-code-chat-branch-stats="" className="truncate">
+                  {branchStats({ filesChanged: live.filesChanged, insertions: live.insertions ?? 0, deletions: live.deletions ?? 0 })}
+                </span>
               </Line>
             )}
             {session.commitSha && (
-              <Line label="Commit">
-                <span data-code-chat-commit="" className="font-mono text-[11px]" title={session.commitSha}>
+              <Line icon={GitCommitHorizontal} label="Commit" full={session.commitSha}>
+                <span data-code-chat-commit="" className="font-mono text-[11px]">
                   {session.commitSha.slice(0, 7)}
                 </span>
               </Line>
             )}
-            <p className="text-[11px] text-muted-foreground/80">On your Mac, in a separate copy; your checkout is as it was. It’s pushed only when you say yes on your Mac.</p>
-            {prUrl ? (
-              <a href={prUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-foreground/90 underline-offset-2 hover:underline" data-code-chat-pr={prUrl}>
-                Pull request{prNumber ? ` #${prNumber}` : ''}
-                <ExternalLink aria-hidden className="size-3" />
-              </a>
-            ) : (
-              <p>No pull request yet.</p>
-            )}
+            <Line icon={GitPullRequest} label="Pull request" full={prUrl ?? undefined}>
+              {prUrl ? (
+                <a href={prUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 underline-offset-2 hover:underline" data-code-chat-pr={prUrl}>
+                  {prNumber ? `#${prNumber}` : 'Open'}
+                  <ArrowUpRight aria-hidden className="size-3" />
+                </a>
+              ) : (
+                <span className="text-muted-foreground">None yet</span>
+              )}
+            </Line>
             <div className="flex flex-wrap items-center gap-1.5 pt-1">
-              <Button type="button" variant="outline" size="sm" className="h-7 gap-1.5" onClick={() => openCodeChanges()} data-code-chat-view-changes={live.filesChanged ?? ''}>
+              <Button type="button" variant="outline" size="sm" className={CARD_BUTTON_CLASS} onClick={() => openCodeChanges()} data-code-chat-view-changes={live.filesChanged ?? ''}>
                 <FileDiff aria-hidden className="size-3" />
                 {viewChangesLabel(live.filesChanged)}
               </Button>
@@ -388,8 +425,17 @@ export function CodeChatSections({ pr: given }: { pr?: PullRequestState } = {}) 
         )}
       </Card>
       <Card id="environment" title="Environment">
-        <Line label="Mac">{session.deviceName || 'Your Mac'}</Line>
-        <Line label="Folder">{session.folderLabel || 'A folder'}</Line>
+        <Line icon={Laptop} label="Mac">
+          <span className="truncate">{session.deviceName || 'Your Mac'}</span>
+        </Line>
+        <Line icon={Folder} label="Folder">
+          <span className="truncate">{session.folderLabel || 'A folder'}</span>
+        </Line>
+      </Card>
+      <Card id="agent" title="Agent">
+        <Line icon={Bot} label="Works as" full={session.worker ? `Your own ${workerLabel(session.worker)} account does the work, on your Mac.` : 'Native Intelligence does the work, on your Mac.'}>
+          <span className="truncate">{codeAgentName(session)}</span>
+        </Line>
       </Card>
       {/* The chat's own address (docs/plans/one-home.md: `/account?code=<session id>`), for a note or a teammate of theirs who can read it. */}
       <button
@@ -407,10 +453,47 @@ export function CodeChatSections({ pr: given }: { pr?: PullRequestState } = {}) 
         <Link2 aria-hidden className="size-3.5" />
         Copy link
       </button>
-      <Card id="agent" title="Agent">
-        <Line label="Works as">{codeAgentName(session)}</Line>
-        <p>{session.worker ? `Your own ${workerLabel(session.worker)} account does the work, on your Mac.` : 'Native Intelligence does the work, on your Mac.'}</p>
-      </Card>
     </div>
+  )
+}
+
+/** The status line's dot: the one place a status colour shows. */
+function statusDot(session: PanelSession, asking: boolean): string {
+  if (session.status === 'failed') return 'bg-destructive'
+  if (asking) return 'bg-amber-500'
+  if (session.status === 'running' || session.status === 'starting' || session.status === 'queued') return 'bg-emerald-500'
+  return 'bg-muted-foreground/50'
+}
+
+/** Where the job's record stands, as the shared ledger rows hold it (null before they are read, or outside the shell). */
+function useJobStatus(jobId: string): string | null {
+  const rows = useOptionalAgentWork()?.work.rows as ReadonlyArray<{ id: string; status: string }> | null | undefined
+  return rows?.find((r) => r.id === jobId)?.status ?? null
+}
+
+/**
+ * The job's record, only while it needs the person (Liam, 11-26: "I'm not
+ * sure we need the summary and the steps, details"): its question or its
+ * review, with Mark reviewed and Dismiss, as its page shows them
+ * (WorkItemDetailPanel `needsOnly`). Nothing otherwise: the conversation says
+ * what happened. Its status comes from the shared rows, or the record's own
+ * read; it is mounted (hidden) to read it.
+ */
+function NeedsYouCard({ jobId }: { jobId: string }) {
+  const shared = useJobStatus(jobId)
+  const [read, setRead] = useState<string | null>(null)
+  const status = shared ?? read
+  const needs = status === 'needs_review' || status === 'needs_input'
+  const onItem = useCallback((item: { status: string } | null) => setRead(item?.status ?? null), [])
+  return (
+    <section
+      aria-label="Needs you"
+      data-code-chat-section="review"
+      hidden={!needs}
+      className={cn('pointer-events-auto relative flex max-h-[min(34rem,60vh)] min-h-0 shrink-0 flex-col overflow-hidden', FLOATING_CARD_CLASS)}
+    >
+      {/* The conversation is the middle's (`conversationBeside`). */}
+      <WorkItemDetailPanel itemId={jobId} embedded shown={needs} conversationBeside needsOnly onItem={onItem} />
+    </section>
   )
 }

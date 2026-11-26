@@ -384,6 +384,24 @@ describe('WorkItemDetailPanel — a pass that wrote drafts', () => {
   })
 })
 
+describe('WorkItemDetailPanel — needsOnly (the Code view’s right panel, Liam 11-26)', () => {
+  it('draws only what needs the person: the review and its verbs, its proposals; no title, steps or details', async () => {
+    act(() => {
+      root.render(h(WorkItemDetailPanel, { itemId: 'job-1', embedded: true, needsOnly: true, conversationBeside: true }))
+    })
+    await flush()
+    expect(text()).toContain('Needs you')
+    expect(button('Mark reviewed')).toBeDefined()
+    expect(button('Dismiss')).toBeDefined()
+    expect(button('Review draft')).toBeDefined()
+    // The title block is hidden, and the summary, steps and details are not drawn.
+    expect(container.querySelector('h1')?.closest('[hidden]')).not.toBeNull()
+    expect(buttonStartingWith('Steps')).toBeUndefined()
+    expect(button('Details')).toBeUndefined()
+    expect(text()).not.toContain('What happened')
+  })
+})
+
 describe('WorkItemDetailPanel — opening it stamps it opened (migration 295)', () => {
   const openedPatches = () =>
     calls('/api/account/activity/job-1', 'PATCH').filter(([, init]) => JSON.parse((init as RequestInit).body as string).action === 'opened')

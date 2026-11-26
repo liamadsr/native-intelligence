@@ -198,36 +198,20 @@ describe('CodeChatStage', () => {
     expect(container.querySelector('[data-code-chat-back]')).toBeNull()
   })
 
-  it('leaves out the finish card only while the right panel shows the job’s record', () => {
+  it('draws the turn’s summary in the conversation whatever the right panel shows (it no longer carries the record’s What happened)', () => {
     act(() => root.render(h(CodeChatStage)))
     act(() => {
       setPagePanelShown(true)
       openCodingChat('sess-1')
     })
+    // Liam, 11-26: the panel's record keeps only what needs the person, so the conversation is where the summary reads.
     const hideFinish = () => container.querySelector('[data-fake-panel]')?.getAttribute('data-hide-finish')
-    // Not read yet, then read with no record: nothing beside it says the summary.
-    expect(hideFinish()).toBe('false')
     readChat(null)
-    expect(hideFinish()).toBe('false')
-    // Its record, in the open details: the Review card's What happened says it.
+    expect(hideFinish()).toBe('undefined')
     readChat('job-1')
-    expect(hideFinish()).toBe('true')
-    // The details closed: the conversation is the only place it reads.
+    expect(hideFinish()).toBe('undefined')
     act(() => setCodeDetailsOpen(false))
-    expect(hideFinish()).toBe('false')
-    act(() => setCodeDetailsOpen(true))
-    expect(hideFinish()).toBe('true')
-  })
-
-  it('draws the finish card outside the shell, where the right panel has no Review card', () => {
-    shell.shared = null
-    act(() => root.render(h(CodeChatStage)))
-    act(() => {
-      setPagePanelShown(true)
-      openCodingChat('sess-1')
-    })
-    readChat('job-1')
-    expect(container.querySelector('[data-fake-panel]')?.getAttribute('data-hide-finish')).toBe('false')
+    expect(hideFinish()).toBe('undefined')
   })
 
   describe('the first time, for someone used to the Code tab’s own list', () => {

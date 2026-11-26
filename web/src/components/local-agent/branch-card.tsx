@@ -14,7 +14,7 @@
  * marking when the branch was made, nothing to press.
  */
 import { createContext, memo, useContext, useState } from 'react'
-import { Check, Copy, FileDiff, GitBranch } from 'lucide-react'
+import { Check, Copy, FileDiff, GitBranch, Info } from 'lucide-react'
 import { copyTextToClipboard } from '@/lib/clipboard'
 import { cn } from '@/lib/utils'
 
@@ -26,6 +26,12 @@ export interface BranchCardProps {
   deletions: number
   className?: string
 }
+
+/**
+ * Where the branch is, said once, behind an info icon (Liam, 11-26: the long
+ * note shortened or hidden): the branch card's and the Changes card's.
+ */
+export const BRANCH_WHERE = 'On your Mac, in a separate copy; your checkout is as it was. It’s pushed only when you say yes on your Mac.'
 
 /** "3 files changed · +10 −2". */
 export function branchStats(b: Pick<BranchCardProps, 'filesChanged' | 'insertions' | 'deletions'>): string {
@@ -102,7 +108,8 @@ function BranchCardFull({ name, commit, filesChanged, insertions, deletions, cla
           </button>
         )}
       </div>
-      <p className="mt-1 pl-[22px] text-muted-foreground">
+      <p className="mt-1 flex items-center gap-1 pl-[22px] text-muted-foreground">
+        <span>
         {branchStats({ filesChanged, insertions, deletions })}
         {commit ? (
           <>
@@ -112,9 +119,10 @@ function BranchCardFull({ name, commit, filesChanged, insertions, deletions, cla
             </span>
           </>
         ) : null}
-      </p>
-      <p className="mt-0.5 pl-[22px] text-[11px] text-muted-foreground/80">
-        On your Mac, in a separate copy; your checkout is as it was. It’s pushed only when you say yes on your Mac.
+        </span>
+        <span data-local-agent-branch-where="" title={BRANCH_WHERE} aria-label={BRANCH_WHERE} className="inline-flex cursor-help">
+          <Info aria-hidden className="h-3 w-3" />
+        </span>
       </p>
     </div>
   )

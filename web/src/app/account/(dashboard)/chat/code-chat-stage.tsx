@@ -27,11 +27,11 @@
  * and the agents chats are showing at the same time").
  * Mounted in the thread's stage (chat-panel.tsx).
  *
- * Its turn's summary (the `finish` card) is not drawn while the right panel
- * shows the job's record (Liam, 11-20: "remove that finished message from the
- * main chat and just keep the one on the side panel"): the Review card's
- * "What happened" says the same, its action ids as live chips. With the panel
- * closed, or no record yet, the card is drawn as everywhere else.
+ * Its turn's summary (the `finish`) is drawn in the conversation, as the
+ * agent's own words: the right panel no longer shows the job's record with
+ * its "What happened" (Liam, 11-26: "I'm not sure we need the summary and the
+ * steps, details"), so the conversation is where it is read (it was left out
+ * here while the panel carried it: Liam, 11-20).
  */
 import { useCallback, useEffect, useState } from 'react'
 import { ChevronLeft, X } from 'lucide-react'
@@ -51,14 +51,11 @@ import { FIRST_TIME_KEY, FIRST_TIME_LINE } from './one-home-decisions'
 import { showOnlyCoding } from '../page-panel/use-recents-filter'
 import { setHomeSide } from '../page-panel/home-side'
 import { openCodeChanges, setPagePanelOpen } from '../side-panels/side-panel-store'
-import { useOptionalAgentWorkShared } from '@/components/work/agent-work-provider'
 
 export function CodeChatStage() {
   const state = useSidePanelState()
   const onCode = state.chatKind !== 'agent'
-  const { selected, attempt, live } = useCodeView()
-  // As code-chat-sections.tsx decides it: the Review card is drawn only in the shell, once the job has its record.
-  const inShell = useOptionalAgentWorkShared() !== null
+  const { selected, attempt } = useCodeView()
   // The selection belongs to the window's workspace (the store's own check: this
   // panel remounts on a workspace switch, so it could not see one): another
   // workspace's chat never shows here, and this one's last chat comes back.
@@ -89,12 +86,10 @@ export function CodeChatStage() {
   const listHere = !state.pagePanelShown
   // The right panel shows the chat's agent, folder, status and Stop: the conversation's own header would say them twice.
   const detailsShown = rightShown(state)
-  // The right panel's Review card carries the summary: the conversation doesn't repeat it.
-  const summaryBeside = detailsShown && inShell && !!live?.session.trackedJobId
   return (
     <>
       {selected ? (
-        <Stage key={attempt} selected={selected} onLive={onLive} onError={onError} header={!detailsShown} back={listHere} hideFinish={summaryBeside} />
+        <Stage key={attempt} selected={selected} onLive={onLive} onError={onError} header={!detailsShown} back={listHere} />
       ) : (
         <NewChat listHere={listHere} />
       )}
@@ -110,14 +105,12 @@ function Stage({
   onError,
   header,
   back,
-  hideFinish,
 }: {
   selected: string
   onLive: (live: CodeChatLive | null) => void
   onError: (message: string) => void
   header: boolean
   back: boolean
-  hideFinish: boolean
 }) {
   const { name: agentName } = useAssistantName()
   return (
@@ -135,7 +128,7 @@ function Stage({
           </button>
         )}
         {/* Keyed by the chat: another one is another conversation, read afresh. */}
-        <LocalAgentPanel key={selected} sessionId={selected} composer={false} header={header} onLive={onLive} onError={onError} hideScrollbar hideFinish={hideFinish} onOpenChanges={openCodeChanges} className="min-h-0 flex-1" />
+        <LocalAgentPanel key={selected} sessionId={selected} composer={false} header={header} onLive={onLive} onError={onError} hideScrollbar onOpenChanges={openCodeChanges} className="min-h-0 flex-1" />
       </div>
     </div>
   )

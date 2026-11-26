@@ -19,8 +19,14 @@ import { createRoot, type Root } from 'react-dom/client'
 
 const view = vi.hoisted(() => ({ state: { selected: null as string | null, live: null as unknown, error: null as string | null, attempt: 0 } }))
 vi.mock('../../chat/use-code-view', () => ({ useCodeView: () => view.state }))
-vi.mock('@/components/work/agent-work-provider', () => ({ useOptionalAgentWorkShared: () => null }))
-vi.mock('@/components/work/work-item-detail-panel', () => ({ WorkItemDetailPanel: () => null }))
+const shell = vi.hoisted(() => ({ shared: null as object | null, rows: null as Array<{ id: string; status: string }> | null }))
+vi.mock('@/components/work/agent-work-provider', () => ({
+  useOptionalAgentWorkShared: () => shell.shared,
+  useOptionalAgentWork: () => (shell.shared ? { work: { rows: shell.rows } } : null),
+}))
+vi.mock('@/components/work/work-item-detail-panel', () => ({
+  WorkItemDetailPanel: (props: { itemId: string; needsOnly?: boolean }) => h('div', { 'data-fake-record': props.itemId, 'data-needs-only': String(!!props.needsOnly) }),
+}))
 const opened = vi.hoisted(() => ({ calls: [] as unknown[] }))
 vi.mock('@/lib/chat-cards/open-card', () => ({
   openTarget: (target: unknown, opts: unknown) => {
@@ -64,6 +70,8 @@ let root: Root
 let fetchMock: ReturnType<typeof vi.fn>
 beforeEach(() => {
   opened.calls = []
+  shell.shared = null
+  shell.rows = null
   fetchMock = vi.fn(async (url: string) =>
     url.endsWith(ACTION)
       ? new Response(JSON.stringify({ action: { id: ACTION, identifier: 'ENG-42', title: 'Fix the board pagination' } }), { status: 200 })
@@ -89,10 +97,14 @@ async function render() {
 const card = () => container.querySelector<HTMLElement>('[data-code-chat-section="action"]')
 
 describe('the action a coding job works', () => {
-  it('comes first, with its identifier and title, read once; a press opens it', async () => {
+  it('comes first, in the Status card, with its identifier and title, read once; a press opens it', async () => {
     onJob({ actionId: ACTION })
     await render()
-    expect(container.querySelector('[data-code-chat-sections] > section')?.getAttribute('data-code-chat-section')).toBe('action')
+    // One card for the job's state, the action first in it (Liam, 11-26: "the action and status could be the same card").
+    const first = container.querySelector('[data-code-chat-sections] > section')!
+    expect(first.getAttribute('data-code-chat-section')).toBe('status')
+    expect(first.firstElementChild?.nextElementSibling?.firstElementChild).toBe(card())
+    expect(container.querySelectorAll('[data-code-chat-sections] > section[data-code-chat-section="action"]')).toHaveLength(0)
     expect(card()!.textContent).toContain('ENG-42')
     expect(card()!.textContent).toContain('Fix the board pagination')
     expect(fetchMock).toHaveBeenCalledTimes(1)
@@ -126,7 +138,7 @@ describe('the Changes card', () => {
     onJob({ ...FINISHED, live: { filesChanged: 3 } })
     await render()
     expect(changesCard().textContent).not.toContain('Changes tab')
-    expect(changesCard().textContent).toContain('No pull request yet.')
+    expect(changesCard().textContent).toContain('Pull requestNone yet')
     expect(changesCard().querySelector('[data-code-chat-view-changes]')?.textContent).toBe('View changes · 3 files')
   })
 
@@ -138,7 +150,9 @@ describe('the Changes card', () => {
     expect(changesCard().querySelector('[data-code-chat-branch]')?.textContent).toBe('dial8/sample-repo-1a2b')
     expect(changesCard().querySelector('[data-code-chat-branch-stats]')?.textContent).toBe('2 files changed · +10 −3')
     expect(changesCard().querySelector('[data-code-chat-commit]')?.textContent).toBe('6cfa56d')
-    expect(changesCard().textContent).toContain('On your Mac, in a separate copy')
+    // Where the work is: behind the info icon by the title, not a paragraph in the card.
+    expect(changesCard().querySelector('[data-code-chat-branch-where]')?.getAttribute('title')).toContain('On your Mac, in a separate copy')
+    expect(changesCard().querySelector('p')?.textContent ?? '').not.toContain('On your Mac')
     const copy = changesCard().querySelector<HTMLButtonElement>('[data-code-chat-branch-copy]')!
     expect(copy.getAttribute('aria-label')).toBe('Copy branch dial8/sample-repo-1a2b')
     await act(async () => copy.click())
@@ -232,5 +246,26 @@ describe('the Changes panel', () => {
     await act(async () => root.render(h(CodeChangesPanel)))
     expect(container.querySelector('[data-code-changes-panel]')).toBeNull()
     expect(getSidePanelState().codeChanges).toBe(false)
+  })
+})
+
+describe('the job’s record (Liam, 11-26: "I’m not sure we need the summary and the steps, details")', () => {
+  const record = () => container.querySelector<HTMLElement>('[data-code-chat-section="review"]')
+  it('is drawn only while the job needs the person, and then only what needs them', async () => {
+    shell.shared = {}
+    shell.rows = [{ id: 'job-1', status: 'needs_review' }]
+    onJob({ trackedJobId: 'job-1', status: 'waiting' })
+    await render()
+    expect(record()!.hidden).toBe(false)
+    expect(record()!.querySelector('[data-fake-record="job-1"]')?.getAttribute('data-needs-only')).toBe('true')
+    shell.rows = [{ id: 'job-1', status: 'done' }]
+    await render()
+    expect(record()!.hidden).toBe(true)
+  })
+
+  it('outside the shell, none', async () => {
+    onJob({ trackedJobId: 'job-1' })
+    await render()
+    expect(record()).toBeNull()
   })
 })

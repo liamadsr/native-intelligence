@@ -760,6 +760,69 @@ export function mcpToolName(name: string): string | null {
   return /^mcp__[^_](?:.*?[^_])?__(.+)$/.exec(name)?.[1] ?? null
 }
 
+/** What a tool call does, by its name: reads, edits, searches, runs a command, or something else. */
+export type ToolKind = 'read' | 'edit' | 'search' | 'run' | 'other'
+
+export function toolKind(name: string): ToolKind {
+  const n = name.toLowerCase()
+  if (/read|cat|view|open/.test(n)) return 'read'
+  if (/write|edit|patch|apply/.test(n)) return 'edit'
+  if (/grep|search|find|glob|list|ls/.test(n)) return 'search'
+  if (/bash|shell|exec|run|command/.test(n)) return 'run'
+  return 'other'
+}
+
+/** The file a read or an edit names, for counting files rather than calls. */
+function toolPath(input: string): string | null {
+  const args = parsedInput(input)
+  for (const key of ['path', 'file', 'filePath', 'file_path']) {
+    const v = args?.[key]
+    if (typeof v === 'string' && v.trim()) return v.trim()
+  }
+  return null
+}
+
+/**
+ * A run of tool calls in one line, as Claude Code and Codex sum one up (Liam,
+ * 11-26: "Ran 6 commands, edited 3 files"): what was done, by kind, in the
+ * order each kind first came. Reads and edits count the files they named
+ * (a call naming none counts as one), searches and commands their calls, and
+ * anything else its steps ("other steps" beside the rest). Pure.
+ */
+export function toolRunSummary(tools: ReadonlyArray<{ name: string; input: string }>): string {
+  const order: ToolKind[] = []
+  const calls = new Map<ToolKind, number>()
+  const files = new Map<ToolKind, Set<string>>()
+  for (const t of tools) {
+    const kind = toolKind(t.name)
+    if (!calls.has(kind)) order.push(kind)
+    calls.set(kind, (calls.get(kind) ?? 0) + 1)
+    if (kind === 'read' || kind === 'edit') {
+      const set = files.get(kind) ?? new Set<string>()
+      set.add(toolPath(t.input) ?? `#${set.size}`)
+      files.set(kind, set)
+    }
+  }
+  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
+  const parts = order.map((kind) => {
+    const n = calls.get(kind) ?? 0
+    switch (kind) {
+      case 'read':
+        return `read ${plural(files.get(kind)?.size ?? n, 'file', 'files')}`
+      case 'edit':
+        return `edited ${plural(files.get(kind)?.size ?? n, 'file', 'files')}`
+      case 'search':
+        return `searched ${n === 1 ? 'once' : `${n} times`}`
+      case 'run':
+        return `ran ${plural(n, 'command', 'commands')}`
+      default:
+        return order.length === 1 ? `took ${plural(n, 'step', 'steps')}` : `took ${plural(n, 'other step', 'other steps')}`
+    }
+  })
+  const line = parts.join(', ')
+  return line ? line[0].toUpperCase() + line.slice(1) : ''
+}
+
 /** A tool call in one line: "Reading src/app/page.tsx", "Running git status", or its name. */
 export function toolLine(name: string, input: string): string {
   const args = parsedInput(input)
@@ -771,22 +834,16 @@ export function toolLine(name: string, input: string): string {
       break
     }
   }
-  const n = name.toLowerCase()
-  const verb = /read|cat|view|open/.test(n)
-    ? 'Reading'
-    : /write|edit|patch|apply/.test(n)
-      ? 'Editing'
-      : /grep|search|find|glob|list|ls/.test(n)
-        ? 'Searching'
-        : /bash|shell|exec|run|command/.test(n)
-          ? 'Running'
-          : null
+  const kind = toolKind(name)
+  const verb = kind === 'read' ? 'Reading' : kind === 'edit' ? 'Editing' : kind === 'search' ? 'Searching' : kind === 'run' ? 'Running' : null
   if (verb) return truncate(arg ? `${verb} ${arg}` : verb, 120)
   // An MCP tool reads as its own name in words (`mcp__ni__get_action` → "Get action"); a tool called through
   // `call_tool`, as the tool it called.
   const mcp = mcpToolName(name)
   const called = mcp === 'call_tool' && typeof args?.name === 'string' && /^[a-z0-9_]{1,60}$/i.test(args.name) ? args.name : mcp
   const words = called ? called.replace(/^ni_/, '').replace(/_+/g, ' ').trim() : ''
-  const shown = words ? words[0].toUpperCase() + words.slice(1) : name || 'Tool'
+  // Any other tool reads as its name in words too (`finish` → "Finish", `update_plan` → "Update plan").
+  const plain = words || name.replace(/_+/g, ' ').trim()
+  const shown = plain ? plain[0].toUpperCase() + plain.slice(1) : 'Tool'
   return truncate(arg ? `${shown} ${arg}` : shown, 120)
 }
