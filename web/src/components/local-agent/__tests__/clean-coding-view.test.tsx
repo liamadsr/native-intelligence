@@ -20,7 +20,7 @@ vi.mock('@/components/ui/message', () => ({
 vi.mock('@/app/account/(dashboard)/chat/read-aloud-button', () => ({ ReadAloudButton: () => null }))
 
 import { toolRunSummary, type TranscriptItem } from '@/lib/local-agent/transcript-view'
-import { drawnRows } from '../local-agent-panel'
+import { ConversationRows, drawnRows } from '../local-agent-panel'
 import { InboundBubble, ToolRun, TranscriptRow } from '../transcript-rows'
 
 const tool = (key: string, name: string, input: Record<string, unknown>, ok = true): Extract<TranscriptItem, { type: 'tool' }> => ({
@@ -150,5 +150,29 @@ describe('the rows', () => {
     expect(q('[data-local-agent-inbound-note]')!.textContent).toBe('Queued')
     draw(h(InboundBubble, { author: 'person', text: 'Go on.', policy: 'steer' }))
     expect(q('[data-local-agent-inbound-note]')).toBeNull()
+  })
+})
+
+describe('the foot of the conversation while it works', () => {
+  const said: TranscriptItem = { type: 'assistant', key: 'a', text: 'Looking.', open: false }
+  const conv = (items: TranscriptItem[], live: boolean, working = live) =>
+    draw(h(ConversationRows, { request: null, rows: drawnRows(items), live, last: items[items.length - 1], working }))
+
+  it('says "Working…" quietly while it runs, so no host looks idle; nothing once it stops', () => {
+    conv([said, { type: 'status', key: 's', status: 'running', reason: null }], true)
+    expect(q('[data-local-agent-working]')?.textContent).toBe('Working…')
+    expect(container.textContent).not.toContain('parked')
+    conv([said, { type: 'status', key: 's', status: 'waiting', reason: 'parked' }], false)
+    expect(q('[data-local-agent-working]')).toBeNull()
+    expect(container.textContent).not.toContain('parked')
+  })
+
+  it('not while the last row already moves (a step running, words streaming), nor while merely queued', () => {
+    conv([said, { ...tool('t', 'shell', { command: 'npm test' }), result: null }], true)
+    expect(q('[data-local-agent-working]')).toBeNull()
+    conv([{ type: 'assistant', key: 'a', text: 'Look', open: true }], true)
+    expect(q('[data-local-agent-working]')).toBeNull()
+    conv([], true, false)
+    expect(q('[data-local-agent-working]')).toBeNull()
   })
 })

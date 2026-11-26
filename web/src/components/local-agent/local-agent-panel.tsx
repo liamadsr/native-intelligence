@@ -75,6 +75,7 @@ import {
 } from '@/lib/local-agent/transcript-view'
 import { useLocalAgentSession } from './use-local-agent-session'
 import { InboundBubble, ToolRun, TranscriptRow } from './transcript-rows'
+import { ShimmerText } from '@/components/ui/shimmer-text'
 import { LocalAgentComposer } from './local-agent-composer'
 import { BranchCardActions } from './branch-card'
 import { ChangesView } from './changes-view'
@@ -153,6 +154,27 @@ function liveFor(item: TranscriptItem, live: boolean, last: TranscriptItem | und
   return live && (item.type === 'tool' || (item.type === 'assistant' && item === last))
 }
 
+/**
+ * The one quiet sign the agent is busy, at the conversation's foot, as Claude
+ * Code's (Liam, 11-26: the working statuses draw no line of their own, so a
+ * host with no Status card must never look idle while it runs): "Working…",
+ * shimmering, gone once it stops.
+ */
+function WorkingRow() {
+  return (
+    <p data-local-agent-working="" className="text-[13px] leading-5 text-muted-foreground">
+      <ShimmerText active>Working…</ShimmerText>
+    </p>
+  )
+}
+
+/** The last row already moves while it works: a step running (it shimmers), or words streaming in. */
+function showsMotion(row: DrawnRow | undefined): boolean {
+  if (!row) return false
+  if (row.tools) return !row.tools[row.tools.length - 1].result
+  return (row.item.type === 'tool' && !row.item.result) || (row.item.type === 'assistant' && row.item.open)
+}
+
 /** The conversation's scrolling column (the panel's log), for a host that draws the same rows. */
 export const CONVERSATION_LOG_CLASS = 'flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto'
 
@@ -166,11 +188,14 @@ export function ConversationRows({
   rows,
   live,
   last,
+  working = live,
 }: {
   request: { author: 'agent' | 'person'; text: string } | null
   rows: readonly DrawnRow[]
   live: boolean
   last: TranscriptItem | undefined
+  /** It is at work now (not merely queued): "Working…" at the foot unless the last row already moves. */
+  working?: boolean
 }) {
   return (
     <>
@@ -178,6 +203,7 @@ export function ConversationRows({
       {rows.map((row) =>
         row.tools ? <ToolRun key={row.key} items={row.tools} live={live} /> : <TranscriptRow key={row.key} item={row.item} live={liveFor(row.item, live, last)} />,
       )}
+      {working && !showsMotion(rows[rows.length - 1]) && <WorkingRow />}
     </>
   )
 }
@@ -585,7 +611,7 @@ export function LocalAgentPanel({
             {loadingEarlier ? 'Loading…' : 'Show earlier'}
           </button>
         )}
-        <ConversationRows request={hidden === 0 && !hasEarlier ? { author: requestAuthor, text: session.request } : null} rows={rows} live={live} last={shown[shown.length - 1]} />
+        <ConversationRows request={hidden === 0 && !hasEarlier ? { author: requestAuthor, text: session.request } : null} rows={rows} live={live} last={shown[shown.length - 1]} working={live && session.status !== 'queued'} />
         {session.status === 'queued' && items.length === 0 && (
           <p className="text-center text-[11px] text-muted-foreground">
             It starts when your Mac picks it up (the Native Intelligence app open and signed in).
