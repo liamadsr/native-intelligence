@@ -6,6 +6,7 @@ import { isMissingColumnError } from '@/lib/mcp-client/public-row'
 import { GMAIL_NEEDS_PERMISSION, isGmailPermissionRefusal, providerErrorCode as errorCode } from './gmail-permission'
 import { GMAIL_API, GRAPH_API } from './provider-drafts'
 import { mailboxesForThread, type LiveMailbox } from './thread-mailbox'
+import { isPre722Error, localArchivePatch, withoutLocalArchive } from './local-archive'
 
 /**
  * The agent's inbox triage (GEN-1166): archive a thread or put it back in the
@@ -272,8 +273,14 @@ type Absent = { absent: 'gone' | 'unreadable' }
 const GONE: Absent = { absent: 'gone' }
 const UNREADABLE: Absent = { absent: 'unreadable' }
 
-/** The thread's messages, oldest first, or why this mailbox has none of it. */
-async function gmailThreadMessages(token: string, threadId: string): Promise<GmailMessageMeta[] | Absent> {
+/** A Gmail thread's historyId as an answer gives it (the last change to the thread), or null. */
+function historyIdOf(data: unknown): string | null {
+  const id = (data as { historyId?: unknown } | null)?.historyId
+  return typeof id === 'string' && /^\d+$/.test(id) ? id : null
+}
+
+/** The thread's messages, oldest first, and its historyId; or why this mailbox has none of it. */
+async function gmailThreadMessages(token: string, threadId: string): Promise<{ messages: GmailMessageMeta[]; historyId: string | null } | Absent> {
   const res = await providerFetch(`${GMAIL_API}/threads/${encodeURIComponent(threadId)}?format=minimal`, {
     headers: { Authorization: `Bearer ${token}` },
   })
@@ -282,7 +289,7 @@ async function gmailThreadMessages(token: string, threadId: string): Promise<Gma
   if (!res.ok) throw new ProviderError('google', 'thread read', res.status, await errorCode(res))
   const data = (await res.json()) as { messages?: GmailMessageMeta[] }
   const messages = (data.messages ?? []).filter((m) => typeof m?.id === 'string')
-  return messages.length ? messages : GONE
+  return messages.length ? { messages, historyId: historyIdOf(data) } : GONE
 }
 
 async function gmailLabelList(token: string): Promise<GmailLabel[]> {
@@ -305,8 +312,9 @@ async function createGmailLabel(token: string, name: string): Promise<GmailLabel
   return typeof label?.id === 'string' ? label : null
 }
 
-async function gmailModify(token: string, path: string, add: string[], remove: string[], onWrite?: OnWrite): Promise<void> {
-  if (!add.length && !remove.length) return
+/** The change; resolves to the historyId Gmail's answer gives (a thread's, just after it), or null. */
+async function gmailModify(token: string, path: string, add: string[], remove: string[], onWrite?: OnWrite): Promise<string | null> {
+  if (!add.length && !remove.length) return null
   const res = await providerFetch(`${GMAIL_API}/${path}/modify`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -314,6 +322,7 @@ async function gmailModify(token: string, path: string, add: string[], remove: s
   })
   if (!res.ok) throw new ProviderError('google', 'modify', res.status, await errorCode(res))
   onWrite?.()
+  return historyIdOf(await res.json().catch(() => null))
 }
 
 /** The newest message that isn't a draft (and, for `received`, isn't the person's own sent one). */
@@ -392,7 +401,7 @@ async function applyGmail(
   applied: ThreadChange,
   labelId: (name: string, create: boolean) => Promise<string>,
   onWrite: OnWrite,
-): Promise<void> {
+): Promise<string | null> {
   const add: string[] = []
   const remove: string[] = []
   if (applied.archive === true) remove.push('INBOX')
@@ -401,7 +410,7 @@ async function applyGmail(
   if (applied.star === false) remove.push('STARRED')
   for (const name of applied.addLabels ?? []) add.push(await labelId(name, true))
   for (const name of applied.removeLabels ?? []) remove.push(await labelId(name, false))
-  await gmailModify(token, `threads/${encodeURIComponent(threadId)}`, add, remove, onWrite)
+  const historyId = await gmailModify(token, `threads/${encodeURIComponent(threadId)}`, add, remove, onWrite)
   // Unread and star go on the newest message, as Gmail's own buttons put them.
   const messageAdd = [...(applied.read === false ? ['UNREAD'] : []), ...(applied.star === true ? ['STARRED'] : [])]
   if (messageAdd.length) {
@@ -414,6 +423,7 @@ async function applyGmail(
       if (starTarget) await gmailModify(token, `messages/${encodeURIComponent(starTarget.id)}`, ['STARRED'], [], onWrite)
     }
   }
+  return historyId
 }
 
 // ---------------------------------------------------------------------------
@@ -626,21 +636,40 @@ async function setMuted(userId: string, mailbox: LiveMailbox, threadId: string, 
  * so a sync that read the mailbox before it doesn't put the old state back
  * (src/lib/crm/email-sync.ts, GMAIL_MAILBOX_STATE).
  */
-function indexRows(db: SupabaseClient, userId: string, threadId: string, accountId: string | null, patch: Record<string, unknown>) {
+function indexRowsQuery(db: SupabaseClient, userId: string, threadId: string, accountId: string | null, patch: Record<string, unknown>) {
   const query = db.from('email_thread_index').update({ ...patch, synced_at: new Date().toISOString() }).eq('user_id', userId).eq('provider_thread_id', threadId)
   return accountId ? query.eq('account_id', accountId) : query.is('account_id', null)
 }
 
-async function updateIndexRows(userId: string, threadId: string, accountId: string | null, applied: ThreadChange, newestMessageId: string | null): Promise<void> {
+/**
+ * The update, and the rows it reached. A patch carrying the person's archive
+ * mark (./local-archive.ts) goes again without it before migration 722.
+ */
+async function indexRows(db: SupabaseClient, userId: string, threadId: string, accountId: string | null, patch: Record<string, unknown>): Promise<{ error: { message: string } | null; count: number }> {
+  let { data, error } = await indexRowsQuery(db, userId, threadId, accountId, patch).select('id')
+  if (error && isPre722Error(error)) ({ data, error } = await indexRowsQuery(db, userId, threadId, accountId, withoutLocalArchive(patch)).select('id'))
+  return { error: error ? { message: error.message } : null, count: (data ?? []).length }
+}
+
+/**
+ * The thread's index rows as the change left the mailbox. An archive records
+ * the person's archive here (when, and Gmail's historyId just after it), so a
+ * sync whose answer predates it can't put the thread back in the inbox
+ * (./local-archive.ts); a move back to the inbox clears it.
+ */
+async function updateIndexRows(userId: string, threadId: string, accountId: string | null, applied: ThreadChange, newestMessageId: string | null, historyId: string | null = null): Promise<void> {
   const patch: Record<string, unknown> = {}
-  if (applied.archive !== undefined) patch.folder = applied.archive ? 'archive' : 'inbox'
+  if (applied.archive !== undefined) Object.assign(patch, { folder: applied.archive ? 'archive' : 'inbox' }, localArchivePatch(applied.archive, historyId))
   if (applied.read !== undefined) patch.is_unread = !applied.read
   if (applied.star !== undefined) patch.is_starred = applied.star
   if (newestMessageId) patch.provider_message_id = newestMessageId
   if (!Object.keys(patch).length) return
-  const { error } = await indexRows(getServiceClient(), userId, threadId, accountId, patch)
+  const { error, count } = await indexRows(getServiceClient(), userId, threadId, accountId, patch)
   // The mailbox changed; the next sync writes the row if this didn't.
   if (error) console.warn('[thread-triage] index row not updated:', error.message)
+  // Nothing to write: the change landed at the mailbox, and Incoming would list
+  // the thread as before. Said, never silent (the read reached a row of it).
+  else if (count === 0) console.warn('[thread-triage] the mailbox changed, but no index row of the thread was there to follow it')
 }
 
 // ---------------------------------------------------------------------------
@@ -714,10 +743,14 @@ async function changeInMailbox(
   let state: Omit<ThreadState, 'muted'>
   let apply: (applied: ThreadChange, onWrite: OnWrite, onNewestMoved: (id: string) => void) => Promise<string | null>
   const unknownLabels: string[] = []
+  /** Gmail's historyId for the thread as last read or changed here: what the archive mark records. */
+  let historyId: string | null = null
 
   if (mailbox.provider === 'google') {
-    const messages = await gmailThreadMessages(mailbox.token, threadId)
-    if (!Array.isArray(messages)) return messages
+    const read = await gmailThreadMessages(mailbox.token, threadId)
+    if ('absent' in read) return read
+    const messages = read.messages
+    historyId = read.historyId
     if (messages.every((m) => (m.labelIds ?? []).some((l) => l === 'TRASH' || l === 'SPAM'))) {
       const spam = messages.every((m) => (m.labelIds ?? []).includes('SPAM'))
       return inTrash(userId, mailbox, threadId, change, spam ? 'spam' : 'trash')
@@ -732,12 +765,12 @@ async function changeInMailbox(
       if (!(await call.labels.find(key, mailbox.token, name))) unknownLabels.push(name)
     }
     apply = async (applied, onWrite) => {
-      await applyGmail(mailbox.token, threadId, messages, applied, async (name, create) => {
+      historyId = (await applyGmail(mailbox.token, threadId, messages, applied, async (name, create) => {
         if (create) return (await call.labels.ensure(key, mailbox.token, name)).label.id
         const found = await call.labels.find(key, mailbox.token, name)
         if (!found) throw new Error(`Gmail has no label "${name}"`)
         return found.id
-      }, onWrite)
+      }, onWrite)) ?? historyId
       return null
     }
   } else {
@@ -762,7 +795,7 @@ async function changeInMailbox(
     // (Liam, 11-24: "I click the check box and the emails … goes away then
     // after a few second it reappears"). The index follows the mailbox now.
     const archive = change.mute === true ? true : change.archive
-    if (archive === true && !state.inInbox) await updateIndexRows(userId, threadId, mailbox.accountId, { archive: true }, null)
+    if (archive === true && !state.inInbox) await updateIndexRows(userId, threadId, mailbox.accountId, { archive: true }, null, historyId)
     else if (archive === false && state.inInbox) await updateIndexRows(userId, threadId, mailbox.accountId, { archive: false }, null)
     return { threadId, status: 'unchanged', account: mailbox.email, ...known }
   }
@@ -792,7 +825,7 @@ async function changeInMailbox(
       ...failureOf(err, mailbox.provider),
     }
   }
-  await updateIndexRows(userId, threadId, mailbox.accountId, applied, newestMessageId)
+  await updateIndexRows(userId, threadId, mailbox.accountId, applied, newestMessageId, historyId)
   const created = (applied.addLabels ?? []).filter((name) => (call.labels.created.get(key) ?? []).some((c) => c.toLowerCase() === name.toLowerCase()))
   return {
     threadId,
@@ -991,8 +1024,9 @@ export async function rearchiveMutedArrivals(supabase: SupabaseClient, input: Mu
   for (const threadId of muted) {
     try {
       let newestMessageId: string | null = null
+      let historyId: string | null = null
       if (input.provider === 'google') {
-        await gmailModify(input.accessToken, `threads/${encodeURIComponent(threadId)}`, [], ['INBOX'])
+        historyId = await gmailModify(input.accessToken, `threads/${encodeURIComponent(threadId)}`, [], ['INBOX'])
       } else {
         folders ??= await outlookFolders(input.accessToken)
         const messages = await outlookConversation(input.accessToken, threadId, folders)
@@ -1000,7 +1034,7 @@ export async function rearchiveMutedArrivals(supabase: SupabaseClient, input: Mu
           newestMessageId = await applyOutlook(input.accessToken, messages, folders, { archive: true })
         }
       }
-      const patch = { folder: 'archive', ...(newestMessageId ? { provider_message_id: newestMessageId } : {}) }
+      const patch = { folder: 'archive', ...localArchivePatch(true, historyId), ...(newestMessageId ? { provider_message_id: newestMessageId } : {}) }
       const { error: indexError } = await indexRows(supabase, input.userId, threadId, input.accountId, patch)
       if (indexError) console.warn('[thread-triage] muted thread index row not updated:', indexError.message)
     } catch (err) {
