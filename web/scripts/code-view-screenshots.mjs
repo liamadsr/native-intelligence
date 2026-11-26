@@ -15,10 +15,7 @@
  */
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { createRequire } from 'node:module'
-
-const require = createRequire(import.meta.url)
-const { chromium } = require('playwright')
+import { chromium } from 'playwright'
 
 const out = process.argv[2] || 'code-view-shots'
 const base = process.argv[3] || 'http://localhost:3000'
