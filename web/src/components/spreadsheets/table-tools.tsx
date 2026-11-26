@@ -8,6 +8,8 @@
 import { useMemo, useState } from 'react'
 import { ArrowDownAZ, ArrowUpAZ, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { createPortal } from 'react-dom'
+import { fixedMenuStyle, MENU_COLLISION_PADDING } from '@/components/ui/menu-fit'
 import { Button } from '@/components/ui/button'
 import { FLOATING_CARD_CLASS } from '@/components/attention/card-skin'
 import { parseRange, rangeName } from '@/lib/spreadsheets/a1'
@@ -72,14 +74,20 @@ export function TableColumnMenu({
     onClose()
   }
 
-  return (
+  if (typeof document === 'undefined') return null
+  // At the pointer, opening upward when it sits low in the window, and never
+  // taller than the room on that side. In <body>, so no transformed or
+  // clipping ancestor holds it.
+  const { style: fit } = fixedMenuStyle({ top: state.y, bottom: state.y }, { height: window.innerHeight }, { gap: 0, need: 320 })
+
+  return createPortal(
     <>
       <div className="fixed inset-0 z-[70]" onPointerDown={onClose} />
       <div
         role="menu"
         aria-label={`Column ${column?.name ?? ''}`}
-        className={cn(FLOATING_CARD_CLASS, 'fixed z-[71] w-60 p-1 text-[13px] shadow-lg')}
-        style={{ left: Math.min(state.x, (typeof window !== 'undefined' ? window.innerWidth : 1200) - 260), top: state.y }}
+        className={cn(FLOATING_CARD_CLASS, 'fixed z-[71] w-60 overscroll-contain p-1 text-[13px] shadow-lg')}
+        style={{ left: Math.max(MENU_COLLISION_PADDING, Math.min(state.x, window.innerWidth - 260)), ...fit }}
       >
         {tab === 'menu' && (
           <div className="flex flex-col">
@@ -128,7 +136,8 @@ export function TableColumnMenu({
         {tab === 'filter' && <FilterPanel workbook={workbook} table={table} offset={offset} onApply={run} onBack={() => setTab('menu')} />}
         {tab === 'group' && <GroupByPanel workbook={workbook} table={table} offset={offset} onBack={() => setTab('menu')} />}
       </div>
-    </>
+    </>,
+    document.body,
   )
 }
 

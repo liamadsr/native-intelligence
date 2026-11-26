@@ -78,6 +78,7 @@ import {
   Users,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 import {
   chipTriggerClass,
@@ -509,26 +510,27 @@ function LabelsControl({
 
   return (
     <div className="relative shrink-0" data-lens-field="labels">
-      <button
-        type="button"
-        data-lens-labels-trigger=""
-        aria-label={`${providerName} labels`}
-        title={`${providerName} labels`}
-        onClick={() => setOpen((v) => !v)}
-        className={cn(chipTriggerClass, value.length === 0 && 'text-muted-foreground')}
-      >
-        <Tag className="h-3 w-3 shrink-0 opacity-70" />
-        <span className="max-w-[120px] truncate">{summary}</span>
-      </button>
-      {open && (
-        // Anchored, not portalled: the strip is a horizontal scroller and a
-        // portalled popover would need position tracking against a container
-        // that moves under it. `z-20` clears the chips; `w-56` is the compose
-        // labels popover's own width.
-        <div className="absolute left-0 top-8 z-20 w-56 rounded-3xl border border-border bg-popover p-2 shadow-md">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            data-lens-labels-trigger=""
+            aria-label={`${providerName} labels`}
+            title={`${providerName} labels`}
+            className={cn(chipTriggerClass, value.length === 0 && 'text-muted-foreground')}
+          >
+            <Tag className="h-3 w-3 shrink-0 opacity-70" />
+            <span className="max-w-[120px] truncate">{summary}</span>
+          </button>
+        </PopoverTrigger>
+        {/* In a portal: the strip is a horizontal scroller, which clips an
+            anchored child on both axes. Radix follows the chip as the strip
+            scrolls, keeps the list inside the window and scrolls it when long.
+            `w-56` is the compose labels popover's own width. */}
+        <PopoverContent align="start" className="w-56 rounded-3xl border border-border bg-popover p-2 shadow-md">
           {toggles}
-        </div>
-      )}
+        </PopoverContent>
+      </Popover>
     </div>
   )
 }

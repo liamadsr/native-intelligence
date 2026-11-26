@@ -22,6 +22,7 @@ import { tagColorStore } from '@/lib/tags/color-store'
 import { normalizeTagName, sameTagName } from '@/lib/tags/names'
 import { nextTagColor, TAG_COLORS } from '@/lib/tags/palette'
 import type { PickedTag, TagSuggestionStore } from './tag-suggestion'
+import { fixedMenuStyle } from '@/components/ui/menu-fit'
 
 const MAX_ROWS = 8
 const MENU_WIDTH = 260
@@ -130,8 +131,10 @@ export function TagMenu({ store, scope }: { store: TagSuggestionStore; scope?: L
   if (!state || (rows.length === 0 && !creating)) return null
 
   const left = Math.max(8, Math.min(state.rect.left, window.innerWidth - MENU_WIDTH - 8))
-  const below = state.rect.bottom + 4
-  const style: React.CSSProperties = { position: 'fixed', left, top: below, width: MENU_WIDTH, zIndex: 60 }
+  // Under the caret, or over it when the caret sits low in the window, and
+  // never taller than the room on that side: a long tag list scrolls.
+  const { style: fit } = fixedMenuStyle(state.rect, { height: window.innerHeight }, { need: 240 })
+  const style: React.CSSProperties = { position: 'fixed', left, width: MENU_WIDTH, zIndex: 60, overscrollBehavior: 'contain', ...fit }
 
   return createPortal(
     <div

@@ -43,7 +43,8 @@ async function mount() {
 }
 
 const trigger = () => container.querySelector<HTMLButtonElement>('button[aria-haspopup="listbox"]')
-const options = () => [...container.querySelectorAll<HTMLButtonElement>('[role="option"]')]
+// The open list is drawn in a portal, under document.body.
+const options = () => [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')]
 const option = (label: string) => options().find((o) => o.textContent?.startsWith(label))!
 const text = () => container.textContent ?? ''
 

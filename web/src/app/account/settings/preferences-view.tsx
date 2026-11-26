@@ -5,6 +5,7 @@ import { ThinkingOrb } from 'thinking-orbs'
 import { Monitor, Moon, Sun, ChevronDown, Check, Palette, Paintbrush, Image as ImageIcon, Upload, X, Volume2, AppWindow } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Switch } from '@/components/ui/switch'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { isDesktopApp } from '@/lib/platform'
 import { useDesktopOS } from '@/components/desktop-titlebar'
 import { tauriBridge } from '@/lib/tauri-bridge'
@@ -342,30 +343,20 @@ function ThemeModeDropdown({
   onChange: (mode: ThemeMode) => void
 }) {
   const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    // pointerdown, not mousedown: Tauri's drag script swallows mousedown on the
-    // settings shell's title-bar drag strip, which would leave this open.
-    document.addEventListener('pointerdown', handler)
-    return () => document.removeEventListener('pointerdown', handler)
-  }, [open])
 
   return (
-    <div className="relative" ref={ref}>
+    // Radix closes it on a click outside (pointerdown, which Tauri's drag
+    // strip does not swallow) or Escape, and keeps it inside the window.
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
       <button
-        onClick={() => setOpen(!open)}
         className="flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm transition-colors hover:bg-muted/50"
       >
         <span>{themeModeLabels[value]}</span>
         <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
       </button>
-      {open && (
-        <div className="absolute right-0 top-full z-10 mt-1 w-36 rounded-3xl border border-border bg-popover p-2 shadow-md">
+      </PopoverTrigger>
+        <PopoverContent align="end" className="w-36 rounded-3xl border border-border bg-popover p-2 shadow-md">
           {(['system', 'light', 'dark'] as ThemeMode[]).map((mode) => (
             <button
               key={mode}
@@ -381,9 +372,8 @@ function ThemeModeDropdown({
               {themeModeLabels[mode]}
             </button>
           ))}
-        </div>
-      )}
-    </div>
+        </PopoverContent>
+    </Popover>
   )
 }
 
