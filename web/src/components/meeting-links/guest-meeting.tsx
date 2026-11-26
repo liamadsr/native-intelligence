@@ -56,7 +56,7 @@ import { ArrowUpRight, Calendar, Contact, Home, Inbox, ListChecks, Mail, Message
 import { cn } from '@/lib/utils'
 import { TeamCallSession, type CallEnd, type CallSnapshot, type TeamCallJoin } from '@/lib/team-calls/call-session'
 import { MEETING_GUEST_NAME_MAX, MEETING_LOBBY_POLL_MS, cleanGuestName } from '@/lib/meeting-links/shape'
-import { CallBadges, IconButton, TileView, callErrorLine, deviceNotice, initialsOf, screenNotice, screenDroppedNotice } from '@/components/team-calls/call-tiles'
+import { CallBadges, CallStage, IconButton, callErrorLine, deviceNotice, initialsOf, screenNotice, screenDroppedNotice } from '@/components/team-calls/call-tiles'
 import { Logo, Mark } from '@/components/logo'
 import { DevicesMenu } from '@/components/team-calls/devices-menu'
 import { GuestCallNotes } from '@/components/team-calls/call-live-notes'
@@ -727,7 +727,6 @@ function GuestCall({
   // Nothing of theirs may be sent until they say go to the notice: camera and screen wait with the microphone.
   const held = snap.micHeld && !snap.canPublish
   const heldLabel = 'Join with your microphone first'
-  const cols = people.length <= 1 ? 'grid-cols-1' : people.length <= 4 ? 'grid-cols-2' : 'grid-cols-3'
   // The agent's notes as plain words and the call's own words since they came in (src/lib/team-calls/live-notes.ts).
   const showNotes = !!notesBase && onNow.notes && snap.phase === 'connected'
   // The meeting's chat: asked while they are connected (and the tab is on screen), so its dot shows with the panel closed.
@@ -745,7 +744,7 @@ function GuestCall({
   const unread = useChatUnread(chat.messages, shown === 'chat')
   const chatLabel = shown === 'chat' ? 'Close the chat' : unread > 0 ? `Open the chat, ${unread === 1 ? '1 new message' : `${unread} new messages`}` : 'Open the chat'
   return (
-    <main className="flex h-dvh flex-col text-foreground" data-guest-call={snap.phase}>
+    <main className="flex h-dvh flex-col pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] pt-[env(safe-area-inset-top)] text-foreground" data-guest-call={snap.phase}>
       <header className="flex h-16 shrink-0 items-center gap-2 px-3 sm:px-4">
         {/* Where the app shows the workspace: a guest has none. */}
         <div data-guest-workspace="" className={cn('flex h-10 shrink-0 items-center gap-2 rounded-full pl-2.5 pr-4', MEETING_GLASS)}>
@@ -796,7 +795,7 @@ function GuestCall({
           ))}
         </div>
         <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 lg:flex-row lg:gap-4">
-      <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col justify-center overflow-y-auto px-1 py-1">
+      <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col overflow-y-auto px-1 py-1 [&>*:not([data-guest-stage])]:shrink-0">
         {hostGone && snap.phase === 'connected' && (
           <div data-guest-host-left="" className="mb-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
             <p className="text-sm font-semibold">The host has left</p>
@@ -822,18 +821,8 @@ function GuestCall({
             </button>
           </div>
         )}
-        {screens.length > 0 && (
-          <div className="mb-2 flex flex-col gap-2">
-            {screens.map((t) => (
-              <TileView key={t.key} tile={t} large glass />
-            ))}
-          </div>
-        )}
-        <div className={cn('grid gap-3', screens.length > 0 ? 'grid-cols-4' : cols)}>
-          {people.map((t) => (
-            <TileView key={t.key} tile={t} compact={screens.length > 0} glass />
-          ))}
-        </div>
+        {/* The tiles fill what is left between the notices and the controls (src/lib/team-calls/call-layout.ts). */}
+        <CallStage people={people} screens={screens} glass gap={12} data-guest-stage={people.length} className="min-h-[200px] flex-1 basis-0" />
         {notices.map((n) => (
           <p key={n} className="mt-2 rounded-xl bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
             {n}
@@ -858,7 +847,7 @@ function GuestCall({
           )}
         </div>
       </div>
-      <footer className="flex shrink-0 justify-center px-4 pb-6 pt-3">
+      <footer className="flex shrink-0 justify-center px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-3">
         {/* The controls' dock: one glass bar on the sky. */}
         <div className={cn('flex items-center gap-2 rounded-full p-2', MEETING_GLASS)}>
         <IconButton glass label={snap.mic === 'on' ? 'Mute' : 'Unmute'} onClick={() => void session.toggleMic()} active={snap.mic !== 'on'} data-guest-mic={snap.mic}>
