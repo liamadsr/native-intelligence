@@ -56,7 +56,8 @@ const setInput = (el: HTMLInputElement | HTMLTextAreaElement, value: string) => 
     el.dispatchEvent(new Event('input', { bubbles: true }))
   })
 }
-const byText = (text: string) => [...container.querySelectorAll('button')].find((b) => b.textContent?.trim() === text) as HTMLButtonElement
+// Through document: the table column menu is drawn in a portal, under document.body.
+const byText = (text: string) => [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === text) as HTMLButtonElement
 
 describe('the Dropdown dialog', () => {
   it('makes a list rule from typed choices and applies it to the range', () => {
@@ -183,8 +184,8 @@ describe('the table column menu', () => {
     const table = tableFrom(TABLE_ROWS, { r1: 1, c1: 1, r2: 4, c2: 2 })
     act(() => root.render(<TableColumnMenu workbook={workbook} state={{ table, offset: 0, x: 10, y: 10 }} onMessage={(m) => messages.push(m)} onOpenOptions={() => {}} onClose={() => {}} />))
     act(() => byText('Filter…').dispatchEvent(new MouseEvent('click', { bubbles: true })))
-    setSelect(container.querySelector('[aria-label="Condition"]') as HTMLSelectElement, 'equals')
-    setInput(container.querySelector('[aria-label="Condition value"]') as HTMLInputElement, 'North')
+    setSelect(document.querySelector('[aria-label="Condition"]') as HTMLSelectElement, 'equals')
+    setInput(document.querySelector('[aria-label="Condition value"]') as HTMLInputElement, 'North')
     act(() => byText('Apply').dispatchEvent(new MouseEvent('click', { bubbles: true })))
     expect(workbook.hiddenRows()).toEqual([3, 4])
   })
