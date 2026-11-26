@@ -14,11 +14,15 @@
  *                  mailboxes (getWorkspaceEmailAccountIds), in the inbox,
  *                  "To respond" or important. Subjects are read live on the
  *                  page, as Mail reads them (POST /email/threads/headers).
+ *                  A thread the person archived here with no message since
+ *                  (lib/email/local-archive.ts) is left out whatever its
+ *                  folder says: Done stays done.
  *   holds          their own inbox_hold rows (702); none before 702.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { noticeTeammateReach, plainNotices } from '@/lib/bots/notice-reach'
 import { getWorkspaceEmailAccountIds } from '@/lib/email/account-scope'
+import { archivedHereSinceNewest, isPre722Error } from '@/lib/email/local-archive'
 import { applyHolds, mailItems, notificationItems, type InboxHold, type InboxItem, type InboxMailRow, type InboxNotificationRow } from './items'
 
 /** The newest notifications one read takes (an inbox of a few hundred conversations). */
@@ -30,6 +34,8 @@ const NOTIFICATION_COLUMNS =
   'id, type, title, body, actor_id, target_type, target_id, context_type, context_id, is_read, group_key, metadata, created_at, actor:member!actor_id(id, display_name, avatar_url)'
 
 const MAIL_COLUMNS = 'id, account_id, provider, provider_thread_id, provider_message_id, folder, last_message_at, is_unread, needs_reply, auto_classified, from_email, message_count'
+/** The person's archive mark (migration 722): read with the rows, never returned. */
+const MAIL_MARK_COLUMNS = `${MAIL_COLUMNS}, local_archived_at`
 
 export interface InboxRead {
   items: InboxItem[]
@@ -50,28 +56,32 @@ export async function readInbox(
   const reach = await noticeTeammateReach(supabase, { userId: scope.userId, recipientIds: [scope.memberId] })
   const accountIds = await getWorkspaceEmailAccountIds(supabase, scope.userId, scope.workspaceId).catch(() => [] as string[])
 
-  const [notices, holds, mail] = await Promise.all([
+  const readMail = (columns: string) =>
+    supabase
+      .from('email_thread_index')
+      .select(columns)
+      .eq('user_id', scope.userId)
+      .eq('workspace_id', scope.workspaceId)
+      .in('account_id', accountIds)
+      .eq('folder', 'inbox')
+      .or('needs_reply.eq.true,auto_classified.eq.important')
+      .order('last_message_at', { ascending: false, nullsFirst: false })
+      .limit(INBOX_MAIL_MAX)
+  const [notices, holds, firstMail] = await Promise.all([
     plainNotices(supabase.from('notification').select(NOTIFICATION_COLUMNS).eq('recipient_id', scope.memberId).eq('is_archived', false), reach.orphans)
       .order('created_at', { ascending: false })
       .limit(INBOX_NOTIFICATIONS_MAX),
     supabase.from('inbox_hold').select('item_key, held_until, held_at').eq('user_id', scope.userId).eq('workspace_id', scope.workspaceId),
-    accountIds.length === 0
-      ? Promise.resolve({ data: [], error: null })
-      : supabase
-          .from('email_thread_index')
-          .select(MAIL_COLUMNS)
-          .eq('user_id', scope.userId)
-          .eq('workspace_id', scope.workspaceId)
-          .in('account_id', accountIds)
-          .eq('folder', 'inbox')
-          .or('needs_reply.eq.true,auto_classified.eq.important')
-          .order('last_message_at', { ascending: false, nullsFirst: false })
-          .limit(INBOX_MAIL_MAX),
+    accountIds.length === 0 ? Promise.resolve({ data: [], error: null }) : readMail(MAIL_MARK_COLUMNS),
   ])
+  // Before migration 722: the rows without the mark.
+  const mail = firstMail.error && isPre722Error(firstMail.error) ? await readMail(MAIL_COLUMNS) : firstMail
   if (notices.error) throw new Error(`inbox: notifications read failed: ${notices.error.message}`)
   if (holds.error && !isMissingRelation(holds.error, 'inbox_hold')) throw new Error(`inbox: holds read failed: ${holds.error.message}`)
   // Mail that can't be read leaves mail out, never the inbox.
-  const mailRows = (mail.error ? [] : (mail.data ?? [])) as InboxRead['mail']
+  const mailRows = ((mail.error ? [] : (mail.data ?? [])) as unknown as Array<InboxRead['mail'][number] & { local_archived_at?: string | null }>)
+    .filter((r) => !archivedHereSinceNewest(r))
+    .map(({ local_archived_at: _mark, ...r }) => r) as InboxRead['mail']
 
   const rows = ((notices.data ?? []) as unknown as InboxNotificationRow[]).map((r) => ({
     ...r,

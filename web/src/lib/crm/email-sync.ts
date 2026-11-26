@@ -4,6 +4,7 @@ import { getValidToken, getAllValidTokens } from '@/lib/oauth/token-manager'
 import { fetchGmailHistory } from '@/lib/email/gmail-api'
 import { threadCopyWorkspaceIds } from '@/lib/email/account-scope'
 import { mailboxAddresses } from '@/lib/email/reply-policy'
+import { isPre722Error, reenteredInbox, withoutLocalArchive, type LocalArchiveMark, type MailboxReadEvidence } from '@/lib/email/local-archive'
 import {
   AUTOMATED_HEADER_NAMES,
   automatedCategory,
@@ -376,7 +377,19 @@ export async function indexGmailThread(
     synced_at: new Date().toISOString(),
   }
 
-  await writeThreadCopies(supabaseAdmin, target, threadData, senderEmail || null, { ...opts, what: 'Thread', fetchedAt, mailboxState: GMAIL_MAILBOX_STATE })
+  // What this answer says against an archive made here (src/lib/email/local-archive.ts):
+  // the thread's historyId, and its newest message that isn't a draft.
+  const newestReceived = [...messages]
+    .filter((m: Record<string, unknown>) => !((m.labelIds as string[] | undefined) ?? []).includes('DRAFT'))
+    .map((m: Record<string, unknown>) => Number(m.internalDate))
+    .filter((t: number) => Number.isFinite(t) && t > 0)
+    .reduce((a: number, b: number) => Math.max(a, b), 0)
+  const evidence: MailboxReadEvidence = {
+    historyId: typeof threadMeta.historyId === 'string' && /^\d+$/.test(threadMeta.historyId) ? threadMeta.historyId : null,
+    newestMessageAt: newestReceived > 0 ? new Date(newestReceived).toISOString() : null,
+  }
+
+  await writeThreadCopies(supabaseAdmin, target, threadData, senderEmail || null, { ...opts, what: 'Thread', fetchedAt, mailboxState: GMAIL_MAILBOX_STATE, evidence })
   return 'indexed'
 }
 
@@ -410,7 +423,17 @@ async function writeThreadCopies(
   target: ThreadIndexTarget,
   threadData: Record<string, unknown>,
   senderEmail: string | null,
-  opts: { logWriteErrors?: boolean; what: string; fetchedAt?: string; mailboxState?: readonly string[] },
+  opts: {
+    logWriteErrors?: boolean
+    what: string
+    fetchedAt?: string
+    mailboxState?: readonly string[]
+    /**
+     * A Gmail read's word against an archive made here (src/lib/email/local-archive.ts):
+     * a row the person archived is put back in the inbox only on it.
+     */
+    evidence?: MailboxReadEvidence
+  },
 ): Promise<void> {
   const { userId, workspaceId, threadId, accountId } = target
   const workspaceIds = target.workspaceIds ?? (await threadCopyWorkspaceIds(accountId, workspaceId, supabaseAdmin))
@@ -428,20 +451,31 @@ async function writeThreadCopies(
     }
     const row = { ...threadData, workspace_id: ws, linked_contact_id: linkedContactId }
 
-    // Check if this thread already exists — try with account_id first, then without
-    const { data: existingThread } = await supabaseAdmin
-      .from('email_thread_index')
-      .select('id, account_id')
-      .eq('workspace_id', ws)
-      .eq('provider_thread_id', threadId)
-      .eq('user_id', userId)
-      .maybeSingle()
+    // This workspace's copy, if it has one (with the person's archive mark, from 722).
+    const existingThread = await existingCopy(supabaseAdmin, ws, threadId, userId)
 
     if (existingThread) {
+      let write: Record<string, unknown> = row
+      let mailboxState = opts.mailboxState ?? []
+      if (opts.evidence && existingThread.local_archived_at) {
+        if (row.folder === 'inbox' && !reenteredInbox(existingThread, opts.evidence)) {
+          // Archived here, and this answer is no newer than the archive: the
+          // mailbox state stays the archive's; the rest is written as read.
+          mailboxState = [...new Set([...mailboxState, ...GMAIL_MAILBOX_STATE])]
+          write = Object.fromEntries(Object.entries(row).filter(([key]) => key !== 'synced_at' && !mailboxState.includes(key)))
+        } else if (row.folder === 'inbox') {
+          // Back in the inbox since (a new message, or moved back in Gmail): the mark goes.
+          write = { ...row, local_archived_at: null, local_archived_history_id: null }
+          // A local change after this read keeps its own mark, as it keeps its folder.
+          mailboxState = [...mailboxState, 'local_archived_at', 'local_archived_history_id']
+        }
+      }
       // Update existing thread (also sets account_id if it was null)
-      const updateErr = opts.fetchedAt
-        ? await writeFenced(supabaseAdmin, existingThread.id, row, opts.fetchedAt, opts.mailboxState ?? [])
-        : (await supabaseAdmin.from('email_thread_index').update(row).eq('id', existingThread.id)).error
+      const updateErr = !('synced_at' in write)
+        ? (await supabaseAdmin.from('email_thread_index').update(write).eq('id', existingThread.id)).error
+        : opts.fetchedAt
+          ? await writeFenced(supabaseAdmin, existingThread.id, write, opts.fetchedAt, mailboxState)
+          : (await supabaseAdmin.from('email_thread_index').update(write).eq('id', existingThread.id)).error
       if (updateErr && opts.logWriteErrors) {
         console.error(`[Email Refresh] ${opts.what} update error for ${threadId}:`, updateErr.message)
       }
@@ -457,6 +491,24 @@ async function writeThreadCopies(
 }
 
 /**
+ * A workspace's copy of the thread: its id, account and (from migration 722)
+ * the person's archive mark. Null when it has none, or it can't be read (the
+ * copy is then added, as before).
+ */
+async function existingCopy(
+  supabaseAdmin: SupabaseClient,
+  ws: string,
+  threadId: string,
+  userId: string,
+): Promise<({ id: string; account_id: string | null } & LocalArchiveMark) | null> {
+  const read = (columns: string) =>
+    supabaseAdmin.from('email_thread_index').select(columns).eq('workspace_id', ws).eq('provider_thread_id', threadId).eq('user_id', userId).maybeSingle()
+  let { data, error } = await read('id, account_id, local_archived_at, local_archived_history_id')
+  if (error && isPre722Error(error)) ({ data, error } = await read('id, account_id'))
+  return (data as unknown as ({ id: string; account_id: string | null } & LocalArchiveMark) | null) ?? null
+}
+
+/**
  * The row as read, unless something newer wrote it since `fetchedAt`: then
  * everything but the mailbox state (and `synced_at`, which stays theirs).
  */
@@ -467,12 +519,11 @@ async function writeFenced(
   fetchedAt: string,
   mailboxState: readonly string[],
 ): Promise<{ message: string } | null> {
-  const { data, error } = await supabaseAdmin
-    .from('email_thread_index')
-    .update(row)
-    .eq('id', id)
-    .or(`synced_at.is.null,synced_at.lte.${fetchedAt}`)
-    .select('id')
+  const fenced = (patch: Record<string, unknown>) =>
+    supabaseAdmin.from('email_thread_index').update(patch).eq('id', id).or(`synced_at.is.null,synced_at.lte.${fetchedAt}`).select('id')
+  let { data, error } = await fenced(row)
+  // Before migration 722: the same write without the archive mark.
+  if (error && isPre722Error(error)) ({ data, error } = await fenced(withoutLocalArchive(row)))
   if (error) return error
   if ((data ?? []).length > 0) return null
   const rest = Object.fromEntries(Object.entries(row).filter(([key]) => key !== 'synced_at' && !mailboxState.includes(key)))

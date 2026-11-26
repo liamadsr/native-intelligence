@@ -111,6 +111,47 @@ describe('GET /api/account/inbox', () => {
     }) as SupabaseClient
     expect((await getInbox()).status).toBe(200)
   })
+
+  it('mail the person archived here with nothing newer in it stays out, whatever its folder says (Done stays done)', async () => {
+    const row = tables.email_thread_index[0]
+    // A writer put the folder back without a new message: the archive mark (722) holds it out.
+    row.local_archived_at = '2026-11-23T09:05:00Z'
+    let json = await (await getInbox()).json()
+    expect(json.items.map((i: { key: string }) => i.key)).not.toContain(`mail:${T(7)}`)
+    expect(json.mail).toEqual([])
+    // A message after the archive: back, and the mark never leaves the server.
+    row.last_message_at = '2026-11-23T09:10:00Z'
+    json = await (await getInbox()).json()
+    expect(json.items.map((i: { key: string }) => i.key)).toContain(`mail:${T(7)}`)
+    expect(json.mail[0]).not.toHaveProperty('local_archived_at')
+  })
+
+  it('before migration 722 the mail is read without the mark', async () => {
+    const base = h.db as unknown as { from: (t: string) => { select: (c: string) => unknown } }
+    const from = base.from.bind(base)
+    const asked: string[] = []
+    h.db = Object.assign(Object.create(base), {
+      from: (t: string) => {
+        const q = from(t)
+        if (t !== 'email_thread_index') return q
+        return {
+          ...q,
+          select: (cols: string) => {
+            asked.push(cols)
+            if (!cols.includes('local_archived_at')) return q.select(cols)
+            const err = { data: null, error: { code: '42703', message: 'column email_thread_index.local_archived_at does not exist' } }
+            const chain: Record<string, unknown> = {}
+            for (const m of ['eq', 'in', 'or', 'order', 'limit']) chain[m] = () => chain
+            chain.then = (resolve: (v: unknown) => unknown) => Promise.resolve(err).then(resolve)
+            return chain
+          },
+        }
+      },
+    }) as SupabaseClient
+    const json = await (await getInbox()).json()
+    expect(json.items.map((i: { key: string }) => i.key)).toContain(`mail:${T(7)}`)
+    expect(asked).toHaveLength(2)
+  })
 })
 
 describe('POST /api/account/inbox/notifications', () => {
