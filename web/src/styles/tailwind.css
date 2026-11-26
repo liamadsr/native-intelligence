@@ -1112,6 +1112,16 @@ html[data-sky-tone] [data-on-sky] {
   html[data-app-rail][data-card-front] #ni-chat-strip-slot [data-chat-composer-dock] {
     visibility: visible;
   }
+  /* The top bar's window-drag strip (the desktop app's only: WindowDragStrip,
+     childless and see-through) stays under a card, so the window moves from
+     its top with a page in front (Liam, 11-26: "if I click and hold to move
+     the app it should also work without first going to home"). Hidden with
+     the bar, a press there landed on the row behind it, an empty press: the
+     card minimized at once and no drag started. A click on it still
+     minimizes (window-drag-press.ts). */
+  html[data-app-rail][data-card-front] [data-shell-top-bar] [data-tauri-drag-region][data-empty-press-zone] {
+    visibility: visible;
+  }
   /* The web live HUD (live-hud/web-hud.tsx) sits under the layer (z-45): with
      no veil over it, it would look live, and a press on it would put the page
      back. It waits out of sight with the chat, as it waited blurred before. */

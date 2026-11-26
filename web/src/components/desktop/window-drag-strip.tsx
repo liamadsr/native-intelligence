@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type HTMLAttributes } from 'react'
 import { cn } from '@/lib/utils'
 import { isDesktopApp } from '@/lib/platform'
 
@@ -20,9 +20,10 @@ import { isDesktopApp } from '@/lib/platform'
  * the dead-zone bug this exists to fix.
  *
  * Renders nothing outside the desktop app (and on the server), so browser
- * pages never gain a click-eating overlay.
+ * pages never gain a click-eating overlay. Other props (a `data-` mark) go
+ * on the layer; children never do.
  */
-export function WindowDragStrip({ className }: { className?: string }) {
+export function WindowDragStrip({ className, ...rest }: HTMLAttributes<HTMLDivElement>) {
   const [desktop, setDesktop] = useState(false)
   useEffect(() => {
     setDesktop(isDesktopApp())
@@ -30,6 +31,7 @@ export function WindowDragStrip({ className }: { className?: string }) {
   if (!desktop) return null
   return (
     <div
+      {...rest}
       aria-hidden
       data-tauri-drag-region
       className={cn('absolute inset-0 z-[5]', className)}

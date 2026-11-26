@@ -18,6 +18,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { isOutsideCardPress } from '@/components/chat-cards/outside-card-press'
+import { followWindowDragPress, isWindowDragPress } from '@/components/chat-cards/window-drag-press'
+import { WindowDragStrip } from '@/components/desktop/window-drag-strip'
 import { hasTrafficLights } from '@/lib/platform'
 import { cn } from '@/lib/utils'
 
@@ -64,6 +66,9 @@ function ReplyReader({ title, body, onClose }: { title: string | null; body: str
   const ref = React.useRef<HTMLDivElement>(null)
   const pageRef = React.useRef<HTMLElement>(null)
   const [copied, setCopied] = React.useState(false)
+  // A press on its window-drag strip, followed to its end (window-drag-press.ts).
+  const dragRef = React.useRef<(() => void) | null>(null)
+  React.useEffect(() => () => dragRef.current?.(), [])
 
   React.useEffect(() => {
     ref.current?.focus({ preventScroll: true })
@@ -98,11 +103,25 @@ function ReplyReader({ title, body, onClose }: { title: string | null; body: str
       // A press anywhere off the page (and off its buttons) closes it, as a
       // full-screen card's does: the same rule (isOutsideCardPress).
       onPointerDown={(e) => {
+        dragRef.current?.()
+        dragRef.current = null
         if (!isOutsideCardPress(e, pageRef.current)) return
+        // Its window-drag strip: closed only at the end of a click, never prevented, so the window moves from it (Liam, 11-26).
+        if (isWindowDragPress(e.target)) {
+          dragRef.current = followWindowDragPress(e.nativeEvent, () => {
+            dragRef.current = null
+            onClose()
+          })
+          return
+        }
         e.preventDefault()
         onClose()
       }}
     >
+      {/* It covers the whole window, the top bar's drag strip too: its own
+          over its top band, the desktop app only, under its buttons (drawn
+          after it), so the window moves with the reader open. */}
+      <WindowDragStrip className="bottom-auto z-auto h-16" />
       {/* Clear of the macOS traffic lights in the Mac app. */}
       <div className={cn('absolute', hasTrafficLights() ? 'left-[84px] top-3' : 'left-4 top-4')}>
         <button type="button" onClick={onClose} aria-label="Back into the chat" title="Back into the chat" className={ROUND_BUTTON}>

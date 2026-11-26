@@ -15,6 +15,12 @@
  * the tile. It prevents the press, so the layer's own handler (the rule below
  * `md`) and the mousedown after it never act on it again. A popover open
  * takes its own outside press first. Below `md`: as before, the layer's.
+ * But not a press on the window's drag surface in the desktop app (the top
+ * bar's strip, which stays there under a card: tailwind.css): it is neither
+ * prevented nor put away when it lands, so the window moves from it and the
+ * card stays; a plain click there still minimizes, at its end
+ * (components/chat-cards/window-drag-press.ts; Liam, 11-26: "if I click and
+ * hold to move the app it should also work without first going to home").
  *
  * The tile (MinimizedCardTile; Liam, 11-11: "minimize and animate that same
  * way and go to the bottom left so that way it's always accessible and I can
@@ -93,6 +99,7 @@ import { getMountedServerSnapshot, getMountedSnapshot, subscribeMounted, useHasT
 import { frontCard, subscribeFrontCard } from '@/components/chat-cards/front-card'
 import { homeArrives } from '@/components/chat-cards/flight-scene'
 import { isEmptyAppPress, popoverLayerOpen } from '@/components/chat-cards/outside-card-press'
+import { followWindowDragPress, isWindowDragPress, watchWindowMoves } from '@/components/chat-cards/window-drag-press'
 import { KindIcon } from '@/components/chat-cards/show-tool-card'
 import {
   besideAppRail,
@@ -119,28 +126,55 @@ import { topBarLeftInset } from './top-bar/insets'
  */
 export function EmptyPressMinimizes() {
   useEffect(() => {
+    // A press on the window's drag surface being followed to its end (window-drag-press.ts).
+    let following: (() => void) | null = null
     const onPress = (e: PointerEvent) => {
+      following?.()
+      following = null
       if (e.button !== 0 || e.defaultPrevented) return
       const front = frontCard()
       if (!front || !besideAppRail() || popoverLayerOpen() || !isEmptyAppPress(e.target)) return
+      const putAway = () => {
+        // Its flight into the tile first, out of full screen a frame later (minimized-card.ts minimizeSoon).
+        if (front.minimize) front.minimize()
+        else front.close()
+      }
+      // The window's drag surface (the top bar's strip, the desktop app only;
+      // Liam, 11-26): neither prevented nor put away at the press, so the
+      // window's drag starts from its mousedown and keeps the card; put away
+      // at its end only when it was a click. Its click lands on the strip,
+      // which does nothing.
+      if (isWindowDragPress(e.target)) {
+        following = followWindowDragPress(e, () => {
+          following = null
+          if (frontCard() === front && !popoverLayerOpen()) putAway()
+        })
+        return
+      }
       // Nothing under it acts on the press once the card is gone (a link, the composer).
       e.preventDefault()
-      // Its flight into the tile first, out of full screen a frame later (minimized-card.ts minimizeSoon).
-      if (front.minimize) front.minimize()
-      else front.close()
+      putAway()
     }
     let on = false
     const sync = () => {
       const want = !!frontCard()
       if (want === on) return
       on = want
-      if (on) window.addEventListener('pointerdown', onPress, true)
-      else window.removeEventListener('pointerdown', onPress, true)
+      if (on) {
+        window.addEventListener('pointerdown', onPress, true)
+        // Heard from now on, before the first press on the drag surface.
+        watchWindowMoves()
+      } else {
+        window.removeEventListener('pointerdown', onPress, true)
+        following?.()
+        following = null
+      }
     }
     sync()
     const off = subscribeFrontCard(sync)
     return () => {
       off()
+      following?.()
       if (on) window.removeEventListener('pointerdown', onPress, true)
     }
   }, [])
