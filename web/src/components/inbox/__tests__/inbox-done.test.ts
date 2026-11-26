@@ -250,4 +250,42 @@ describe('Done in the inbox', () => {
     await inboxDone(inboxState().data!.items[0])
     expect(toasts.error).toEqual(['That email could not be archived. It’s back in the list.'])
   })
+
+  // Liam, 11-26: "I dismissed all the notifications … but then they all came back again".
+  it('mail whose index row is written again under a new id, same thread: it stays gone', async () => {
+    listed = [mail('mail:row-1', { open: { kind: 'mail', threadIndexId: 'row-1', providerThreadId: 'pt-x', accountId: 'acct-1' } })]
+    await loadInbox()
+    await inboxDone(inboxState().data!.items[0])
+    listed = [mail('mail:row-2', { open: { kind: 'mail', threadIndexId: 'row-2', providerThreadId: 'pt-x', accountId: 'acct-1' } })]
+    await loadInbox()
+    expect(keys()).toEqual([])
+    // A new message in it still brings it back.
+    listed = [mail('mail:row-2', { at: '2026-11-24T11:00:00.000Z', messages: 2, open: { kind: 'mail', threadIndexId: 'row-2', providerThreadId: 'pt-x', accountId: 'acct-1' } })]
+    await loadInbox()
+    expect(keys()).toEqual(['mail:row-2'])
+  })
+
+  it('a recount (more messages counted, the thread’s time unmoved) is no news', async () => {
+    listed = [mail('mail:t1', { messages: 2 })]
+    await loadInbox()
+    await inboxDone(inboxState().data!.items[0])
+    listed = [mail('mail:t1', { messages: 3 })]
+    await loadInbox()
+    expect(keys()).toEqual([])
+  })
+
+  it('a Done in another window on this device is kept when this one saves its own', async () => {
+    listed = [mail('mail:t1'), mail('mail:t2')]
+    await loadInbox()
+    // The other window (the desktop app beside a tab) marks t2 done: its record is in storage.
+    const other = { 'mail:t2': { at, since: Date.now(), messages: 1, thread: ':pt-t2' } }
+    window.localStorage.setItem(DONE_STORAGE_KEY, JSON.stringify(other))
+    // This one marks t1 done and saves.
+    await inboxDone(inboxState().data!.items[0])
+    const stored = JSON.parse(window.localStorage.getItem(DONE_STORAGE_KEY) ?? '{}') as Record<string, unknown>
+    expect(Object.keys(stored).sort()).toEqual(['mail:t1', 'mail:t2'])
+    listed = [mail('mail:t1'), mail('mail:t2')]
+    await loadInbox()
+    expect(keys()).toEqual([])
+  })
 })

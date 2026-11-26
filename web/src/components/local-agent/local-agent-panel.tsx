@@ -75,6 +75,7 @@ import {
 } from '@/lib/local-agent/transcript-view'
 import { useLocalAgentSession } from './use-local-agent-session'
 import { InboundBubble, ToolRun, TranscriptRow } from './transcript-rows'
+import { ShimmerText } from '@/components/ui/shimmer-text'
 import { LocalAgentComposer } from './local-agent-composer'
 import { BranchCardActions } from './branch-card'
 import { ChangesView } from './changes-view'
@@ -97,18 +98,26 @@ function isWorking(status: PanelSession['status']): boolean {
 }
 
 type ToolItem = Extract<TranscriptItem, { type: 'tool' }>
+type BranchItem = Extract<TranscriptItem, { type: 'branch' }>
+
+function sameBranch(a: BranchItem, b: BranchItem): boolean {
+  return a.name === b.name && a.commit === b.commit && a.filesChanged === b.filesChanged && a.insertions === b.insertions && a.deletions === b.deletions
+}
+
 /** What the conversation draws: an item, or tool calls in a row as one folded line. */
 export type DrawnRow = { key: string; item: TranscriptItem; tools?: undefined } | { key: string; tools: ToolItem[]; item?: undefined }
 
 /**
  * The items as rows: two or more tool calls in a row fold into one line
  * (ToolRun), keyed by its first call so it stays the same row as it grows. A
- * status with nothing to say between two calls (the fold keeps the working
- * ones, which draw nothing) does not break a run. Pure.
+ * working status (starting, running, waiting: they draw nothing, the Status
+ * card and the composer say them) is left out and does not break a run, and a
+ * branch committed again unchanged is drawn once. Pure.
  */
 export function drawnRows(items: readonly TranscriptItem[]): DrawnRow[] {
   const rows: DrawnRow[] = []
   let run: ToolItem[] = []
+  let lastBranch: BranchItem | null = null
   const close = () => {
     if (run.length === 1) rows.push({ key: run[0].key, item: run[0] })
     else if (run.length > 1) rows.push({ key: `run-${run[0].key}`, tools: run })
@@ -119,11 +128,13 @@ export function drawnRows(items: readonly TranscriptItem[]): DrawnRow[] {
       run.push(item)
       continue
     }
-    // Drawn as nothing (transcript-rows.tsx statusLine): the calls on each side of it are one run.
-    if (item.type === 'status' && !item.reason && (item.status === 'starting' || item.status === 'running' || item.status === 'waiting')) {
-      if (run.length === 0) rows.push({ key: item.key, item })
+    // Drawn as nothing (transcript-rows.tsx statusLine; Liam, 11-26: no bare "parked" line): the calls on each side of it are one run.
+    if (item.type === 'status' && (item.status === 'starting' || item.status === 'running' || item.status === 'waiting')) {
       continue
     }
+    // The same branch, committed again with nothing new (a turn that changed nothing): its line once.
+    if (item.type === 'branch' && lastBranch && sameBranch(lastBranch, item)) continue
+    if (item.type === 'branch') lastBranch = item
     close()
     rows.push({ key: item.key, item })
   }
@@ -141,6 +152,60 @@ export function modelLine(session: Pick<PanelSession, 'model' | 'effort'>): stri
 function liveFor(item: TranscriptItem, live: boolean, last: TranscriptItem | undefined): boolean {
   // Text streams only at the conversation's end: anything after it means it is whole (its Copy and Read aloud show).
   return live && (item.type === 'tool' || (item.type === 'assistant' && item === last))
+}
+
+/**
+ * The one quiet sign the agent is busy, at the conversation's foot, as Claude
+ * Code's (Liam, 11-26: the working statuses draw no line of their own, so a
+ * host with no Status card must never look idle while it runs): "Working…",
+ * shimmering, gone once it stops.
+ */
+function WorkingRow() {
+  return (
+    <p data-local-agent-working="" className="text-[13px] leading-5 text-muted-foreground">
+      <ShimmerText active>Working…</ShimmerText>
+    </p>
+  )
+}
+
+/** The last row already moves while it works: a step running (it shimmers), or words streaming in. */
+function showsMotion(row: DrawnRow | undefined): boolean {
+  if (!row) return false
+  if (row.tools) return !row.tools[row.tools.length - 1].result
+  return (row.item.type === 'tool' && !row.item.result) || (row.item.type === 'assistant' && row.item.open)
+}
+
+/** The conversation's scrolling column (the panel's log), for a host that draws the same rows. */
+export const CONVERSATION_LOG_CLASS = 'flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto'
+
+/**
+ * The conversation itself: the request (once its start is drawn), then each
+ * row. The panel's log draws it; so does the dev fixture page (/dev/code-view),
+ * which renders the Code view from fixture items to check its look.
+ */
+export function ConversationRows({
+  request,
+  rows,
+  live,
+  last,
+  working = live,
+}: {
+  request: { author: 'agent' | 'person'; text: string } | null
+  rows: readonly DrawnRow[]
+  live: boolean
+  last: TranscriptItem | undefined
+  /** It is at work now (not merely queued): "Working…" at the foot unless the last row already moves. */
+  working?: boolean
+}) {
+  return (
+    <>
+      {request && <InboundBubble author={request.author} text={request.text} request />}
+      {rows.map((row) =>
+        row.tools ? <ToolRun key={row.key} items={row.tools} live={live} /> : <TranscriptRow key={row.key} item={row.item} live={liveFor(row.item, live, last)} />,
+      )}
+      {working && !showsMotion(rows[rows.length - 1]) && <WorkingRow />}
+    </>
+  )
 }
 
 /** Where the pull request ask stands: pressed and sending, sent (until the job works again), or not asked. */
@@ -533,7 +598,7 @@ export function LocalAgentPanel({
           const el = e.currentTarget
           stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_PX
         }}
-        className={cn('flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto', hideScrollbar ? 'scrollbar-hide' : 'pr-1')}
+        className={cn(CONVERSATION_LOG_CLASS, hideScrollbar ? 'scrollbar-hide' : 'pr-1')}
       >
         {(hidden > 0 || hasEarlier) && (
           <button
@@ -546,11 +611,7 @@ export function LocalAgentPanel({
             {loadingEarlier ? 'Loading…' : 'Show earlier'}
           </button>
         )}
-        {/* The request opens the conversation: drawn once its start is. */}
-        {hidden === 0 && !hasEarlier && <InboundBubble author={requestAuthor} text={session.request} request />}
-        {rows.map((row) =>
-          row.tools ? <ToolRun key={row.key} items={row.tools} live={live} /> : <TranscriptRow key={row.key} item={row.item} live={liveFor(row.item, live, shown[shown.length - 1])} />,
-        )}
+        <ConversationRows request={hidden === 0 && !hasEarlier ? { author: requestAuthor, text: session.request } : null} rows={rows} live={live} last={shown[shown.length - 1]} working={live && session.status !== 'queued'} />
         {session.status === 'queued' && items.length === 0 && (
           <p className="text-center text-[11px] text-muted-foreground">
             It starts when your Mac picks it up (the Native Intelligence app open and signed in).

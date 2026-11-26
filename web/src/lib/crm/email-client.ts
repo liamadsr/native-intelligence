@@ -11,6 +11,7 @@ import { materializeSearchHit } from '@/lib/email/materialize-thread'
 import { resolveWorkForDeliverable } from '@/lib/work/resolve'
 import { deleteProviderDraft } from '@/lib/email/provider-drafts'
 import { outlookDeletedItemsId } from './email-sync'
+import { isPre722Error, localArchivePatch, withoutLocalArchive } from '@/lib/email/local-archive'
 import { outlookAttachmentList, outlookAttachmentMeta, outlookEventInvite } from '@/lib/email/outlook-invite'
 import { htmlToPlainText } from '@/lib/email/plain-text-to-html'
 
@@ -1134,10 +1135,17 @@ async function threadMailboxToken(
  * this change doesn't put the old state back (email-sync.ts writeThreadCopies).
  */
 function threadRows(userId: string, providerThreadId: string, accountId: string | null) {
-  return (patch: Record<string, unknown>) => {
+  const write = (patch: Record<string, unknown>) => {
     let query = getServiceClient().from('email_thread_index').update({ ...patch, synced_at: new Date().toISOString() }).eq('user_id', userId).eq('provider_thread_id', providerThreadId)
     if (accountId) query = query.eq('account_id', accountId)
     return query
+  }
+  // An archive here is the person's (src/lib/email/local-archive.ts): its mark
+  // goes with it, and without it before migration 722.
+  return async (patch: Record<string, unknown>) => {
+    const full = patch.folder === 'archive' ? { ...patch, ...localArchivePatch(true) } : patch
+    const { error } = await write(full)
+    return error && isPre722Error(error) ? write(withoutLocalArchive(full)) : { error }
   }
 }
 

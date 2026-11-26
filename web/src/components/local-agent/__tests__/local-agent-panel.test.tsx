@@ -188,15 +188,17 @@ describe('LocalAgentPanel', () => {
     expect(q('[data-local-agent-mode]')?.textContent).toBe('Read only')
     expect(q('[data-local-agent-status-line]')?.textContent).toBe('Working')
     expect(q('[data-local-agent-stop]')).not.toBeNull()
-    // The request opens it, as the Native Intelligence agent's.
+    // The request opens it, as the Native Intelligence agent's: named quietly under its bubble, no "asked".
     const inbound = [...container.querySelectorAll('[data-local-agent-inbound]')]
     expect(inbound[0].getAttribute('data-local-agent-inbound')).toBe('agent')
-    expect(inbound[0].textContent).toContain('Native Intelligence agent · asked')
+    expect(inbound[0].hasAttribute('data-local-agent-request')).toBe(true)
+    expect(inbound[0].querySelector('[data-local-agent-inbound-note]')?.textContent).toBe('Native Intelligence agent')
     expect(inbound[0].textContent).toContain('Take a look at this repository')
-    // Messages to it, labelled by who sent them.
-    expect(inbound[1].textContent).toMatch(/^You/)
-    expect(inbound[1].textContent).toContain('Only this one')
-    expect(inbound[2].textContent).toContain('Native Intelligence agent · queued')
+    // The person's own message carries no label; the agent's says who sent it, and a queued one says so.
+    expect(inbound[1].getAttribute('data-local-agent-inbound')).toBe('person')
+    expect(inbound[1].querySelector('[data-local-agent-inbound-note]')).toBeNull()
+    expect(inbound[1].textContent).toBe('Only this one')
+    expect(inbound[2].querySelector('[data-local-agent-inbound-note]')?.textContent).toBe('Native Intelligence agent · Queued')
     // The agent's words, its highlights and its branch.
     expect(q('[data-local-agent-text]')?.textContent).toContain('It is a Next.js app.')
     expect(q('[data-local-agent-highlight="ask"]')?.textContent).toContain('Should I look at the desktop repo too?')
@@ -239,12 +241,14 @@ describe('LocalAgentPanel', () => {
     ])
     const runs = [...container.querySelectorAll('[data-local-agent-tool-run]')]
     expect(runs.map((r) => r.getAttribute('data-local-agent-tool-run'))).toEqual(['4'])
-    expect(runs[0].textContent).toBe('4 stepsDone · 1 failed')
+    // One quiet line saying what was done, what failed in red after it: no state icon, no "Done".
+    expect(runs[0].textContent).toBe('Took 3 other steps, ran 1 command· 1 failed')
+    expect(runs[0].querySelector('svg.lucide-circle-check, svg.lucide-check-circle')).toBeNull()
     // Folded: none of its steps is drawn. The lone call after the text is its own line.
     expect(runs[0].querySelector('[data-local-agent-tool]')).toBeNull()
     expect([...container.querySelectorAll('[data-local-agent-tool]')].map((t) => t.textContent)).toEqual(['Reading README.md'])
     await act(async () => runs[0].querySelector('button')!.click())
-    expect([...runs[0].querySelectorAll('[data-local-agent-tool]')].map((t) => t.textContent)).toEqual(['Get actionDone', 'Get actionError', 'Get actionDone', 'Running git status'])
+    expect([...runs[0].querySelectorAll('[data-local-agent-tool]')].map((t) => t.textContent)).toEqual(['Get action', 'Get action· Failed', 'Get action', 'Running git status'])
     // A step opens to its output, inside the open run.
     await act(async () => runs[0].querySelector<HTMLButtonElement>('[data-local-agent-tool] button')!.click())
     expect(runs[0].textContent).toContain('out 1')
@@ -256,7 +260,7 @@ describe('LocalAgentPanel', () => {
       { id: 2, source: 'device', kind: 'tool_result', payload: { kind: 'tool_result', callId: 'c1', name: 'read_file', ok: true, output: 'x' } },
       { id: 3, source: 'device', kind: 'tool', payload: { kind: 'tool', callId: 'c2', name: 'read_file', input: '{"path":"b.ts"}' } },
     ])
-    expect(q('[data-local-agent-tool-run]')?.textContent).toBe('Reading b.ts2 steps')
+    expect(q('[data-local-agent-tool-run]')?.textContent).toBe('Reading b.ts')
   })
 
   it('the agent’s messages carry Copy once they have settled', async () => {
@@ -456,10 +460,12 @@ describe('LocalAgentPanel', () => {
 })
 
 describe('the opening request: who asked', () => {
-  it('a card’s Start the person pressed: their request (“You · asked”); the chat agent’s start keeps its label', async () => {
+  it('a card’s Start the person pressed: their request, unlabelled as their own messages are; the chat agent’s start keeps its label', async () => {
     await mount(sessionRow({ requestedByPerson: true }))
-    expect(container.querySelector('[data-local-agent-inbound]')!.textContent).toContain('You · asked')
-    expect(container.querySelector('[data-local-agent-inbound]')!.getAttribute('data-local-agent-inbound')).toBe('person')
+    const request = container.querySelector('[data-local-agent-inbound]')!
+    expect(request.getAttribute('data-local-agent-inbound')).toBe('person')
+    expect(request.hasAttribute('data-local-agent-request')).toBe(true)
+    expect(request.querySelector('[data-local-agent-inbound-note]')).toBeNull()
   })
 })
 

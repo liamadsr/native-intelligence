@@ -155,6 +155,12 @@ interface DoneRecord {
   ids?: string[]
   /** A mail thread's message count then, when known. */
   messages?: number
+  /**
+   * A mail thread's own id in its mailbox (`<account>:<provider thread id>`):
+   * the record still finds it when its index row is written again under a new
+   * row id (a row dropped and added back), which the item's key would miss.
+   */
+  thread?: string
   /** When it was done (ms). */
   since: number
 }
@@ -167,6 +173,8 @@ export const DONE_KEEP_MS = 30 * 24 * 60 * 60_000
 const DONE_MAX = 500
 
 let doneKeys: Map<string, DoneRecord> | null = null
+/** Records this page took out (news, Undo, a refusal): never merged back in from storage. */
+const forgotten = new Set<string>()
 
 const ms = (iso: string | null | undefined): number => {
   const t = iso ? Date.parse(iso) : NaN
@@ -175,21 +183,41 @@ const ms = (iso: string | null | undefined): number => {
 
 function isRecord(v: unknown): v is DoneRecord {
   const r = v as DoneRecord | null
-  return !!r && typeof r === 'object' && typeof r.at === 'string' && typeof r.since === 'number' && (r.ids === undefined || (Array.isArray(r.ids) && r.ids.every((id) => typeof id === 'string'))) && (r.messages === undefined || typeof r.messages === 'number')
+  return !!r && typeof r === 'object' && typeof r.at === 'string' && typeof r.since === 'number' && (r.ids === undefined || (Array.isArray(r.ids) && r.ids.every((id) => typeof id === 'string'))) && (r.messages === undefined || typeof r.messages === 'number') && (r.thread === undefined || typeof r.thread === 'string')
 }
 
+/** A mail item's thread in its mailbox, for its done record (DoneRecord.thread). */
+function mailThreadOf(item: InboxItem): string | null {
+  return item.source === 'mail' && item.open.kind === 'mail' ? `${item.open.accountId ?? ''}:${item.open.providerThreadId}` : null
+}
+
+/**
+ * This page's records, with what another window on this device (the desktop
+ * app beside a browser tab) has stored since merged in: each page saves the
+ * whole record, so one that only kept its own would wipe the other's Done.
+ */
 function done(): Map<string, DoneRecord> {
-  if (doneKeys) return doneKeys
-  doneKeys = new Map()
+  doneKeys ??= new Map()
   try {
     const raw = typeof window === 'undefined' ? null : window.localStorage.getItem(DONE_STORAGE_KEY)
     const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : null
     const now = Date.now()
-    if (parsed && typeof parsed === 'object') for (const [key, rec] of Object.entries(parsed)) if (isRecord(rec) && now - rec.since < DONE_KEEP_MS) doneKeys.set(key, rec)
+    if (parsed && typeof parsed === 'object') {
+      for (const [key, rec] of Object.entries(parsed)) {
+        if (!isRecord(rec) || now - rec.since >= DONE_KEEP_MS || forgotten.has(key)) continue
+        const mine = doneKeys.get(key)
+        if (!mine || mine.since < rec.since) doneKeys.set(key, rec)
+      }
+    }
   } catch {
     // Unreadable or blocked: this page's memory only.
   }
   return doneKeys
+}
+
+function forget(map: Map<string, DoneRecord>, key: string): boolean {
+  forgotten.add(key)
+  return map.delete(key)
 }
 
 function saveDone(): void {
@@ -208,23 +236,33 @@ function saveDone(): void {
 function markDone(item: InboxItem): void {
   const map = done()
   map.delete(item.key)
+  forgotten.delete(item.key)
+  const thread = mailThreadOf(item)
   map.set(item.key, {
     at: item.at,
     since: Date.now(),
-    ...(item.source === 'mail' ? (typeof item.messages === 'number' ? { messages: item.messages } : {}) : { ids: [...item.notificationIds] }),
+    ...(item.source === 'mail' ? { ...(typeof item.messages === 'number' ? { messages: item.messages } : {}), ...(thread ? { thread } : {}) } : { ids: [...item.notificationIds] }),
   })
   saveDone()
 }
 
-function unmarkDone(key: string): void {
-  if (done().delete(key)) saveDone()
+function unmarkDone(item: InboxItem): void {
+  const map = done()
+  let changed = forget(map, item.key)
+  const thread = mailThreadOf(item)
+  if (thread) for (const [key, rec] of [...map]) if (rec.thread === thread && forget(map, key)) changed = true
+  if (changed) saveDone()
 }
 
 /** Something genuinely new in it since it was done. */
 function newSinceDone(item: InboxItem, rec: DoneRecord): boolean {
   if (item.source === 'mail') {
-    if (typeof item.messages === 'number' && typeof rec.messages === 'number') return item.messages > rec.messages
-    return ms(item.at) > ms(rec.at)
+    // A new message is a later thread, and (when both counts are known) one
+    // more message: a recount alone (drafts counted, a re-index) is no news,
+    // and neither is the time moving with no message added.
+    const later = ms(item.at) > ms(rec.at)
+    if (typeof item.messages === 'number' && typeof rec.messages === 'number') return later && item.messages > rec.messages
+    return later
   }
   // A notification item: a row it didn't have then (its time can move without one: a row read, regrouped).
   if (!rec.ids) return ms(item.at) > ms(rec.at)
@@ -236,12 +274,17 @@ function newSinceDone(item: InboxItem, rec: DoneRecord): boolean {
 function withoutDone(items: readonly InboxItem[]): InboxItem[] {
   const map = done()
   if (!map.size) return [...items]
+  // Mail records by their thread too: a row written again has a new id.
+  const byThread = new Map<string, string>()
+  for (const [key, rec] of map) if (rec.thread) byThread.set(rec.thread, key)
   let changed = false
   const out = items.filter((item) => {
-    const rec = map.get(item.key)
-    if (!rec) return true
+    const thread = mailThreadOf(item)
+    const recKey = map.has(item.key) ? item.key : thread ? byThread.get(thread) : undefined
+    const rec = recKey !== undefined ? map.get(recKey) : undefined
+    if (!rec || recKey === undefined) return true
     if (Date.now() - rec.since >= DONE_KEEP_MS || newSinceDone(item, rec)) {
-      map.delete(item.key)
+      forget(map, recKey)
       changed = true
       return true
     }
@@ -428,7 +471,7 @@ export async function inboxDone(item: InboxItem): Promise<void> {
   }
   if (!ok) {
     // Never silently: the row comes back, and says why.
-    unmarkDone(item.key)
+    unmarkDone(item)
     toast.error(
       item.source === 'mail'
         ? why
@@ -443,7 +486,7 @@ export async function inboxDone(item: InboxItem): Promise<void> {
       ? {
           label: 'Undo',
           onClick: () => {
-            unmarkDone(item.key)
+            unmarkDone(item)
             void undo!().then(() => loadInbox())
           },
         }
@@ -503,6 +546,7 @@ export async function inboxOpen(item: InboxItem, opts: { beside?: () => void; on
 export function __resetInboxStoreForTests(opts: { keepDevice?: boolean } = {}): void {
   // keepDevice: as a reload does (what this device kept stays).
   doneKeys = null
+  forgotten.clear()
   if (!opts.keepDevice) {
     try {
       window.localStorage.removeItem(DONE_STORAGE_KEY)

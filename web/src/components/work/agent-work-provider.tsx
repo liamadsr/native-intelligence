@@ -290,3 +290,25 @@ export function useAgentWorkShared(): AgentWorkShared {
   const { work, counts } = useWorkContext()
   return { work, attention: useSharedAttention(), counts }
 }
+
+/**
+ * The shared source from fixed values, for the dev fixture pages only
+ * (/dev/code-view, never mounted in /account): a surface that draws only
+ * inside the shell (the Code view's Review card) can be rendered from fixtures.
+ */
+export function AgentWorkFixtureProvider({
+  work,
+  attention,
+  children,
+}: {
+  work: AgentWork
+  attention: UseAttentionItems
+  children: ReactNode
+}) {
+  const value = useMemo<WorkContextValue>(() => ({ work, counts: new Map(), owners: NO_BOT_OWNERS }), [work])
+  return (
+    <WorkContext.Provider value={value}>
+      <AttentionContext.Provider value={attention}>{children}</AttentionContext.Provider>
+    </WorkContext.Provider>
+  )
+}

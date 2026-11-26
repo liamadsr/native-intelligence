@@ -440,7 +440,9 @@ describe('session helpers', () => {
   it('toolLine: a verb and the path or command, else the name', () => {
     expect(toolLine('read_file', '{"path":"src/app/page.tsx"}')).toBe('Reading src/app/page.tsx')
     expect(toolLine('bash', '{"command":"git   status"}')).toBe('Running git status')
-    expect(toolLine('report', '{"text":"x"}')).toBe('report')
+    // Any other tool in words, capitalised (Liam, 11-26: the quiet tool line reads as words, not a raw name).
+    expect(toolLine('report', '{"text":"x"}')).toBe('Report')
+    expect(toolLine('update_plan', '{}')).toBe('Update plan')
     expect(toolLine('bash', '{"command":')).toBe('Running')
     // A coding agent's login-shell wrapper is not the command.
     expect(toolLine('shell', JSON.stringify({ command: '/bin/zsh -lc "rg -n \\"needs_reconnect\\" web/src"' }))).toBe('Running rg -n "needs_reconnect" web/src')

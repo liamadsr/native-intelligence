@@ -285,6 +285,14 @@ export interface WorkItemDetailPanelProps {
   titleShown?: string
   /** Embedded in a card of its own (the work item's): Stop and Open run in the card's header, not under the title. */
   verbsInHeader?: boolean
+  /**
+   * Only what needs the person (the Code view's right panel, Liam, 11-26: "I'm
+   * not sure we need the summary and the steps, details"): the question or the
+   * review and its verbs, its proposals and what it delivered, the contacts it
+   * holds. No title, what happened, steps, plan, log or details: the
+   * conversation beside it and its other cards say those.
+   */
+  needsOnly?: boolean
 }
 
 /** A mounted panel can be in a background browser/desktop window. */
@@ -314,7 +322,7 @@ function useForegroundDocument(): boolean {
   return foreground
 }
 
-export function WorkItemDetailPanel({ itemId, embedded = false, shown = true, onItem, conversationBeside = false, titleShown, verbsInHeader = false }: WorkItemDetailPanelProps) {
+export function WorkItemDetailPanel({ itemId, embedded = false, shown = true, onItem, conversationBeside = false, titleShown, verbsInHeader = false, needsOnly = false }: WorkItemDetailPanelProps) {
   const headerSlots = useCardHeaderSlots()
   const verbsToHeader = embedded && verbsInHeader && headerSlots !== null
   const openWorkItemWhereItOpens = useOpenWorkItem()
@@ -921,9 +929,9 @@ export function WorkItemDetailPanel({ itemId, embedded = false, shown = true, on
                 column stays centred in it (Liam, 11-21). */}
             <div className="w-full min-w-0">
               <ScrollArea scrollbar={false} className="h-full">
-                <div className={embedded ? 'px-4 pb-8 space-y-6' : 'mx-auto w-full max-w-[736px] px-8 pb-28 space-y-8'}>
+                <div className={needsOnly ? 'space-y-3 p-3' : embedded ? 'px-4 pb-8 space-y-6' : 'mx-auto w-full max-w-[736px] px-8 pb-28 space-y-8'}>
                   {/* Title + status line. pt-6 lines the title up with the sidebar's group header. */}
-                  <div className={cn('space-y-2', embedded ? 'pt-4' : 'pt-6')}>
+                  <div hidden={needsOnly || undefined} className={cn('space-y-2', embedded ? 'pt-4' : 'pt-6')}>
                     {!(headerSlots && titleShown && titleShown.trim() === (item.title ?? '').trim()) && (
                       <h1 className={cn('font-semibold leading-snug', embedded ? 'text-lg' : 'text-2xl')}>{item.title}</h1>
                     )}
@@ -1008,7 +1016,7 @@ export function WorkItemDetailPanel({ itemId, embedded = false, shown = true, on
                   )}
 
                   {/* A local agent's conversation, the whole session's (unless the page draws it beside). */}
-                  {localSessionId && !conversationBeside && (
+                  {localSessionId && !conversationBeside && !needsOnly && (
                     <section data-work-item-local-agent={localSessionId} className="space-y-3">
                       <SectionHeading>Conversation</SectionHeading>
                       <div className="flex h-[min(560px,65vh)] min-h-[320px] flex-col">
@@ -1018,7 +1026,7 @@ export function WorkItemDetailPanel({ itemId, embedded = false, shown = true, on
                   )}
 
                   {/* Handoffs (row 14): what this item handed to teammates, live. */}
-                  {(data?.children?.length ?? 0) > 0 && (
+                  {(data?.children?.length ?? 0) > 0 && !needsOnly && (
                     <HandoffsSection
                       items={data!.children!}
                       waiting={item.status === 'waiting_on_child'}
@@ -1077,7 +1085,7 @@ export function WorkItemDetailPanel({ itemId, embedded = false, shown = true, on
                   )}
 
                   {/* What happened — in the run's own words, its action ids as the chat's live chips (Liam, 11-20). */}
-                  {showWhatHappened && (
+                  {showWhatHappened && !needsOnly && (
                     <section className="space-y-3">
                       <SectionHeading>What happened</SectionHeading>
                       {whatHappened && (
@@ -1160,7 +1168,7 @@ export function WorkItemDetailPanel({ itemId, embedded = false, shown = true, on
                   )}
 
                   {/* Everything it looked at — every proposal, by outcome, with its reason. */}
-                  {decisions.length > 0 && (
+                  {decisions.length > 0 && !needsOnly && (
                     <Disclosure
                       label="Everything it looked at"
                       count={decisions.length}
@@ -1193,20 +1201,20 @@ export function WorkItemDetailPanel({ itemId, embedded = false, shown = true, on
                   )}
 
                   {/* An agent run's brief, resources and terminal. */}
-                  {run && (run.task || run.resources.length > 0) && (
+                  {run && (run.task || run.resources.length > 0) && !needsOnly && (
                     <section className="space-y-3">
                       <WorkTask task={run.task} />
                       <WorkResources resources={run.resources} onOpen={openResource} />
                     </section>
                   )}
-                  {run?.log_tail && (
+                  {run?.log_tail && !needsOnly && (
                     <Disclosure label="Log" open={logShown} onToggle={() => setLogOpen(!logShown)}>
                       <Terminal log={run.log_tail} sandboxId={run.sandbox_id} live={live} logRef={logRef} onScroll={() => {}} />
                     </Disclosure>
                   )}
 
                   {/* Plan — the agent's checklist for this job, above its steps. */}
-                  {planSteps && (
+                  {planSteps && !needsOnly && (
                     <Disclosure label="Plan" count={planBadge(planSteps)} open={planShown} onToggle={() => setPlanOpen(!planShown)}>
                       <div data-work-item-plan="">
                         <PlanChecklist steps={planSteps} live={live} />
@@ -1215,7 +1223,7 @@ export function WorkItemDetailPanel({ itemId, embedded = false, shown = true, on
                   )}
 
                   {/* Steps — the recorder's phrases, never the raw log. */}
-                  {steps.length > 0 && (
+                  {steps.length > 0 && !needsOnly && (
                     <Disclosure label="Steps" count={steps.length} open={stepsShown} onToggle={() => setStepsOpen(!stepsShown)}>
                       <div className="relative space-y-0">
                         <div className="absolute left-[9px] top-3 bottom-3 w-px bg-border" />
@@ -1245,7 +1253,7 @@ export function WorkItemDetailPanel({ itemId, embedded = false, shown = true, on
                   )}
 
                   {/* Embedded: its properties fold into the column. */}
-                  {embedded && (
+                  {embedded && !needsOnly && (
                     <Disclosure label="Details" open={detailsOpen} onToggle={() => setDetailsOpen((v) => !v)}>
                       <div data-work-item-details="" className="space-y-3 [&_[data-properties-heading]]:hidden">
                         {properties}
