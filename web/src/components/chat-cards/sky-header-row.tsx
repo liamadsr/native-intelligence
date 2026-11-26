@@ -12,8 +12,9 @@
  * card and moves with it; its top and left inset are measured from the rail's
  * header, the one thing it lines up with. Interactive (listen mode) is in its
  * controls' pill (show-tool-card.tsx), not a capsule of its own beside it. The
- * row lets presses through (the top bar under it stays a drag surface in the
- * Mac app); its pills take them.
+ * row lets presses through (the top bar's drag strip under it stays, the
+ * one part of the bar that does: tailwind.css; Liam, 11-26); its pills take
+ * them.
  *
  * It is the page's controls' size container (a calendar sheds controls as it
  * narrows: calendar-header.tsx). Interactive's width in the controls' pill is

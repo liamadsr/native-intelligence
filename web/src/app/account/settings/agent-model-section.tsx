@@ -19,9 +19,10 @@
  * The dropdown is the page's own (the Theme one in ./preferences-view.tsx),
  * with listbox roles, and closes on Escape or a press outside it.
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { BrainCircuit, Check, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { oneAtATime } from '@/lib/account-setting'
 import {
   AGENT_MODEL_OPTIONS,
@@ -65,7 +66,6 @@ export function AgentModelSection() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState<AgentModelChoice | null>(null)
-  const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     let live = true
@@ -87,24 +87,6 @@ export function AgentModelSection() {
       live = false
     }
   }, [])
-
-  useEffect(() => {
-    if (!open) return
-    // pointerdown, not mousedown: Tauri's drag script swallows mousedown on
-    // the settings shell's title-bar drag strip (as the Theme dropdown says).
-    const onPointer = (e: PointerEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('pointerdown', onPointer)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('pointerdown', onPointer)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
 
   const choose = useCallback(
     async (next: AgentModelChoice) => {
@@ -165,14 +147,17 @@ export function AgentModelSection() {
           </div>
         </div>
         {!onPlan && (
-          <div className="relative shrink-0" ref={ref}>
+          // The list opens in a portal (Radix closes it on a click outside or
+          // Escape) and keeps inside the window, flipping above when short.
+          <Popover open={open} onOpenChange={setOpen}>
+          <div className="relative shrink-0">
+            <PopoverTrigger asChild>
             <button
               type="button"
               aria-haspopup="listbox"
               aria-expanded={open}
               aria-labelledby="agent-model-label agent-model-value"
               disabled={!loaded || saving}
-              onClick={() => setOpen((o) => !o)}
               className="flex w-48 items-center justify-between gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm transition-colors hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <span id="agent-model-value" className="truncate">
@@ -180,11 +165,12 @@ export function AgentModelSection() {
               </span>
               <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             </button>
-            {open && (
-              <div
+            </PopoverTrigger>
+              <PopoverContent
                 role="listbox"
                 aria-labelledby="agent-model-label"
-                className="absolute right-0 top-full z-10 mt-1 w-80 rounded-3xl border border-border bg-popover p-2 shadow-md"
+                align="end"
+                className="w-80 rounded-3xl border border-border bg-popover p-2 shadow-md"
               >
                 {items.map((item) => {
                   const selected = item.id === current
@@ -219,9 +205,9 @@ export function AgentModelSection() {
                     </button>
                   )
                 })}
-              </div>
-            )}
+              </PopoverContent>
           </div>
+          </Popover>
         )}
       </div>
       {error && (

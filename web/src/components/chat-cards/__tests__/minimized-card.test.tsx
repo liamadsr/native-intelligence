@@ -37,12 +37,24 @@ vi.mock('../card-body', () => ({
   },
 }))
 
+// The window's moves (window-drag-press.ts), heard once a card is in front in the desktop app.
+let windowMoved: (() => void) | null = null
+vi.mock('@tauri-apps/api/window', () => ({
+  getCurrentWindow: () => ({
+    onMoved: async (cb: () => void) => {
+      windowMoved = cb
+      return () => {}
+    },
+  }),
+}))
+
 import { ShowToolCard } from '../show-tool-card'
 import { ChatCardHostProvider } from '../card-host'
 import { ChatCardStore } from '../card-store'
 import { closeFrontCards, frontCard, minimizeFrontCards } from '../front-card'
 import { EMPTY_PRESS_ZONE_ATTR, isEmptyAppPress } from '../outside-card-press'
 import { __resetMinimizedForTests, minimizedCard } from '../minimized-card'
+import { __resetWindowDragPressForTests } from '../window-drag-press'
 import { EmptyPressMinimizes, MinimizedCardTile, minimizedTileWidth } from '@/app/account/(dashboard)/minimized-card-tile'
 import { coverScale, coverTransform } from '@/lib/chat/card-reply-flight'
 import { MINIMIZE_FLIGHT_MS, TILE_HANDOFF_MS, __resetTileFlightForTests, panelClip } from '@/lib/chat/tile-flight'
@@ -261,6 +273,138 @@ describe('an empty press minimizes the card in front, from md up beside the rail
       press(el('ni-content-panel'), 2)
     })
     expect(store.fullScreen()).toBe('team')
+  })
+
+  describe('on the window’s drag surface (the top bar’s strip; Liam, 11-26)', () => {
+    const internals = window as unknown as { __TAURI_INTERNALS__?: Record<string, unknown> }
+    beforeEach(() => {
+      __resetWindowDragPressForTests()
+      windowMoved = null
+      internals.__TAURI_INTERNALS__ = {}
+      // The top bar's WindowDragStrip (dashboard-shell.tsx), the one part of the bar under a card.
+      const bar = document.createElement('div')
+      bar.setAttribute('data-shell-top-bar', '')
+      bar.innerHTML = `<div data-tauri-drag-region ${EMPTY_PRESS_ZONE_ATTR} id="drag-strip"></div>`
+      shell.prepend(bar)
+    })
+    afterEach(() => {
+      delete internals.__TAURI_INTERNALS__
+    })
+    const pointer = (type: string, target: Element, init: MouseEventInit = {}) => {
+      const e = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, screenX: 300, screenY: 20, ...init })
+      target.dispatchEvent(e)
+      return e
+    }
+
+    it('a press is neither prevented nor puts the card away (the window’s drag starts from its mousedown); a click minimizes at its release', async () => {
+      const store = await mount([{ id: 'team', spec: TEAM, kept: true }])
+      await open(store, 'team')
+      const exit = vi.spyOn(store, 'exitFullScreen')
+      let down!: MouseEvent
+      await act(async () => {
+        down = pointer('pointerdown', el('drag-strip'), { buttons: 1 })
+      })
+      expect(down.defaultPrevented).toBe(false)
+      expect(store.fullScreen()).toBe('team')
+      expect(exit).not.toHaveBeenCalled()
+      await act(async () => {
+        pointer('pointerup', el('drag-strip'))
+      })
+      expect(exit).toHaveBeenCalledTimes(1)
+      expect(store.fullScreen()).toBeNull()
+    })
+
+    it('a press that moves the window keeps the card, however it ends', async () => {
+      const store = await mount([{ id: 'team', spec: TEAM, kept: true }])
+      await open(store, 'team')
+      await flush()
+      expect(windowMoved).not.toBeNull()
+      await act(async () => {
+        pointer('pointerdown', el('drag-strip'), { buttons: 1 })
+      })
+      await act(async () => {
+        windowMoved!()
+        // The drag loop took the release: the page hears only the next move, the button up.
+        pointer('pointermove', el('drag-strip'), { screenX: 700, screenY: 300 })
+      })
+      expect(store.fullScreen()).toBe('team')
+      // The window's move heard and the release too: still kept.
+      await act(async () => {
+        pointer('pointerdown', el('drag-strip'), { buttons: 1 })
+      })
+      await act(async () => {
+        windowMoved!()
+        pointer('pointerup', el('drag-strip'))
+      })
+      expect(store.fullScreen()).toBe('team')
+      // And every other empty press still minimizes at once, prevented.
+      let e!: MouseEvent
+      await act(async () => {
+        e = press(el('ni-content-panel'))
+      })
+      expect(e.defaultPrevented).toBe(true)
+      expect(store.fullScreen()).toBeNull()
+    })
+
+    it('a double click (Tauri zooms the window): its second press leaves the card as the first left it', async () => {
+      const store = await mount([{ id: 'team', spec: TEAM, kept: true }])
+      await open(store, 'team')
+      await act(async () => {
+        pointer('pointerdown', el('drag-strip'), { buttons: 1 })
+      })
+      // The first release unheard (the drag loop took it), the second press at once: nothing put away.
+      await act(async () => {
+        pointer('pointerdown', el('drag-strip'), { buttons: 1, detail: 2 })
+      })
+      expect(store.fullScreen()).toBe('team')
+      await act(async () => {
+        pointer('pointerup', el('drag-strip'), { detail: 2 })
+      })
+      // The second press is a press on the strip of its own: its release, where it was pressed, a click.
+      expect(store.fullScreen()).toBeNull()
+    })
+
+    it('below md the layer covers the window, the bar’s strip too: its own strip over its top, a press there followed the same way', async () => {
+      wide = false
+      const store = await mount([{ id: 'team', spec: TEAM, kept: true }])
+      await open(store, 'team')
+      const strip = layer()!.querySelector('[data-tauri-drag-region]')!
+      expect(strip).not.toBeNull()
+      expect(strip.childElementCount).toBe(0)
+      let down!: MouseEvent
+      await act(async () => {
+        down = pointer('pointerdown', strip, { buttons: 1 })
+      })
+      expect(down.defaultPrevented).toBe(false)
+      expect(store.fullScreen()).toBe('team')
+      // A drag: kept.
+      await act(async () => {
+        windowMoved?.()
+        pointer('pointerup', strip, { screenX: 600 })
+      })
+      expect(store.fullScreen()).toBe('team')
+      // A click: put back, at its release.
+      await act(async () => {
+        pointer('pointerdown', strip, { buttons: 1 })
+      })
+      expect(store.fullScreen()).toBe('team')
+      await act(async () => {
+        pointer('pointerup', strip)
+      })
+      expect(store.fullScreen()).toBeNull()
+    })
+
+    it('in a browser: no drag surface, the strip (were it drawn: WindowDragStrip draws nothing there) an empty press at once, as before', async () => {
+      delete internals.__TAURI_INTERNALS__
+      const store = await mount([{ id: 'team', spec: TEAM, kept: true }])
+      await open(store, 'team')
+      let down!: MouseEvent
+      await act(async () => {
+        down = pointer('pointerdown', el('drag-strip'))
+      })
+      expect(down.defaultPrevented).toBe(true)
+      expect(store.fullScreen()).toBeNull()
+    })
   })
 
   it('below md: as before, only the layer’s own press puts it back, and no tile', async () => {

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Mail, User, Building2, Loader2 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
+import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 
 // ─── Types ───────────────────────────────────────────────────
 
@@ -41,6 +42,7 @@ export function InviteEmailInput({
   const [open, setOpen] = useState(false)
   const [activeIndex, setActiveIndex] = useState(-1)
   const wrapperRef = useRef<HTMLDivElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null)
   // Bumped by every keystroke and pick: only the newest search may answer.
@@ -124,7 +126,9 @@ export function InviteEmailInput({
     const handleClickOutside = (e: MouseEvent) => {
       if (
         wrapperRef.current &&
-        !wrapperRef.current.contains(e.target as Node)
+        !wrapperRef.current.contains(e.target as Node) &&
+        // The list is drawn in a portal, outside the wrapper.
+        !listRef.current?.contains(e.target as Node)
       ) {
         setOpen(false)
         setActiveIndex(-1)
@@ -144,7 +148,17 @@ export function InviteEmailInput({
   }, [])
 
   return (
+    <Popover
+      open={open && suggestions.length > 0}
+      onOpenChange={(next) => {
+        if (!next) {
+          setOpen(false)
+          setActiveIndex(-1)
+        }
+      }}
+    >
     <div ref={wrapperRef} className="relative">
+      <PopoverAnchor asChild>
       <div className="relative">
         <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
@@ -171,12 +185,21 @@ export function InviteEmailInput({
           <Loader2 className="absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-muted-foreground" />
         )}
       </div>
+      </PopoverAnchor>
 
-      {open && suggestions.length > 0 && (
-        <div
-          role="listbox"
-          className="absolute left-0 right-0 top-full z-50 mt-1 max-h-48 overflow-y-auto rounded-3xl border bg-popover p-2 shadow-md"
-        >
+      {/* In a portal, so no card clips it; capped to the room the window has. */}
+      <PopoverContent
+        ref={listRef}
+        role="listbox"
+        align="start"
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        onCloseAutoFocus={(e) => e.preventDefault()}
+        onInteractOutside={(e) => {
+          if (wrapperRef.current?.contains(e.target as Node)) e.preventDefault()
+        }}
+        style={{ width: 'var(--radix-popover-trigger-width)' }}
+        className="max-h-[min(12rem,var(--radix-popover-content-available-height))] rounded-3xl border bg-popover p-2 shadow-md"
+      >
           {suggestions.map((contact, i) => (
             <button
               key={contact.id}
@@ -221,8 +244,8 @@ export function InviteEmailInput({
               )}
             </button>
           ))}
-        </div>
-      )}
+      </PopoverContent>
     </div>
+    </Popover>
   )
 }

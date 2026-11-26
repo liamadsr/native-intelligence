@@ -1,10 +1,11 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { Hash, Loader2, Search, Users2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -74,6 +75,7 @@ export function EntityAccessSection({ type, id, listOnly = false, standalone = f
   const [selectedId, setSelectedId] = useState('')
   const [search, setSearch] = useState('')
   const [showDropdown, setShowDropdown] = useState(false)
+  const memberFieldRef = useRef<HTMLDivElement>(null)
   const [adding, setAdding] = useState(false)
 
   const refresh = useCallback(async () => {
@@ -206,7 +208,9 @@ export function EntityAccessSection({ type, id, listOnly = false, standalone = f
 
             <div className="flex items-center gap-2">
               {kind === 'member' ? (
-                <div className="relative min-w-0 flex-1">
+                <Popover open={showDropdown && !!search && !selectedId && filteredMembers.length > 0} onOpenChange={(next) => { if (!next) setShowDropdown(false) }}>
+                <PopoverAnchor asChild>
+                <div ref={memberFieldRef} className="relative min-w-0 flex-1">
                   <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     placeholder="Search members..."
@@ -220,8 +224,17 @@ export function EntityAccessSection({ type, id, listOnly = false, standalone = f
                     onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
                     className="h-8 pl-8 text-sm"
                   />
-                  {showDropdown && search && !selectedId && filteredMembers.length > 0 && (
-                    <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[180px] overflow-y-auto rounded-3xl border bg-popover p-2 shadow-md animate-in fade-in-0 zoom-in-95 duration-100">
+                  {/* In a portal, capped to the room the window has. */}
+                  <PopoverContent
+                        align="start"
+                        onOpenAutoFocus={(e) => e.preventDefault()}
+                        onCloseAutoFocus={(e) => e.preventDefault()}
+                        onInteractOutside={(e) => {
+                          if (memberFieldRef.current?.contains(e.target as Node)) e.preventDefault()
+                        }}
+                        style={{ width: 'var(--radix-popover-trigger-width)' }}
+                        className="max-h-[min(180px,var(--radix-popover-content-available-height))] rounded-3xl border bg-popover p-2 shadow-md duration-100"
+                      >
                       {filteredMembers.slice(0, 8).map((m) => (
                         <button
                           key={m.id}
@@ -240,9 +253,10 @@ export function EntityAccessSection({ type, id, listOnly = false, standalone = f
                           <span className="truncate">{m.name}</span>
                         </button>
                       ))}
-                    </div>
-                  )}
+                  </PopoverContent>
                 </div>
+                </PopoverAnchor>
+                </Popover>
               ) : (
                 <Select value={selectedId} onValueChange={setSelectedId}>
                   <SelectTrigger className="h-8 min-w-0 flex-1 text-sm">

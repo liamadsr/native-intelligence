@@ -91,12 +91,10 @@ export function SnippetMenu({ open, query, snippets, onPick, onDismiss, anchorRe
     listRef.current?.querySelector<HTMLElement>(`[data-snippet-index="${index}"]`)?.scrollIntoView({ block: 'nearest' })
   }, [shown, index])
 
-  const [room, setRoom] = useState(360)
   const [fitWidth, setFitWidth] = useState<number | null>(null)
   useLayoutEffect(() => {
     if (!shown || !anchorRef.current) return
     const rect = anchorRef.current.getBoundingClientRect()
-    setRoom(Math.max(side === 'top' ? rect.top - 24 : window.innerHeight - rect.bottom - 24, 180))
     if (fitAnchor) setFitWidth(Math.max(rect.width - 16, 260))
   }, [shown, anchorRef, side, query, fitAnchor])
   const menuWidth = fitAnchor && fitWidth ? fitWidth : width
@@ -112,7 +110,7 @@ export function SnippetMenu({ open, query, snippets, onPick, onDismiss, anchorRe
         sideOffset={6}
         data-snippet-menu=""
         className="flex flex-col overflow-hidden rounded-3xl border border-border bg-popover p-0 text-popover-foreground shadow-lg"
-        style={{ width: Math.min(menuWidth, typeof window === 'undefined' ? menuWidth : window.innerWidth - 32), maxHeight: Math.min(room, 400) }}
+        style={{ width: Math.min(menuWidth, typeof window === 'undefined' ? menuWidth : window.innerWidth - 32), maxHeight: 'min(400px, var(--radix-popover-content-available-height))' }}
         onOpenAutoFocus={keepFocus}
         onCloseAutoFocus={keepFocus}
         onInteractOutside={keepFocus}

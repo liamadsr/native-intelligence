@@ -243,7 +243,7 @@ export function StoryboardPage({ project, change, frame, duration, disabled, ope
     </aside> : null}
     {panel === 'inputs' ? createPortal(<InputsPanel project={project} change={change} close={() => setPanel(null)} anchor={anchors.inputs.current} below />, studioPortal()) : null}
     {panel === 'versions' ? createPortal(<VersionsPanel project={project} anchor={anchors.versions.current} close={() => setPanel(null)} beforeServerEdit={beforeServerEdit} afterServerEdit={afterServerEdit} below />, studioPortal()) : null}
-    {panel === 'formats' ? createPortal(<div className="inputs-panel sb-formats" role="dialog" aria-label="Other formats" style={(() => { const box = anchors.formats.current?.getBoundingClientRect(); return box ? { left: Math.max(8, Math.min(box.left, window.innerWidth - 340)), top: box.bottom + 8 } : undefined; })()}>
+    {panel === 'formats' ? createPortal(<div className="inputs-panel sb-formats" role="dialog" aria-label="Other formats" style={(() => { const box = anchors.formats.current?.getBoundingClientRect(); return box ? { left: Math.max(8, Math.min(box.left, window.innerWidth - 340)), top: box.bottom + 8, maxHeight: Math.max(160, window.innerHeight - box.bottom - 16), overflowY: 'auto' as const } : undefined; })()}>
       <header><strong>Formats</strong><small>Each becomes its own video, reframed for the platform. Also in Export.</small><button onClick={() => setPanel(null)} aria-label="Close" title="Close"><Icon name="close"/></button></header>
       <FormatButtons projectId={project.id} beforeServerEdit={beforeServerEdit} open={id => { setPanel(null); openProject(id); }} say={say} /></div>, studioPortal()) : null}
   </div>;

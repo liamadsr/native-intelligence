@@ -22,6 +22,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { getIsoCountryCode, LOCATION_OPTIONS } from '@/lib/seo/shared/keyword-locations'
 import type { LocalBusinessListing, LocalBusinessSearchResult, LocalPlaceOption, TrackedBusinessView } from '@/lib/seo/local/view'
@@ -360,6 +361,7 @@ function PlacePicker({
     return () => clearTimeout(t)
   }, [query, country])
 
+  const fieldRef = React.useRef<HTMLDivElement>(null)
   const pick = (option: LocalPlaceOption) => {
     asked.current++
     setOptions([])
@@ -370,7 +372,9 @@ function PlacePicker({
 
   const shown = open && options.length > 0
   return (
-    <div className="relative min-w-0 flex-1">
+    <Popover open={shown} onOpenChange={(next) => !next && setOpen(false)}>
+    <PopoverAnchor asChild>
+    <div ref={fieldRef} className="relative min-w-0 flex-1">
       <Input
         id={id}
         data-seo-local-town=""
@@ -412,14 +416,19 @@ function PlacePicker({
         className="h-8 pr-7 text-sm"
       />
       {loading && <Loader2 className="absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-muted-foreground" aria-label="Looking up towns" />}
-      {shown && (
-        <ul
-          id={listId}
-          role="listbox"
-          aria-label="Towns"
-          data-seo-places=""
-          className="absolute left-0 right-0 top-full z-50 mt-1 max-h-56 overflow-y-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md"
-        >
+      {/* In a portal, so the dialog never clips it; capped to the room the
+          window has, and it flips above when the room is up there. */}
+      <PopoverContent
+        align="start"
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        onCloseAutoFocus={(e) => e.preventDefault()}
+        onInteractOutside={(e) => {
+          if (fieldRef.current?.contains(e.target as Node)) e.preventDefault()
+        }}
+        style={{ width: 'var(--radix-popover-trigger-width)' }}
+        className="max-h-[min(14rem,var(--radix-popover-content-available-height))] rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md"
+      >
+        <ul id={listId} role="listbox" aria-label="Towns" data-seo-places="">
           {options.map((option, index) => (
             <li
               key={`${option.location_code}-${index}`}
@@ -439,7 +448,9 @@ function PlacePicker({
             </li>
           ))}
         </ul>
-      )}
+      </PopoverContent>
     </div>
+    </PopoverAnchor>
+    </Popover>
   )
 }

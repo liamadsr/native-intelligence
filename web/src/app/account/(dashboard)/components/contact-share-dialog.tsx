@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ThinkingOrb } from 'thinking-orbs'
 import {
   Dialog,
@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import {
@@ -92,6 +93,7 @@ export function ContactShareDialog({
   const [sharing, setSharing] = useState(false)
   const [memberSearch, setMemberSearch] = useState('')
   const [showMemberDropdown, setShowMemberDropdown] = useState(false)
+  const memberFieldRef = useRef<HTMLDivElement>(null)
   const [updatingVisibility, setUpdatingVisibility] = useState(false)
   const [justShared, setJustShared] = useState(false)
 
@@ -311,7 +313,9 @@ export function ContactShareDialog({
 
                 <div className="flex items-center gap-2">
                 {shareTarget === 'member' ? (
-                  <div className="relative flex-1 min-w-0">
+                  <Popover open={showMemberDropdown && !!memberSearch && !selectedId} onOpenChange={(next) => { if (!next) setShowMemberDropdown(false) }}>
+                  <PopoverAnchor asChild>
+                  <div ref={memberFieldRef} className="relative flex-1 min-w-0">
                     <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                     <Input
                       placeholder="Search members..."
@@ -322,9 +326,24 @@ export function ContactShareDialog({
                       className="h-8 pl-8 text-sm"
                     />
 
-                    {/* Member dropdown */}
-                    {showMemberDropdown && memberSearch && !selectedId && filteredMembers.length > 0 && (
-                      <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[180px] overflow-y-auto rounded-3xl border bg-popover p-2 shadow-md animate-in fade-in-0 zoom-in-95 duration-100">
+                    {/* Member dropdown: in a portal, capped to the room the window has */}
+                    <PopoverContent
+                        align="start"
+                        onOpenAutoFocus={(e) => e.preventDefault()}
+                        onCloseAutoFocus={(e) => e.preventDefault()}
+                        onInteractOutside={(e) => {
+                          if (memberFieldRef.current?.contains(e.target as Node)) e.preventDefault()
+                        }}
+                        style={{ width: 'var(--radix-popover-trigger-width)' }}
+                        className={cn(
+                          'rounded-3xl border bg-popover shadow-md duration-100',
+                          filteredMembers.length > 0
+                            ? 'max-h-[min(180px,var(--radix-popover-content-available-height))] p-2'
+                            : 'px-3 py-2.5',
+                        )}
+                      >
+                      {filteredMembers.length > 0 ? (
+                        <>
                         {filteredMembers.slice(0, 8).map((m) => (
                           <button
                             key={m.id}
@@ -342,15 +361,14 @@ export function ContactShareDialog({
                             <span className="truncate">{m.display_name}</span>
                           </button>
                         ))}
-                      </div>
-                    )}
-
-                    {showMemberDropdown && memberSearch && !selectedId && filteredMembers.length === 0 && (
-                      <div className="absolute left-0 right-0 top-full z-50 mt-1 rounded-3xl border bg-popover px-3 py-2.5 shadow-md animate-in fade-in-0 zoom-in-95 duration-100">
+                        </>
+                      ) : (
                         <p className="text-center text-xs text-muted-foreground">No members found</p>
-                      </div>
-                    )}
+                      )}
+                    </PopoverContent>
                   </div>
+                  </PopoverAnchor>
+                  </Popover>
                 ) : (
                   <Select value={selectedId} onValueChange={(v) => { setSelectedId(v); setSelectedName(filteredTeams.find(t => t.id === v)?.name || '') }}>
                     <SelectTrigger className="h-8 flex-1 min-w-0 text-sm">

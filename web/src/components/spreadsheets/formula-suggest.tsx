@@ -14,6 +14,7 @@ import type { WorkbookController } from '@/lib/spreadsheets/controller'
 import { enclosingFunction, functionPrefix } from '@/lib/spreadsheets/formula-edit'
 import { completeFunction, functionInfo, type FunctionInfo } from '@/lib/spreadsheets/functions'
 import type { CaretState } from './sheet-grid'
+import { fixedMenuStyle } from '@/components/ui/menu-fit'
 
 export interface FormulaSuggestHandle {
   /** A key typed in an editor: true when the list took it (so the editor must not). */
@@ -39,7 +40,7 @@ export function FormulaSuggest({ workbook, caret, handle, caretTick }: Props) {
   const help = inside ? functionInfo(inside.name) : null
   const [index, setIndex] = useState(0)
   const [dismissed, setDismissed] = useState<string | null>(null)
-  const [box, setBox] = useState<{ left: number; top: number } | null>(null)
+  const [box, setBox] = useState<{ left: number; top?: number; bottom?: number; maxHeight: number } | null>(null)
 
   useEffect(() => setIndex(0), [typing?.prefix])
   useEffect(() => {
@@ -61,7 +62,10 @@ export function FormulaSuggest({ workbook, caret, handle, caretTick }: Props) {
       return
     }
     const rect = el.getBoundingClientRect()
-    setBox({ left: Math.max(8, Math.min(rect.left, window.innerWidth - 340)), top: rect.bottom + 4 })
+    // Under the cell, or over it when the cell sits low in the window, capped
+    // to the room on that side (the list scrolls; the summary stays).
+    const { style } = fixedMenuStyle(rect, { height: window.innerHeight }, { need: 260 })
+    setBox({ left: Math.max(8, Math.min(rect.left, window.innerWidth - 340)), top: style.top, bottom: style.bottom, maxHeight: style.maxHeight })
   }, [open, showHelp, editing?.source, draft, caretTick])
 
   const take = (choice: FunctionInfo) => {
@@ -107,8 +111,8 @@ export function FormulaSuggest({ workbook, caret, handle, caretTick }: Props) {
   if (open) {
     const chosen = options[Math.min(index, options.length - 1)]
     return createPortal(
-      <div className={cn(FLOATING_CARD_CLASS, 'fixed z-[70] w-[320px] overflow-hidden p-1 text-sm shadow-lg')} style={box} data-formula-suggest>
-        <ul role="listbox" aria-label="Functions" className="max-h-56 overflow-y-auto">
+      <div className={cn(FLOATING_CARD_CLASS, 'fixed z-[70] flex w-[320px] flex-col overflow-hidden p-1 text-sm shadow-lg')} style={box} data-formula-suggest>
+        <ul role="listbox" aria-label="Functions" className="max-h-56 min-h-0 flex-1 overflow-y-auto">
           {options.map((option, i) => (
             <li
               key={option.name}
@@ -145,7 +149,7 @@ export function FormulaSuggest({ workbook, caret, handle, caretTick }: Props) {
     const args = help.signature.slice(openAt + 1, -1).split(', ')
     const current = Math.min(inside.argument, args.length) - 1
     return createPortal(
-      <div className={cn(FLOATING_CARD_CLASS, 'fixed z-[70] max-w-[420px] px-2.5 py-1.5 text-[12px] shadow-lg')} style={box} data-formula-help>
+      <div className={cn(FLOATING_CARD_CLASS, 'fixed z-[70] max-w-[420px] overflow-y-auto px-2.5 py-1.5 text-[12px] shadow-lg')} style={box} data-formula-help>
         <p className="font-mono leading-snug text-muted-foreground">
           <span className="text-foreground">{help.name}</span>(
           {args.map((arg, i) => (

@@ -56,27 +56,10 @@ export function QuestionPopover({
   // Paging reported up from the picker, shown as a "1/N" chip in the header.
   const [paging, setPaging] = useState<{ page: number; total: number }>({ page: 1, total: 1 })
 
-  // Measure layout in an effect (not during render) — the height cap (space above
-  // the anchor) and the panel width (matched to the chat strip). Re-measures on
-  // open AND on every subsequent resize of the floating chat strip (drag-resize,
-  // window resize, collapse/expand toggle) via ResizeObserver — same idiom as
-  // dashboard-shell.tsx's strip-width tracking — so a panel left open while the
-  // user drags the chat wider/narrower stays matched instead of freezing at its
-  // open-time size.
-  const [spaceAbove, setSpaceAbove] = useState(480)
+  // The panel width (matched to the chat strip), measured in an effect. The
+  // height cap needs no measuring: it is the room Radix publishes for the side
+  // the panel opened to (--radix-popover-content-available-height).
   const [panelWidth, setPanelWidth] = useState<number | null>(null)
-  useEffect(() => {
-    if (!open || !anchorRef.current) return
-    const measure = () => {
-      if (!anchorRef.current) return
-      const rect = anchorRef.current.getBoundingClientRect()
-      setSpaceAbove(Math.max(rect.top - 80, 160))
-    }
-    measure()
-    const ro = new ResizeObserver(measure)
-    ro.observe(anchorRef.current)
-    return () => ro.disconnect()
-  }, [open, anchorRef])
   useEffect(() => {
     if (!open) return
     // Match the visible chat reading column, never the raw strip — in
@@ -154,7 +137,9 @@ export function QuestionPopover({
         </div>
         <div
           className="overflow-y-auto p-2 scrollbar-hide-deep"
-          style={{ maxHeight: Math.min(spaceAbove - 60, 520) }}
+          // The room Radix finds on whichever side it opened (it can flip
+          // below), less the header.
+          style={{ maxHeight: 'min(520px, calc(var(--radix-popover-content-available-height) - 60px))' }}
         >
           <QuestionPicker
             // Remount per question so internal selection state resets cleanly.

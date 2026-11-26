@@ -1315,7 +1315,7 @@
 .ni-studio .with-tabs .ab-preview{border-top-color:transparent}
 
 /* Right-click menus (ContextMenu.tsx): a soft floating sheet, no hard outline. */
-.ni-studio .context-menu{position:fixed;z-index:10000;min-width:200px;max-width:320px;display:flex;flex-direction:column;padding:5px;border-radius:var(--st-r);background:var(--st-popover);box-shadow:var(--st-elev-md);color:var(--st-text);font-size:12px;border:1px solid var(--st-line)}
+.ni-studio .context-menu{position:fixed;z-index:10000;min-width:200px;max-width:320px;max-height:calc(100vh - 16px);overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;padding:5px;border-radius:var(--st-r);background:var(--st-popover);box-shadow:var(--st-elev-md);color:var(--st-text);font-size:12px;border:1px solid var(--st-line)}
 .ni-studio .context-menu button{display:flex;align-items:center;justify-content:space-between;gap:16px;width:100%;margin:0;padding:6px 10px;border:0;border-radius:var(--st-r-md);background:transparent;color:inherit;font:inherit;text-align:left}
 .ni-studio .context-menu button:hover:not(:disabled),.ni-studio .context-menu button:focus-visible{background:var(--st-hover);outline:none}
 .ni-studio .context-menu button:disabled{color:var(--st-text-faint)}

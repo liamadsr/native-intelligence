@@ -668,7 +668,8 @@ describe('TaskLens — optimistic save', () => {
         .querySelector('[data-lens-labels-trigger]')!
         .dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
-    const urgent = Array.from(container.querySelectorAll('[data-lens-labels] button')).find(
+    // The open list is drawn in a portal, under document.body.
+    const urgent = Array.from(document.querySelectorAll('[data-lens-labels] button')).find(
       (b) => b.getAttribute('aria-label') === 'urgent',
     )!
     await act(async () => {

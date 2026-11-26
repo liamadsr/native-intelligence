@@ -80,9 +80,9 @@ export async function startFromScript(project: EditorProject, change: (fn: (p: E
     change(p => applyOps(p, [{ op: 'storyboard_from_script', args: { at: 0, lines: script.beats } }]).project); }
   catch { /* the storyboard stays empty; nothing to undo */ }
 }
-/** Where a floating panel sits: above its anchor (track header at the bottom) or below it (a toolbar at the top). */
+/** Where a floating panel sits: above its anchor (track header at the bottom) or below it (a toolbar at the top), never taller than the window's room on that side (it scrolls). */
 const panelAt = (anchor: HTMLElement | null, below?: boolean): React.CSSProperties | undefined => { const box = anchor?.getBoundingClientRect(); if (!box) return undefined;
-  return below ? { left: Math.max(8, Math.min(box.left, window.innerWidth - 340)), top: box.bottom + 8 } : { left: Math.max(8, box.left), top: Math.max(8, box.top - 8), transform: 'translateY(-100%)' }; };
+  return below ? { left: Math.max(8, Math.min(box.left, window.innerWidth - 340)), top: box.bottom + 8, maxHeight: Math.max(160, window.innerHeight - box.bottom - 16), overflowY: 'auto' } : { left: Math.max(8, box.left), top: Math.max(8, box.top - 8), transform: 'translateY(-100%)', maxHeight: Math.max(160, box.top - 16), overflowY: 'auto' }; };
 
 /** Track header: Record the selected beats, and Inputs (which device feeds which track). */
 export function StoryboardHead({ project, selected, record, change, recording, beforeServerEdit, afterServerEdit }: {

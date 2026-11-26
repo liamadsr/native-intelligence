@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef } from 'react'
 import { X } from 'lucide-react'
+import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 
 function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
@@ -27,6 +28,7 @@ export function EmailRecipientInput({ values, onChange, placeholder }: EmailReci
   const [input, setInput] = useState('')
   const [suggestions, setSuggestions] = useState<ContactSuggestion[]>([])
   const [showSuggestions, setShowSuggestions] = useState(false)
+  const fieldRef = useRef<HTMLDivElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
 
   const addEmail = useCallback(
@@ -93,7 +95,9 @@ export function EmailRecipientInput({ values, onChange, placeholder }: EmailReci
   )
 
   return (
-    <div className="flex-1 flex flex-wrap items-center gap-1 relative">
+    <Popover open={showSuggestions && suggestions.length > 0} onOpenChange={(next) => { if (!next) setShowSuggestions(false) }}>
+    <PopoverAnchor asChild>
+    <div ref={fieldRef} className="flex-1 flex flex-wrap items-center gap-1 relative">
       {values.map((email) => (
         <span
           key={email}
@@ -117,8 +121,17 @@ export function EmailRecipientInput({ values, onChange, placeholder }: EmailReci
         placeholder={values.length === 0 ? placeholder || 'Type email or name...' : ''}
       />
 
-      {showSuggestions && suggestions.length > 0 && (
-        <div className="absolute top-full left-0 mt-1 w-64 bg-popover border rounded-3xl p-2 shadow-md z-50">
+      {/* In a portal, so the composer's card never clips it; it flips above
+          and scrolls when the window is short. The input keeps focus. */}
+      <PopoverContent
+        align="start"
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        onCloseAutoFocus={(e) => e.preventDefault()}
+                        onInteractOutside={(e) => {
+                          if (fieldRef.current?.contains(e.target as Node)) e.preventDefault()
+                        }}
+        className="w-64 bg-popover border rounded-3xl p-2 shadow-md"
+      >
           {suggestions.map((contact) => (
             <button
               key={contact.id}
@@ -137,8 +150,9 @@ export function EmailRecipientInput({ values, onChange, placeholder }: EmailReci
               </div>
             </button>
           ))}
-        </div>
-      )}
+      </PopoverContent>
     </div>
+    </PopoverAnchor>
+    </Popover>
   )
 }
