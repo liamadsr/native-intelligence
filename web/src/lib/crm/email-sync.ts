@@ -457,13 +457,14 @@ async function writeThreadCopies(
     if (existingThread) {
       let write: Record<string, unknown> = row
       let mailboxState = opts.mailboxState ?? []
+      const readsInbox = threadData.folder === 'inbox'
       if (opts.evidence && existingThread.local_archived_at) {
-        if (row.folder === 'inbox' && !reenteredInbox(existingThread, opts.evidence)) {
+        if (readsInbox && !reenteredInbox(existingThread, opts.evidence)) {
           // Archived here, and this answer is no newer than the archive: the
           // mailbox state stays the archive's; the rest is written as read.
           mailboxState = [...new Set([...mailboxState, ...GMAIL_MAILBOX_STATE])]
           write = Object.fromEntries(Object.entries(row).filter(([key]) => key !== 'synced_at' && !mailboxState.includes(key)))
-        } else if (row.folder === 'inbox') {
+        } else if (readsInbox) {
           // Back in the inbox since (a new message, or moved back in Gmail): the mark goes.
           write = { ...row, local_archived_at: null, local_archived_history_id: null }
           // A local change after this read keeps its own mark, as it keeps its folder.
