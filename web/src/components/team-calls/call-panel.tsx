@@ -71,6 +71,17 @@ import { openTarget } from '@/lib/chat-cards/open-card'
 import { entityOpenTarget } from '@/lib/entity-links/open-entity'
 import { useWorkspaceId } from '@/app/account/workspace-switcher'
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -448,19 +459,48 @@ function RecordButton({ call }: { call: ActiveTeamCall }) {
   const [busy, setBusy] = useState(false)
   if (!call.features.recording || call.notes.recording === 'saved') return null
   const on = call.notes.recording === 'on' || call.notes.recording === 'starting'
+  function changeRecording(action: 'start' | 'stop') {
+    if (busy) return
+    setBusy(true)
+    void setRecording(action).finally(() => setBusy(false))
+  }
+
+  if (on) {
+    return (
+      <IconButton
+        label="Stop recording"
+        onClick={() => changeRecording('stop')}
+        disabled={busy}
+        danger
+        data-team-call-record={call.notes.recording}
+      >
+        <Square className="h-4 w-4 fill-current" />
+      </IconButton>
+    )
+  }
+
   return (
-    <IconButton
-      label={on ? 'Stop recording' : 'Record the call'}
-      onClick={() => {
-        if (busy) return
-        setBusy(true)
-        void setRecording(on ? 'stop' : 'start').finally(() => setBusy(false))
-      }}
-      danger={on}
-      data-team-call-record={call.notes.recording}
-    >
-      {on ? <Square className="h-4 w-4 fill-current" /> : <Circle className="h-5 w-5 fill-red-500 text-red-500" />}
-    </IconButton>
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <IconButton label="Record the call" disabled={busy} data-team-call-record={call.notes.recording}>
+          <Circle className="h-5 w-5 fill-red-500 text-red-500" />
+        </IconButton>
+      </AlertDialogTrigger>
+      <AlertDialogContent className="z-[71]" overlayClassName="z-[70]">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Ask before recording</AlertDialogTitle>
+          <AlertDialogDescription>
+            Ask everyone on the call, “Is it okay for me to record the call?” Start recording only after everyone agrees.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction disabled={busy} onClick={() => changeRecording('start')}>
+            Everyone agreed · Start recording
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }
 

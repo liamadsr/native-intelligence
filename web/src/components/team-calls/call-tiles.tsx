@@ -303,7 +303,7 @@ export function IconButton({
   ...rest
 }: {
   label: string
-  onClick: () => void
+  onClick?: () => void
   active?: boolean
   danger?: boolean
   small?: boolean
