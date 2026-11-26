@@ -72,6 +72,8 @@ import { ListenModeToggle } from '@/components/read-aloud/listen-mode-toggle'
 import { useChatCardHost } from './card-host'
 import { CARD_FRAME_ATTR } from './card-frame-attr'
 import { FULL_SCREEN_CONTROL_ATTR, isOutsideCardPress, isOutsideDockPress, popoverLayerOpen } from './outside-card-press'
+import { followWindowDragPress, isFollowedDragPress, isWindowDragPress } from './window-drag-press'
+import { WindowDragStrip } from '@/components/desktop/window-drag-strip'
 import { ChatCardStore } from './card-store'
 import { CardHistoryButtons, CardHistoryProvider, cardOwnsHistoryKeys, isHistoryKey } from './card-history'
 import { CardHeaderSlotsProvider, type CardHeaderBack, type CardHeaderSlots } from './card-header-slot'
@@ -732,6 +734,14 @@ export function ShowToolCard({
   // focus (unless something inside it already has it, or a hub's list does). Keys belong to where
   // the focus is, so the page beside it keeps its own once clicked.
   const fullScreenRef = React.useRef<HTMLDivElement>(null)
+  // A press on the layer's window-drag strip, followed to its end (window-drag-press.ts): let go with the layer.
+  const layerDragRef = React.useRef<(() => void) | null>(null)
+  React.useEffect(() => {
+    if (shownFullScreen) return
+    layerDragRef.current?.()
+    layerDragRef.current = null
+  }, [shownFullScreen])
+  React.useEffect(() => () => layerDragRef.current?.(), [])
   React.useEffect(() => {
     const frame = fullScreenRef.current
     if (!shownFullScreen || !frame || frame.contains(document.activeElement)) return
@@ -780,18 +790,38 @@ export function ShowToolCard({
   // it in the tile at the bottom left, and its dock slides it away. The press
   // still does what it did: the chat beside the notepad is live. One window
   // listener, there only while the notepad is out.
+  // A press on the window's drag surface (the desktop app's top bar strip,
+  // the rail's corner) minimizes it only at its end, and only when it was a
+  // click: a press that moves the window keeps it out (window-drag-press.ts;
+  // Liam, 11-26).
   React.useEffect(() => {
     if (!docked || dockAway) return
-    const onPress = (e: PointerEvent) => {
-      if (e.button !== 0 || e.defaultPrevented) return
-      if (frontCard() || !besideAppRail() || popoverLayerOpen() || !isOutsideDockPress(e.target, frameRef.current)) return
+    let following: (() => void) | null = null
+    const minimize = () => {
       minimizeCard({ id: toolCallId, spec: specRef.current, store }, frameRef.current, { fly: false })
       const tile = minimizedCard()
       // Only with a tile to bring it back from (none below `md`): never out of reach.
       if (tile?.id === toolCallId && tile.store === store) store.setDockAway(true)
     }
+    const onPress = (e: PointerEvent) => {
+      following?.()
+      following = null
+      if (e.button !== 0 || e.defaultPrevented) return
+      if (frontCard() || !besideAppRail() || popoverLayerOpen() || !isOutsideDockPress(e.target, frameRef.current)) return
+      if (isWindowDragPress(e.target)) {
+        following = followWindowDragPress(e, () => {
+          following = null
+          if (!frontCard() && !popoverLayerOpen()) minimize()
+        })
+        return
+      }
+      minimize()
+    }
     window.addEventListener('pointerdown', onPress, true)
-    return () => window.removeEventListener('pointerdown', onPress, true)
+    return () => {
+      following?.()
+      window.removeEventListener('pointerdown', onPress, true)
+    }
   }, [docked, dockAway, store, toolCallId])
   // Minimized, it is out of sight only while the tile holds it: the tile
   // cleared or taken by another card, its notepad comes back (a capture that
@@ -1105,12 +1135,28 @@ export function ShowToolCard({
             // already (outside-card-press.ts isEmptyAppPress, before this,
             // the press prevented): never twice.
             onPointerDown={(e) => {
-              if (e.nativeEvent.defaultPrevented) return
+              layerDragRef.current?.()
+              layerDragRef.current = null
+              if (e.nativeEvent.defaultPrevented || isFollowedDragPress(e.nativeEvent)) return
               if (!isOutsideCardPress(e, fullScreenFrameRef.current)) return
+              // Its window-drag strip (below): put back only at the end of a click, never prevented (window-drag-press.ts).
+              if (isWindowDragPress(e.target)) {
+                layerDragRef.current = followWindowDragPress(e.nativeEvent, () => {
+                  layerDragRef.current = null
+                  if (store.fullScreen() === toolCallId && !popoverLayerOpen()) store.exitFullScreen()
+                })
+                return
+              }
               e.preventDefault()
               store.exitFullScreen()
             }}
           >
+            {/* Below `md` the layer covers the whole window, the top bar's
+                drag strip too: its own, over its top (the traffic lights'
+                band, the desktop app only), so the window moves with a card
+                in front (Liam, 11-26). Under Interactive's capsule (z-10).
+                Beside the rail the top bar's strip is above the layer. */}
+            <WindowDragStrip className="bottom-auto h-14 md:hidden" />
             {/* No floating X (Liam, 11-09: "feels so out of place"): a page
                 closes from its header, a card from the chat with Minimize
                 under it, and either with Esc or a press outside it.

@@ -137,20 +137,12 @@ export function PickerPopover({
   // not above the entire expanded chat container
   const popoverAnchorRef = anchorRef
 
-  // Calculate the space on the side the panel opens toward, to cap its height
-  // (above the anchor by default; below it for a top-bar picker).
-  const [space, setSpace] = useState(400)
-  useEffect(() => {
-    if (!open || !anchorRef.current) return
-    const rect = anchorRef.current.getBoundingClientRect()
-    const available = side === 'bottom' ? window.innerHeight - rect.bottom : rect.top
-    setSpace(Math.max(available - 80, 120)) // 80px edge padding, 120px minimum
-  }, [open, anchorRef, side])
-
   if (!open) return null
 
-  // Cap the scroll area: available space minus popover chrome (search input ~52px + sideOffset 6px)
-  const scrollMaxH = Math.min(space - 58, 320)
+  // Cap the scroll area to the room Radix finds on the side it opened to
+  // (after a flip, and again on every resize), less the search box (~52px)
+  // and the offset, so the search box stays put and only the list scrolls.
+  const scrollMaxH = 'min(320px, calc(var(--radix-popover-content-available-height) - 58px))'
 
   return (
     <Popover open={open} onOpenChange={onOpenChange}>

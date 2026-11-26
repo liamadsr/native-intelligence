@@ -557,13 +557,7 @@ function InlineFrame({
   children: ReactNode
 }) {
   const floatingContainerRef = useFloatingChatContainerRef()
-  const [room, setRoom] = useState(420)
   const side = placement?.side ?? 'top'
-  useLayoutEffect(() => {
-    if (!open || !anchorRef.current) return
-    const rect = anchorRef.current.getBoundingClientRect()
-    setRoom(Math.max(side === 'top' ? rect.top - 24 : window.innerHeight - rect.bottom - 24, 200))
-  }, [open, anchorRef, side])
   // A press on the menu (a row, a tab, its scrollbar) leaves the caret where it is.
   const keepFocus = (e: { preventDefault: () => void }) => e.preventDefault()
   return (
@@ -588,7 +582,9 @@ function InlineFrame({
                 ) - 36,
                 fitAnchor ? (anchorRef.current?.getBoundingClientRect().width || 360) - 16 : Infinity,
               ),
-          maxHeight: Math.min(room, 440),
+          // The room Radix finds on the side it opened to, kept current
+          // through flips and resizes (it was measured once, on open).
+          maxHeight: 'min(440px, var(--radix-popover-content-available-height))',
         }}
         // The box keeps the focus, and decides when the menu goes: a press
         // outside blurs the box (the menu steps aside), Esc reaches it as a key.

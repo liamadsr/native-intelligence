@@ -28,6 +28,7 @@ import { WorkspacesVeil } from './workspaces-veil'
 import { useRealtimeEntities } from '@/hooks/use-realtime-entities'
 import { RealtimeWatchdogMount } from '@/components/realtime/realtime-watchdog-mount'
 import { WindowDragStrip } from '@/components/desktop/window-drag-strip'
+import { EMPTY_PRESS_ZONE_ATTR } from '@/components/chat-cards/outside-card-press'
 import { useHasTrafficLights } from '@/components/desktop-titlebar'
 import { garbageCollectAbandonedDrafts } from '@/components/views/hooks/use-view'
 import { TeamsProvider } from '../teams-context'
@@ -143,7 +144,12 @@ function DashboardTopBar() {
           z-[5]; every interactive cluster in the bar sits at z-10 above it.
           (An attribute on this container alone would be dead — Tauri only
           drags when the mousedown target itself is attributed.) */}
-      <WindowDragStrip />
+      {/* And empty space while a card is in front (outside-card-press.ts
+          isEmptyAppPress): beside the rail it stays under the card, the one
+          part of the bar that does (tailwind.css), so the window moves from
+          the top and keeps the card, and a click there minimizes it
+          (window-drag-press.ts; Liam, 11-26). */}
+      <WindowDragStrip {...{ [EMPTY_PRESS_ZONE_ATTR]: '' }} />
       {/* TopBar owns ALL the in-flow controls: create, bots and the inbox
           bell lead the bar, and listen mode · capture · [workspace pill]
           trail at the window's right edge. Nothing in its middle: there is

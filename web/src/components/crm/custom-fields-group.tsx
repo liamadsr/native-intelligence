@@ -15,10 +15,11 @@
  * rest, which the server parses (a number, a date, a web address, an email,
  * a phone number, an amount with or without its currency).
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Plus, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { PropertyGroup } from '@/components/views/property-group'
+import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 import { announceCustomFieldsChanged } from '@/lib/views/custom-field-columns'
 import { emitEntityUpdated } from '@/lib/entity-events'
@@ -336,6 +337,7 @@ function RelationInput({
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
   const [found, setFound] = useState<Array<{ id: string; title: string }>>([])
+  const searchRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!open) return
@@ -363,7 +365,9 @@ function RelationInput({
       ))}
       {(multiple || ids.length === 0) &&
         (open ? (
-          <div className="relative w-full">
+          <Popover open={found.length > 0} onOpenChange={(next) => !next && setOpen(false)}>
+          <PopoverAnchor asChild>
+          <div ref={searchRef} className="relative w-full">
             <input
               autoFocus
               className={cn(inputClass, 'border-border')}
@@ -373,8 +377,17 @@ function RelationInput({
               onBlur={() => setTimeout(() => setOpen(false), 150)}
               onKeyDown={(e) => e.key === 'Escape' && setOpen(false)}
             />
-            {found.length > 0 && (
-              <div className="absolute z-10 mt-1 w-full rounded-md border border-border bg-popover py-1 shadow-md">
+            {/* In a portal, capped to the room the window has, scrolling. */}
+              <PopoverContent
+                align="start"
+                onOpenAutoFocus={(e) => e.preventDefault()}
+                onCloseAutoFocus={(e) => e.preventDefault()}
+                onInteractOutside={(e) => {
+                  if (searchRef.current?.contains(e.target as Node)) e.preventDefault()
+                }}
+                style={{ width: 'var(--radix-popover-trigger-width)' }}
+                className="rounded-md border border-border bg-popover p-0 py-1 shadow-md"
+              >
                 {found.map((r) => (
                   <button
                     key={r.id}
@@ -390,9 +403,10 @@ function RelationInput({
                     {r.title}
                   </button>
                 ))}
-              </div>
-            )}
+              </PopoverContent>
           </div>
+          </PopoverAnchor>
+          </Popover>
         ) : (
           <button type="button" className="text-xs text-muted-foreground hover:text-foreground" onClick={() => setOpen(true)}>
             {ids.length ? '+ Add' : 'Link a record'}
