@@ -9,12 +9,13 @@
  * snapshot (src/lib/team-calls/call-session.ts): no timer, no animation loop.
  */
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { MicOff, NotebookPen } from 'lucide-react'
 import type { Track } from 'livekit-client'
 import { cn } from '@/lib/utils'
 import type { CallDeviceState, CallSnapshot, CallTile } from '@/lib/team-calls/call-session'
 import type { TeamCallNotesView } from '@/lib/team-calls/notes'
+import { callLayout, type CallStageSize } from '@/lib/team-calls/call-layout'
 
 export function initialsOf(name: string): string {
   return (
@@ -103,7 +104,22 @@ export function CallBadges({ notes, small = false, onOpenNotes }: { notes: Pick<
  * `glass`: the tile sits on the public sky (a meeting guest's page), so with no
  * video it is clear glass, not the app's muted fill.
  */
-export function TileView({ tile, large = false, compact = false, glass = false, action }: { tile: CallTile; large?: boolean; compact?: boolean; glass?: boolean; action?: React.ReactNode }) {
+export function TileView({
+  tile,
+  large = false,
+  compact = false,
+  glass = false,
+  fill = false,
+  action,
+}: {
+  tile: CallTile
+  large?: boolean
+  compact?: boolean
+  glass?: boolean
+  /** Fill the box it is put in (the stage sized it, ./call-layout), not a shape of its own. */
+  fill?: boolean
+  action?: React.ReactNode
+}) {
   return (
     <div
       data-team-call-tile={tile.kind}
@@ -112,7 +128,7 @@ export function TileView({ tile, large = false, compact = false, glass = false, 
       className={cn(
         'group relative overflow-hidden transition-shadow duration-150',
         glass ? cn('rounded-3xl', tile.video ? 'bg-black' : 'border border-foreground/10 bg-background/35 backdrop-blur-2xl dark:bg-white/[0.04]') : 'rounded-2xl bg-muted',
-        large ? 'aspect-video' : compact ? 'aspect-square' : 'aspect-video',
+        fill ? 'h-full w-full' : large ? 'aspect-video' : compact ? 'aspect-square' : 'aspect-video',
         tile.speaking ? 'ring-2 ring-emerald-500' : 'ring-0',
       )}
     >
@@ -141,6 +157,122 @@ export function TileView({ tile, large = false, compact = false, glass = false, 
         )}
       </span>
       {action && <span className="absolute right-1.5 top-1.5">{action}</span>}
+    </div>
+  )
+}
+
+/**
+ * The box the stage measures, content box, as it changes (rotation, a resize, a side panel
+ * opening). `{0, 0}` until measured, and where there is no layout (a test).
+ * `unbounded`: the box grows with what it holds, so only its width counts.
+ */
+function useStageSize(unbounded: boolean): [React.RefObject<HTMLDivElement | null>, CallStageSize] {
+  const ref = useRef<HTMLDivElement>(null)
+  const [size, setSize] = useState<CallStageSize>({ width: 0, height: 0 })
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const read = () => {
+      const width = el.clientWidth
+      const height = unbounded ? Infinity : el.clientHeight
+      setSize((s) => (s.width === width && s.height === height ? s : { width, height }))
+    }
+    read()
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(read)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [unbounded])
+  return [ref, size]
+}
+
+/** Room left around the tiles inside the stage, so a speaking ring (2px, outside the tile) isn't clipped. */
+const STAGE_INSET_PX = 4
+
+/**
+ * Everyone in the call, laid out to use the box they are given (./call-layout,
+ * the rule, by count and the box's shape): on a phone held upright two people
+ * stack, each half the stage; a shared screen takes the stage and the people
+ * become a strip under it. `unbounded`: the box grows with its tiles (the
+ * members' panel at the side); else it must have a height of its own (a flex
+ * child), which is what the tiles fill.
+ */
+export function CallStage({
+  people,
+  screens,
+  glass = false,
+  gap = 8,
+  unbounded = false,
+  actionFor,
+  className,
+  ...rest
+}: {
+  people: CallTile[]
+  screens: CallTile[]
+  glass?: boolean
+  gap?: number
+  unbounded?: boolean
+  actionFor?: (tile: CallTile) => React.ReactNode
+  className?: string
+} & Record<`data-${string}`, string | number | undefined>) {
+  const [ref, measured] = useStageSize(unbounded)
+  const inner = { width: measured.width - STAGE_INSET_PX * 2, height: measured.height - STAGE_INSET_PX * 2 }
+  const layout = callLayout(people.length, screens.length, inner, { gap })
+  const share = screens.length > 0
+  const side = layout.mode === 'share' && layout.strip === 'side'
+  const tile = (t: CallTile, extra: { compact?: boolean; fill?: boolean; large?: boolean } = {}) => (
+    <TileView key={t.key} tile={t} glass={glass} action={actionFor?.(t)} {...extra} />
+  )
+  return (
+    <div
+      ref={ref}
+      {...rest}
+      data-team-call-layout={layout.mode === 'grid' ? `${layout.cols}x${layout.rows}` : layout.mode}
+      className={cn('relative min-w-0', !unbounded && 'min-h-0', layout.mode === 'grid' && layout.scroll ? 'overflow-y-auto' : 'overflow-hidden', className)}
+      style={{ padding: STAGE_INSET_PX }}
+    >
+      {share ? (
+        <div className={cn('flex', side ? 'flex-row' : 'flex-col', unbounded ? '' : 'h-full')} style={{ gap }}>
+          <div className={cn('flex min-w-0 flex-col', unbounded ? '' : 'min-h-0 flex-1')} style={{ gap }}>
+            {screens.map((t) => (
+              <div key={t.key} className={unbounded ? 'aspect-video' : 'min-h-0 flex-1'}>
+                {tile(t, { fill: true })}
+              </div>
+            ))}
+          </div>
+          {people.length > 0 &&
+            (side ? (
+              <div data-team-call-strip="side" className="flex w-24 shrink-0 flex-col overflow-y-auto" style={{ gap }}>
+                {people.map((t) => (
+                  <div key={t.key} className="shrink-0">
+                    {tile(t, { compact: true })}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div
+                data-team-call-strip="bottom"
+                className="grid max-h-[40%] shrink-0 overflow-y-auto"
+                style={{ gap, gridTemplateColumns: `repeat(${layout.mode === 'share' ? layout.stripCols : 4}, minmax(0, 1fr))`, gridAutoRows: 'max-content' }}
+              >
+                {people.map((t) => tile(t, { compact: true }))}
+              </div>
+            ))}
+        </div>
+      ) : layout.mode === 'grid' ? (
+        <div className={cn('flex flex-wrap justify-center', unbounded ? '' : 'min-h-full', layout.scroll ? 'content-start' : 'content-center')} style={{ gap }}>
+          {people.map((t) => (
+            <div key={t.key} className="shrink-0" style={{ width: layout.tileWidth, height: layout.tileHeight }}>
+              {tile(t, { fill: true })}
+            </div>
+          ))}
+        </div>
+      ) : (
+        // Not measured yet: the tiles keep their own shape, two across.
+        <div className={cn('grid', people.length <= 1 ? 'grid-cols-1' : 'grid-cols-2')} style={{ gap }}>
+          {people.map((t) => tile(t))}
+        </div>
+      )}
     </div>
   )
 }
