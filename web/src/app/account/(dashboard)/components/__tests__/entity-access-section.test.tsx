@@ -126,7 +126,8 @@ describe('EntityAccessSection', () => {
       input.dispatchEvent(new Event('input', { bubbles: true }))
       input.dispatchEvent(new Event('focus', { bubbles: true }))
     })
-    const option = [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('Sam Okafor')) as HTMLButtonElement
+    // The suggestions are drawn in a portal, under document.body.
+    const option = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Sam Okafor')) as HTMLButtonElement
     await act(async () => {
       option.click()
     })

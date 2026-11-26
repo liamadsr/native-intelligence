@@ -5,6 +5,7 @@ import * as SelectPrimitive from "@radix-ui/react-select"
 import { Check, ChevronDown, ChevronUp } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { MENU_COLLISION_PADDING } from "./menu-fit"
 
 const Select = SelectPrimitive.Root
 
@@ -72,7 +73,7 @@ SelectScrollDownButton.displayName =
 const SelectContent = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Content>
->(({ className, children, position = "popper", ...props }, ref) => (
+>(({ className, children, position = "popper", collisionPadding = MENU_COLLISION_PADDING, avoidCollisions = true, ...props }, ref) => (
   <SelectPrimitive.Portal>
     <SelectPrimitive.Content
       ref={ref}
@@ -83,6 +84,8 @@ const SelectContent = React.forwardRef<
         className
       )}
       position={position}
+      collisionPadding={collisionPadding}
+      avoidCollisions={avoidCollisions}
       {...props}
     >
       <SelectScrollUpButton />

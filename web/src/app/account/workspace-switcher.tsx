@@ -1,5 +1,6 @@
 'use client'
 
+import { MENU_COLLISION_PADDING } from '@/components/ui/menu-fit'
 import {
   createContext,
   useCallback,
@@ -895,16 +896,24 @@ export function WorkspaceSwitcher({
             role="menu"
             style={
               variant === 'rail'
-                ? { position: 'fixed', left: pos.left, bottom: pos.bottom, transformOrigin: 'bottom left' }
+                ? {
+                    position: 'fixed',
+                    left: pos.left,
+                    bottom: pos.bottom,
+                    // Never taller than the window above its bottom edge: a long list scrolls.
+                    maxHeight: window.innerHeight - pos.bottom - MENU_COLLISION_PADDING,
+                    transformOrigin: 'bottom left',
+                  }
                 : {
                     position: 'fixed',
                     top: pos.top,
+                    maxHeight: window.innerHeight - pos.top - MENU_COLLISION_PADDING,
                     ...(align === 'end' ? { right: pos.right } : { left: pos.left }),
                     transformOrigin: align === 'end' ? 'top right' : 'top left',
                   }
             }
             className={cn(
-              'z-[60] w-72 overflow-hidden rounded-3xl border border-border bg-popover p-2 text-popover-foreground shadow-xl',
+              'z-[60] w-72 overflow-y-auto overflow-x-hidden overscroll-contain rounded-3xl border border-border bg-popover p-2 text-popover-foreground shadow-xl',
               'animate-in fade-in-0 zoom-in-95 duration-200 ease-out',
               variant === 'rail' ? 'slide-in-from-left-1' : 'slide-in-from-top-1',
             )}
