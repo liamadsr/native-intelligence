@@ -79,7 +79,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import type { CallDeviceState, CallSnapshot, TeamCallSession } from '@/lib/team-calls/call-session'
 import { guestIdOfIdentity, waitingGuests, waitingLine, type MeetingGuest } from '@/lib/meeting-links/shape'
-import { CallBadges, IconButton, TileView, callErrorLine, deviceNotice, screenNotice, screenDroppedNotice } from './call-tiles'
+import { CallBadges, CallStage, IconButton, callErrorLine, deviceNotice, screenNotice, screenDroppedNotice } from './call-tiles'
 import { DevicesMenu } from './devices-menu'
 import { CallLiveNotes } from './call-live-notes'
 import type { HostedTeamCall as ActiveTeamCall } from './team-calls-provider'
@@ -296,7 +296,8 @@ function CallWindow({
   const screens = snap.tiles.filter((t) => t.kind === 'screen')
   const people = snap.tiles.filter((t) => t.kind === 'person')
   const notices = [deviceNotice('mic', snap.mic, desktop), deviceNotice('camera', snap.camera, desktop), screenNotice(snap.screenBlocked || (desktop && snap.screenRefused), desktop), screenDroppedNotice(snap.screenDropped)].filter((n): n is string => !!n)
-  const cols = people.length <= 1 ? 1 : people.length <= 4 ? 2 : 3
+  // The whole window, or the desktop's call window: a box of its own to fill. At the side, the column grows with its tiles.
+  const bounded = sheet || !!windowed
 
   return (
     <section
@@ -331,7 +332,7 @@ function CallWindow({
         )}
       </header>
 
-      <div className={cn('min-h-0 flex-1 overflow-y-auto px-3 pb-2 pt-1', sheet && 'mx-auto w-full max-w-5xl')}>
+      <div className={cn('min-h-0 flex-1 overflow-y-auto px-3 pb-2 pt-1', bounded && 'flex flex-col [&>*:not([data-team-call-tiles])]:shrink-0', sheet && 'mx-auto w-full max-w-5xl')}>
         {snap.micHeld && snap.phase !== 'error' && <JoinNotice call={call} onJoin={() => void call.session.releaseMic()} onLeave={onLeave} />}
         {call.channelKind === 'meeting' && <Lobby guests={call.guests ?? []} canAdmit={snap.phase === 'connected'} />}
         {snap.phase === 'error' && (
@@ -347,26 +348,16 @@ function CallWindow({
             </button>
           </div>
         )}
-        {screens.length > 0 && (
-          <div className="mb-2 flex flex-col gap-2">
-            {screens.map((t) => (
-              <TileView key={t.key} tile={t} large />
-            ))}
-          </div>
-        )}
-        <div
-          className={cn(
-            'grid gap-2',
-            screens.length > 0 ? (sheet ? 'grid-cols-4 sm:grid-cols-6 lg:grid-cols-8' : 'grid-cols-4') : cols === 1 ? 'grid-cols-1' : cols === 2 ? 'grid-cols-2' : 'grid-cols-3',
-            // Alone in the whole window: a tile, not a wall.
-            sheet && screens.length === 0 && cols === 1 && 'mx-auto max-w-3xl',
-          )}
+        {/* The tiles use the room they have (src/lib/team-calls/call-layout.ts): in the whole window or the
+            call window, what is left between the notices and the controls; at the side, the column's width. */}
+        <CallStage
+          people={people}
+          screens={screens}
+          unbounded={!bounded}
           data-team-call-tiles={people.length}
-        >
-          {people.map((t) => (
-            <TileView key={t.key} tile={t} compact={screens.length > 0} action={t.guest && !t.isLocal ? <RemoveGuestButton identity={t.identity} name={t.name} /> : undefined} />
-          ))}
-        </div>
+          className={bounded ? 'min-h-[200px] flex-1 basis-0' : undefined}
+          actionFor={(t) => (t.guest && !t.isLocal ? <RemoveGuestButton identity={t.identity} name={t.name} /> : undefined)}
+        />
         {/* The shared live notes the live agent writes on the server (phase 2), for everyone in the call,
             and, wherever the recorder takes the notes, the line saying why they are not being written (668). */}
         {(call.features.liveAgent || call.features.liveNotes) && call.notes.capture_id && (
@@ -390,7 +381,7 @@ function CallWindow({
       </div>
 
       {/* Wraps where the column can't hold every control in one row (a call with recording has eight). */}
-      <footer className={cn('flex shrink-0 flex-wrap items-center justify-center px-3 pb-4 pt-2', sheet && !windowed ? 'gap-2' : 'gap-1.5')}>
+      <footer className={cn('flex shrink-0 flex-wrap items-center justify-center px-3 pt-2', sheet && !windowed ? 'gap-2 pb-[max(1rem,env(safe-area-inset-bottom))]' : 'gap-1.5 pb-4')}>
         <MicButton session={call.session} state={snap.mic} />
         <IconButton
           label={snap.camera === 'on' ? 'Turn the camera off' : 'Turn the camera on'}
