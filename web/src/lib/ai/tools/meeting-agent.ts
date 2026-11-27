@@ -4,13 +4,13 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { getServiceClient } from '@/lib/supabase/service'
 import type { ApprovedCall } from '@/lib/safety/approved-call'
 import type { ApprovalContext } from '@/lib/safety/approvals'
-import { BRIEF_MAX_CHARS, BRIEF_MAX_ITEMS, briefIsEmpty, parseBrief, ALWAYS_MUST_NOT_AGREE } from '@/lib/meeting-agent/brief'
+import { BRIEF_MAX_CHARS, BRIEF_MAX_ITEMS, briefIsEmpty, parseBrief } from '@/lib/meeting-agent/brief'
+import { meetingAgentCard } from '@/lib/meeting-agent/card'
 import { findMeeting } from '@/lib/meeting-agent/lookup'
 import { sendAgentToMeeting } from '@/lib/meeting-agent/send'
 import { saveSeries, seriesIdOf } from '@/lib/meeting-agent/series'
 import { meetingAgentOn } from '@/lib/meeting-agent/settings'
 import { normalizeEventId, normalizeStartsAt } from '@/lib/meetings/meeting-goal'
-import { maskPhone } from '@/lib/twilio/phone'
 
 /**
  * Send the person's agent to one of their meetings, from the chat ("go to my
@@ -46,21 +46,6 @@ export interface MeetingAgentToolsOptions {
 
 const list = (what: string) => z.array(z.string().max(BRIEF_MAX_CHARS)).max(BRIEF_MAX_ITEMS).optional().describe(`${what} (short lines, at most ${BRIEF_MAX_ITEMS})`)
 
-function cardWhy(args: { title: string; number: string; brief: ReturnType<typeof parseBrief> & { ok: true }; everyOccurrence: boolean }): string {
-  const b = args.brief.brief
-  const lines = (title: string, items: readonly string[]) => (items.length ? `${title}: ${items.join('; ')}` : null)
-  return [
-    `It dials in at the start (${maskPhone(args.number)}), introduces itself as your AI assistant, says it is taking notes, and leaves if anyone objects.`,
-    args.everyOccurrence ? 'It does the same for every later occurrence of this meeting, with this brief, until you stop it. You can skip any one.' : null,
-    lines('Goals', b.goals),
-    lines('May share', b.may_share),
-    lines('Will ask', b.ask),
-    lines('Never agrees to', [...b.must_not_agree, ...ALWAYS_MUST_NOT_AGREE]),
-    'Anything else, it checks with you by text. The notes land as a capture.',
-  ]
-    .filter(Boolean)
-    .join('\n')
-}
 
 export function createMeetingAgentTools(userId: string, _supabase: SupabaseClient, workspaceId: string, opts: MeetingAgentToolsOptions = {}) {
   return {
@@ -117,10 +102,7 @@ export function createMeetingAgentTools(userId: string, _supabase: SupabaseClien
             conversationId: opts.conversationId ?? null,
             context: { ...(opts.approvalContext ?? {}) },
             reason: 'meeting_agent_send',
-            card: {
-              title: everyOccurrence ? `Send your assistant to every “${found.event.title}”?` : `Send your assistant to “${found.event.title}”?`,
-              why: cardWhy({ title: found.event.title, number: dialIn.number, brief, everyOccurrence }),
-            },
+            card: meetingAgentCard({ title: found.event.title, number: dialIn.number, brief: brief.brief, everyOccurrence }),
           })
           if (!held.ok) return { success: false, code: held.code, error: held.error }
           return {
