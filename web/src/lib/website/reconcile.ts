@@ -111,6 +111,12 @@ export async function reconcileOpenChange(svc: Svc, change: WebsiteChange, deps:
       return null
     }
     if (change.state === 'merging') {
+      // A builder write (724): the page read back says whether it landed.
+      if (change.staged && !change.prNumber) {
+        if (age < STALE_MERGING_MS) return change
+        const { reconcileBuilderWrite } = await import('./builder')
+        return await reconcileBuilderWrite(svc, change, deps.builder)
+      }
       if (age < STALE_MERGING_MS || !change.prNumber) return change
       const site = await getSite(svc, change.workspaceId, change.siteId)
       const token = site ? await (deps.token ?? storedGithubToken)(svc, site.connectedBy) : null

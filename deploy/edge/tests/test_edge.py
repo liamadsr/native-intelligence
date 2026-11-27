@@ -267,3 +267,47 @@ class TheCompose(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def uri_rules(body):
+    """The request>uri multi_regexp rules of a block: (pattern, replacement) in order, Caddy's ${1} as Python's \\1."""
+    m = re.search(r"request>uri multi_regexp \{(.*?)\n\s*\}", body, re.S)
+    if not m:
+        return []
+    rules = re.findall(r'^\s*regexp "((?:[^"\\]|\\.)*)" "((?:[^"\\]|\\.)*)"', m.group(1), re.M)
+    return [(pat, rep.replace("${1}", "\\1")) for pat, rep in rules]
+
+
+def scrub(rules, uri):
+    for pat, rep in rules:
+        uri = re.sub(pat, rep, uri)
+    return uri
+
+
+class TheLogsKeepNoWordpressPassword(unittest.TestCase):
+    """A WordPress site hands its application password back in the query string
+    (web/src/app/api/website/wordpress/callback): neither log may keep it."""
+
+    URI = "/api/website/wordpress/callback?state=abc.def&site_url=https%3A%2F%2Fexample.test&user_login=site-admin&password=abcd+efgh+ijkl+mnop+qrst+uvwx"  # gitleaks:allow (a made-up application password for this test, not a secret)
+
+    def setUp(self):
+        self.blocks = dict(blocks(CADDYFILE))
+        self.global_options = next(body for head, body in blocks(CADDYFILE) if head == "")
+
+    def check(self, body):
+        scrubbed = scrub(uri_rules(body), self.URI)
+        self.assertIn("password=REDACTED", scrubbed)
+        self.assertIn("user_login=REDACTED", scrubbed)
+        for leak in ("abcd", "uvwx", "site-admin"):
+            self.assertNotIn(leak, scrubbed)
+        return scrubbed
+
+    def test_the_apps_access_log(self):
+        scrubbed = self.check(self.blocks["{$APP_HOSTS:http://app.invalid}"])
+        # The rules it had still hold.
+        self.assertIn("state=REDACTED", scrubbed)
+        self.assertEqual(scrub(uri_rules(self.blocks["{$APP_HOSTS:http://app.invalid}"]), "/x?code=1&token=2"), "/x?code=REDACTED&token=REDACTED")
+
+    def test_the_error_log(self):
+        self.check(self.global_options)
+        self.assertEqual(scrub(uri_rules(self.global_options), "/x?apikey=1"), "/x?apikey=REDACTED")

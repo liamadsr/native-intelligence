@@ -1,6 +1,7 @@
 import { getValidToken, getValidTokenForAccount, getValidTokenForCapability, getAllValidTokens } from '@/lib/oauth/token-manager'
 import { getServiceClient } from '@/lib/admin'
 import { meetingUrlIn } from '@/lib/meeting-links/shape'
+import { dialInOfGoogleEntryPoints, dialInOfMicrosoftOnlineMeeting, type DialIn } from '@/lib/meeting-agent/dial-in'
 
 /**
  * One attendee with the display name the provider gave us.
@@ -44,6 +45,8 @@ export interface CalendarEvent {
   htmlLink?: string
   organizer?: string
   conferenceUrl?: string
+  /** The meeting's phone dial-in, where the provider gives one (Meet's entry points, Teams' onlineMeeting): the meeting agent's way in (723). */
+  dialIn?: DialIn
   calendarName?: string
   hasRecurrence?: boolean
   // Recurring-series identity (see src/lib/integrations/meeting-series.ts):
@@ -714,6 +717,7 @@ async function listGoogleEvents(
         (e: any): CalendarEvent => {
           const entryPoints = e.conferenceData?.entryPoints as Array<Record<string, string>> | undefined
           const videoEntry = entryPoints?.find((ep) => ep.entryPointType === 'video')
+          const dialIn = dialInOfGoogleEntryPoints(entryPoints)
 
           return {
             id: e.id as string,
@@ -731,6 +735,7 @@ async function listGoogleEvents(
             htmlLink: e.htmlLink as string,
             organizer: e.organizer?.email as string | undefined,
             conferenceUrl: conferenceUrlOf(videoEntry?.uri, e.location, e.description),
+            ...(dialIn ? { dialIn } : {}),
             calendarName: summary || 'Google Calendar',
             hasRecurrence: !!e.recurringEventId,
             seriesMasterId: (e.recurringEventId as string) || undefined,
@@ -1065,6 +1070,7 @@ function parseMicrosoftEvents(items: any[], calendarId?: string): CalendarEvent[
       htmlLink: e.webLink as string,
       organizer: e.organizer?.emailAddress?.address as string | undefined,
       conferenceUrl: conferenceUrlOf(e.onlineMeeting?.joinUrl || e.onlineMeetingUrl, e.location?.displayName, e.bodyPreview),
+      ...((dialIn) => (dialIn ? { dialIn } : {}))(dialInOfMicrosoftOnlineMeeting(e.onlineMeeting)),
       calendarName: 'Outlook Calendar',
       hasRecurrence: !!e.seriesMasterId,
       seriesMasterId: (e.seriesMasterId as string) || undefined,

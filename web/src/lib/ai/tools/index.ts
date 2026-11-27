@@ -6,6 +6,7 @@ import { createActionTools, type ActionToolRules } from './actions'
 import { createCaptureTools } from './captures'
 import { createNoteTakerTools } from './note-taker'
 import { createMeetingGoalTools } from './meeting-goal'
+import { createMeetingAgentTools } from './meeting-agent'
 import { createVocabularyTools } from './vocabulary'
 import { createSnippetTools } from './snippets'
 import { createDreamerNotesTools, type DreamerToolContext } from './dreamer-notes'
@@ -550,6 +551,13 @@ export function createTools(
     ...createCalendarCaptureTools(userId, supabase, workspaceId, accessToken, omitPrivate, omitGrants),
     // The person's goal for one of their meetings (the prep card's composer writes the same store).
     ...createMeetingGoalTools(userId, supabase, workspaceId, options?.unattended ?? false),
+    // Send the person's assistant to one of their meetings (roadmap #12): always their card first; off unless MEETING_AGENT is on.
+    ...createMeetingAgentTools(userId, supabase, workspaceId, {
+      unattended: options?.unattended ?? false,
+      conversationId: options?.suggestionContext?.origin === 'chat' ? (options.suggestionContext.conversationId ?? null) : null,
+      approvedCall: options?.approvedCall,
+      approvalContext: options?.approvalContext,
+    }),
     ...createVocabularyTools(userId, supabase, workspaceId, { omitPrivate, unattended: options?.unattended ?? false }),
     // Snippets (migration 699): text typed in with `;`. Shared writes and deletes raise the person's card.
     ...createSnippetTools(userId, supabase, workspaceId, {

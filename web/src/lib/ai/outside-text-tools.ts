@@ -51,6 +51,12 @@ export const OUTSIDE_TEXT_TOOLS: Readonly<Record<string, OutsideTextTool>> = {
     fence: ['wrapUntrusted'],
     note: 'the new lines on a public page a page-watch loop watches, as whoever runs that site wrote them',
   },
+  change_website: {
+    file: 'src/lib/ai/tools/website.ts',
+    kind: 'WEB',
+    fence: ['fenceBuilderText', 'wrapUntrusted'],
+    note: "a builder site's page text and title, read back so the agent quotes what it replaces (migration 724)",
+  },
   get_quote: {
     file: 'src/lib/ai/tools/business.ts',
     kind: 'WEB',
@@ -444,8 +450,7 @@ export const NOT_OUTSIDE_TEXT_TOOLS: Readonly<Record<string, string>> = {
   // A business's website (roadmap track E, src/lib/ai/tools/website.ts).
   list_website_repos: 'GitHub repo names (owner/repo shape only: no spaces, no prose), an origin and a date',
   connect_website: "Native Intelligence's own words about the repo; file paths and field names are shape-checked (no spaces) and quoted as data",
-  wire_website_form: "a write; returns Native Intelligence's own status words",
-  change_website: "a write; returns Native Intelligence's own status words",
+  wire_website_form: "a write; returns Native Intelligence's own status words (a builder site's page titles, when it asks which page, are fenced by fenceBuilderText)",
   undo_website_change: "a write; returns Native Intelligence's own status words",
   import_contact_file: 'a write; returns its own counts, summary and the contact ids to check (no file text)',
   import_stripe_customers: "a write; returns Native Intelligence's own status words and a batch id (the customers are read in the background)",

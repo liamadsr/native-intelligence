@@ -35,8 +35,13 @@ import type { SipHeader } from './live-webhook'
 export interface CallCaller {
   userId: string
   workspaceId: string
-  /** How the number was matched: their verified phone, or the local-dev mapping. */
-  via: 'verified_phone' | 'dev_mapping'
+  /**
+   * How the number was matched: their verified phone, or the local-dev
+   * mapping. 'meeting': not a caller at all, the person's agent attending a
+   * meeting for them (src/lib/meeting-agent/bridge.ts), matched by the
+   * outbound leg's one-time token; it never runs a home turn.
+   */
+  via: 'verified_phone' | 'dev_mapping' | 'meeting'
 }
 
 /**

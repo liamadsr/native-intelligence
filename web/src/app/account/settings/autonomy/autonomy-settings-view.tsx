@@ -18,6 +18,7 @@ import { Switch } from '@/components/ui/switch'
 import { DELEGABLE_WORK_ROLES, WORK_ROLES, WORK_ROLE_LABELS, type WorkRole } from '@/lib/work/roles'
 import type { AgentAutonomyMode, AgentAutonomyPolicy } from '@/lib/work/agent-autonomy-policy'
 import { teammateAutonomyLine } from '@/lib/work/autonomy-line'
+import { EarnedAutonomySection } from './earned-autonomy-section'
 
 export const AGENT_AUTONOMY_URL = '/api/account/workspace/agent-autonomy'
 
@@ -239,6 +240,7 @@ export function AutonomySettingsView() {
               />
             </label>
           </section>
+          <EarnedAutonomySection />
 
           {on && (['limits', 'pausing'] as const).map((group) => (
             <section key={group} aria-label={group === 'limits' ? 'Limits' : 'Pausing'}>

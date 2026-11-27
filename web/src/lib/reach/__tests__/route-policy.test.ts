@@ -198,7 +198,7 @@ describe('never routes', () => {
   })
 
   it('the router queries exactly the kinds that can route', () => {
-    expect([...ROUTED_MESSAGE_KINDS].sort()).toEqual(['ask_card', 'customer_reminder', 'guest_message', 'guest_request', 'home_turn', 'look_ahead'])
+    expect([...ROUTED_MESSAGE_KINDS].sort()).toEqual(['ask_card', 'customer_reminder', 'guest_message', 'guest_request', 'home_turn', 'look_ahead', 'meeting_ask'])
   })
 })
 
@@ -277,6 +277,7 @@ describe('in a call or a meeting', () => {
     expect(sharesAText({ kind: 'guest_message', text: 'Sam: hi' }, 0)).toBe(false)
     expect(sharesAText({ kind: 'guest_request', text: 'Someone asked.' }, 0)).toBe(false)
     expect(sharesAText({ kind: 'approval_ask', text: 'May I?' }, 0)).toBe(false)
+    expect(sharesAText({ kind: 'meeting_ask', text: 'From the pilot review: can we start Monday?' }, 0)).toBe(false)
   })
 
   it('the one text: how many, the three newest oldest first, each on one line and cut, and how many more', () => {
@@ -287,5 +288,23 @@ describe('in a call or a meeting', () => {
     const [, first] = long.split('\n\n')
     expect(first).toHaveLength(HELD_TEXT_MAX_CHARS)
     expect(first.endsWith('…')).toBe(true)
+  })
+})
+
+describe("the meeting agent's ask (roadmap #12)", () => {
+  const NOW = Date.parse('2026-11-30T18:10:00.000Z')
+  const ask = (metadata: Record<string, unknown>, parts: unknown[] = [text('From Pilot review: can we start Monday?')]) =>
+    routeOf(row({ kind: 'meeting_ask', meeting_attendance_id: 'att-1', ...metadata }, parts, 'meeting-ask:att-1:d1'), USER, NOW)
+
+  it('routes alone, as its own words, urgent by its deadline', () => {
+    const urgentBy = new Date(NOW + 15 * 60_000).toISOString()
+    expect(ask({ urgent_by: urgentBy })).toMatchObject({ routes: true, kind: 'meeting_ask', text: 'From Pilot review: can we start Monday?', textable: true, notifies: false, approvalIds: [], urgentBy })
+  })
+  it('gets through while the person is busy, even after the router waits out its grace', () => {
+    const urgentBy = new Date(NOW + 15 * 60_000).toISOString()
+    expect(heldWhileBusy({ createdAt: new Date(NOW).toISOString(), urgentBy, nowMs: NOW + 2 * 60_000 })).toBe(false)
+  })
+  it('an ask with no words never routes', () => {
+    expect(ask({}, [text('  ')])).toEqual({ routes: false })
   })
 })

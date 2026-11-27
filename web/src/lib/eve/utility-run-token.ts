@@ -87,6 +87,7 @@ export const UTILITY_KINDS = [
   'eval_judge',
   'plan_web_search',
   'look_ahead_extract',
+  'meeting_reply',
 ] as const
 
 export type UtilityKind = (typeof UTILITY_KINDS)[number]

@@ -104,6 +104,10 @@ import { connectionProblem, loadOwnerConnection, mcpContentText, toolOf } from '
 import { checkToolInputAtRun } from '@/lib/flows/tool-input-schema'
 import { capStepOutput } from '@/lib/flows/redact'
 import { bareToolName } from '@/lib/mcp/tool-names'
+import { recordApprovalOutcomes } from '@/lib/autonomy/record'
+import { editRatio } from '@/lib/autonomy/edit-ratio'
+import { undoScheduledActions } from '@/lib/autonomy/undo'
+import { earnedAutonomyRecording } from '@/lib/autonomy/config'
 
 /**
  * Where a held call came from. tool_approval's CHECK still admits a retired
@@ -667,6 +671,13 @@ export async function approveToolCall(
     editMisfit?: typeof flowStepEditMisfit
     /** Test seam: the agent's turn once the call ran (approval-turn.ts). */
     requestTurn?: typeof requestApprovalTurn
+    /**
+     * Earned autonomy's runner (src/lib/autonomy/actions.ts): this accept is
+     * the person's standing yes for the kind (Liam, 11-27, decision 1), not a
+     * click. The runner records the outcome as `ran` itself, so this records
+     * nothing.
+     */
+    autonomousActionId?: string
   } = {},
 ): Promise<ApprovalOutcome> {
   if (!mayApprove(approver, approver?.userId)) return { ok: false, status: 403, code: 'APPROVAL_PERSON_ONLY', error: NOT_THE_OWNER }
@@ -713,6 +724,9 @@ export async function approveToolCall(
   const settle = deps.settled ?? notifyFlowStepSettled
   const refuse = async (status: number, code: string, error: string): Promise<ApprovalOutcome> => {
     await supabase.from('tool_approval').update({ status: 'failed', result: { ran: false, code, error } }).eq('id', row.id)
+    // Earned autonomy's record (docs/plans/earned-autonomy.md): nobody judged
+    // the work, so it's neutral. Never throws, off while EARNED_AUTONOMY is.
+    deferLogWrite(recordApprovalOutcomes(supabase, [{ approval: row, outcome: 'failed' }]))
     await postHomeResult(supabase, row, { ran: false, reason: error })
     await settle(row, 'failed').catch(warnUnsettled)
     if (row.context?.guest) deferLogWrite(tellGuests(supabase, [row.id]))
@@ -739,6 +753,9 @@ export async function approveToolCall(
   if (!(await (deps.permits ?? approvalCeilingPermits)(supabase, row))) {
     return refuse(403, 'TOOL_OUT_OF_CEILING', `${row.tool} is no longer available here, so the held call did not run.`)
   }
+  // What the card showed, for the record's edit ratio (earned autonomy).
+  const shownInput = row.input
+  let editedRatio: number | null = null
   // The person's edit (F4): what runs is what they typed, recorded before it runs.
   if (edit) {
     const editedHash = inputHash(edit)
@@ -746,6 +763,7 @@ export async function approveToolCall(
       await supabase.from('tool_approval').update({ input: edit, input_hash: editedHash, context: { ...(row.context ?? {}), edited_from_hash: row.input_hash } }).eq('id', row.id)
       row.input = edit
       row.input_hash = editedHash
+      editedRatio = editRatio(shownInput, edit)
     }
   }
 
@@ -760,6 +778,16 @@ export async function approveToolCall(
   const stored = capResult(result)
   await supabase.from('tool_approval').update({ executed_at: new Date().toISOString(), result: stored }).eq('id', row.id)
   await postHomeResult(supabase, row, { ran: true, success, quote: summaryOf(stored) })
+  // Earned autonomy's record: the person's yes, as shown or after their edit
+  // (Liam, 11-27, roadmap #14). The kind is read from what the card showed.
+  // Never throws; off while EARNED_AUTONOMY is.
+  if (!deps.autonomousActionId) deferLogWrite(
+    recordApprovalOutcomes(supabase, [
+      editedRatio === null
+        ? { approval: { ...row, input: shownInput }, outcome: 'approved' }
+        : { approval: { ...row, input: shownInput }, outcome: 'approved_edited', editRatio: editedRatio },
+    ]),
+  )
   // The agent that raised it carries on (its own chat turn's calls only;
   // never throws), sent after the response so the Accept never waits on it.
   deferLogWrite((deps.requestTurn ?? requestApprovalTurn)(row))
@@ -790,7 +818,13 @@ export async function denyToolCall(
     .eq('user_id', approver.userId)
     .eq('workspace_id', card.workspace_id)
     .eq('status', 'pending')
-    .select('id, door, context, flow_run_id, workspace_id')
+    .select('id, door, context, flow_run_id, workspace_id, user_id, tool, input')
+  // Earned autonomy: a Dismiss in an action's undo window is its Undo (the
+  // kind goes back to ask, decision 4, Liam 11-27); any other Dismiss is a no
+  // on this kind. Never throws; off while EARNED_AUTONOMY is.
+  const denied = (data ?? []) as SettledApprovalRow[]
+  const undone = earnedAutonomyRecording() && denied.length ? await undoScheduledActions(supabase, denied.map((row) => row.id)) : new Set<string>()
+  deferLogWrite(recordApprovalOutcomes(supabase, denied.filter((row) => !undone.has(row.id)).map((approval) => ({ approval, outcome: 'dismissed' as const }))))
   // Skip on a loop step: its parked run ends cleanly, with a note.
   for (const row of (data ?? []) as SettledRow[]) await (deps.settled ?? notifyFlowStepSettled)(row, 'denied').catch(warnUnsettled)
   // A customer's booking: its slot opens again and they are told (roadmap B4).
@@ -916,7 +950,7 @@ export async function expireLapsedApprovals(
   const nowIso = new Date().toISOString()
   let query = supabase
     .from('tool_approval')
-    .select('id, card_id, door, context, flow_run_id, workspace_id')
+    .select('id, card_id, door, context, flow_run_id, workspace_id, user_id, tool, input')
     .eq('status', 'pending')
     .lt('expires_at', nowIso)
   if (scope.userId) query = query.eq('user_id', scope.userId)
@@ -935,6 +969,13 @@ export async function expireLapsedApprovals(
   if (expired.error) throw new Error(`expire lapsed approvals: ${expired.error.message}`)
   // Only the rows this sweep moved: a yes that won the race at the boundary keeps its booking.
   const moved = new Set(((expired.data ?? []) as Array<{ id: string }>).map((r) => r.id))
+  // Earned autonomy's record: nobody answered, neutral (never throws; off while EARNED_AUTONOMY is).
+  deferLogWrite(
+    recordApprovalOutcomes(
+      supabase,
+      (rows as unknown as SettledApprovalRow[]).filter((row) => moved.has(row.id)).map((approval) => ({ approval, outcome: 'expired' as const })),
+    ),
+  )
   const cardIds = rows.map((row) => row.card_id).filter((id): id is string => !!id)
   if (cardIds.length) {
     const cards = await supabase
@@ -956,6 +997,9 @@ export async function expireLapsedApprovals(
   await tellGuests(supabase, guestRowIds(rows.filter((row) => moved.has(row.id))))
   return rows.length
 }
+
+/** A settled row as the record reads it (earned autonomy, src/lib/autonomy/record.ts). */
+type SettledApprovalRow = { id: string; workspace_id: string; user_id: string; tool: string; input: unknown; context?: unknown }
 
 function approvalIdOf(payload: unknown): string | null {
   const id = payload && typeof payload === 'object' ? (payload as { approval_id?: unknown }).approval_id : undefined

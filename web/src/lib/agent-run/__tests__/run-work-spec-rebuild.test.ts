@@ -198,6 +198,8 @@ describe('computeWorkRunCeiling', () => {
         // and the review link is what every such email carries (automation write).
         'complete_job',
         'set_review_link',
+        // Roadmap #12: the meeting agent dials a meeting for the person, only from their own card (external write).
+        'send_agent_to_meeting',
         // Roadmap E: each opens a pull request on the business's website repo (automation writes).
         'wire_website_form',
         'change_website',
