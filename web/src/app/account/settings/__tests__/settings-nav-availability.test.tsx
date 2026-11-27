@@ -34,3 +34,26 @@ it('lists the other settings, and not Availability', () => {
   expect(text).not.toContain('Availability')
   expect(container.querySelector('a[href="/account/settings/availability"]')).toBeNull()
 })
+
+import { withMeetingsItem } from '../settings-shell'
+
+it("shows Meetings in Features, after Autonomy, only when the meeting assistant is on (roadmap #12)", () => {
+  const sections = [
+    { title: 'Account', items: [{ href: '/account/settings/profile', label: 'Profile', icon: null as never }] },
+    { title: 'Features', items: [{ href: '/account/settings/autonomy', label: 'Autonomy', icon: null as never }, { href: '/account/settings/memory', label: 'Memory', icon: null as never }] },
+  ]
+  expect(withMeetingsItem(sections, false, null as never)).toBe(sections)
+  const on = withMeetingsItem(sections, true, null as never)
+  expect(on[1].items.map((i) => i.label)).toEqual(['Autonomy', 'Meetings', 'Memory'])
+  expect(on[1].items[1].href).toBe('/account/settings/meetings')
+  expect(sections[1].items).toHaveLength(2)
+})
+
+it("the shell never shows Meetings when the server doesn't say it's on", () => {
+  container = document.createElement('div')
+  document.body.appendChild(container)
+  root = createRoot(container)
+  act(() => root!.render(h(SettingsShell, { isOverlay: true, activeSubPath: 'profile', onNavigate: () => {}, onClose: () => {}, children: h('div') })))
+  expect(container.querySelector('a[href="/account/settings/meetings"]')).toBeNull()
+  expect(container.textContent ?? '').not.toContain('Meetings')
+})
