@@ -87,3 +87,20 @@ describe('calling it off', () => {
     expect(await cancelAttendance(db.client, { workspaceId: WS, userId: ME, id: ATT })).toBe('over')
   })
 })
+
+describe('checking a send without writing (the brief editor\'s Review)', () => {
+  it('passes what a send would send, and writes nothing', async () => {
+    const { checkSend } = await import('@/lib/meeting-agent/send')
+    const db = fakeDb()
+    const d = deps()
+    const r = await checkSend(db.client, INPUT, d)
+    expect(r).toEqual({ ok: true, checked: { eventId: EVENT, startsAt: START, endsAt: END, number: '+15555550142', digits: 'wwwwww123456789#', brief: { goals: ['Get a yes'], may_share: [], ask: ['Who signs off?'], must_not_agree: [] }, firstName: 'Sam' } })
+    expect(db.tables.meeting_attendance).toHaveLength(0)
+    expect(d.send).not.toHaveBeenCalled()
+  })
+  it('refuses exactly what a send refuses', async () => {
+    const { checkSend } = await import('@/lib/meeting-agent/send')
+    expect(await checkSend(fakeDb().client, { ...INPUT, dialIn: null }, deps())).toMatchObject({ ok: false, reason: 'no_dial_in' })
+    expect(await checkSend(fakeDb().client, INPUT, deps({ env: {} }))).toMatchObject({ ok: false, reason: 'off' })
+  })
+})

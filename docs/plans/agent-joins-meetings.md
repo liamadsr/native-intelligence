@@ -267,3 +267,136 @@ it is applied WITHOUT `--single-transaction`), has a lock timeout, and is safe t
 - What happens to notes from before an objection: keep them, private (the default as built),
   or drop them.
 - Whether to allow non-US/CA dial-ins.
+
+## 9. Proposal: moving the call out of the web request (not built; for the owner)
+
+**Today.** OpenAI's webhook (`POST /api/calls/live`) reaches `web`, as every route but
+`/api/inngest` does (`deploy/app/proxy/Caddyfile`). The route accepts the call, and the
+bridge then holds the call's sideband WebSocket inside that process, in `after()`, for
+the whole meeting. `next start` ignores the route's `maxDuration` (800 s), so the cap is
+only `MEETING_AGENT_MAX_MINUTES` and Twilio's `TimeLimit`. A roll-out replaces `web` by
+starting a new container, then `docker stop -t 120` on the old one (`deploy/app/deploy.sh`,
+`roll web 120`). A meeting is therefore cut 120 s after any roll-out begins replacing
+`web`, and a crash or the daily reboot cuts it at once. The same is already true of
+phone calls, which are capped at 10 minutes.
+
+Two facts constrain every option:
+- The sideband socket lives in one process's memory. We have not verified whether
+  GPT-Live lets a second attach pick up a session once the first socket closes. If it
+  does not, no option can move a live call from one process to another, and a
+  roll-out can only wait for the call to end.
+- `deploy.sh`'s `roll` waits for `docker stop -t <grace>` before moving on. Any grace
+  long enough for a meeting makes that roll-out step wait as long.
+
+### Option A: a dedicated long-lived service in deploy/app's compose (recommended)
+
+The bridge moves out of Next into its own small Node process, `meeting-bridge`, much
+like `recorder/`.
+- The webhook only accepts the call (it must answer OpenAI within seconds) and marks
+  the attendance "needs a bridge".
+- The service claims each such attendance through a database lease (one bridge per
+  call, renewed every few seconds) and attaches.
+- It writes the notes and asks through the app's internal routes (a shared secret, as
+  the recorder's capture feed does), or through the service-role database. The
+  meeting turn's model call stays on eve, through the app.
+
+**On the server:**
+- A new service in `deploy/app/compose.yaml`, with `stop_grace_period` set to the cap
+  plus a margin (about 95 min at `MEETING_AGENT_MAX_MINUTES=90`).
+- A new secret in `deploy/app/.env`, `MEETING_BRIDGE_SECRET`.
+- A small migration: the lease columns on `meeting_attendance`.
+
+**Timeouts:**
+- The webhook's accept answers in under 10 s, as now.
+- The lease is renewed every 5 s and lost after 30 s.
+- The service has no request timeout: it makes outbound WebSocket and HTTPS calls only.
+
+**How a roll-out stops cutting meetings:** `deploy.sh` treats `meeting-bridge`
+differently from `web`, which is a change to the deploy tooling.
+1. It starts the new container.
+2. It sends the old one SIGTERM without waiting: `docker stop` in the background, or a
+   "drain" signal.
+3. The old container stops claiming new calls and exits once its last call ends (at
+   most the cap).
+4. New calls go to the new container from the start.
+
+The roll-out itself finishes in minutes; only the old container lives on until its
+calls end.
+
+**What the owner must do:**
+- Approve the new service, its secret and the migration.
+- Approve the `deploy.sh` change. It touches `deploy/app`, so automatic deploys would
+  hold it.
+- Roll it out by hand once.
+
+**Cost:** about a week to build and test, with the recorder's pattern to follow. It
+also brings the phone calls' 10-minute cap within reach of lifting.
+
+### Option B: the worker, with a longer stop grace (quickest interim)
+
+Send `/api/calls/live` to `worker` instead of `web` (one line in the Caddyfile), and
+raise the worker's `stop_grace_period` and `deploy.sh`'s `roll worker` grace to the
+cap plus a margin (about 95 min). The bridge code does not change: it still runs in
+`after()`, in the worker.
+
+**On the server:**
+- One `route` in `proxy/Caddyfile`.
+- `stop_grace_period` in `compose.yaml`.
+- The number in `deploy.sh`.
+- The proxy restarts once (a second or two).
+
+**Timeouts:**
+- Inngest's steps (600 s) still finish within the grace.
+- `docker stop -t` becomes about 5700 s.
+
+**How a roll-out stops cutting meetings:** the old worker keeps running its calls
+until they end, inside its grace, while the new worker takes new calls and Inngest.
+The cost is that a roll-out started during a meeting now takes up to the meeting's
+remaining length, because `roll worker` waits for the old container to stop. Web and
+cron are replaced only after that.
+
+**What the owner must do:**
+- Approve the three edits in `deploy/app`. Automatic deploys hold them.
+- Accept that roll-outs can take as long as a meeting.
+- Avoid rolling out during meetings, or roll out knowing it will wait.
+
+**Cost:** a day, plus a test that the worker answers OpenAI's webhook (its health
+check and its routes are the same server).
+
+### Option C: an Inngest step (not recommended)
+
+The webhook accepts the call and sends an event. An Inngest function's step attaches
+and runs the bridge.
+
+**On the server:**
+- Nothing changes in compose.
+- The self-hosted Inngest's step timeout and the worker's grace must cover a meeting.
+  Steps are capped at 600 s today, so a 30 to 90 minute call does not fit in one step.
+
+**Timeouts:**
+- A single step can last at most 600 s unless Inngest's limit is raised.
+- Chaining 9-minute steps needs the re-attach above: each step would re-attach to the
+  same session, with the transcript, open asks and relay state saved between steps.
+- A retried step would attach again in the middle of a meeting.
+
+**How a roll-out stops cutting meetings:** only if re-attach works. Each step ends
+within the worker's 900 s grace, and the next step lands on the new worker. Without
+re-attach, this is Option B with extra moving parts.
+
+**What the owner must do:**
+- Confirm with OpenAI that GPT-Live sessions can be re-attached.
+- Possibly raise Inngest's limits on the server.
+
+**Cost:** the most code (state saved between steps) and the most unknowns.
+
+### Recommendation
+
+1. Option B first, if meetings need to survive roll-outs soon: it is a day's work, and
+   its one cost (slow roll-outs during meetings) is visible and controllable.
+2. Then Option A as the lasting answer, which also lets phone calls run longer.
+3. Option C only if OpenAI confirms re-attach and a long-lived service is unwanted.
+
+Whichever is chosen, this question should be asked of OpenAI first: can a GPT-Live
+session's sideband be re-attached after its socket closes? The answer decides
+whether a crash, a reboot or a roll-out can ever be survived mid-meeting, or only
+waited out.

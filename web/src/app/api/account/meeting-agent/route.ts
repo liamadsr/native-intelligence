@@ -3,7 +3,8 @@ import { requireWorkspace } from '@/lib/api-auth'
 import { apiError, badRequest, featureDisabled, notFound, serverError } from '@/lib/api-errors'
 import { getServiceClient } from '@/lib/supabase/service'
 import { findMeeting } from '@/lib/meeting-agent/lookup'
-import { cancelAttendance, sendAgentToMeeting } from '@/lib/meeting-agent/send'
+import { cancelAttendance, checkSend, sendAgentToMeeting, type SendRefusal } from '@/lib/meeting-agent/send'
+import { meetingAgentCard } from '@/lib/meeting-agent/card'
 import { meetingAgentOn } from '@/lib/meeting-agent/settings'
 import { listAttendances, publicAttendance } from '@/lib/meeting-agent/store'
 import { listSeries, pauseSeries, publicSeries, removeSeries, saveSeries, seriesIdOf, seriesRefsOf } from '@/lib/meeting-agent/series'
@@ -30,6 +31,9 @@ export const dynamic = 'force-dynamic'
  *           they gave one. With every_occurrence, the same brief also covers
  *           every later occurrence of its series (400 NOT_RECURRING for a
  *           one-off).
+ *   POST    { …the same, preview: true } → { card: { title, why } }: every
+ *           check a send makes, and the approval card's words for it, with
+ *           nothing written (the prep card's brief editor, its Review step).
  *   PATCH   { series_id, paused } → { ok }: pause or turn back on a series.
  *   DELETE  ?id → { outcome: cancelled | pulled_out | over }: call it off
  *           ("skip this one" for an occurrence of a series), or pull it out of
@@ -39,6 +43,11 @@ export const dynamic = 'force-dynamic'
  * Private to the caller: every query fences on them and the current
  * workspace (the service role writes, so the fence is what holds).
  */
+
+function refusal(r: SendRefusal) {
+  if (r.reason === 'error') return serverError(r.message)
+  return apiError(r.message, { status: r.reason === 'busy' ? 409 : 400, code: r.reason.toUpperCase() })
+}
 
 function off() {
   return featureDisabled('Sending your assistant to meetings is not turned on.')
@@ -77,7 +86,7 @@ export async function POST(request: NextRequest) {
     const seriesId = seriesIdOf(found.event)
     if (everyOccurrence && !seriesId) return apiError("That meeting doesn't repeat, so there are no other occurrences to send your assistant to.", { status: 400, code: 'NOT_RECURRING' })
     const dialIn = given && typeof given.number === 'string' && typeof given.digits === 'string' ? { number: given.number, digits: given.digits } : found.dialIn
-    const sent = await sendAgentToMeeting(getServiceClient(), {
+    const input = {
       workspaceId: auth.workspaceId,
       userId: auth.user.id,
       calendarEventId,
@@ -86,11 +95,14 @@ export async function POST(request: NextRequest) {
       title: found.event.title,
       dialIn,
       brief: body.brief,
-    })
-    if (!sent.ok) {
-      if (sent.reason === 'error') return serverError(sent.message)
-      return apiError(sent.message, { status: sent.reason === 'busy' ? 409 : 400, code: sent.reason.toUpperCase() })
     }
+    if (body.preview === true) {
+      const check = await checkSend(getServiceClient(), input)
+      if (!check.ok) return refusal(check)
+      return NextResponse.json({ card: meetingAgentCard({ title: found.event.title, number: check.checked.number, brief: check.checked.brief, everyOccurrence }) })
+    }
+    const sent = await sendAgentToMeeting(getServiceClient(), input)
+    if (!sent.ok) return refusal(sent)
     if (everyOccurrence && seriesId) {
       const a = sent.attendance
       // The brief and dial-in as the send checked them; the person's own dial-in only, never one read from this invite.
