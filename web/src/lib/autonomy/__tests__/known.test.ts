@@ -16,7 +16,7 @@ const noMembers = async () => new Set<string>()
 const known = (recipients: string[], members = noMembers) => knownRecipients(db as never, { workspaceId: WS, userId: USER, recipients }, members)
 
 beforeEach(() => {
-  db = makeFakeSupabase()
+  db = makeFakeSupabase({ bulkUpsert: true })
   db.seed('member', [
     { id: 'm-me', workspace_id: WS, user_id: USER },
     { id: 'm-other', workspace_id: WS, user_id: 'user-2' },

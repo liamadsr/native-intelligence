@@ -26,7 +26,7 @@ function grant(level: 'tell' | 'quiet' = 'tell', extra: Record<string, unknown> 
 }
 
 beforeEach(() => {
-  db = makeFakeSupabase()
+  db = makeFakeSupabase({ bulkUpsert: true })
   knowAll.mockClear()
 })
 
@@ -75,10 +75,10 @@ describe('graduationFor', () => {
 
   it('no grant, a revoked grant (ask), or "Never": the card', async () => {
     expect(await graduationFor(db as never, args(), deps)).toMatchObject({ run: false, reason: 'not_granted' })
-    db = makeFakeSupabase()
+    db = makeFakeSupabase({ bulkUpsert: true })
     grant('tell', { level: 'ask' })
     expect(await graduationFor(db as never, args(), deps)).toMatchObject({ run: false, reason: 'not_granted' })
-    db = makeFakeSupabase()
+    db = makeFakeSupabase({ bulkUpsert: true })
     grant('tell', { pinned_ask: true })
     expect(await graduationFor(db as never, args(), deps)).toMatchObject({ run: false, reason: 'not_granted' })
   })

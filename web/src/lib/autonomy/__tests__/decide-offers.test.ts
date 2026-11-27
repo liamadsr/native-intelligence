@@ -52,7 +52,7 @@ describe('maybeOfferKind', () => {
     db.seed('autonomy_outcome', Array.from({ length: n }, (_, i) => ({ workspace_id: WS, user_id: USER, kind_key: KEY, outcome: 'approved', edit_ratio: null, created_at: new Date(NOW.getTime() - (0.1 + (spanDays * i) / (n - 1)) * 86_400_000).toISOString() })))
 
   beforeEach(() => {
-    db = makeFakeSupabase()
+    db = makeFakeSupabase({ bulkUpsert: true })
     append.mockClear()
   })
 
@@ -80,7 +80,7 @@ describe('maybeOfferKind', () => {
     expect(await maybeOfferKind(db as never, { workspaceId: WS, userId: USER, kindKey: 'send_payment_link|unknown|one', now: NOW }, graduate)).toBe(false)
     db.seed('autonomy_kind', [{ id: 'k1', workspace_id: WS, user_id: USER, kind_key: KEY, level: 'ask', pinned_ask: true }])
     expect(await maybeOfferKind(db as never, { workspaceId: WS, userId: USER, kindKey: KEY, now: NOW }, graduate)).toBe(false)
-    db = makeFakeSupabase()
+    db = makeFakeSupabase({ bulkUpsert: true })
     seedClean(9)
     expect(await maybeOfferKind(db as never, { workspaceId: WS, userId: USER, kindKey: KEY, now: NOW }, graduate)).toBe(false)
     expect(append).not.toHaveBeenCalled()

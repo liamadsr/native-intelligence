@@ -33,7 +33,7 @@ function world(actionStatus = 'scheduled', approvalStatus = 'pending', runAt = n
 }
 
 beforeEach(() => {
-  db = makeFakeSupabase({ project: true })
+  db = makeFakeSupabase({ project: true, bulkUpsert: true })
   mocks.append.mockClear()
   mocks.approve.mockReset()
   mocks.approve.mockResolvedValue({ ok: true, status: 'executed', success: true, result: { success: true } })
@@ -107,7 +107,7 @@ describe('runAutonomousAction', () => {
 
   it('graduation switched off in the window, the kill switch, or a recipient no longer known: the card', async () => {
     for (const d of [{ ...yes, env: {} }, { ...yes, paused: async () => true }, { ...yes, known: (async () => new Set()) as never }]) {
-      db = makeFakeSupabase({ project: true })
+      db = makeFakeSupabase({ project: true, bulkUpsert: true })
       world()
       expect(await runAutonomousAction(db as never, 'act-1', { ...d, now: NOW })).toBe('cancelled')
     }

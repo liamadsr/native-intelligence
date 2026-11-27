@@ -18,7 +18,7 @@ const WS = 'ws-1'
 let db: FakeSupabase
 
 beforeEach(() => {
-  db = makeFakeSupabase()
+  db = makeFakeSupabase({ bulkUpsert: true })
   db.seed('autonomy_outcome', [
     { kind_key: 'offer_times|text|one', outcome: 'approved', edit_ratio: null, created_at: new Date().toISOString(), user_id: USER, workspace_id: WS },
     { kind_key: 'book_quote|customer|one', outcome: 'approved', edit_ratio: null, created_at: new Date().toISOString(), user_id: 'someone-else', workspace_id: WS },

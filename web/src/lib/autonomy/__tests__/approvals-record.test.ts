@@ -59,7 +59,7 @@ async function raise(a: NewApproval = step()) {
 
 beforeEach(() => {
   // project: an update's select returns the columns it names, as PostgREST does.
-  db = makeFakeSupabase({ project: true })
+  db = makeFakeSupabase({ project: true, bulkUpsert: true })
   db.seed('member', [{ id: 'member-1', user_id: USER, workspace_id: WS }])
   db.seed('flow', [{ id: 'flow-1', workspace_id: WS, created_by: USER, enabled: true, actions: [{ id: 'queue', type: 'call_tool', config: { connection: CONN, tool: 'create_draft', input: {} } }] }])
   db.seed('connected_mcp_server', [{

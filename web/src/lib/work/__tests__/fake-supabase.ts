@@ -55,6 +55,13 @@ export interface FakeSupabaseOptions {
   rpc?: Record<string, (args: Record<string, unknown>) => { data: unknown; error: FakeRpcError | null }>
   /** Return only the columns a select names, as PostgREST does (see the module note). */
   project?: boolean
+  /**
+   * `upsert([...rows])` upserts each row, as PostgREST's bulk upsert does.
+   * Off by default: without it an array is stored as one row of its indexes,
+   * as before, which some older tests rely on (agent-events/prep-timing's
+   * meeting watch rows, written by meeting-changes.ts with an array upsert).
+   */
+  bulkUpsert?: boolean
 }
 
 export interface FakeSupabase {
@@ -435,12 +442,12 @@ export function makeFakeSupabase(opts: FakeSupabaseOptions = {}): FakeSupabase {
             ...r,
           })
         }
-        if (Array.isArray(row)) {
+        if (Array.isArray(row) && opts.bulkUpsert) {
           upsertRows = row.map(make)
           insertRow = null
         } else {
           upsertRows = null
-          insertRow = make(row)
+          insertRow = make(row as Row)
         }
         return api
       },
