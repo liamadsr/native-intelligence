@@ -419,3 +419,62 @@ describe('commentaryChunks', () => {
     expect(commentaryChunks('')).toEqual([])
   })
 })
+
+describe('runLiveCall onEvent (the meeting agent\'s seam)', () => {
+  it('sees every event after the bridge, and may speak or close the call (which is then hung up)', async () => {
+    const s = fakeSocket()
+    const seen: string[] = []
+    const hangups: string[] = []
+    const call = runLiveCall(
+      { sessionId: 'live_e', caller: CALLER, apiKey: 'sk-test' },
+      {
+        supabase: {} as SupabaseClient,
+        connect: async () => s.socket,
+        runTurn: async () => ({ kind: 'quiet', outcome: 'quiet' }),
+        hangUp: async (id) => {
+          hangups.push(id)
+        },
+        sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms > 0 ? 50 : 0)),
+        onEvent: (event, control) => {
+          seen.push(String(event.type))
+          if (event.type === 'session.input_transcript.delta') {
+            control.say('Goodbye.')
+            control.close()
+          }
+        },
+      },
+    )
+    await flush()
+    s.emit({ type: 'session.input_transcript.delta', delta: 'hi', start_ms: 0, end_ms: 1 })
+    const summary = await call
+    expect(seen).toEqual(['session.input_transcript.delta'])
+    expect(s.sent).toEqual([
+      { type: 'session.commentary.append', delegation_id: null, content: 'Goodbye.', event_id: 'ni_1' },
+      { type: 'session.close', event_id: 'ni_2' },
+    ])
+    expect(summary.closed).toBe('closed_by_bridge')
+    expect(hangups).toEqual(['live_e'])
+  })
+
+  it('a hook that throws is counted, never fatal', async () => {
+    const s = fakeSocket()
+    const call = runLiveCall(
+      { sessionId: 'live_t', caller: CALLER, apiKey: 'sk-test' },
+      {
+        supabase: {} as SupabaseClient,
+        connect: async () => s.socket,
+        hangUp: async () => {},
+        sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms > 0 ? 50 : 0)),
+        onEvent: () => {
+          throw new Error('boom')
+        },
+      },
+    )
+    await flush()
+    s.emit({ type: 'session.output_transcript.delta', delta: 'x', start_ms: 0, end_ms: 1 })
+    s.emit({ type: 'session.closed', reason: 'remote_hangup' })
+    const summary = await call
+    expect(summary.errors).toBe(2)
+    expect(summary.closed).toBe('remote_hangup')
+  })
+})

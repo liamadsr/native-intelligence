@@ -566,6 +566,8 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       { name: 'draft_followup_email', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Draft Follow-up', description: 'Generate a follow-up email draft from a processed capture' },
       { name: 'get_meeting_prep', sideEffect: 'read', label: 'Meeting Prep', description: 'Search past captures, actions, and decisions to prepare for a meeting, with the goal the user set for it' },
       { name: 'set_meeting_goal', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Set Meeting Goal', description: "Set or clear the user's goal for one of their upcoming meetings (what they want out of the call), by its calendar event id and start" },
+      // The meeting agent (roadmap #12, migration 723): dials in to the person's meeting as their AI assistant; always the person's card first.
+      { name: 'send_agent_to_meeting', sideEffect: 'external-write', label: 'Send Assistant to Meeting', description: "Send the person's AI assistant to one of their meetings in their place: it dials in, says it is their AI assistant taking notes, speaks only from the brief they approve, and texts them if it needs them; always the person's approval card first" },
     ],
   },
   {

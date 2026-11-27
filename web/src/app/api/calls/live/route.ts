@@ -6,6 +6,11 @@ import { acceptLiveCall, hangUpLiveCall, liveApiKey, rejectLiveCall } from '@/li
 import { callerDisplayName, callerIdAttested, callerNumberOfSipHeaders, devSkipsAttestation, resolveCallCaller, sipHeaderNames, trunkSecretCheck } from '@/lib/calls/caller'
 import { callGreeting, callSessionConfig, firstName } from '@/lib/calls/live-session'
 import { runLiveCall } from '@/lib/calls/live-bridge'
+import { claimsMeetingLeg, hashJoinToken, meetingTokenOfSipHeaders } from '@/lib/meeting-agent/dial-out'
+import { meetingAgentOn } from '@/lib/meeting-agent/settings'
+import { claimByJoinToken, moveAttendance } from '@/lib/meeting-agent/store'
+import { meetingSessionConfig } from '@/lib/meeting-agent/session'
+import { runMeetingCall } from '@/lib/meeting-agent/bridge'
 
 export const dynamic = 'force-dynamic'
 /** The bridge runs inside this request (after the answer) for the whole call. */
@@ -35,6 +40,13 @@ const DECLINE = 603
  *      the carrier's STIR/SHAKEN full attestation (an answer is spoken to
  *      whoever is on the line, so a spoofed caller ID must never get one);
  *      without it → declined, logging which SIP header names arrived.
+ *   3b. A meeting leg (roadmap #12, src/lib/meeting-agent/dial-out.ts): a
+ *      call we started to a meeting's dial-in carries `X-NI-Meeting`, a
+ *      one-time token. It is never a caller: it is matched to its attendance
+ *      by the token's hash (cleared as it is matched, so it works once),
+ *      accepted with the meeting's own session (src/lib/meeting-agent/session.ts)
+ *      and bridged as a meeting (src/lib/meeting-agent/bridge.ts). With
+ *      MEETING_AGENT off, or no match, it is declined.
  *   4. Accepted as a GPT-Live session in client delegation mode (what it is
  *      told: src/lib/calls/live-session.ts), then the bridge attaches to its
  *      sideband for the whole call, after this answer
@@ -87,6 +99,7 @@ export async function POST(request: Request) {
   }
 
   const supabase = getServiceClient()
+  if (claimsMeetingLeg(call.sipHeaders)) return answerMeetingLeg(call.sessionId, call.sipHeaders, apiKey, supabase)
   try {
     const phone = callerNumberOfSipHeaders(call.sipHeaders)
     const caller = phone ? await resolveCallCaller(supabase, phone) : null
@@ -126,6 +139,52 @@ export async function POST(request: Request) {
     const message = err instanceof Error ? err.message : String(err)
     console.error(`[calls-live] ALERT call not handled session=${call.sessionId}: ${message}`)
     Sentry.captureMessage('calls live: call not handled', { level: 'error', extra: { session: call.sessionId, error: message } })
+    return Response.json({ ok: true, outcome: 'error' })
+  }
+}
+
+/**
+ * A call we started to a meeting (3b above). Liam, 11-27 ("let's do it", the
+ * agent joins a meeting for the person): never a caller, never a home turn.
+ */
+async function answerMeetingLeg(sessionId: string, sipHeaders: Parameters<typeof meetingTokenOfSipHeaders>[0], apiKey: string, supabase: ReturnType<typeof getServiceClient>): Promise<Response> {
+  const token = meetingTokenOfSipHeaders(sipHeaders)
+  if (!meetingAgentOn() || !token) {
+    const rejected = await rejectLiveCall(sessionId, DECLINE, { apiKey })
+    console.warn(`[calls-live] session=${sessionId} outcome=meeting_declined:${token ? 'off' : 'bad_token'} reject=${rejected.ok ? 'ok' : rejected.code ?? rejected.status}`)
+    return Response.json({ ok: true, outcome: 'declined' })
+  }
+  try {
+    const attendance = await claimByJoinToken(supabase, hashJoinToken(token), sessionId)
+    if (!attendance) {
+      const rejected = await rejectLiveCall(sessionId, DECLINE, { apiKey })
+      console.warn(`[calls-live] session=${sessionId} outcome=meeting_unknown reject=${rejected.ok ? 'ok' : rejected.code ?? rejected.status}`)
+      return Response.json({ ok: true, outcome: 'declined' })
+    }
+    const accepted = await acceptLiveCall(sessionId, meetingSessionConfig({ firstName: attendance.ownerFirstName, title: attendance.title }), { apiKey })
+    if (!accepted.ok) {
+      console.info(`[calls-live] session=${sessionId} outcome=meeting_accept_failed:${accepted.code ?? accepted.status} attendance=${attendance.id}`)
+      await moveAttendance(supabase, attendance.id, ['in_meeting'], 'failed', { status_detail: 'accept_failed' }).catch(() => null)
+      Sentry.captureMessage('calls live: meeting accept failed', { level: 'error', extra: { session: sessionId, attendance: attendance.id, status: accepted.status, code: accepted.code } })
+      return Response.json({ ok: true, outcome: 'accept_failed' })
+    }
+    console.info(`[calls-live] session=${sessionId} outcome=accepted via=meeting attendance=${attendance.id}`)
+    after(async () => {
+      try {
+        await runMeetingCall({ sessionId, attendance, apiKey }, { supabase })
+      } catch (err) {
+        const hungUp = await hangUpLiveCall(sessionId, { apiKey })
+        const message = err instanceof Error ? err.message : String(err)
+        await moveAttendance(supabase, attendance.id, ['in_meeting'], 'failed', { status_detail: 'bridge_failed' }).catch(() => null)
+        console.error(`[calls-live] ALERT meeting bridge failed session=${sessionId} attendance=${attendance.id} hangup=${hungUp.ok ? 'ok' : hungUp.code ?? hungUp.status}: ${message}`)
+        Sentry.captureMessage('calls live: meeting bridge failed', { level: 'error', extra: { session: sessionId, attendance: attendance.id, error: message } })
+      }
+    })
+    return Response.json({ ok: true, outcome: 'accepted' })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error(`[calls-live] ALERT meeting leg not handled session=${sessionId}: ${message}`)
+    Sentry.captureMessage('calls live: meeting leg not handled', { level: 'error', extra: { session: sessionId, error: message } })
     return Response.json({ ok: true, outcome: 'error' })
   }
 }

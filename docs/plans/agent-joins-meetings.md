@@ -1,8 +1,16 @@
 # Your agent joins a meeting for you
 
-Status: plan, on `claude/agent-joins-meetings`. Roadmap issue #12. The owner said "let's do it"
-(Liam, 11-27). Phase 1 is being built behind `MEETING_AGENT` (off). Nothing is merged or rolled
-out. Reserved migration: 723.
+Status: phase 1 built on `claude/agent-joins-meetings`, behind `MEETING_AGENT` (off). Roadmap
+issue #12. The owner said "let's do it" (Liam, 11-27). Nothing is merged or rolled out, and
+nothing has been tried against a real meeting or phone number. Migration: 723. The code is in
+`web/src/lib/meeting-agent/` (its files name the sections below); the chat tool is
+`send_agent_to_meeting` (`web/src/lib/ai/tools/meeting-agent.ts`); the routes are
+`/api/account/meeting-agent` and `/api/calls/meeting/status`, plus the meeting branch of
+`/api/calls/live`.
+
+Built differently from the first draft of this plan, in phase 1: the capture is written when
+the call ends (no pending capture at send time), and a "check with you" ask is urgent for
+15 minutes (the router waits 2 minutes before it routes anything).
 
 The goal: "Your agent joins a meeting on your behalf, speaks for you, takes the notes, and texts
 you if it needs you."

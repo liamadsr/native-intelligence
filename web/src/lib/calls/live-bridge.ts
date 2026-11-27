@@ -161,6 +161,19 @@ export interface LiveCallDeps {
   settleMs?: number
   settleMaxMs?: number
   inflightGraceMs?: number
+  /**
+   * Every sideband event as it arrives, after the bridge's own handling, with
+   * a way to speak (a commentary append with no hand-off) or close the call.
+   * The meeting agent's seam (src/lib/meeting-agent/bridge.ts: the notes and
+   * the objection fence); a call has none.
+   */
+  onEvent?: (event: { type?: unknown; [key: string]: unknown }, control: LiveCallControl) => void
+}
+
+/** What an onEvent hook may do to the call. */
+export interface LiveCallControl {
+  say(text: string): void
+  close(): void
 }
 
 /** How long a call that ended waits for turns still running (they finish writing the thread and let the lease go). */
@@ -211,6 +224,16 @@ export async function runLiveCall(
     closed = true
     summary.closed = reason
     resolveDone()
+  }
+
+  const control: LiveCallControl = {
+    say: (text) => {
+      for (const chunk of commentaryChunks(text)) send({ type: 'session.commentary.append', delegation_id: null, content: chunk })
+    },
+    close: () => {
+      send({ type: 'session.close' })
+      end('closed_by_bridge')
+    },
   }
 
   const handOff = async (delegationId: string, offsetMs: number | null) => {
@@ -322,6 +345,13 @@ export async function runLiveCall(
         break
       }
     }
+    if (deps.onEvent) {
+      try {
+        deps.onEvent(event, control)
+      } catch {
+        summary.errors++
+      }
+    }
   })
   socket.onClose(() => end('connection_lost'))
 
@@ -338,7 +368,7 @@ export async function runLiveCall(
   clearTimeout(cap)
   socket.close()
   // The bridge lost the call (capped, or the socket dropped): hang up, or GPT-Live talks on alone.
-  if (summary.closed === 'max_duration' || summary.closed === 'connection_lost') await hangUp(args.sessionId).catch(() => {})
+  if (summary.closed === 'max_duration' || summary.closed === 'connection_lost' || summary.closed === 'closed_by_bridge') await hangUp(args.sessionId).catch(() => {})
   // Turns still running finish writing the thread and let the lease go; their answers are dropped.
   // Waited for until none is left (a hand-off still in its first read may hand a finish on after this starts), or the grace runs out.
   let graceOver = false

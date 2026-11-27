@@ -601,6 +601,8 @@ describe('utility kinds keep their pre-port model surface', () => {
     plan_web_search: 'knowledge',
     // The look-ahead's extraction: a new kind (no pre-port call), on the Fast surface like a decision.
     look_ahead_extract: 'drafting',
+    // A meeting's hand-off (the meeting agent): a new kind, on the Fast surface, quick.
+    meeting_reply: 'drafting',
   } as const
 
   it.each(Object.entries(PRE_PORT_SURFACE))('%s resolves on %s', async (kind, surface) => {

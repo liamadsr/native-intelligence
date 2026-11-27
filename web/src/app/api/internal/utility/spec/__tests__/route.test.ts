@@ -316,6 +316,7 @@ describe('utility spec route — per-call output caps (pre-port maxOutputTokens)
       memory_learn_mail_tone: 600,
       memory_capture: 1_500,
       look_ahead_extract: 3_000,
+      meeting_reply: 600,
       draft_review: 1_200,
       coding_precheck: 1_200,
       code_review: 16_000,
@@ -350,6 +351,7 @@ describe('utility spec route — per-session step ceiling', () => {
       memory_learn_mail_tone: 2,
       memory_capture: 2,
       look_ahead_extract: 2,
+      meeting_reply: 2,
       draft_review: 2,
       coding_precheck: 2,
       code_review: 2,
@@ -393,15 +395,16 @@ describe('utility spec route — model and provider options', () => {
       memory_learn_mail_tone: false,
       memory_capture: false,
       look_ahead_extract: false,
+      meeting_reply: false,
       draft_review: false,
       coding_precheck: false,
       code_review: true,
     }
     const params = { tone: 'brief', userName: 'Liam Ada', surface: 'email', writerModel: 'claude-sonnet-5-5' }
     for (const [kind, thinks] of Object.entries(THINKS) as Array<[UtilityKind, boolean]>) {
-      // draft_review, coding_precheck, code_review and look_ahead_extract (it reads mail) add the Gateway's privacy filters on top of DeepSeek's private hosts.
+      // draft_review, coding_precheck, code_review, look_ahead_extract (it reads mail) and meeting_reply (a meeting's talk) add the Gateway's privacy filters on top of DeepSeek's private hosts.
       const expected = thinks ? ON : OFF
-      const privateKind = kind === 'draft_review' || kind === 'coding_precheck' || kind === 'code_review' || kind === 'look_ahead_extract'
+      const privateKind = kind === 'draft_review' || kind === 'coding_precheck' || kind === 'code_review' || kind === 'look_ahead_extract' || kind === 'meeting_reply'
       expect((await spec(kind, { params })).providerOptions, kind).toEqual(privateKind ? { ...expected, gateway: { ...expected.gateway, ...PRIVATE_GATEWAY_ROUTING } } : expected)
     }
     expect((await spec('claim_extraction', { model: 'deepseek-v4-pro' })).providerOptions).toEqual({
