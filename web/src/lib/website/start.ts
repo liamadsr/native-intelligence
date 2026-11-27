@@ -55,6 +55,7 @@ import { prOpenedEventId, WEBSITE_PR_OPENED, type WebsiteEventData } from './eve
 import { reconcileOpenChange } from './reconcile'
 import { connectSite, getLiveSite, getOpenChange, insertChange, recentChanges, updateChange, updateSite } from './store'
 import type { FormCandidate, SiteInspection, WebsiteChange, WebsiteSite, WiringIntake } from './types'
+import type { BuilderDeps, TextEdit } from './builder'
 
 type Svc = SupabaseClient
 
@@ -78,7 +79,13 @@ export interface StartDeps {
   send?: (event: { name: string; id?: string; data: WebsiteEventData }) => Promise<unknown>
   /** The live site's pages (the wiring's origin lookup). */
   fetchImpl?: typeof fetch
+  /** A builder site's seams (./builder.ts). */
+  builder?: BuilderDeps
 }
+
+/** A builder site's flow (./builder.ts), loaded only when the site is one (it imports this file back). */
+const builderFlow = () => import('./builder')
+const builderDepsOf = (deps: StartDeps): BuilderDeps => ({ ...(deps.fetchImpl ? { fetchImpl: deps.fetchImpl } : {}), ...deps.builder })
 
 const githubOf = (deps: StartDeps, token: string): GithubDeps => deps.github?.(token) ?? { token }
 const tokenOf = (deps: StartDeps, svc: Svc, userId: string) => (deps.token ?? storedGithubToken)(svc, userId)
@@ -86,7 +93,7 @@ const sendOf = (deps: StartDeps) => deps.send ?? ((event: { name: string; id?: s
 
 export type Outcome = { success: true; [k: string]: unknown } | { success: false; code: string; error: string; [k: string]: unknown }
 
-const fail = (code: string, error: string, extra: Record<string, unknown> = {}): Outcome => ({ success: false, code, error, ...extra })
+export const fail = (code: string, error: string, extra: Record<string, unknown> = {}): Outcome => ({ success: false, code, error, ...extra })
 
 const NO_GITHUB = fail('NO_GITHUB', 'GitHub isn’t connected. Text them a GitHub link first (connect_link with provider github).')
 
@@ -110,13 +117,13 @@ export function siteOrigins(siteUrl: string | null, alsoUrls: readonly (string |
 }
 
 /** The person's role in the workspace, or null. */
-async function roleOf(svc: Svc, who: Who): Promise<string | null> {
+export async function roleOf(svc: Svc, who: Who): Promise<string | null> {
   const { data } = await svc.from('member').select('role').eq('workspace_id', who.workspaceId).eq('user_id', who.userId).maybeSingle()
   return (data as { role?: string } | null)?.role ?? null
 }
 
 /** Who may connect the business's website, or connect its form (which swaps its live intake key): an owner or admin. */
-const MANAGES_SITE = new Set(['owner', 'admin'])
+export const MANAGES_SITE: ReadonlySet<string> = new Set(['owner', 'admin'])
 
 /** Whether two site URLs are the same site's host, with or without www. Pure. */
 function sameSiteHost(a: string | null, b: string | null): boolean {
@@ -296,10 +303,10 @@ export function isCleanSiteEnvironment(e: Pick<CloudEnvironment, 'shared' | 'net
 // ── Changes ──────────────────────────────────────────────────────────────────
 
 /** The site, its owner check and its open change, or the refusal the agent reads. */
-async function siteFor(svc: Svc, who: Who): Promise<{ ok: true; site: WebsiteSite } | { ok: false; outcome: Outcome }> {
+export async function siteFor(svc: Svc, who: Who): Promise<{ ok: true; site: WebsiteSite } | { ok: false; outcome: Outcome }> {
   const site = await getLiveSite(svc, who.workspaceId)
   if (!site) return { ok: false, outcome: fail('NO_SITE', 'No website is connected yet. Ask which GitHub repo is their site (list_website_repos), then connect_website.') }
-  if (site.connectedBy !== who.userId) return { ok: false, outcome: fail('NOT_CONNECTOR', 'Only the person who connected the website (with their GitHub) can change it. Tell them.') }
+  if (site.connectedBy !== who.userId) return { ok: false, outcome: fail('NOT_CONNECTOR', 'Only the person who connected the website (with their GitHub or site login) can change it. Tell them.') }
   if (!MANAGES_SITE.has((await roleOf(svc, who)) ?? '')) return { ok: false, outcome: fail('NOT_ALLOWED', 'Only an owner or admin of the workspace changes its website. Tell them.') }
   const found = await getOpenChange(svc, who.workspaceId, site.id)
   // A change nothing will move any more (its run died, a settle was lost) is settled first, so it never blocks the site.
@@ -309,7 +316,7 @@ async function siteFor(svc: Svc, who: Who): Promise<{ ok: true; site: WebsiteSit
 }
 
 /** What the agent says when a change is still open. */
-function openChangeWords(open: WebsiteChange): string {
+export function openChangeWords(open: WebsiteChange): string {
   switch (open.state) {
     case 'preparing':
       return 'A website change is still being made. Nothing new was started: tell them you will text when it is ready.'
@@ -372,6 +379,8 @@ export interface WiringInput {
   siteForm?: string | null
   /** The person's own attended turn: a table shared with them by an edit grant counts (tables.ts editGrants). Default true. */
   editGrants?: boolean
+  /** A builder site (724): the page the form goes on (its id, address or title). */
+  page?: string | null
 }
 
 /** Wire the site's form to the business's intake (step 3), or to one of its forms. */
@@ -379,6 +388,9 @@ export async function startWiring(svc: Svc, who: Who, input: WiringInput, deps: 
   const found = await siteFor(svc, who)
   if (!found.ok) return found.outcome
   const { site } = found
+  if (site.provider && site.provider !== 'github') {
+    return (await builderFlow()).startBuilderWiring(svc, who, { page: input.page ?? null, formId: input.formId ?? null, editGrants: input.editGrants !== false }, builderDepsOf(deps))
+  }
   if (!site.siteUrl) return fail('NO_SITE_URL', 'Ask them for their live website address first, then call connect_website again with site_url: the form is checked live once the change is up.')
   const form = pickForm(site.inspection, input.formPath)
   if (!form) return fail('NO_FORM', 'No form was found on the site. Ask them which page has it, then call wire_website_form with form_path.')
@@ -436,7 +448,13 @@ export async function startWiring(svc: Svc, who: Who, input: WiringInput, deps: 
 }
 
 /** An edit the owner asked for by text (step 6). */
-export async function startEdit(svc: Svc, who: Who, input: { request: string; remoteTurn?: boolean }, deps: StartDeps = {}): Promise<Outcome> {
+export async function startEdit(
+  svc: Svc,
+  who: Who,
+  /** page / edits / title: a builder site's change (724): the page, and exact text with its replacement. A repo's change ignores them. */
+  input: { request: string; remoteTurn?: boolean; page?: string | null; edits?: TextEdit[]; title?: string | null },
+  deps: StartDeps = {},
+): Promise<Outcome> {
   const words = input.request.trim()
   if (!words) return fail('BAD_INPUT', 'Say what to change, in their words.')
   // By text the card quotes the whole request back, so it must fit there.
@@ -446,6 +464,9 @@ export async function startEdit(svc: Svc, who: Who, input: { request: string; re
   const found = await siteFor(svc, who)
   if (!found.ok) return found.outcome
   const { site } = found
+  if (site.provider && site.provider !== 'github') {
+    return (await builderFlow()).startBuilderEdit(svc, who, { request: words, page: input.page ?? null, edits: input.edits ?? [], title: input.title ?? null }, builderDepsOf(deps))
+  }
   const request = editRequest({ businessName: await businessName(svc, who.workspaceId), site, inspection: site.inspection, ownerWords: words })
   const inserted = await insertChange(svc, { workspaceId: who.workspaceId, siteId: site.id, kind: 'edit', request: words, requestedBy: who.userId })
   if (!inserted.ok) return fail('OPEN_CHANGE', inserted.open ? openChangeWords(inserted.open) : 'Another website change is open. Nothing new was started.')
@@ -462,6 +483,7 @@ export async function startUndo(svc: Svc, who: Who, input: { changeId?: string |
   const found = await siteFor(svc, who)
   if (!found.ok) return found.outcome
   const { site } = found
+  if (site.provider && site.provider !== 'github') return (await builderFlow()).startBuilderUndo(svc, who, { changeId: input.changeId ?? null }, builderDepsOf(deps))
   const recent = await recentChanges(svc, who.workspaceId, site.id, 10)
   // The newest change that reached the repo, whatever happened after (a failed deploy included).
   const target = input.changeId ? recent.find((c) => c.id === input.changeId) : recent.find((c) => !!c.mergedAt)

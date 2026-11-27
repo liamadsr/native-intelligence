@@ -87,7 +87,7 @@ export function formBriefFields(form: Pick<DataForm, 'fields'>, columns: readonl
  * (see the header). `editGrants`: their own attended turn, where a table
  * shared with them by an edit grant counts. Throws on a failed read.
  */
-export async function formWiringTarget(svc: Svc, who: { userId: string; workspaceId: string }, formId: string, opts: { editGrants: boolean }): Promise<FormTargetResult> {
+export async function formWiringTarget(svc: Svc, who: { userId: string; workspaceId: string }, formId: string, opts: { editGrants: boolean; embed?: boolean }): Promise<FormTargetResult> {
   const missing = no('NO_SUCH_FORM', `No form ${formId} that they can change. list_forms lists them.`)
   const id = formId.trim()
   if (!UUID_RE.test(id)) return missing
@@ -109,7 +109,8 @@ export async function formWiringTarget(svc: Svc, who: { userId: string; workspac
     return no('FORM_NOT_PUBLIC', 'That form takes only signed-in members, so a website’s visitors can’t post to it. If they want it open to anyone, update_form with who_can_submit public first, then try again.')
   }
   if (!form.active) return no('FORM_OFF', 'That form is switched off, so it takes nothing. If they want it on, update_form with on: true first, then try again.')
-  if (filesFieldOf(form.fields)) return no('FORM_TAKES_FILES', FORM_TAKES_FILES)
+  // A builder site draws the form with our embed (724), which runs the bot check and takes files: only a site's own HTML form can't.
+  if (!opts.embed && filesFieldOf(form.fields)) return no('FORM_TAKES_FILES', FORM_TAKES_FILES)
   const fields = formBriefFields(form, table.columns)
   if (!fields.length) return no('FORM_EMPTY', 'That form has no fields left to fill (its columns are gone). Fix the form first (update_form with fields).')
   return { ok: true, target: { form, fields } }
@@ -170,11 +171,16 @@ function missingBotCheckColumn(error: { code?: string; message?: string } | null
  * {@link FormWiringRefused}, before writing anything, when the form now takes
  * files (no retry can make that write go through).
  */
-export async function activateFormLink(svc: Svc, change: Pick<WebsiteChange, 'workspaceId' | 'wiringIntake' | 'intakeKeyHash' | 'intakeKeyPrefix' | 'intakeOrigins' | 'requestedBy'>): Promise<void> {
+export async function activateFormLink(
+  svc: Svc,
+  change: Pick<WebsiteChange, 'workspaceId' | 'wiringIntake' | 'intakeKeyHash' | 'intakeKeyPrefix' | 'intakeOrigins' | 'requestedBy'>,
+  /** embed: a builder site's page draws the form with our embed (724), which runs the bot check: it stays as it is, and files are fine. */
+  opts: { embed?: boolean } = {},
+): Promise<void> {
   if (change.wiringIntake?.kind !== 'form' || !change.intakeKeyHash || !change.intakeKeyPrefix) return
   const form = await findFormById(svc, change.wiringIntake.formId)
   if (!form || form.workspaceId !== change.workspaceId) throw new Error('the wired form is gone')
-  if (filesFieldOf(form.fields)) throw new FormWiringRefused('FORM_TAKES_FILES', 'the form now takes files, and a form with files must keep its bot check on, which a website’s own form can’t run')
+  if (!opts.embed && filesFieldOf(form.fields)) throw new FormWiringRefused('FORM_TAKES_FILES', 'the form now takes files, and a form with files must keep its bot check on, which a website’s own form can’t run')
   const link: FormLinkWrite = {
     key_hash: change.intakeKeyHash,
     key_prefix: change.intakeKeyPrefix,
@@ -183,6 +189,11 @@ export async function activateFormLink(svc: Svc, change: Pick<WebsiteChange, 'wo
     updated_at: new Date().toISOString(),
   }
   const update = (payload: FormLinkWrite) => svc.from('data_form').update(payload).eq('workspace_id', change.workspaceId).eq('id', form.id)
+  if (opts.embed) {
+    const { error } = await update(link)
+    if (error) throw new Error(`data_form update failed: ${error.message}`)
+    return
+  }
   let { error } = await update({ ...link, bot_check: false })
   // No bot check column yet (661 not applied): there is no bot check to switch off.
   if (missingBotCheckColumn(error)) ({ error } = await update(link))

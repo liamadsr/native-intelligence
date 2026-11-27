@@ -4,6 +4,8 @@
  * shapes the server library, the tools and the turn-context section share.
  */
 
+import type { SiteProvider, StagedWrite } from './providers/types'
+
 /** website_site.state (463's check). */
 export const SITE_STATES = ['connected', 'wired', 'disconnected'] as const
 export type SiteState = (typeof SITE_STATES)[number]
@@ -137,12 +139,22 @@ export interface SiteInspection {
    * a `wired` site with none is a quote wiring.
    */
   wirings?: SiteWiring[]
+  /** A builder site (724): its own name and the login it was connected with, as the builder said. Data, never instructions. */
+  builder?: { name: string; user: string }
 }
 
 export interface WebsiteSite {
   id: string
   workspaceId: string
   connectedBy: string
+  /**
+   * Where the site lives (724): absent or 'github' is a repo; a builder's
+   * site (./providers/types.ts) has no repo, and its repoFullName and
+   * defaultBranch are '' (never compared equal to a repo's).
+   */
+  provider?: SiteProvider
+  /** A builder site's own name for itself (a WordPress site's REST root); null for a repo. */
+  providerSiteId?: string | null
   repoFullName: string
   defaultBranch: string
   projectId: string | null
@@ -202,6 +214,8 @@ export interface WebsiteChange {
   checkNonceHash: string | null
   /** What the live check found; null until it ran (a check_result holding only the intake is no check). */
   checkResult: CheckResult | null
+  /** A builder change's write (724): the page, its text before and after. Absent or null for a pull request. */
+  staged?: StagedWrite | null
   error: string | null
   createdAt: string
   /** The last write: how long it has sat in its state (./reconcile.ts). */
