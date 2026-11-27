@@ -57,7 +57,8 @@ import { publicHttpsUrl } from './fetch'
 import { wordpressAuthorizeLink, wordpressClient, wordpressDiscover, wpcomAuthorizeLink, wpcomExchangeCode, type WordpressDeps } from './providers/wordpress'
 import { pickWebflowSite, webflowAuthorizeLink, webflowClient, webflowExchangeCode, webflowSites } from './providers/webflow'
 import { isShopHost, shopHostOf, shopifyAuthorizeLink, shopifyCallbackValid, shopifyClient, shopifyExchangeCode, SHOPIFY_SCOPES } from './providers/shopify'
-import { oauthBuilderApp, shopifyApp } from './providers/enabled'
+import { oauthBuilderApp, shopifyApp, wixApp } from './providers/enabled'
+import { isWixInstance, wixClient, wixInstallLink } from './providers/wix'
 import { enabledBuilders } from './providers/enabled'
 import { PROVIDER_LABEL, type BuilderClient, type BuilderProvider, type ContentRef, type ContentSnapshot, type StagedWrite } from './providers/types'
 import { fail, MANAGES_SITE, openChangeWords, roleOf, siteOrigins, type Outcome, type Who } from './start'
@@ -95,7 +96,12 @@ interface StoredLogin {
 /** The builder client for a connected site, from its stored login; null when it has none or it can't be read. */
 export async function builderClientFor(svc: Svc, site: WebsiteSite, deps: BuilderDeps = {}): Promise<BuilderClient | null> {
   if (deps.client) return deps.client(site)
-  if (!site.provider || site.provider === 'github' || site.provider === 'wix' || !site.providerSiteId) return null
+  if (!site.provider || site.provider === 'github' || !site.providerSiteId) return null
+  if (site.provider === 'wix') {
+    // Nothing of a person's is kept for Wix: our app's credentials and the site's instance mint each token.
+    const app = wixApp(deps.env)
+    return app && isWixInstance(site.providerSiteId) ? wixClient({ ...app, instanceId: site.providerSiteId, formOrigin: appOrigin() }, deps.fetchImpl ? { fetchImpl: deps.fetchImpl } : {}) : null
+  }
   const stored = await siteCredentials(svc, site.workspaceId, site.id)
   if (!stored) return null
   if (site.provider === 'webflow' || site.provider === 'wpcom') {
@@ -162,7 +168,7 @@ export function verifyConnectState(param: string | null | undefined, nowMs = Dat
   if (sig.length !== want.length || !timingSafeEqual(new Uint8Array(sig), new Uint8Array(want))) return null
   try {
     const s = JSON.parse(Buffer.from(body, 'base64url').toString()) as Partial<ConnectState>
-    if (s.v !== 1 || !(['wordpress', 'shopify', 'webflow', 'wpcom'] as const).includes(s.provider as 'wordpress') || typeof s.userId !== 'string' || typeof s.workspaceId !== 'string' || typeof s.apiRoot !== 'string' || typeof s.exp !== 'number') return null
+    if (s.v !== 1 || !(['wordpress', 'shopify', 'webflow', 'wpcom', 'wix'] as const).includes(s.provider as 'wordpress') || typeof s.userId !== 'string' || typeof s.workspaceId !== 'string' || typeof s.apiRoot !== 'string' || typeof s.exp !== 'number') return null
     if (nowMs > s.exp) return null
     return s as ConnectState
   } catch {
@@ -196,6 +202,7 @@ export async function startBuilderConnect(svc: Svc, who: Who, input: { builder: 
   if (found) return fail('OPEN_CHANGE', `${openChangeWords(found)} The website stays as it is until it is done.`)
   if (input.builder === 'shopify') return shopifyConnectLink(who, input.siteUrl ?? '', deps)
   if (input.builder === 'webflow' || input.builder === 'wpcom') return oauthConnectLink(who, input.builder, input.siteUrl, deps)
+  if (input.builder === 'wix') return wixConnectLink(who, input.siteUrl, deps)
   const discovered = await wordpressDiscover(input.siteUrl, wpDeps(deps))
   if (!discovered.ok) return fail('NOT_WORDPRESS', discovered.error)
   const now = (deps.now ?? Date.now)()
@@ -245,6 +252,63 @@ function shopifyConnectLink(who: Who, typed: string, deps: BuilderDeps): Outcome
     message:
       'Send them this link (by text as is). It opens their own Shopify admin: they sign in as the store owner (or a staff member allowed to manage apps) and approve Native Intelligence, which can then read and change their store’s pages and product descriptions. Then come back to Native Intelligence on the same phone or computer they use it on. The link works for 30 minutes.',
   }
+}
+
+/** Where Wix sends the owner back after installing our app: the app's redirect URL (deploy/app/.env.example). */
+export function wixRedirectUri(): string {
+  return `${appOrigin().replace(/\/$/, '')}/api/website/wix/callback`
+}
+
+/** Our Wix app's install link (unlisted: no App Market listing; the link is how it's installed). */
+function wixConnectLink(who: Who, siteUrl: string | null, deps: BuilderDeps): Outcome {
+  const app = wixApp(deps.env)
+  if (!app) return fail('BUILDER_OFF', 'Connecting a Wix site isn’t switched on yet. Tell them it is coming.')
+  const site = siteUrl ? publicHttpsUrl(siteUrl) : null
+  if (!site) return fail('NO_SITE_URL', 'Ask them for their website’s address, then call connect_website again with builder wix and site_url.')
+  const now = (deps.now ?? Date.now)()
+  const state = signConnectState({ v: 1, provider: 'wix', userId: who.userId, workspaceId: who.workspaceId, apiRoot: site.origin, exp: now + CONNECT_STATE_TTL_MS })
+  return {
+    success: true,
+    builder: 'wix',
+    connect_link: wixInstallLink({ appId: app.appId, redirectUrl: wixRedirectUri(), state }),
+    message:
+      'Send them this link (by text as is). It opens Wix: they sign in, pick their site and add the Native Intelligence app. Say plainly what it can do on Wix: put their form on every page, and change their CMS items (services, team and the like) and product descriptions. Wix allows no app to change the words of a page itself, so those stay theirs to edit in Wix. Then come back to Native Intelligence on the same phone or computer. The link works for 30 minutes.',
+  }
+}
+
+/**
+ * Wix sent the owner back after installing our app (the callback route): the
+ * state ours, for Wix, unexpired, for the signed-in person; a token for the
+ * site's instance must be had with our app's credentials (the install is
+ * real), and the instance must be the site asked for. Nothing of a person's
+ * is stored: the instance id is the site's name for itself.
+ */
+export async function completeWixConnect(svc: Svc, input: { params: URLSearchParams; sessionUserId: string | null }, deps: BuilderDeps = {}): Promise<CompleteResult> {
+  const no = (code: ConnectRefusal): CompleteResult => ({ ok: false, code, error: CONNECT_REFUSALS[code] })
+  const app = wixApp(deps.env)
+  if (!app || !enabledBuilders(deps.env).includes('wix')) return no('BUILDER_OFF')
+  const state = verifyConnectState(input.params.get('state'), (deps.now ?? Date.now)())
+  if (!state || state.provider !== 'wix') return no('BAD_STATE')
+  if (!input.sessionUserId || input.sessionUserId !== state.userId) return no('WRONG_PERSON')
+  const instanceId = input.params.get('instanceId') ?? ''
+  if (!isWixInstance(instanceId)) return no('NO_PASSWORD')
+  const role = await roleOf(svc, { userId: state.userId, workspaceId: state.workspaceId })
+  if (!MANAGES_SITE.has(role ?? '')) return no('NOT_ALLOWED')
+  const client = wixClient({ ...app, instanceId, formOrigin: appOrigin() }, deps.fetchImpl ? { fetchImpl: deps.fetchImpl } : {})
+  const me = await client.identity()
+  if (!me.ok) return no('LOGIN_REFUSED')
+  if (me.value.siteUrl && bareHost(me.value.siteUrl) !== bareHost(state.apiRoot)) return no('OTHER_SITE')
+  const site = await connectBuilderSite(svc, {
+    workspaceId: state.workspaceId,
+    connectedBy: state.userId,
+    provider: 'wix',
+    providerSiteId: instanceId,
+    siteUrl: me.value.siteUrl || state.apiRoot,
+    credentialsEncrypted: null,
+    name: me.value.name,
+    user: 'Wix',
+  })
+  return { ok: true, site }
 }
 
 /** Where a builder's OAuth answer comes back: its app's redirect URL (deploy/app/.env.example). */
@@ -571,8 +635,8 @@ export function plainWords(text: string, max = 140): string {
 /** The plain summary of a staged write: what the owner reads on the card and by text. Pure. */
 export function stagedSummary(staged: Pick<StagedWrite, 'ref' | 'edits'>, kind: WebsiteChange['kind']): string {
   const where = `“${clip(staged.ref.title || 'the page', 60)}”`
-  if (kind === 'wire_form') return `Adds your form to the ${where} page.`
-  if (kind === 'revert') return `Puts the ${where} page back the way it was before the last change.`
+  if (kind === 'wire_form') return staged.ref.kind === 'site_script' ? 'Adds your form to every page of your site.' : `Adds your form to the ${where} page.`
+  if (kind === 'revert') return staged.ref.kind === 'site_script' ? 'Puts your site’s form back the way it was before the last change.' : `Puts the ${where} page back the way it was before the last change.`
   const [first, ...rest] = staged.edits
   if (!first) return `Changes the ${where} page.`
   const more = rest.length ? ` (and ${rest.length} more change${rest.length > 1 ? 's' : ''})` : ''
@@ -661,16 +725,17 @@ export async function startBuilderEdit(svc: Svc, who: Who, input: { request: str
   const snap = await client.readContent(page.ref)
   if (!snap.ok) return snap.status === 401 || snap.status === 403 ? LOGIN_GONE(site) : fail('SITE_UNAVAILABLE', `The site didn’t answer just now (${snap.error}). Try again in a moment.`)
   // A builder whose title lives in the body (a Webflow item's `name` field) changes it there, never as a separate title.
-  if (client.titleOf && input.title?.trim()) return fail('TITLE_IN_TEXT', 'This item’s name is one of its fields: change it with an edit of the text (its "name" line), not with title.')
+  const bodyTitle = client.titleOf?.(snap.value.body) ?? null
+  if (bodyTitle !== null && input.title?.trim()) return fail('TITLE_IN_TEXT', 'This item’s name is one of its fields: change it with an edit of the text (its name or title line), not with title.')
   const edited = input.edits.length ? applyTextEdits(snap.value.body, input.edits) : { ok: true as const, body: snap.value.body }
   if (!edited.ok) return fail('EDIT_DOESNT_FIT', edited.error)
   const invalid = client.validateEdit?.(snap.value.body, edited.body) ?? null
   if (invalid) return fail('EDIT_DOESNT_FIT', invalid)
-  const title = client.titleOf ? (client.titleOf(edited.body) ?? snap.value.title) : input.title?.trim() ? input.title.trim().slice(0, 200) : snap.value.title
+  const title = bodyTitle !== null ? (client.titleOf?.(edited.body) ?? snap.value.title) : input.title?.trim() ? input.title.trim().slice(0, 200) : snap.value.title
   if (addsCode(snap.value.body, edited.body) || addsCode(snap.value.title, title)) {
     return fail('NO_CODE', 'A change by text changes words, links and pictures already there, never code (a script, a frame, a form or an event handler). Nothing was started. For a form, use wire_website_form.')
   }
-  const edits = [...input.edits, ...(!client.titleOf && title !== snap.value.title ? [{ find: snap.value.title, replace: title }] : [])]
+  const edits = [...input.edits, ...(bodyTitle === null && title !== snap.value.title ? [{ find: snap.value.title, replace: title }] : [])]
   return stageAndAsk(svc, who, site, { kind: 'edit', request: input.request, snapshot: snap.value, after: { title, body: edited.body }, edits }, deps)
 }
 
@@ -716,12 +781,14 @@ export async function startBuilderWiring(svc: Svc, who: Who, input: { page: stri
           : `Their ${PROVIDER_LABEL[client.provider]} login can’t put a form on a page (its plan or its login doesn’t allow scripts). Give them the form’s own link, or its embed snippet for their site’s person.`,
     )
   }
-  if (!input.page) {
+  // A builder that puts the form on every page (Wix): its one place, no page to pick; a second wiring replaces the form there.
+  const siteWide = client.siteWideForm ?? null
+  if (!input.page && !siteWide) {
     const listed = await client.listContent({ limit: 30 })
     const likely = listed.ok ? listed.value.filter((r) => r.kind === 'page' && pageFormKind(r.title) !== 'other') : []
     return fail('WHICH_PAGE', 'Which page should the form go on? Ask them (a quote or contact page is usual), then call again with page.', { pages: (likely.length ? likely : listed.ok ? listed.value : []).slice(0, 20).map(pageLine) })
   }
-  const page = await resolvePage(client, input.page)
+  const page = siteWide ? { ok: true as const, ref: siteWide } : await resolvePage(client, input.page ?? '')
   if (!page.ok) return page.outcome
   const snap = await client.readContent(page.ref)
   if (!snap.ok) return snap.status === 401 || snap.status === 403 ? LOGIN_GONE(site) : fail('SITE_UNAVAILABLE', `The site didn’t answer just now (${snap.error}). Try again in a moment.`)
@@ -730,7 +797,7 @@ export async function startBuilderWiring(svc: Svc, who: Who, input: { page: stri
   const formPath = `${page.ref.kind}:${page.ref.id}`
   // This form on this page already (an earlier wiring): its key is replaced in place, not a second form.
   const rewire = (site.inspection?.wirings ?? []).some((w) => w.intake === 'form' && w.formId === target.target.form.id && w.formPath === formPath) && EMBED_ATTR.test(snap.value.body)
-  const body = rewire ? snap.value.body.replace(EMBED_ATTR, `data-ni-form="${key}"`) : `${snap.value.body}${client.embedBlock(snippet)}`
+  const body = siteWide ? client.embedBlock(snippet) : rewire ? snap.value.body.replace(EMBED_ATTR, `data-ni-form="${key}"`) : `${snap.value.body}${client.embedBlock(snippet)}`
   const origins = siteOrigins(site.siteUrl)
   return stageAndAsk(
     svc,
@@ -738,13 +805,13 @@ export async function startBuilderWiring(svc: Svc, who: Who, input: { page: stri
     site,
     {
       kind: 'wire_form',
-      request: `Add the form “${clip(target.target.form.name, 80)}” to the page “${clip(page.ref.title, 80)}”.`,
+      request: siteWide ? `Add the form “${clip(target.target.form.name, 80)}” to every page of the site.` : `Add the form “${clip(target.target.form.name, 80)}” to the page “${clip(page.ref.title, 80)}”.`,
       snapshot: snap.value,
       after: { title: snap.value.title, body },
       edits: [],
       wiring: {
         formPath,
-        formKind: pageFormKind(page.ref.title),
+        formKind: siteWide ? 'quote' : pageFormKind(page.ref.title),
         keyHash: hashFormKey(key),
         keyPrefix: key.slice(0, 9),
         origins,
@@ -831,7 +898,7 @@ export async function raiseBuilderCard(
         : {}),
       ...(outside.length ? { adds_outside_addresses: outside.join(', ') } : {}),
       ...(args.wiring ? { adds_entries_to: `Your form “${clip(args.wiring.formName, 80)}”: its old link stops working when this goes live.`, accepts_requests_from: args.wiring.accepts.join(', ') || 'any website' } : {}),
-      yes_does: `Writes this exact change to the ${staged.ref.kind === 'product' ? 'product' : 'page'} on your ${builder} site, where it is live at once; ${staged.provider === 'wordpress' || staged.provider === 'wpcom' ? `${builder} keeps the earlier version` : 'I keep the earlier text, so it can be undone'}.`,
+      yes_does: `${staged.ref.kind === 'site_script' ? `Puts this on every page of your ${builder} site` : `Writes this exact change to the ${staged.ref.kind === 'product' ? 'product' : staged.ref.kind === 'cms_item' ? 'item' : 'page'} on your ${builder} site`}, where it is live at once; ${staged.provider === 'wordpress' || staged.provider === 'wpcom' ? `${builder} keeps the earlier version` : 'I keep the earlier text, so it can be undone'}.`,
     },
     context: { website: context },
     reason: 'website_change',

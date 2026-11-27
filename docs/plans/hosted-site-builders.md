@@ -257,7 +257,7 @@ adds its builder to that sentence.
    site-wide form; App Store review if the owner picks a public app.
 3. **Webflow** (CMS items) and **WordPress.com** (OAuth): built, mocked APIs, see §9. Later:
    Webflow's form (a placed element).
-4. **Wix**: unlisted app, embedded script form, collections/blog/products edits.
+4. **Wix** (built, mocked APIs): see §10. Later: blog posts (their rich-content JSON).
 5. **A quote form embed** (`data-ni-quote`): today a builder can carry one of the business's
    forms (`form_id`); the quote intake has no drawn form of its own, so a builder site's
    quote wiring waits for this.
@@ -359,3 +359,39 @@ Built against fakes only; nothing registered.
 
 No migration (724 already allows both). The tokens are kept encrypted on the site's row, as
 Shopify's are.
+
+## 10. Phase 4: Wix
+
+Built against a fake only; nothing registered. Wix lets **no app change the words of a page
+itself**. The agent says so in its tools, its section and onboarding; what it reaches on Wix
+is the form on every page, CMS items and product descriptions.
+
+- **Connect:** an **unlisted** app (no App Market review; installed by its link).
+  `connect_website` with `builder: "wix"` and the site's address answers our install link
+  (`www.wix.com/installer/install?appId=…&redirectUrl=…&state=…`). The owner picks the site
+  and adds the app; Wix sends them to `/api/website/wix/callback` with the site's
+  `instanceId` and our state. The callback checks the state and the signed-in person. It
+  proves the install by minting a token for that instance with our app's id and secret (the
+  client-credentials grant, `POST /oauth2/token`), and checks that the instance's site
+  (`GET /apps/v1/instance`) is the one asked for. Nothing of a person's is kept: each call
+  mints a short-lived token from the app's credentials and the site's instance id
+  (`provider_site_id`). The exact installer parameters are **unverified**; the tests use a
+  fake.
+- **Form, site-wide:** the app's Embedded Script extension (end of body, one parameter,
+  `formKey`), turned on with `POST /apps/v1/scripts`. It reads and writes as the embed's own
+  markup, so the change goes through the same card, and the write is read back (§8). A
+  second wiring replaces the form; undo turns the parameter back to what it was (an empty
+  key draws nothing). Whether Wix's embedded scripts need a Premium site with a connected
+  domain is **unverified**; a refusal is said plainly.
+- **Changes:** CMS collection items (Wix Data v2; read as one JSON object of their text
+  fields, without system fields; written with the item's other fields kept from Wix's own
+  copy, since an update replaces the whole item) and product descriptions (Wix Stores v1,
+  `PATCH /stores/v1/products/{id}`). Blog posts keep their text in Wix's rich-content JSON,
+  so they are not covered yet. Wix keeps no revision, so undo writes the earlier text back.
+- **Settings:** `WIX_APP_ID` and `WIX_APP_SECRET`, plus `wix` in `WEBSITE_BUILDERS`. No
+  migration.
+- **Owner steps:** in the Wix Developers dashboard (dev.wix.com), create an app and make it
+  unlisted. Set its redirect URL (`<NEXT_PUBLIC_APP_URL>/api/website/wix/callback`) and the
+  permissions above. Add an Embedded Script extension (end of body, functional) with the code
+  in `deploy/app/.env.example` and its one parameter, `formKey`. Copy the App ID and secret
+  into the server's `.env`. Reload the edge first, then add `wix`.
