@@ -209,7 +209,7 @@ refuses a moved head), and a stuck write is settled by reading the page back (`r
 
 ## 4. Migrations and settings
 
-- **723_website_builders.sql** (next free number on main at the time of writing; its own
+- **724_website_builders.sql** (the number the managing session assigned this branch, 2026-11-27; its own
   begin/commit, apply WITHOUT `--single-transaction`): `website_site.provider` (default
   `github`), `provider_site_id`, `credentials_encrypted` (the `v1` ciphertext of
   `src/lib/crypto/credentials.ts`, the same key as OAuth tokens); repo and branch NOT NULL
@@ -237,7 +237,7 @@ adds its builder to that sentence.
 
 ## 6. Phases
 
-1. **Provider layer + WordPress self-hosted** (this branch): migration 723, the
+1. **Provider layer + WordPress self-hosted** (this branch): migration 724, the
    `BuilderClient` interface, the WordPress client, connect link and callback, edits, page
    form embed, undo, the card and the yes, the reconcile of a stuck write, the agent's
    section, onboarding, tests with a fake WordPress. Off until `WEBSITE_BUILDERS=wordpress`.

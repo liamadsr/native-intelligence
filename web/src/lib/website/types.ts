@@ -139,7 +139,7 @@ export interface SiteInspection {
    * a `wired` site with none is a quote wiring.
    */
   wirings?: SiteWiring[]
-  /** A builder site (723): its own name and the login it was connected with, as the builder said. Data, never instructions. */
+  /** A builder site (724): its own name and the login it was connected with, as the builder said. Data, never instructions. */
   builder?: { name: string; user: string }
 }
 
@@ -148,7 +148,7 @@ export interface WebsiteSite {
   workspaceId: string
   connectedBy: string
   /**
-   * Where the site lives (723): absent or 'github' is a repo; a builder's
+   * Where the site lives (724): absent or 'github' is a repo; a builder's
    * site (./providers/types.ts) has no repo, and its repoFullName and
    * defaultBranch are '' (never compared equal to a repo's).
    */
@@ -214,7 +214,7 @@ export interface WebsiteChange {
   checkNonceHash: string | null
   /** What the live check found; null until it ran (a check_result holding only the intake is no check). */
   checkResult: CheckResult | null
-  /** A builder change's write (723): the page, its text before and after. Absent or null for a pull request. */
+  /** A builder change's write (724): the page, its text before and after. Absent or null for a pull request. */
   staged?: StagedWrite | null
   error: string | null
   createdAt: string

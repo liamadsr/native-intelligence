@@ -64,7 +64,7 @@ export function renderWebsiteSection(site: WebsiteSite, open: WebsiteChange | nu
   const where = builder
     ? `Their website: a ${builder} site${site.inspection?.builder?.name ? ` ${quoted(site.inspection.builder.name, 80)}` : ''}${live}.`
     : `Their website: GitHub repo ${quoted(site.repoFullName)}${built}${live}.`
-  // A builder site's form is one of their forms drawn on a page (723): no form of the site's own was read.
+  // A builder site's form is one of their forms drawn on a page (724): no form of the site's own was read.
   const lines = [[where, builder ? (toForms.length ? '' : 'No form of theirs is on it yet: offer to put one on a page (wire_website_form with form_id and page) when it fits.') : formLine, ...formWirings].filter(Boolean).join(' ')]
   if (open) {
     const label = quoted(changeLabel(open, changeForm(open, site)), 90)

@@ -1,9 +1,9 @@
 -- ============================================================
--- 723: a business's website on a site builder, not only in a GitHub repo
+-- 724: a business's website on a site builder, not only in a GitHub repo
 -- ============================================================
--- NUMBER: 723 is the first free number after main's newest (722) when this
--- was written. Re-list main's migrations before merging, and renumber (the
--- file, this line, src/lib/website/__tests__/migration-723.test.ts) if main
+-- NUMBER: 724 was assigned to this branch (723 and 725 are other branches'),
+-- 2026-11-27. Re-list main's migrations before merging, and renumber (the
+-- file, this line, src/lib/website/__tests__/migration-724.test.ts) if main
 -- took it meanwhile.
 --
 -- HOW TO APPLY: on the server's database, as the row "Apply a database
@@ -91,11 +91,11 @@ alter table public.website_site
   );
 
 comment on column public.website_site.provider is
-  'Where the site lives (723): github (a repo, 463) or a site builder (wordpress, wpcom, webflow, wix, shopify).';
+  'Where the site lives (724): github (a repo, 463) or a site builder (wordpress, wpcom, webflow, wix, shopify).';
 comment on column public.website_site.provider_site_id is
-  'A builder site''s own name for itself (723): a WordPress site''s REST root, a Webflow site id, a Shopify shop.';
+  'A builder site''s own name for itself (724): a WordPress site''s REST root, a Webflow site id, a Shopify shop.';
 comment on column public.website_site.credentials_encrypted is
-  'A builder login that is not an OAuth token (723: a WordPress application password), as the v1 ciphertext of src/lib/crypto/credentials.ts. Never plaintext.';
+  'A builder login that is not an OAuth token (724: a WordPress application password), as the v1 ciphertext of src/lib/crypto/credentials.ts. Never plaintext.';
 
 alter table public.website_change add column if not exists staged jsonb null;
 
@@ -104,7 +104,7 @@ alter table public.website_change
   add constraint website_change_staged_size check (staged is null or pg_column_size(staged) <= 1500000);
 
 comment on column public.website_change.staged is
-  'A builder change''s write (723): the page, its text before (the undo) and after, and their hashes. Null for a GitHub change (its pull request is the write).';
+  'A builder change''s write (724): the page, its text before (the undo) and after, and their hashes. Null for a GitHub change (its pull request is the write).';
 
 commit;
 

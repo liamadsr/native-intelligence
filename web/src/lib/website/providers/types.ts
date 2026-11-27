@@ -1,5 +1,5 @@
 /**
- * Where a business's website lives (roadmap issue #13, migration 723,
+ * Where a business's website lives (roadmap issue #13, migration 724,
  * docs/plans/hosted-site-builders.md): a GitHub repo (463, a pull request per
  * change) or a site builder (a page written through the builder's own API,
  * per change). Client-safe.
@@ -10,7 +10,7 @@
  * the GitHub path does: one card, the exact text before and after on it.
  */
 
-/** website_site.provider (723's check). */
+/** website_site.provider (724's check). */
 export const SITE_PROVIDERS = ['github', 'wordpress', 'wpcom', 'webflow', 'wix', 'shopify'] as const
 export type SiteProvider = (typeof SITE_PROVIDERS)[number]
 
@@ -86,7 +86,7 @@ export interface BuilderClient {
 }
 
 /**
- * website_change.staged (723): a builder change's write. `beforeHash` is the
+ * website_change.staged (724): a builder change's write. `beforeHash` is the
  * page as read when the card was made (the yes refuses a page that moved
  * since); `afterHash` is what the card showed (head_sha holds it).
  */

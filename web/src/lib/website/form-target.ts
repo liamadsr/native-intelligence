@@ -109,7 +109,7 @@ export async function formWiringTarget(svc: Svc, who: { userId: string; workspac
     return no('FORM_NOT_PUBLIC', 'That form takes only signed-in members, so a website’s visitors can’t post to it. If they want it open to anyone, update_form with who_can_submit public first, then try again.')
   }
   if (!form.active) return no('FORM_OFF', 'That form is switched off, so it takes nothing. If they want it on, update_form with on: true first, then try again.')
-  // A builder site draws the form with our embed (723), which runs the bot check and takes files: only a site's own HTML form can't.
+  // A builder site draws the form with our embed (724), which runs the bot check and takes files: only a site's own HTML form can't.
   if (!opts.embed && filesFieldOf(form.fields)) return no('FORM_TAKES_FILES', FORM_TAKES_FILES)
   const fields = formBriefFields(form, table.columns)
   if (!fields.length) return no('FORM_EMPTY', 'That form has no fields left to fill (its columns are gone). Fix the form first (update_form with fields).')
@@ -174,7 +174,7 @@ function missingBotCheckColumn(error: { code?: string; message?: string } | null
 export async function activateFormLink(
   svc: Svc,
   change: Pick<WebsiteChange, 'workspaceId' | 'wiringIntake' | 'intakeKeyHash' | 'intakeKeyPrefix' | 'intakeOrigins' | 'requestedBy'>,
-  /** embed: a builder site's page draws the form with our embed (723), which runs the bot check: it stays as it is, and files are fine. */
+  /** embed: a builder site's page draws the form with our embed (724), which runs the bot check: it stays as it is, and files are fine. */
   opts: { embed?: boolean } = {},
 ): Promise<void> {
   if (change.wiringIntake?.kind !== 'form' || !change.intakeKeyHash || !change.intakeKeyPrefix) return

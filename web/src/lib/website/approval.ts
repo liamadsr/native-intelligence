@@ -264,7 +264,7 @@ export async function mergeWebsiteChange(svc: Svc, args: { userId: string; works
     await updateChange(svc, change.workspaceId, change.id, { state: 'failed', error: 'the agent is paused' }, ['awaiting_yes'])
     return { success: false, code: 'AGENT_PAUSED', error: 'Your Native Intelligence agent is paused, so nothing was merged. Turn it back on, then ask for the change again.' }
   }
-  // A builder site's change (723): no pull request; the page itself is written (./builder.ts).
+  // A builder site's change (724): no pull request; the page itself is written (./builder.ts).
   if (site.provider && site.provider !== 'github') {
     const { applyBuilderYes } = await import('./builder')
     return applyBuilderYes(svc, change, site, args.headSha, deps.builder)

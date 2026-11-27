@@ -1,5 +1,5 @@
 /**
- * Migration 723 (a website on a site builder, docs/plans/hosted-site-builders.md)
+ * Migration 724 (a website on a site builder, docs/plans/hosted-site-builders.md)
  * pinned to the app's constants: the providers its check allows, the columns
  * the store reads, its own transaction, and nothing but additions.
  */
@@ -8,14 +8,14 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { SITE_PROVIDERS } from '../providers/types'
 
-const SQL = readFileSync(join(process.cwd(), 'supabase/migrations/723_website_builders.sql'), 'utf8')
+const SQL = readFileSync(join(process.cwd(), 'supabase/migrations/724_website_builders.sql'), 'utf8')
 const CODE = SQL.split('\n')
   .filter((l) => !l.trim().startsWith('--'))
   .join('\n')
   .replace(/\s+/g, ' ')
   .trim()
 
-describe('migration 723', () => {
+describe('migration 724', () => {
   it('holds its own transaction and reloads the data API', () => {
     expect(CODE.startsWith('begin;')).toBe(true)
     expect(CODE).toMatch(/commit; notify pgrst, 'reload schema';$/)

@@ -1,5 +1,5 @@
 /**
- * A website on a site builder (roadmap issue #13, migration 723,
+ * A website on a site builder (roadmap issue #13, migration 724,
  * docs/plans/hosted-site-builders.md) on an in-memory database and a fake
  * WordPress: the setting, the connect link and its callback, reading a page,
  * an edit → its card → the owner's yes → the page written, a page that moved
@@ -44,7 +44,7 @@ import {
 } from '../builder'
 import { startEdit, startUndo, startWiring } from '../start'
 import { mergeWebsiteChange, websiteApprovalPermits } from '../approval'
-import { getLiveSite, missing723, toChange } from '../store'
+import { getLiveSite, missing724, toChange } from '../store'
 import { renderWebsiteSection } from '../section'
 import { wordpressUrl } from '../providers/wordpress'
 import { hashFormKey } from '@/lib/forms/store'
@@ -213,11 +213,11 @@ describe('the pure parts', () => {
     expect(wordpressUrl(`${SITE}/?rest_route=/`, 'wp/v2/pages', { context: 'edit' })).toBe(`${SITE}/?rest_route=/wp/v2/pages&context=edit`)
   })
 
-  it('a database without 723 is told apart', () => {
-    expect(missing723({ code: '42703', message: 'column website_site.provider does not exist' })).toBe(true)
-    expect(missing723({ code: 'PGRST204', message: "Could not find the 'staged' column" })).toBe(true)
-    expect(missing723({ code: '42703', message: 'column other does not exist' })).toBe(false)
-    expect(missing723(null)).toBe(false)
+  it('a database without 724 is told apart', () => {
+    expect(missing724({ code: '42703', message: 'column website_site.provider does not exist' })).toBe(true)
+    expect(missing724({ code: 'PGRST204', message: "Could not find the 'staged' column" })).toBe(true)
+    expect(missing724({ code: '42703', message: 'column other does not exist' })).toBe(false)
+    expect(missing724(null)).toBe(false)
   })
 })
 

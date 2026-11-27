@@ -27,12 +27,12 @@ type Svc = SupabaseClient
 const SITE_FIELDS_463 = 'id, workspace_id, connected_by, repo_full_name, default_branch, project_id, environment_id, site_url, framework, inspection, state, wired_at, created_at'
 const CHANGE_FIELDS_463 =
   'id, workspace_id, site_id, kind, request, requested_by, state, agent_run_id, action_id, reverts_change_id, form_path, form_kind, replace_current, pr_number, pr_url, head_sha, preview_url, summary, approval_id, merge_sha, intake_key_hash, intake_key_prefix, intake_origins, check_nonce_hash, check_result, error, created_at, updated_at, merged_at, live_at'
-// 723's columns (a site's builder, a builder change's write). Never the credentials: siteCredentials reads those alone.
+// 724's columns (a site's builder, a builder change's write). Never the credentials: siteCredentials reads those alone.
 const SITE_FIELDS = `${SITE_FIELDS_463}, provider, provider_site_id`
 const CHANGE_FIELDS = `${CHANGE_FIELDS_463}, staged`
 
-/** A database without migration 723 answers that one of its columns is missing. Pure. */
-export function missing723(error: { code?: string; message?: string } | null | undefined): boolean {
+/** A database without migration 724 answers that one of its columns is missing. Pure. */
+export function missing724(error: { code?: string; message?: string } | null | undefined): boolean {
   if (!error) return false
   const msg = error.message ?? ''
   return /\b(provider|provider_site_id|staged|credentials_encrypted)\b/.test(msg) && (error.code === '42703' || error.code === 'PGRST204' || /column/i.test(msg))
@@ -41,12 +41,12 @@ export function missing723(error: { code?: string; message?: string } | null | u
 type Answer = { data: unknown; error: { code?: string; message?: string } | null }
 
 /**
- * A read with 723's columns, again with 463's alone when the database has no
- * 723 yet (migration 723's PROD ORDER: either order works).
+ * A read with 724's columns, again with 463's alone when the database has no
+ * 724 yet (migration 724's PROD ORDER: either order works).
  */
 async function withFields(v2: string, v1: string, run: (fields: string) => PromiseLike<Answer>): Promise<Answer> {
   const first = await run(v2)
-  return missing723(first.error) ? run(v1) : first
+  return missing724(first.error) ? run(v1) : first
 }
 const siteRead = (run: (fields: string) => PromiseLike<Answer>) => withFields(SITE_FIELDS, SITE_FIELDS_463, run)
 const changeRead = (run: (fields: string) => PromiseLike<Answer>) => withFields(CHANGE_FIELDS, CHANGE_FIELDS_463, run)
@@ -120,7 +120,7 @@ export function liveWirings(site: Pick<WebsiteSite, 'state' | 'inspection'>): Si
   return site.state === 'wired' ? [{ intake: 'quote', keyHash: '', changeId: '', formPath: null }] : []
 }
 
-/** website_change.staged (723), when it has the shape a builder change writes. Pure. */
+/** website_change.staged (724), when it has the shape a builder change writes. Pure. */
 function stagedOf(v: unknown): StagedWrite | null {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return null
   const r = v as Partial<StagedWrite>
@@ -146,7 +146,7 @@ export function toSite(r: Row): WebsiteSite {
     id: String(r.id),
     workspaceId: String(r.workspace_id),
     connectedBy: String(r.connected_by),
-    // A builder's site has no repo (723): '' never equals a repo's name.
+    // A builder's site has no repo (724): '' never equals a repo's name.
     provider: isSiteProvider(r.provider) ? r.provider : 'github',
     providerSiteId: s(r.provider_site_id),
     repoFullName: s(r.repo_full_name) ?? '',
@@ -399,7 +399,7 @@ export interface NewChange {
   wiringIntake?: WiringIntake | null
   prNumber?: number | null
   prUrl?: string | null
-  /** A builder change's write (723). */
+  /** A builder change's write (724). */
   staged?: StagedWrite | null
   headSha?: string | null
   summary?: string | null
@@ -426,7 +426,7 @@ export async function insertChange(svc: Svc, change: NewChange): Promise<InsertC
       check_result: change.wiringIntake?.kind === 'form' ? { intake: change.wiringIntake } : null,
       pr_number: change.prNumber ?? null,
       pr_url: change.prUrl ?? null,
-      // Only a builder change names 723's column: a GitHub change inserts as it did before 723.
+      // Only a builder change names 724's column: a GitHub change inserts as it did before 724.
       ...(change.staged ? { staged: change.staged } : {}),
       ...(change.headSha ? { head_sha: change.headSha } : {}),
       ...(change.summary ? { summary: change.summary.slice(0, 1000) } : {}),
@@ -455,7 +455,7 @@ export type ChangePatch = Partial<{
   error: string | null
   merged_at: string | null
   live_at: string | null
-  /** 723: a builder change's write (its `written` once done). */
+  /** 724: a builder change's write (its `written` once done). */
   staged: StagedWrite
 }>
 
@@ -465,7 +465,7 @@ export type ChangePatch = Partial<{
  */
 export async function updateChange(svc: Svc, workspaceId: string, changeId: string, patch: ChangePatch, from?: readonly ChangeState[]): Promise<WebsiteChange | null> {
   const values = { ...patch, ...(patch.error ? { error: patch.error.slice(0, 1000) } : {}), ...(patch.summary ? { summary: patch.summary.slice(0, 1000) } : {}), updated_at: new Date().toISOString() }
-  // A failed select fails the whole update (nothing is written), so the retry without 723's column is safe.
+  // A failed select fails the whole update (nothing is written), so the retry without 724's column is safe.
   const { data, error } = await changeRead((f) => {
     let query = svc.from('website_change').update(values).eq('id', changeId).eq('workspace_id', workspaceId)
     if (from?.length) query = query.in('state', [...from])
@@ -510,7 +510,7 @@ export interface NewBuilderSite {
 }
 
 /**
- * Connect a builder site (723): the same builder site reconnected is updated
+ * Connect a builder site (724): the same builder site reconnected is updated
  * in place (its new login, its wirings kept); any other live site is
  * disconnected first, so the one-live-site index holds. Throws on a failed
  * write.
@@ -557,7 +557,7 @@ export async function connectBuilderSite(svc: Svc, site: NewBuilderSite): Promis
   return toSite(data as Row)
 }
 
-/** A builder site's stored login (723), still encrypted, or null. Server only. Throws on a failed read. */
+/** A builder site's stored login (724), still encrypted, or null. Server only. Throws on a failed read. */
 export async function siteCredentials(svc: Svc, workspaceId: string, siteId: string): Promise<string | null> {
   const { data, error } = await svc.from('website_site').select('credentials_encrypted').eq('workspace_id', workspaceId).eq('id', siteId).maybeSingle()
   if (error) throw new Error(`website_site read failed: ${error.message}`)

@@ -111,7 +111,7 @@ export async function reconcileOpenChange(svc: Svc, change: WebsiteChange, deps:
       return null
     }
     if (change.state === 'merging') {
-      // A builder write (723): the page read back says whether it landed.
+      // A builder write (724): the page read back says whether it landed.
       if (change.staged && !change.prNumber) {
         if (age < STALE_MERGING_MS) return change
         const { reconcileBuilderWrite } = await import('./builder')

@@ -55,7 +55,7 @@ export const OUTSIDE_TEXT_TOOLS: Readonly<Record<string, OutsideTextTool>> = {
     file: 'src/lib/ai/tools/website.ts',
     kind: 'WEB',
     fence: ['fenceBuilderText', 'wrapUntrusted'],
-    note: "a builder site's page text and title, read back so the agent quotes what it replaces (migration 723)",
+    note: "a builder site's page text and title, read back so the agent quotes what it replaces (migration 724)",
   },
   get_quote: {
     file: 'src/lib/ai/tools/business.ts',

@@ -31,7 +31,7 @@ import { wrapUntrusted } from '@/lib/email/untrusted'
  *   undo_website_change   GitHub's own revert of the last change, as a pull
  *                         request.
  *
- * A site on a builder (WordPress first; migration 723,
+ * A site on a builder (WordPress first; migration 724,
  * docs/plans/hosted-site-builders.md; Liam, 11-27: "let's do it") takes the
  * same tools: connect_website with `builder` answers its connect link,
  * change_website with `page` and `edits` stages the exact text change (with
@@ -51,7 +51,7 @@ import { wrapUntrusted } from '@/lib/email/untrusted'
 export { WEBSITE_PREPARE_TOOLS, WEBSITE_TOOL_NAMES } from '@/lib/website/types'
 
 /**
- * A builder site's own words in a result (723): a page's text and title, and
+ * A builder site's own words in a result (724): a page's text and title, and
  * the titles of the pages listed, wrapped as outside text (wrapUntrusted).
  * Native Intelligence's own fields pass as they are. Pure.
  */

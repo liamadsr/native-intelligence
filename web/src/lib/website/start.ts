@@ -379,7 +379,7 @@ export interface WiringInput {
   siteForm?: string | null
   /** The person's own attended turn: a table shared with them by an edit grant counts (tables.ts editGrants). Default true. */
   editGrants?: boolean
-  /** A builder site (723): the page the form goes on (its id, address or title). */
+  /** A builder site (724): the page the form goes on (its id, address or title). */
   page?: string | null
 }
 
@@ -451,7 +451,7 @@ export async function startWiring(svc: Svc, who: Who, input: WiringInput, deps: 
 export async function startEdit(
   svc: Svc,
   who: Who,
-  /** page / edits / title: a builder site's change (723): the page, and exact text with its replacement. A repo's change ignores them. */
+  /** page / edits / title: a builder site's change (724): the page, and exact text with its replacement. A repo's change ignores them. */
   input: { request: string; remoteTurn?: boolean; page?: string | null; edits?: TextEdit[]; title?: string | null },
   deps: StartDeps = {},
 ): Promise<Outcome> {

@@ -1,6 +1,6 @@
 /**
  * Where a WordPress site hands back the application password the owner just
- * approved (docs/plans/hosted-site-builders.md, migration 723): WordPress's
+ * approved (docs/plans/hosted-site-builders.md, migration 724): WordPress's
  * "Authorize Application" page redirects here with `site_url`, `user_login`
  * and `password` in the query (that is WordPress's own design), or with
  * `success=false` when they rejected it.
