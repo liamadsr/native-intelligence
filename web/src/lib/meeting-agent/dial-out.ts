@@ -117,6 +117,6 @@ export function meetingTokenOfSipHeaders(headers: ReadonlyArray<{ name: string; 
 }
 
 /** Whether an incoming call says it is a meeting leg at all (any `X-NI-Meeting`, well formed or not). */
-export function claimsMeetingLeg(headers: ReadonlyArray<{ name: string }>): boolean {
+export function claimsMeetingLeg(headers: ReadonlyArray<{ name: string; value?: string }>): boolean {
   return headers.some((h) => h.name.toLowerCase() === MEETING_TOKEN_HEADER.toLowerCase())
 }

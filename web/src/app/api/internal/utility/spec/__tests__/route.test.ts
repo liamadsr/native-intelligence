@@ -447,6 +447,7 @@ describe('utility spec route — model and provider options', () => {
       memory_learn_mail_tone: 'memory_learning',
       memory_capture: 'memory_capture',
       look_ahead_extract: 'look_ahead.extract',
+      meeting_reply: 'meeting_agent.reply',
       draft_review: 'draft_review',
       coding_precheck: 'coding_precheck',
       code_review: 'code_review',

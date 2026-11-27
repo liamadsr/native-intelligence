@@ -24,7 +24,7 @@ function tools(opts: Record<string, unknown> = {}) {
   return createMeetingAgentTools('user-me', {} as never, 'ws-1', { env: ON, conversationId: 'conv-1', ...opts })
 }
 async function call(t: ReturnType<typeof tools>, input: Record<string, unknown>) {
-  return (t.send_agent_to_meeting.execute as (i: unknown, o: unknown) => Promise<Record<string, unknown>>)(input, { toolCallId: 'c1', messages: [] })
+  return (t.send_agent_to_meeting.execute as unknown as (i: unknown, o: unknown) => Promise<Record<string, unknown>>)(input, { toolCallId: 'c1', messages: [] })
 }
 
 beforeEach(() => {
