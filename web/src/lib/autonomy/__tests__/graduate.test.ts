@@ -68,6 +68,12 @@ describe('graduationFor', () => {
     expect(await graduationFor(db as never, args(many), deps)).toMatchObject({ run: false, reason: 'hard_limit' })
   })
 
+  it('a connected app\'s tool (a loop\'s call_tool step, or chat) never runs on its own, even with a stored grant (phase 4: left closed)', async () => {
+    const mcp = { tool: 'mcp__gmail__label_thread', input: { thread_id: 't1', label: 'Receipts' } }
+    db.seed('autonomy_kind', [{ workspace_id: WS, user_id: USER, kind_key: kindOfCall(mcp).key, level: 'tell', pinned_ask: false, granted_at: NOW.toISOString() }])
+    expect(await graduationFor(db as never, args(mcp), deps)).toMatchObject({ run: false, reason: 'hard_limit' })
+  })
+
   it('the kill switch stops it', async () => {
     grant()
     expect(await graduationFor(db as never, args(), { ...deps, paused: async () => true })).toMatchObject({ run: false, reason: 'paused' })
