@@ -5,7 +5,7 @@
  * the expiry sweep. Behind EARNED_AUTONOMY (empty is off).
  *
  * Best effort and never in the way: it never throws, and a failed write
- * (migration 723 not applied yet, a network blip) is logged and dropped. A
+ * (migration 725 not applied yet, a network blip) is logged and dropped. A
  * card's answer never waits on it or fails because of it. Idempotent: the
  * unique (source, source_id, outcome) drops a second write of the same row.
  *
@@ -17,6 +17,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { earnedAutonomyRecording } from './config'
 import { kindOfCall } from './kind'
 import type { AutonomyOutcomeKind } from './rules'
+import { maybeOfferKind } from './offers'
 
 export interface SettledApproval {
   id: string
@@ -67,7 +68,20 @@ export async function recordApprovalOutcomes(
     const { error } = await supabase
       .from('autonomy_outcome')
       .upsert(rows, { onConflict: 'source,source_id,outcome', ignoreDuplicates: true })
-    if (error) console.warn('[earned-autonomy] record failed', JSON.stringify({ count: rows.length, error: error.message }))
+    if (error) {
+      console.warn('[earned-autonomy] record failed', JSON.stringify({ count: rows.length, error: error.message }))
+      return
+    }
+    // A clean approval may make its kind eligible: the agent offers it (phase 2;
+    // only under EARNED_AUTONOMY=graduate, offers.ts). Once per kind.
+    const offered = new Set<string>()
+    for (const row of rows) {
+      if (row.outcome !== 'approved') continue
+      const key = `${row.workspace_id}|${row.user_id}|${row.kind_key}`
+      if (offered.has(key)) continue
+      offered.add(key)
+      await maybeOfferKind(supabase, { workspaceId: String(row.workspace_id), userId: String(row.user_id), kindKey: String(row.kind_key) }, { env })
+    }
   } catch (err) {
     console.warn('[earned-autonomy] record failed', err instanceof Error ? err.message : String(err))
   }

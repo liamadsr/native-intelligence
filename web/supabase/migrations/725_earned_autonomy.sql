@@ -1,11 +1,12 @@
 -- ============================================================
--- 723: earned autonomy, phase 1 (docs/plans/earned-autonomy.md §8): the
+-- 725: earned autonomy, phase 1 (docs/plans/earned-autonomy.md §8): the
 -- track record per kind of work, and the person's decisions on each kind.
 -- ============================================================
--- NUMBER: 723 is the first free number after main's newest (722) when this
--- was written. Re-list main's migrations before merging, and renumber (the
--- file, this line, src/lib/autonomy/__tests__/migration-723.test.ts) if main
--- took it meanwhile.
+-- NUMBER: 725 was assigned by the managing session (11-27): three branches
+-- build in parallel, 723 is the meetings branch's and 724 hosted builders'.
+-- Re-list main's migrations before merging, and renumber (the file, this
+-- line, src/lib/autonomy/__tests__/migration-725.test.ts) if main took it
+-- meanwhile. 726 is this branch's too (phase 3, autonomy_action).
 --
 -- HOW TO APPLY: on the server's database, as the row "Apply a database
 -- migration" in deploy/README.md says: piped into psql in the database
@@ -68,7 +69,7 @@ create table if not exists public.autonomy_outcome (
 );
 
 comment on table public.autonomy_outcome is
-  'Earned autonomy''s track record (723, docs/plans/earned-autonomy.md): one row per settled card or autonomous action, per person and kind. Written only by the service role; the owner reads their own.';
+  'Earned autonomy''s track record (725, docs/plans/earned-autonomy.md): one row per settled card or autonomous action, per person and kind. Written only by the service role; the owner reads their own.';
 
 create unique index if not exists autonomy_outcome_source_key on public.autonomy_outcome (source, source_id, outcome);
 create index if not exists autonomy_outcome_owner_kind_idx on public.autonomy_outcome (user_id, workspace_id, kind_key, created_at desc);
@@ -101,7 +102,7 @@ create table if not exists public.autonomy_kind (
 );
 
 comment on table public.autonomy_kind is
-  'Earned autonomy (723, docs/plans/earned-autonomy.md): the person''s own decisions on one kind of work (its level, Never, when granted or demoted). Written only by the service role from the person''s own click; the owner reads their own.';
+  'Earned autonomy (725, docs/plans/earned-autonomy.md): the person''s own decisions on one kind of work (its level, Never, when granted or demoted). Written only by the service role from the person''s own click; the owner reads their own.';
 
 create unique index if not exists autonomy_kind_owner_key on public.autonomy_kind (workspace_id, user_id, kind_key);
 

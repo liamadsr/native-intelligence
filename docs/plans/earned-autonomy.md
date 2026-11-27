@@ -1,11 +1,12 @@
 # Earned autonomy
 
-Status: plan (2026-11-27), phase 1 (internal only) building. Roadmap issue #14: "The agent
+Status: building (2026-11-27). The owner answered the decisions the same day (below);
+phases 1 to 3 are approved, phase 3 behind `EARNED_AUTONOMY=graduate`, off by default. Roadmap issue #14: "The agent
 takes over recurring work as it earns your trust, until it runs most of the day-to-day on
 its own." The owner said "let's do it" (Liam, 11-27).
 
-Nothing in this plan lets an outward action run without a card until the owner has
-answered the decisions at the end. Phase 1 only records, computes and shows.
+Nothing lets an outward action run without a card unless `EARNED_AUTONOMY=graduate` is set
+on the server (the owner's call) and the person said yes to that one kind.
 
 ## Where it plugs in (what exists today)
 
@@ -148,7 +149,7 @@ reviews an unclassified tool. The first list: `book_quote` (confirming a booked 
   or named like delete/remove/trash/archive/cancel.
 - **Anything to a NEW recipient,** checked on every call, not on the kind. Every address
   the call reaches must be one the person has corresponded with: a message from them, or
-  sent to them, in the person's own mail index, or a workspace member. Teammates count as
+  sent to them, in the person's own mail index, or a workspace member, or a CRM contact the person added by hand (Liam, 11-27). Teammates count as
   known; they're people too, so they're still a send (Liam, 10-26). A recipient that can't
   be checked (a lookup that fails, an address that can't be parsed) is new. Fail closed.
 - **Legal or contract commitments:** `send_quote` (a price is an offer someone can accept),
@@ -251,7 +252,7 @@ A loop with one ungraduated step still parks on that one step's card.
 
 ## 8. The data model
 
-**Migration 723** (phase 1; additive, its own begin/commit, applied WITHOUT
+**Migration 725** (phase 1; additive, its own begin/commit, applied WITHOUT
 `--single-transaction`):
 
 - `autonomy_outcome`: `id`, `workspace_id`, `user_id`, `kind_key`, `tool`, `channel`,
@@ -265,7 +266,7 @@ A loop with one ungraduated step still parks on that one step's card.
   phase 1 nothing writes it, because there are no offers yet. RLS: the person reads their own.
   Writes go only through the person's own routes (service role, after `mayApprove`).
 
-**Migration 724** (phase 3): `autonomy_action`, as in §5.
+**Migration 726** (phase 3): `autonomy_action`, as in §5.
 
 **The setting:** `EARNED_AUTONOMY` in `web/.env.example` and `deploy/app/.env.example`. It's
 off by default and in check_settings.py's "may be empty" list:
@@ -281,23 +282,77 @@ The workspace kill switch outranks it.
 | Phase | What | Lets an outward action run without a card? |
 |---|---|---|
 | 0 | This plan | no |
-| 1 | `AGENT_AUTO_ATTEMPT_ENABLED` doc and check fixed. Migration 723. Outcomes recorded at `approveToolCall` / `denyToolCall` / expiry, behind `EARNED_AUTONOMY=record`. The pure rules and hard limits, with tests. The read-only Settings list. | no |
+| 1 | `AGENT_AUTO_ATTEMPT_ENABLED` doc and check fixed. Migration 725. Outcomes recorded at `approveToolCall` / `denyToolCall` / expiry, behind `EARNED_AUTONOMY=record`. The pure rules and hard limits, with tests. The read-only Settings list. | no |
 | 2 | Offers (the home-thread card, Yes / Not now / Never) and Revoke. The grant is stored and shown, and has no effect yet. | no |
-| 3 | Migration 724. `decideAction` answers `run` for a granted kind under `EARNED_AUTONOMY=graduate`. The undo window, the executor with run-time re-checks, compensating undos, demotion on undo. "What I did on my own today". | **yes**, after the owner's decisions |
+| 3 | Migration 726. `decideAction` answers `run` for a granted kind under `EARNED_AUTONOMY=graduate`. The undo window, the executor with run-time re-checks, compensating undos, demotion on undo. "What I did on my own today". | **yes**, after the owner's decisions |
 | 4 | Recurring work: flow steps on the same path, the digest block, the loop's run line, quiet offers. | yes |
 | 5 | Internal kinds: suggested actions from meetings (`proposed_change`) and Mail's drafts, recorded the same way. | internal only |
 
-## Decisions for the owner
+## What's built (phases 1 to 3)
 
-1. **The per-kind grant as the person's standing yes** for an outward kind, which narrows
-   10-26's "nothing reaches another person without the person's final yes" (§4). The
-   alternative keeps graduation to kinds that reach no one: a push to Linear, a label, a
-   calendar event with no attendees.
-2. **The thresholds:** 10 in a row over 7 or more days for tell, 20 more over 14 or more
-   days for quiet, the 5-minute undo window, and the caps of 20 per kind and 50 per person
-   per day.
-3. **The first graduatable list** (§4a), especially `book_quote` by text and calendar invites
-   to known people.
-4. **"Known recipient" as mail history plus workspace members.** CRM contacts with no mail
-   between you don't count. Should a contact the person added by hand count?
-5. **Whether quiet exists at all** at launch, or tell is the ceiling for now.
+Where the build differs from the sections above, this list is what the code does.
+
+- **The record** (phase 1, migration 725). It's written at `approveToolCall`,
+  `denyToolCall` and the expiry sweep (`src/lib/autonomy/record.ts`).
+- **The offer** (phase 2, `offers.ts`) is one templated line in the home thread, written by
+  code from the record and linking to Settings › Autonomy. It is not a card with buttons.
+  The yes is the person's own click there (`POST /api/account/autonomy/earned`, `decide.ts`):
+  Hand it over, Not now, Always ask, Allow offers again, Take it back. The server re-reads
+  the record and the hard limits, so a client can't hand over a kind that hasn't earned it.
+  The model has no way to reach the route.
+- **Running on its own** (phase 3, migration 726, `graduate.ts`, `actions.ts`, `undo.ts`).
+  When the outward gate holds a call that the trust authority already answers `ask` with,
+  and `graduationFor` says yes, the call is still raised as the person's card. The card is
+  worded "goes on its own in 5 minutes. Dismiss it to stop it". An `autonomy_action` row
+  is written and an Inngest event (`autonomy/action.scheduled`) sleeps to the end of the
+  window.
+  - At run time `graduationFor` checks everything again: the switch, the kill switch, the
+    grant, a demotion, the day's caps, and whether each recipient is known.
+  - Then the card's own accept path (`approveToolCall`) runs, as the person, on their
+    standing yes. It re-checks membership, the input hash and the ceiling.
+  - Any no sends it back to the card, with a line in the home thread.
+  - The card's Dismiss in the window is the Undo. It writes `undone`, and the kind goes
+    back to ask with the 14-day cooldown.
+  - The Stop button in "What I did on my own today" is that same Dismiss.
+  - A hold the authority denies (an unattended loop outside a flow step, a work run)
+    never reaches `graduationFor`. A guest's call or a Mac job's always asks.
+- **Known recipients** (`known.ts`). Mail history means mail the person **sent** (Sent, or
+  Gmail's SENT label). A thread flagged suspicious or as an injection doesn't count.
+  Mail only received doesn't count, because an injected email would otherwise make its own
+  sender known. Hand-added contacts are `source = 'manual'`, created by the person's own
+  member, not merged, and without the HubSpot hold that an unattended agent's contact
+  carries. A quote's customer and a poll's guests are known only when every address and
+  number they're reached at is known.
+- **Quiet** is behind `EARNED_AUTONOMY_QUIET`, off. While it's off, nothing is offered quiet
+  and a stored quiet reads as tell.
+- **Not yet** (phase 4):
+  - compensating undos after a call ran (a sent message can't be unsent; its window was
+    its undo);
+  - the daily digest block;
+  - loop `call_tool` steps on connected apps. They hold through their own path
+    (`flows/call-tool.ts`), and connected-app tools can't graduate yet anyway: the door
+    has no destructive hint, so they fail closed.
+
+## Decisions (Liam, 11-27)
+
+1. **Standing yes.** The person's yes to "handle this kind yourself" counts as their final
+   yes for outward kinds, with the 5-minute undo window before each send. Revoke stays
+   available at any time. This amends the 10-26 rule ("nothing reaches another person
+   without the person's final yes"): both are cited in `caller.ts` and the gate.
+2. **Ceiling at launch is tell.** Quiet is built behind its own switch,
+   `EARNED_AUTONOMY_QUIET`, which stays off. Nothing offers or promotes to quiet while it's
+   off, and a stored quiet reads as tell.
+3. **Known recipient** is any of: mail history; workspace members; CRM contacts the person
+   added by hand. Contacts that came in through a bulk import (CSV, vCard, export files,
+   the Stripe/HubSpot/Brevo/Google imports) do NOT count, told apart by the contact's
+   source. A contact whose source can't be read counts as new.
+4. **Thresholds as proposed:** 10 clean in a row over 7 or more days on 3 or more distinct
+   days; no dismissal, undo or complaint in 14 days; caps of 20 per kind and 50 per person
+   per day; a 5-minute undo window; one undo or complaint drops the kind back to ask with a
+   14-day cooldown.
+5. **The first graduatable list** as proposed (§4a). The allowlist and the never-list were
+   approved for the code: new tools can't graduate by default, and a recipient whose lookup
+   fails counts as new.
+
+Migration numbers were assigned by the managing session because three branches build in
+parallel: 725 (phase 1) and 726 (phase 3).

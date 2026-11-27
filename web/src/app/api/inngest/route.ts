@@ -58,6 +58,7 @@ import { workRunChildSettled, workRunExecute, workRunResume } from '@/lib/innges
 import { agentMemorySummarize } from '@/lib/inngest/agent-memory-functions'
 import { memoryCapture } from '@/lib/inngest/memory-capture-functions'
 import { workspaceAutonomyOff } from '@/lib/inngest/workspace-autonomy-functions'
+import { autonomyActionRun } from '@/lib/inngest/autonomy-functions'
 import { usageLogRetry } from '@/lib/inngest/billing-functions'
 import { chatUsageOutboxSweep } from '@/lib/inngest/chat-usage-outbox'
 import { mcpTokenKeepalive } from '@/lib/inngest/mcp-token-keepalive'
@@ -188,6 +189,7 @@ export const { GET, POST, PUT } = serve({
     agentMemorySummarize,
     memoryCapture,
     workspaceAutonomyOff,
+    autonomyActionRun,
     usageLogRetry,
     chatUsageOutboxSweep,
     mcpTokenKeepalive,

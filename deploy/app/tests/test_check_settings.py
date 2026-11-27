@@ -89,6 +89,8 @@ class Groups(unittest.TestCase):
     def test_earned_autonomy_may_stay_empty(self):
         self.assertEqual(cs.group("EARNED_AUTONOMY"), "may be empty")
         self.assertIn("empty is off", cs.MAY_BE_EMPTY["EARNED_AUTONOMY"])
+        self.assertEqual(cs.group("EARNED_AUTONOMY_QUIET"), "may be empty")
+        self.assertIn("empty is off", cs.MAY_BE_EMPTY["EARNED_AUTONOMY_QUIET"])
 
     def test_no_name_is_in_two_groups(self):
         self.assertFalse(set(cs.MUST_MATCH) & set(cs.MAY_BE_EMPTY))

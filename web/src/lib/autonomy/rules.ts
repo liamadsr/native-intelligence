@@ -10,8 +10,12 @@
  * ask at once, from either.
  *
  * Liam, 11-27 (roadmap #14, "let's do it"): "The agent takes over recurring
- * work as it earns your trust." The numbers below are the plan's proposal,
- * for the owner to confirm (decision 2).
+ * work as it earns your trust." The numbers below were the plan's proposal;
+ * Liam, 11-27, decision 4: "Thresholds kept as proposed".
+ *
+ * Quiet is OFF at launch (Liam, 11-27, decision 2: "Ceiling at launch is
+ * tell"): unless the caller passes `quiet: true` (EARNED_AUTONOMY_QUIET,
+ * config.ts), nothing is offered quiet and a stored quiet reads as tell.
  */
 
 export const AUTONOMY_LEVELS = ['ask', 'tell', 'quiet'] as const
@@ -138,7 +142,9 @@ export function evaluateKind(
   decisions: KindDecisions,
   now: Date,
   hardLimited: boolean,
+  opts: { quiet?: boolean } = {},
 ): KindEvaluation {
+  const quietOn = opts.quiet === true
   const nowMs = now.getTime()
   // Newest first, whatever order they came in.
   const events = [...outcomes].filter((e) => Number.isFinite(ms(e.at))).sort((a, b) => ms(b.at) - ms(a.at))
@@ -149,6 +155,8 @@ export function evaluateKind(
   const granted = ms(decisions.grantedAt)
   let level: AutonomyLevel = hardLimited ? 'ask' : decisions.level === 'tell' || decisions.level === 'quiet' ? decisions.level : 'ask'
   if (decisions.pinnedAsk) level = 'ask'
+  // Decision 2 (Liam, 11-27): with quiet off, a stored quiet is tell.
+  if (level === 'quiet' && !quietOn) level = 'tell'
   // One undo or complaint after the grant: straight back to ask.
   const demoted = level !== 'ask' && events.some((e) => (e.outcome === 'undone' || e.outcome === 'complaint') && (!Number.isFinite(granted) || ms(e.at) > granted))
   if (demoted) level = 'ask'
@@ -170,6 +178,8 @@ export function evaluateKind(
   if (hardLimited) return no('hard_limit')
   if (decisions.pinnedAsk) return no('pinned')
   if (level === 'quiet') return no('at_top')
+  // Quiet off: tell is the top (decision 2).
+  if (level === 'tell' && !quietOn) return no('at_top')
 
   const wantStreak = atAsk ? TELL_STREAK : QUIET_STREAK
   const wantDays = atAsk ? TELL_MIN_DAYS : QUIET_MIN_DAYS

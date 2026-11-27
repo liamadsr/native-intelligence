@@ -106,6 +106,8 @@ import { capStepOutput } from '@/lib/flows/redact'
 import { bareToolName } from '@/lib/mcp/tool-names'
 import { recordApprovalOutcomes } from '@/lib/autonomy/record'
 import { editRatio } from '@/lib/autonomy/edit-ratio'
+import { undoScheduledActions } from '@/lib/autonomy/undo'
+import { earnedAutonomyRecording } from '@/lib/autonomy/config'
 
 /**
  * Where a held call came from. tool_approval's CHECK still admits a retired
@@ -669,6 +671,13 @@ export async function approveToolCall(
     editMisfit?: typeof flowStepEditMisfit
     /** Test seam: the agent's turn once the call ran (approval-turn.ts). */
     requestTurn?: typeof requestApprovalTurn
+    /**
+     * Earned autonomy's runner (src/lib/autonomy/actions.ts): this accept is
+     * the person's standing yes for the kind (Liam, 11-27, decision 1), not a
+     * click. The runner records the outcome as `ran` itself, so this records
+     * nothing.
+     */
+    autonomousActionId?: string
   } = {},
 ): Promise<ApprovalOutcome> {
   if (!mayApprove(approver, approver?.userId)) return { ok: false, status: 403, code: 'APPROVAL_PERSON_ONLY', error: NOT_THE_OWNER }
@@ -772,7 +781,7 @@ export async function approveToolCall(
   // Earned autonomy's record: the person's yes, as shown or after their edit
   // (Liam, 11-27, roadmap #14). The kind is read from what the card showed.
   // Never throws; off while EARNED_AUTONOMY is.
-  deferLogWrite(
+  if (!deps.autonomousActionId) deferLogWrite(
     recordApprovalOutcomes(supabase, [
       editedRatio === null
         ? { approval: { ...row, input: shownInput }, outcome: 'approved' }
@@ -810,8 +819,12 @@ export async function denyToolCall(
     .eq('workspace_id', card.workspace_id)
     .eq('status', 'pending')
     .select('id, door, context, flow_run_id, workspace_id, user_id, tool, input')
-  // Earned autonomy's record: a no on this kind (never throws; off while EARNED_AUTONOMY is).
-  deferLogWrite(recordApprovalOutcomes(supabase, ((data ?? []) as SettledApprovalRow[]).map((approval) => ({ approval, outcome: 'dismissed' as const }))))
+  // Earned autonomy: a Dismiss in an action's undo window is its Undo (the
+  // kind goes back to ask, decision 4, Liam 11-27); any other Dismiss is a no
+  // on this kind. Never throws; off while EARNED_AUTONOMY is.
+  const denied = (data ?? []) as SettledApprovalRow[]
+  const undone = earnedAutonomyRecording() && denied.length ? await undoScheduledActions(supabase, denied.map((row) => row.id)) : new Set<string>()
+  deferLogWrite(recordApprovalOutcomes(supabase, denied.filter((row) => !undone.has(row.id)).map((approval) => ({ approval, outcome: 'dismissed' as const }))))
   // Skip on a loop step: its parked run ends cleanly, with a note.
   for (const row of (data ?? []) as SettledRow[]) await (deps.settled ?? notifyFlowStepSettled)(row, 'denied').catch(warnUnsettled)
   // A customer's booking: its slot opens again and they are told (roadmap B4).

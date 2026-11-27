@@ -113,6 +113,7 @@ describe('ask → tell', () => {
     expect(evaluateKind(perfect, {}, NOW, true)).toMatchObject({ level: 'ask', eligible: null, blocked: 'hard_limit' })
     expect(evaluateKind(perfect, { level: 'tell', grantedAt: ago(100) }, NOW, true)).toMatchObject({ level: 'ask', eligible: null, blocked: 'hard_limit' })
     expect(evaluateKind(perfect, { level: 'quiet', grantedAt: ago(100) }, NOW, true)).toMatchObject({ level: 'ask', eligible: null, blocked: 'hard_limit' })
+    expect(evaluateKind(perfect, { level: 'quiet', grantedAt: ago(100) }, NOW, true, { quiet: true })).toMatchObject({ level: 'ask', eligible: null, blocked: 'hard_limit' })
   })
 
   it('no record: ask, needs all ten', () => {
@@ -136,6 +137,7 @@ describe('demotion: one undo or complaint, straight back to ask', () => {
 
   it('at quiet, one complaint → ask (never one step down to tell)', () => {
     const events = [ev('complaint', 1), ...cleanRun(30, 19, 'ran', 2)]
+    expect(evaluateKind(events, { level: 'quiet', grantedAt: granted }, NOW, false, { quiet: true })).toMatchObject({ level: 'ask', demoted: true })
     expect(evaluateKind(events, { level: 'quiet', grantedAt: granted }, NOW, false)).toMatchObject({ level: 'ask', demoted: true })
   })
 
@@ -163,20 +165,35 @@ describe('demotion: one undo or complaint, straight back to ask', () => {
 
 describe('tell → quiet', () => {
   it('20 clean runs, 15 days at tell, no undo: eligible for quiet, still at tell', () => {
-    const r = evaluateKind(cleanRun(20, 14, 'ran'), { level: 'tell', grantedAt: ago(15) }, NOW, false)
+    const r = evaluateKind(cleanRun(20, 14, 'ran'), { level: 'tell', grantedAt: ago(15) }, NOW, false, { quiet: true })
     expect(r).toMatchObject({ level: 'tell', eligible: 'quiet', streak: 20 })
   })
 
   it('approvals at ask before the grant do not count toward quiet', () => {
     const events = [...cleanRun(5, 3, 'ran'), ...cleanRun(30, 40, 'approved', 16)]
-    expect(evaluateKind(events, { level: 'tell', grantedAt: ago(15) }, NOW, false)).toMatchObject({ streak: 5, eligible: null, blocked: 'streak' })
+    expect(evaluateKind(events, { level: 'tell', grantedAt: ago(15) }, NOW, false, { quiet: true })).toMatchObject({ streak: 5, eligible: null, blocked: 'streak' })
   })
 
   it('20 runs in the first week at tell: wait for two weeks', () => {
-    expect(evaluateKind(cleanRun(20, 6, 'ran'), { level: 'tell', grantedAt: ago(7) }, NOW, false)).toMatchObject({ eligible: null, blocked: 'span' })
+    expect(evaluateKind(cleanRun(20, 6, 'ran'), { level: 'tell', grantedAt: ago(7) }, NOW, false, { quiet: true })).toMatchObject({ eligible: null, blocked: 'span' })
   })
 
   it('quiet is the top: nothing more to offer', () => {
-    expect(evaluateKind(cleanRun(50, 40, 'ran'), { level: 'quiet', grantedAt: ago(45) }, NOW, false)).toMatchObject({ level: 'quiet', eligible: null, blocked: 'at_top' })
+    expect(evaluateKind(cleanRun(50, 40, 'ran'), { level: 'quiet', grantedAt: ago(45) }, NOW, false, { quiet: true })).toMatchObject({ level: 'quiet', eligible: null, blocked: 'at_top' })
+  })
+})
+
+describe('quiet is off at launch (Liam, 11-27, decision 2: "Ceiling at launch is tell")', () => {
+  it('a record that would earn quiet is never offered it while the quiet switch is off', () => {
+    const r = evaluateKind(cleanRun(20, 14, 'ran'), { level: 'tell', grantedAt: ago(15) }, NOW, false)
+    expect(r).toMatchObject({ level: 'tell', eligible: null, blocked: 'at_top' })
+  })
+
+  it('a stored quiet reads as tell while the switch is off', () => {
+    expect(evaluateKind(cleanRun(5, 3, 'ran'), { level: 'quiet', grantedAt: ago(40) }, NOW, false)).toMatchObject({ level: 'tell', eligible: null })
+  })
+
+  it('ask → tell is unaffected by the quiet switch', () => {
+    expect(evaluateKind(cleanRun(10, 8), {}, NOW, false)).toMatchObject({ eligible: 'tell' })
   })
 })

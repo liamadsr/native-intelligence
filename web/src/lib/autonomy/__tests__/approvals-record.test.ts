@@ -146,7 +146,7 @@ describe('earned autonomy records each settled card', () => {
     expect(outcomes()).toHaveLength(1)
   })
 
-  it('a write that fails (723 not applied yet) never fails the card', async () => {
+  it('a write that fails (725 not applied yet) never fails the card', async () => {
     const { card } = await raise()
     const realFrom = db.from.bind(db)
     ;(db as unknown as { from: (t: string) => unknown }).from = (t: string) => {
@@ -156,6 +156,29 @@ describe('earned autonomy records each settled card', () => {
     const out = await approveToolCall(db as never, owner, card)
     await settle()
     expect(out).toMatchObject({ ok: true, status: 'executed' })
+  })
+})
+
+describe('a Dismiss in an action\'s undo window is its Undo (phase 3)', () => {
+  beforeEach(() => vi.stubEnv('EARNED_AUTONOMY', 'graduate'))
+  afterEach(() => vi.unstubAllEnvs())
+
+  it('the action is undone, the outcome is undone (not dismissed), and the kind is back to ask', async () => {
+    const { created, card } = await raise()
+    db.seed('autonomy_kind', [{ id: 'k1', workspace_id: WS, user_id: USER, kind_key: 'mcp__typefully__create_draft|app:typefully|none', level: 'tell' }])
+    db.seed('autonomy_action', [{ id: 'act-1', workspace_id: WS, user_id: USER, approval_id: created.approvalId, kind_key: 'mcp__typefully__create_draft|app:typefully|none', tool: 'mcp__typefully__create_draft', status: 'scheduled' }])
+    await denyToolCall(db as never, owner, card)
+    await settle()
+    expect(db.rows('autonomy_action')[0]).toMatchObject({ status: 'undone' })
+    expect(outcomes().map((o) => o.outcome)).toEqual(['undone'])
+    expect(db.rows('autonomy_kind')[0]).toMatchObject({ level: 'ask' })
+  })
+
+  it('the runner\'s own accept records nothing itself (it records ran)', async () => {
+    const { card } = await raise()
+    await approveToolCall(db as never, owner, card, { autonomousActionId: 'act-1' })
+    await settle()
+    expect(outcomes()).toEqual([])
   })
 })
 

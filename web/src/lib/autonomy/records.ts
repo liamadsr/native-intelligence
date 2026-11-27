@@ -47,7 +47,7 @@ export interface KindSummary {
 export const RECORD_READ_MAX = 2000
 
 /** Group, evaluate and order: kinds with the newest activity first. Pure. */
-export function summarizeKinds(outcomes: readonly OutcomeRow[], kinds: readonly KindRow[], now: Date): KindSummary[] {
+export function summarizeKinds(outcomes: readonly OutcomeRow[], kinds: readonly KindRow[], now: Date, opts: { quiet?: boolean } = {}): KindSummary[] {
   const byKey = new Map<string, OutcomeEvent[]>()
   for (const row of outcomes) {
     const list = byKey.get(row.kind_key) ?? []
@@ -67,7 +67,7 @@ export function summarizeKinds(outcomes: readonly OutcomeRow[], kinds: readonly 
     const dec: KindDecisions = d
       ? { level: d.level, pinnedAsk: d.pinned_ask, grantedAt: d.granted_at, demotedAt: d.demoted_at, offerDeclinedAt: d.offer_declined_at }
       : {}
-    const ev = evaluateKind(events, dec, now, limit !== null)
+    const ev = evaluateKind(events, dec, now, limit !== null, opts)
     out.push({
       key,
       label: kindLabel(parsed),
@@ -85,7 +85,7 @@ export function summarizeKinds(outcomes: readonly OutcomeRow[], kinds: readonly 
 }
 
 /** The person's own list, in this workspace. Throws on a failed read (the route answers it). */
-export async function listKindSummaries(supabase: SupabaseClient, args: { userId: string; workspaceId: string; now?: Date }): Promise<KindSummary[]> {
+export async function listKindSummaries(supabase: SupabaseClient, args: { userId: string; workspaceId: string; now?: Date; quiet?: boolean }): Promise<KindSummary[]> {
   const [outcomes, kinds] = await Promise.all([
     supabase
       .from('autonomy_outcome')
@@ -102,5 +102,5 @@ export async function listKindSummaries(supabase: SupabaseClient, args: { userId
   ])
   if (outcomes.error) throw new Error(`autonomy record: ${outcomes.error.message}`)
   if (kinds.error) throw new Error(`autonomy kinds: ${kinds.error.message}`)
-  return summarizeKinds((outcomes.data ?? []) as OutcomeRow[], (kinds.data ?? []) as KindRow[], args.now ?? new Date())
+  return summarizeKinds((outcomes.data ?? []) as OutcomeRow[], (kinds.data ?? []) as KindRow[], args.now ?? new Date(), { quiet: args.quiet })
 }

@@ -1,5 +1,5 @@
 /**
- * Migration 723: earned autonomy's two tables (docs/plans/earned-autonomy.md
+ * Migration 725: earned autonomy's two tables (docs/plans/earned-autonomy.md
  * §8). Text checks of the SQL file, and that its CHECK lists match the code's.
  */
 import { readFileSync, readdirSync } from 'node:fs'
@@ -9,16 +9,16 @@ import { AUTONOMY_AUDIENCES, AUTONOMY_CHANNELS } from '../kind'
 import { AUTONOMY_LEVELS, AUTONOMY_OUTCOMES } from '../rules'
 
 const DIR = join(process.cwd(), 'supabase/migrations')
-const SQL = readFileSync(join(DIR, '723_earned_autonomy.sql'), 'utf8')
+const SQL = readFileSync(join(DIR, '725_earned_autonomy.sql'), 'utf8')
 const BODY = SQL.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n')
 const STATEMENTS = BODY.split(';').map((s) => s.replace(/\s+/g, ' ').trim()).filter(Boolean)
 
 const list = (values: readonly string[]) => values.map((v) => `'${v}'`).join(', ')
 
-describe('migration 723 (text checks of the SQL file)', () => {
-  it('is the only 723, holds no backslash, is its own transaction with a lock timeout', () => {
+describe('migration 725 (text checks of the SQL file)', () => {
+  it('is the only 725, holds no backslash, is its own transaction with a lock timeout', () => {
     const numbers = readdirSync(DIR).map((f) => Number(f.split('_')[0]))
-    expect(numbers.filter((n) => n === 723)).toHaveLength(1)
+    expect(numbers.filter((n) => n === 725)).toHaveLength(1)
     expect(SQL).not.toContain('\\')
     expect(STATEMENTS[0]).toBe('begin')
     expect(STATEMENTS[1]).toBe("SET LOCAL lock_timeout = '5s'")
@@ -58,6 +58,6 @@ describe('migration 723 (text checks of the SQL file)', () => {
   it('says how to apply it, and where its number came from', () => {
     expect(SQL).toContain('HOW TO APPLY:')
     expect(SQL).toContain('WITHOUT --single-transaction')
-    expect(SQL).toContain('NUMBER: 723')
+    expect(SQL).toContain('NUMBER: 725')
   })
 })
