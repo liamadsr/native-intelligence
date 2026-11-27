@@ -226,8 +226,10 @@ refuses a moved head), and a stuck write is settled by reading the page back (`r
   app, the scopes above, Webflow review for a private install URL); `WPCOM_CLIENT_ID` /
   `WPCOM_CLIENT_SECRET` (developer.wordpress.com/apps); `WIX_APP_ID` / `WIX_APP_SECRET`
   (Wix Developers app, unlisted, "Manage Embedded Scripts" and the Data/Blog/Stores
-  permissions, an Embedded Script extension). OAuth tokens go in `user_oauth_tokens`,
-  encrypted, as GitHub's do; nothing in the repo.
+  permissions, an Embedded Script extension). A builder's token belongs to the site, not to
+  a person (a Shopify token is the store's), so it is kept on the site's row in
+  `website_site.credentials_encrypted`, encrypted with the same key as the OAuth tokens
+  (`src/lib/crypto/credentials.ts`); nothing in the repo.
 
 **Before `WEBSITE_BUILDERS` is switched on, the edge must be reloaded with the Caddyfile
 from this branch.** WordPress hands the application password (and the login's name) back in
@@ -251,8 +253,8 @@ adds its builder to that sentence.
    `BuilderClient` interface, the WordPress client, connect link and callback, edits, page
    form embed, undo, the card and the yes, the reconcile of a stuck write, the agent's
    section, onboarding, tests with a fake WordPress. Off until `WEBSITE_BUILDERS=wordpress`.
-2. **Shopify**: OAuth provider, pages and product descriptions, theme app extension for the
-   form; start App Store review.
+2. **Shopify** (built, mocked APIs): see §8. Later: the theme app extension for a
+   site-wide form; App Store review if the owner picks a public app.
 3. **Webflow** (CMS items, site/page script with a placed form) and **WordPress.com** (OAuth).
 4. **Wix**: unlisted app, embedded script form, collections/blog/products edits.
 5. **A quote form embed** (`data-ni-quote`): today a builder can carry one of the business's
@@ -266,3 +268,46 @@ No real WordPress was called from the container: the tests use a fake one. To tr
 `WEBSITE_BUILDERS=wordpress` on a non-production deploy, have an Administrator login on a
 WordPress 5.6+ site on https, connect it by asking the agent ("my site is on WordPress,
 example.com"), approve on WordPress, then ask for a text change and for a form on a page.
+
+## 8. Phase 2: Shopify
+
+Built against a fake store only; nothing registered (the owner hasn't chosen custom
+distribution or a public app yet). Designed for **custom distribution** first: one store (or
+one Plus organization), no App Store review; a public app changes only who may install it,
+not this code.
+
+- **Connect.** `connect_website` with `builder: "shopify"` and the store's `.myshopify.com`
+  address (or its handle, or an admin link; a custom domain is refused with "ask for the
+  myshopify one"). It answers the store's own consent link
+  (`https://<store>.myshopify.com/admin/oauth/authorize`, the authorization code grant) with
+  our scopes (`read_online_store_pages`, `write_online_store_pages`, `read_products`,
+  `write_products`), the redirect `<NEXT_PUBLIC_APP_URL>/api/website/shopify/callback`, and
+  our signed state (30 minutes). The callback (`src/app/api/website/shopify/callback`) checks
+  Shopify's HMAC over the whole query with the app's secret, the state, that the person
+  signed in is the one who asked, and that the store is the one asked for. It trades the
+  code for the store's offline token server-side, and checks the token's scopes cover pages.
+  The token is stored encrypted on the site's row. Then it answers a 303 to its own path with
+  only a result code. The edge already redacts `code` and `state`; `hmac` is a 64-character
+  run.
+- **Changes.** Online Store pages (`pageUpdate`: body HTML and title) and product
+  descriptions (`productUpdate`: `descriptionHtml` and title), through the same card and yes
+  as WordPress. The yes refuses a page that changed since. Shopify keeps no revision, so the
+  card says "I keep the earlier text, so it can be undone" and undo writes it back.
+  `userErrors`, a throttle and a revoked token come back as plain words. Admin GraphQL
+  `2026-10` (`SHOPIFY_API_VERSION` in `providers/shopify.ts`).
+- **Form.** One of the business's public forms, as our embed in the page's body HTML. Shopify
+  might keep or strip a script in a page's body (**unverified**), so the write is read back.
+  If the embed's script is gone, the page is put back as it was, the form keeps its old link,
+  and the owner is told to use the form's own link. The proper way, a theme app extension
+  (an app embed block the merchant turns on in the theme editor), needs the app deployed with
+  that extension: a later step.
+- **Settings.** `SHOPIFY_CLIENT_ID` and `SHOPIFY_CLIENT_SECRET` (`deploy/app/.env.example`,
+  `check_settings.py`), plus `shopify` in `WEBSITE_BUILDERS`. Named without both, Shopify
+  stays off. No migration (724 already allows `shopify`).
+- **Owner steps.** In the Shopify Dev Dashboard (dev.shopify.com), make an app; pick the
+  distribution (Custom: enter the one store's myshopify domain; Public: App Store review).
+  Set its App URL to the app's address and the allowed redirection URL above, and request
+  the four scopes. Copy its Client ID and secret into the server's `.env`. Reload the edge
+  first (as for WordPress), then add `shopify` to `WEBSITE_BUILDERS`. To try it: ask the
+  agent "my store is on Shopify, <name>.myshopify.com", approve in Shopify admin, then ask
+  for a change to a page and to a product description, say yes, and undo it.

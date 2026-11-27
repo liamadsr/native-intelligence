@@ -193,6 +193,7 @@ function refOf(kind: ContentRef['kind'], v: unknown): ContentRef | null {
 }
 
 const collection = (kind: ContentRef['kind']) => (kind === 'page' ? 'pages' : 'posts')
+const isWpKind = (kind: ContentRef['kind']) => kind === 'page' || kind === 'post'
 const ID_RE = /^\d{1,12}$/
 
 /** A WordPress site as a {@link BuilderClient}. */
@@ -201,6 +202,9 @@ export function wordpressClient(login: WordpressLogin, deps: WordpressDeps = {})
   const api = (path: string, query?: Record<string, string>) => wordpressUrl(login.apiRoot, path, query)
   return {
     provider: 'wordpress',
+    kinds: ['page', 'post'],
+    keepsRevisions: true,
+    looksLikeId: (hint: string) => ID_RE.test(hint.trim()),
 
     async identity(): Promise<BuilderResult<BuilderIdentity>> {
       const me = await call(deps, api('wp/v2/users/me', { context: 'edit' }), { auth })
@@ -238,7 +242,7 @@ export function wordpressClient(login: WordpressLogin, deps: WordpressDeps = {})
     },
 
     async readContent(ref): Promise<BuilderResult<ContentSnapshot>> {
-      if (!ID_RE.test(ref.id)) return no(404, 'not found on the site')
+      if (!ID_RE.test(ref.id) || !isWpKind(ref.kind)) return no(404, 'not found on the site')
       const got = await call(deps, api(`wp/v2/${collection(ref.kind)}/${ref.id}`, { context: 'edit' }), { auth })
       if (!got.ok) return got
       const row = got.value as { content?: unknown; title?: unknown; modified_gmt?: unknown; modified?: unknown }
@@ -248,7 +252,7 @@ export function wordpressClient(login: WordpressLogin, deps: WordpressDeps = {})
     },
 
     async writeContent(ref, next): Promise<BuilderResult<{ modified: string | null; revision: string | null }>> {
-      if (!ID_RE.test(ref.id)) return no(404, 'not found on the site')
+      if (!ID_RE.test(ref.id) || !isWpKind(ref.kind)) return no(404, 'not found on the site')
       const got = await call(deps, api(`wp/v2/${collection(ref.kind)}/${ref.id}`), { method: 'POST', auth, body: { content: next.body, ...(next.title !== undefined ? { title: next.title } : {}) } })
       if (!got.ok) return got
       const row = got.value as { modified_gmt?: unknown; modified?: unknown }

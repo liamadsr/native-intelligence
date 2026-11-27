@@ -15,36 +15,10 @@
  */
 import { requireUser } from '@/lib/api-auth'
 import { getServiceClient } from '@/lib/supabase/service'
-import { appOrigin } from '@/lib/twilio/config'
+import { resultPage, settle } from '@/lib/website/callback-page'
 import { completeWordpressConnect, CONNECT_REFUSALS } from '@/lib/website/builder'
 
 export const dynamic = 'force-dynamic'
-
-function escapeHtml(text: string): string {
-  return text.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string)
-}
-
-/** The answer page: one line, a way back to the app. */
-function answerPage(status: number, line: string): Response {
-  const home = `${appOrigin().replace(/\/$/, '')}/account`
-  const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="referrer" content="no-referrer"><title>Native Intelligence</title></head><body style="font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem;line-height:1.5"><p>${escapeHtml(line)}</p><p><a href="${escapeHtml(home)}" rel="noreferrer">Back to Native Intelligence</a></p></body></html>`
-  return new Response(html, {
-    status,
-    headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex' },
-  })
-}
-
-/**
- * After WordPress's redirect: the login is stored, then the browser is sent
- * (303) to this same path with only a result code, so the address that
- * carried the password leaves its address bar and its history. The page is
- * drawn from that code alone.
- */
-function settle(request: URL, result: string): Response {
-  const to = new URL(request.pathname, appOrigin())
-  to.searchParams.set('result', result)
-  return new Response(null, { status: 303, headers: { Location: to.toString(), 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' } })
-}
 
 const CONNECTED = 'Your WordPress site is connected. Back in Native Intelligence (or by text) you can ask for changes; nothing goes live without your yes.'
 
@@ -53,11 +27,7 @@ export async function GET(request: Request): Promise<Response> {
   const params = url.searchParams
   // The page after the redirect: fixed words for a fixed code.
   const shown = params.get('result')
-  if (shown && !params.has('password')) {
-    if (shown === 'connected') return answerPage(200, CONNECTED)
-    const words = (CONNECT_REFUSALS as Record<string, string>)[shown] ?? CONNECT_REFUSALS.FAILED
-    return answerPage(shown === 'WRONG_PERSON' ? 403 : 400, words)
-  }
+  if (shown && !params.has('password')) return resultPage(shown, CONNECTED, CONNECT_REFUSALS)
   if (params.get('rejected') === '1' || params.get('success') === 'false') return settle(url, 'REJECTED')
   const auth = await requireUser()
   const sessionUserId = auth instanceof Response ? null : auth.user.id

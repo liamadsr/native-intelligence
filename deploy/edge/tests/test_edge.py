@@ -288,7 +288,7 @@ class TheLogsKeepNoWordpressPassword(unittest.TestCase):
     """A WordPress site hands its application password back in the query string
     (web/src/app/api/website/wordpress/callback): neither log may keep it."""
 
-    URI = "/api/website/wordpress/callback?state=abc.def&site_url=https%3A%2F%2Fexample.test&user_login=site-admin&password=abcd+efgh+ijkl+mnop+qrst+uvwx"
+    URI = "/api/website/wordpress/callback?state=abc.def&site_url=https%3A%2F%2Fexample.test&user_login=site-admin&password=abcd+efgh+ijkl+mnop+qrst+uvwx"  # gitleaks:allow (a made-up application password for this test, not a secret)
 
     def setUp(self):
         self.blocks = dict(blocks(CADDYFILE))

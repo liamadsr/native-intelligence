@@ -104,14 +104,21 @@ export function createWebsiteTools(
       description:
         "Connect the owner's website: the GitHub repository they picked (owner/repo). Reads it to find how it's built, where it's hosted and its quote, booking or contact form, and saves it so you can change the site by text. " +
         'Tell them what it found in two short lines (the `found` words), then ask before changing anything. Builds nothing new: only a site they already have.' +
-        (enabledBuilders().length ? ' A site on WordPress: pass builder "wordpress" and site_url instead of repo; it answers a link they open to approve on their own WordPress.' : ''),
+        (enabledBuilders().length
+          ? ` A site on ${enabledBuilders().map((b) => (b === 'wordpress' ? 'WordPress' : 'Shopify')).join(' or ')}: pass builder and site_url instead of repo; it answers a link they open to approve on the site itself.`
+          : ''),
       inputSchema: z.object({
         repo: z.string().trim().regex(REPO_FULL_NAME_RE, 'must look like owner/repo').optional().describe('The repository, e.g. "jane/janes-cleaning-site", from list_website_repos. Not for a site on a builder'),
         site_url: z.string().trim().max(200).optional().describe('The live website, e.g. "janescleaning.com", when they told you (required with builder)'),
-        builder: z.enum(['wordpress']).optional().describe('Their site is on WordPress (their own, not GitHub): answers a link they open to approve on their own WordPress'),
+        builder: z
+          .enum(['wordpress', 'shopify'])
+          .optional()
+          .describe('Their site is on WordPress (their own, not WordPress.com) or Shopify, not GitHub: answers a link they open to approve on the site itself. For Shopify, site_url is the store’s .myshopify.com address'),
       }),
       execute: async ({ repo, site_url, builder }) => {
         if (opts.unattended) return unattended
+        // A Shopify store is named by its myshopify address or handle, which needn't look like a website: the builder reads it.
+        if (builder === 'shopify') return startBuilderConnect(supabase, who, { builder, siteUrl: site_url ?? null }, opts.deps?.builder)
         const siteUrl = site_url ? siteUrlOf(site_url) : null
         if (site_url && !siteUrl) return { success: false, error: 'That isn’t a website address. Ask them for it again (e.g. janescleaning.com).' }
         if (builder) return startBuilderConnect(supabase, who, { builder, siteUrl }, opts.deps?.builder)
@@ -154,7 +161,7 @@ export function createWebsiteTools(
     change_website: tool({
       description:
         "Make a change to the owner's connected website that they asked for, in their words (\"update the hours on the homepage to 8 to 6\", \"add carpet cleaning to services\"): a coding run opens a pull request. " +
-        'A site on a builder (WordPress): first call with page (or none) to read the page’s text, then again with page and edits (the exact text and its replacement); nothing changes before their yes. ' +
+        'A site on a builder (WordPress, Shopify): first call with page (or none) to read the page’s (or product’s) text, then again with page and edits (the exact text and its replacement); nothing changes before their yes. ' +
         'Nothing goes live until they approve: when it is ready they get a text with what changed, a preview link if their host makes one, and a code. One change at a time. Ask first only when the request is unclear or needs something they haven’t given (a photo, a price).',
       inputSchema: z.object({
         request: z.string().trim().min(1).max(EDIT_REQUEST_MAX).describe('What to change, in their own words, self-contained (the run can’t read this conversation). By text, at most 300 characters: one change at a time; it is quoted back to them whole'),
