@@ -8,6 +8,9 @@ import { rankingHints, rankWebsiteRepos, WEBSITE_REPO_CHOICES } from '@/lib/webs
 import { siteUrlOf } from '@/lib/website/inspect'
 import { connectWebsite, startEdit, startUndo, startWiring, type StartDeps } from '@/lib/website/start'
 import { EDIT_REQUEST_MAX, SITE_FORM_HINT_MAX } from '@/lib/website/brief'
+import { EDITS_MAX, startBuilderConnect } from '@/lib/website/builder'
+import { enabledBuilders } from '@/lib/website/providers/enabled'
+import { wrapUntrusted } from '@/lib/email/untrusted'
 
 /**
  * A business's website, worked on by text (roadmap track E,
@@ -28,6 +31,14 @@ import { EDIT_REQUEST_MAX, SITE_FORM_HINT_MAX } from '@/lib/website/brief'
  *   undo_website_change   GitHub's own revert of the last change, as a pull
  *                         request.
  *
+ * A site on a builder (WordPress first; migration 723,
+ * docs/plans/hosted-site-builders.md; Liam, 11-27: "let's do it") takes the
+ * same tools: connect_website with `builder` answers its connect link,
+ * change_website with `page` and `edits` stages the exact text change (with
+ * only `page`, it reads the page's text, fenced as outside text), and
+ * wire_website_form with `page` and `form_id` draws one of their forms there.
+ * Each still ends on the same one card.
+ *
  * The last three only PREPARE a pull request on the owner's own connected
  * repo: nothing reaches the live site until the owner's merge card gets
  * their yes (by text only "yes CODE", never a plain yes; or the card in the app; src/lib/website/approval.ts and src/lib/sms/approvals.ts). That is why
@@ -38,6 +49,23 @@ import { EDIT_REQUEST_MAX, SITE_FORM_HINT_MAX } from '@/lib/website/brief'
  * never starts one.
  */
 export { WEBSITE_PREPARE_TOOLS, WEBSITE_TOOL_NAMES } from '@/lib/website/types'
+
+/**
+ * A builder site's own words in a result (723): a page's text and title, and
+ * the titles of the pages listed, wrapped as outside text (wrapUntrusted).
+ * Native Intelligence's own fields pass as they are. Pure.
+ */
+export function fenceBuilderText<T extends Record<string, unknown>>(out: T): T {
+  const fence = (v: unknown) => (typeof v === 'string' && v ? wrapUntrusted(v, 'WEB') : v)
+  const fencePage = (p: unknown) => (p && typeof p === 'object' ? { ...(p as Record<string, unknown>), title: fence((p as { title?: unknown }).title) } : p)
+  return {
+    ...out,
+    ...('text' in out ? { text: fence(out.text) } : {}),
+    ...('title' in out ? { title: fence(out.title) } : {}),
+    ...('page' in out ? { page: fencePage(out.page) } : {}),
+    ...(Array.isArray(out.pages) ? { pages: out.pages.map(fencePage) } : {}),
+  }
+}
 
 export function createWebsiteTools(
   userId: string,
@@ -75,15 +103,19 @@ export function createWebsiteTools(
     connect_website: tool({
       description:
         "Connect the owner's website: the GitHub repository they picked (owner/repo). Reads it to find how it's built, where it's hosted and its quote, booking or contact form, and saves it so you can change the site by text. " +
-        'Tell them what it found in two short lines (the `found` words), then ask before changing anything. Builds nothing new: only a site they already have.',
+        'Tell them what it found in two short lines (the `found` words), then ask before changing anything. Builds nothing new: only a site they already have.' +
+        (enabledBuilders().length ? ' A site on WordPress: pass builder "wordpress" and site_url instead of repo; it answers a link they open to approve on their own WordPress.' : ''),
       inputSchema: z.object({
-        repo: z.string().trim().regex(REPO_FULL_NAME_RE, 'must look like owner/repo').describe('The repository, e.g. "jane/janes-cleaning-site", from list_website_repos'),
-        site_url: z.string().trim().max(200).optional().describe('The live website, e.g. "janescleaning.com", when they told you'),
+        repo: z.string().trim().regex(REPO_FULL_NAME_RE, 'must look like owner/repo').optional().describe('The repository, e.g. "jane/janes-cleaning-site", from list_website_repos. Not for a site on a builder'),
+        site_url: z.string().trim().max(200).optional().describe('The live website, e.g. "janescleaning.com", when they told you (required with builder)'),
+        builder: z.enum(['wordpress']).optional().describe('Their site is on WordPress (their own, not GitHub): answers a link they open to approve on their own WordPress'),
       }),
-      execute: async ({ repo, site_url }) => {
+      execute: async ({ repo, site_url, builder }) => {
         if (opts.unattended) return unattended
         const siteUrl = site_url ? siteUrlOf(site_url) : null
         if (site_url && !siteUrl) return { success: false, error: 'That isn’t a website address. Ask them for it again (e.g. janescleaning.com).' }
+        if (builder) return startBuilderConnect(supabase, who, { builder, siteUrl }, opts.deps?.builder)
+        if (!repo) return { success: false, error: 'Say which: a GitHub repo (repo), or a site on WordPress (builder with site_url).' }
         return connectWebsite(supabase, who, { repo, siteUrl, ...(opts.remoteTurn ? { remoteTurn: true } : {}) }, opts.deps)
       },
     }),
@@ -98,10 +130,12 @@ export function createWebsiteTools(
         replace_current: z.boolean().optional().describe('True ONLY when they asked to stop what the form does today (e.g. stop the emails): it then posts only to the business'),
         form_id: z.string().uuid().optional().describe('One of their forms (list_forms): each entry of the site’s form becomes a row of its table, instead of a quote request'),
         site_form: z.string().trim().max(SITE_FORM_HINT_MAX).optional().describe('Which form on the site, in their words, e.g. "the contact form on /contact"'),
+        page: z.string().trim().max(300).optional().describe('A site on a builder (WordPress): the page the form goes on, its id, address or title. form_id is required there'),
       }),
-      execute: async ({ form_path, replace_current, form_id, site_form }) => {
+      execute: async ({ form_path, replace_current, form_id, site_form, page }) => {
         if (opts.unattended) return unattended
-        return startWiring(
+        // A builder site's page titles may come back (which page?): fenced as outside text.
+        return fenceBuilderText(await startWiring(
           supabase,
           who,
           {
@@ -109,23 +143,39 @@ export function createWebsiteTools(
             replaceCurrent: replace_current === true,
             ...(form_id ? { formId: form_id } : {}),
             ...(site_form ? { siteForm: site_form } : {}),
+            ...(page ? { page } : {}),
             ...(form_id && opts.editGrants === false ? { editGrants: false } : {}),
           },
           opts.deps,
-        )
+        ))
       },
     }),
 
     change_website: tool({
       description:
         "Make a change to the owner's connected website that they asked for, in their words (\"update the hours on the homepage to 8 to 6\", \"add carpet cleaning to services\"): a coding run opens a pull request. " +
+        'A site on a builder (WordPress): first call with page (or none) to read the page’s text, then again with page and edits (the exact text and its replacement); nothing changes before their yes. ' +
         'Nothing goes live until they approve: when it is ready they get a text with what changed, a preview link if their host makes one, and a code. One change at a time. Ask first only when the request is unclear or needs something they haven’t given (a photo, a price).',
       inputSchema: z.object({
         request: z.string().trim().min(1).max(EDIT_REQUEST_MAX).describe('What to change, in their own words, self-contained (the run can’t read this conversation). By text, at most 300 characters: one change at a time; it is quoted back to them whole'),
+        page: z.string().trim().max(300).optional().describe('A site on a builder (WordPress) only: the page, its id, address or title. Without edits, answers the page’s text (without page: the list of pages)'),
+        edits: z
+          .array(z.object({ find: z.string().min(1).max(4000).describe('Text copied exactly from the page’s text, enough to occur once'), replace: z.string().max(4000).describe('The new text') }))
+          .max(EDITS_MAX)
+          .optional()
+          .describe('A site on a builder only: the exact text to replace and with what. Words, links and pictures already there; never code'),
+        title: z.string().trim().max(200).optional().describe('A site on a builder only: the page’s new title, when they asked for one'),
       }),
-      execute: async ({ request }) => {
+      execute: async ({ request, page, edits, title }) => {
         if (opts.unattended) return unattended
-        return startEdit(supabase, who, { request, ...(opts.remoteTurn ? { remoteTurn: true } : {}) }, opts.deps)
+        const out = await startEdit(
+          supabase,
+          who,
+          { request, ...(opts.remoteTurn ? { remoteTurn: true } : {}), ...(page ? { page } : {}), ...(edits?.length ? { edits } : {}), ...(title ? { title } : {}) },
+          opts.deps,
+        )
+        // A builder page's text, read back to quote from: what the site holds is outside text.
+        return fenceBuilderText(out)
       },
     }),
 

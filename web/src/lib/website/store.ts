@@ -20,12 +20,36 @@ import {
   type WebsiteSite,
   type WiringIntake,
 } from './types'
+import { isSiteProvider, type BuilderProvider, type StagedWrite } from './providers/types'
 
 type Svc = SupabaseClient
 
-const SITE_FIELDS = 'id, workspace_id, connected_by, repo_full_name, default_branch, project_id, environment_id, site_url, framework, inspection, state, wired_at, created_at'
-const CHANGE_FIELDS =
+const SITE_FIELDS_463 = 'id, workspace_id, connected_by, repo_full_name, default_branch, project_id, environment_id, site_url, framework, inspection, state, wired_at, created_at'
+const CHANGE_FIELDS_463 =
   'id, workspace_id, site_id, kind, request, requested_by, state, agent_run_id, action_id, reverts_change_id, form_path, form_kind, replace_current, pr_number, pr_url, head_sha, preview_url, summary, approval_id, merge_sha, intake_key_hash, intake_key_prefix, intake_origins, check_nonce_hash, check_result, error, created_at, updated_at, merged_at, live_at'
+// 723's columns (a site's builder, a builder change's write). Never the credentials: siteCredentials reads those alone.
+const SITE_FIELDS = `${SITE_FIELDS_463}, provider, provider_site_id`
+const CHANGE_FIELDS = `${CHANGE_FIELDS_463}, staged`
+
+/** A database without migration 723 answers that one of its columns is missing. Pure. */
+export function missing723(error: { code?: string; message?: string } | null | undefined): boolean {
+  if (!error) return false
+  const msg = error.message ?? ''
+  return /\b(provider|provider_site_id|staged|credentials_encrypted)\b/.test(msg) && (error.code === '42703' || error.code === 'PGRST204' || /column/i.test(msg))
+}
+
+type Answer = { data: unknown; error: { code?: string; message?: string } | null }
+
+/**
+ * A read with 723's columns, again with 463's alone when the database has no
+ * 723 yet (migration 723's PROD ORDER: either order works).
+ */
+async function withFields(v2: string, v1: string, run: (fields: string) => PromiseLike<Answer>): Promise<Answer> {
+  const first = await run(v2)
+  return missing723(first.error) ? run(v1) : first
+}
+const siteRead = (run: (fields: string) => PromiseLike<Answer>) => withFields(SITE_FIELDS, SITE_FIELDS_463, run)
+const changeRead = (run: (fields: string) => PromiseLike<Answer>) => withFields(CHANGE_FIELDS, CHANGE_FIELDS_463, run)
 
 type Row = Record<string, unknown>
 
@@ -46,6 +70,7 @@ function inspectionOf(v: unknown): SiteInspection | null {
     buildScript: typeof r.buildScript === 'string' ? r.buildScript.slice(0, 600) : null,
     alsoUrls,
     wirings: wiringsOf(r.wirings),
+    ...(r.builder && typeof r.builder === 'object' ? { builder: { name: String(r.builder.name ?? '').slice(0, 200), user: String(r.builder.user ?? '').slice(0, 100) } } : {}),
   }
 }
 
@@ -95,6 +120,25 @@ export function liveWirings(site: Pick<WebsiteSite, 'state' | 'inspection'>): Si
   return site.state === 'wired' ? [{ intake: 'quote', keyHash: '', changeId: '', formPath: null }] : []
 }
 
+/** website_change.staged (723), when it has the shape a builder change writes. Pure. */
+function stagedOf(v: unknown): StagedWrite | null {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null
+  const r = v as Partial<StagedWrite>
+  if (!isSiteProvider(r.provider) || r.provider === 'github' || !r.ref || typeof r.ref.id !== 'string') return null
+  if (!r.before || !r.after || typeof r.before.body !== 'string' || typeof r.after.body !== 'string') return null
+  if (typeof r.beforeHash !== 'string' || typeof r.afterHash !== 'string') return null
+  return {
+    provider: r.provider,
+    ref: r.ref,
+    before: { title: String(r.before.title ?? ''), body: r.before.body },
+    after: { title: String(r.after.title ?? ''), body: r.after.body },
+    beforeHash: r.beforeHash,
+    afterHash: r.afterHash,
+    edits: Array.isArray(r.edits) ? r.edits.filter((e) => e && typeof e.find === 'string' && typeof e.replace === 'string').slice(0, 10) : [],
+    ...(r.written && typeof r.written === 'object' ? { written: r.written } : {}),
+  }
+}
+
 export function toSite(r: Row): WebsiteSite {
   const state = (SITE_STATES as readonly string[]).includes(String(r.state)) ? (r.state as WebsiteSite['state']) : 'connected'
   const framework = (FRAMEWORKS as readonly string[]).includes(String(r.framework)) ? (r.framework as WebsiteSite['framework']) : null
@@ -102,8 +146,11 @@ export function toSite(r: Row): WebsiteSite {
     id: String(r.id),
     workspaceId: String(r.workspace_id),
     connectedBy: String(r.connected_by),
-    repoFullName: String(r.repo_full_name),
-    defaultBranch: String(r.default_branch),
+    // A builder's site has no repo (723): '' never equals a repo's name.
+    provider: isSiteProvider(r.provider) ? r.provider : 'github',
+    providerSiteId: s(r.provider_site_id),
+    repoFullName: s(r.repo_full_name) ?? '',
+    defaultBranch: s(r.default_branch) ?? '',
     projectId: s(r.project_id),
     environmentId: s(r.environment_id),
     siteUrl: s(r.site_url),
@@ -146,6 +193,7 @@ export function toChange(r: Row): WebsiteChange {
     checkNonceHash: s(r.check_nonce_hash),
     // A check_result holding only a form wiring's intake is no check yet.
     checkResult: check && typeof check.outcome === 'string' ? (check as unknown as CheckResult) : null,
+    staged: stagedOf(r.staged),
     error: s(r.error),
     createdAt: String(r.created_at),
     updatedAt: s(r.updated_at),
@@ -156,13 +204,13 @@ export function toChange(r: Row): WebsiteChange {
 
 /** The workspace's live (not disconnected) site, or null. */
 export async function getLiveSite(svc: Svc, workspaceId: string): Promise<WebsiteSite | null> {
-  const { data, error } = await svc.from('website_site').select(SITE_FIELDS).eq('workspace_id', workspaceId).neq('state', 'disconnected').maybeSingle()
+  const { data, error } = await siteRead((f) => svc.from('website_site').select(f).eq('workspace_id', workspaceId).neq('state', 'disconnected').maybeSingle())
   if (error) throw new Error(`website_site read failed: ${error.message}`)
   return data ? toSite(data as Row) : null
 }
 
 export async function getSite(svc: Svc, workspaceId: string, siteId: string): Promise<WebsiteSite | null> {
-  const { data, error } = await svc.from('website_site').select(SITE_FIELDS).eq('workspace_id', workspaceId).eq('id', siteId).maybeSingle()
+  const { data, error } = await siteRead((f) => svc.from('website_site').select(f).eq('workspace_id', workspaceId).eq('id', siteId).maybeSingle())
   if (error) throw new Error(`website_site read failed: ${error.message}`)
   return data ? toSite(data as Row) : null
 }
@@ -194,7 +242,7 @@ export async function connectSite(svc: Svc, site: NewSite): Promise<WebsiteSite>
     // Re-read in place: whoever connected it still does (an admin's edit never takes it over; its pull requests stay theirs).
     // The wirings are what reached the site, not what the repo says: a re-read keeps them.
     const kept = live.inspection?.wirings ?? []
-    const { data, error } = await svc.from('website_site').update({ ...fields, inspection: { ...site.inspection, wirings: kept } }).eq('id', live.id).eq('workspace_id', site.workspaceId).select(SITE_FIELDS).single()
+    const { data, error } = await siteRead((f) => svc.from('website_site').update({ ...fields, inspection: { ...site.inspection, wirings: kept } }).eq('id', live.id).eq('workspace_id', site.workspaceId).select(f).single())
     if (error || !data) throw new Error(`website_site update failed: ${error?.message ?? 'no row'}`)
     return toSite(data as Row)
   }
@@ -202,11 +250,13 @@ export async function connectSite(svc: Svc, site: NewSite): Promise<WebsiteSite>
     const { error } = await svc.from('website_site').update({ state: 'disconnected', updated_at: new Date().toISOString() }).eq('id', live.id).eq('workspace_id', site.workspaceId)
     if (error) throw new Error(`website_site disconnect failed: ${error.message}`)
   }
-  const { data, error } = await svc
-    .from('website_site')
-    .insert({ workspace_id: site.workspaceId, repo_full_name: site.repoFullName, connected_by: site.connectedBy, state: 'connected', ...fields })
-    .select(SITE_FIELDS)
-    .single()
+  const { data, error } = await siteRead((f) =>
+    svc
+      .from('website_site')
+      .insert({ workspace_id: site.workspaceId, repo_full_name: site.repoFullName, connected_by: site.connectedBy, state: 'connected', ...fields })
+      .select(f)
+      .single(),
+  )
   if (error || !data) throw new Error(`website_site insert failed: ${error?.message ?? 'no row'}`)
   return toSite(data as Row)
 }
@@ -306,27 +356,27 @@ export async function dropSiteWiring(svc: Svc, workspaceId: string, siteId: stri
 
 /** The site's open change (at most one), or null. */
 export async function getOpenChange(svc: Svc, workspaceId: string, siteId: string): Promise<WebsiteChange | null> {
-  const { data, error } = await svc.from('website_change').select(CHANGE_FIELDS).eq('workspace_id', workspaceId).eq('site_id', siteId).in('state', [...OPEN_CHANGE_STATES]).maybeSingle()
+  const { data, error } = await changeRead((f) => svc.from('website_change').select(f).eq('workspace_id', workspaceId).eq('site_id', siteId).in('state', [...OPEN_CHANGE_STATES]).maybeSingle())
   if (error) throw new Error(`website_change read failed: ${error.message}`)
   return data ? toChange(data as Row) : null
 }
 
 export async function getChange(svc: Svc, workspaceId: string, changeId: string): Promise<WebsiteChange | null> {
-  const { data, error } = await svc.from('website_change').select(CHANGE_FIELDS).eq('workspace_id', workspaceId).eq('id', changeId).maybeSingle()
+  const { data, error } = await changeRead((f) => svc.from('website_change').select(f).eq('workspace_id', workspaceId).eq('id', changeId).maybeSingle())
   if (error) throw new Error(`website_change read failed: ${error.message}`)
   return data ? toChange(data as Row) : null
 }
 
 /** A change by its coding run (the outcome route's hook), or null. Any workspace: the run token names it. */
 export async function getChangeByRun(svc: Svc, workspaceId: string, agentRunId: string): Promise<WebsiteChange | null> {
-  const { data, error } = await svc.from('website_change').select(CHANGE_FIELDS).eq('workspace_id', workspaceId).eq('agent_run_id', agentRunId).maybeSingle()
+  const { data, error } = await changeRead((f) => svc.from('website_change').select(f).eq('workspace_id', workspaceId).eq('agent_run_id', agentRunId).maybeSingle())
   if (error) throw new Error(`website_change read failed: ${error.message}`)
   return data ? toChange(data as Row) : null
 }
 
 /** The site's newest changes, newest first. */
 export async function recentChanges(svc: Svc, workspaceId: string, siteId: string, limit = 5): Promise<WebsiteChange[]> {
-  const { data, error } = await svc.from('website_change').select(CHANGE_FIELDS).eq('workspace_id', workspaceId).eq('site_id', siteId).order('created_at', { ascending: false }).limit(limit)
+  const { data, error } = await changeRead((f) => svc.from('website_change').select(f).eq('workspace_id', workspaceId).eq('site_id', siteId).order('created_at', { ascending: false }).limit(limit))
   if (error) throw new Error(`website_change read failed: ${error.message}`)
   return ((data ?? []) as Row[]).map(toChange)
 }
@@ -349,15 +399,17 @@ export interface NewChange {
   wiringIntake?: WiringIntake | null
   prNumber?: number | null
   prUrl?: string | null
+  /** A builder change's write (723). */
+  staged?: StagedWrite | null
+  headSha?: string | null
+  summary?: string | null
 }
 
 export type InsertChangeResult = { ok: true; change: WebsiteChange } | { ok: false; code: 'OPEN_CHANGE'; open: WebsiteChange | null }
 
 /** A new change; another one still open is a refusal (463's one-open index), never a throw. */
 export async function insertChange(svc: Svc, change: NewChange): Promise<InsertChangeResult> {
-  const { data, error } = await svc
-    .from('website_change')
-    .insert({
+  const row = {
       workspace_id: change.workspaceId,
       site_id: change.siteId,
       kind: change.kind,
@@ -374,9 +426,12 @@ export async function insertChange(svc: Svc, change: NewChange): Promise<InsertC
       check_result: change.wiringIntake?.kind === 'form' ? { intake: change.wiringIntake } : null,
       pr_number: change.prNumber ?? null,
       pr_url: change.prUrl ?? null,
-    })
-    .select(CHANGE_FIELDS)
-    .single()
+      // Only a builder change names 723's column: a GitHub change inserts as it did before 723.
+      ...(change.staged ? { staged: change.staged } : {}),
+      ...(change.headSha ? { head_sha: change.headSha } : {}),
+      ...(change.summary ? { summary: change.summary.slice(0, 1000) } : {}),
+  }
+  const { data, error } = await changeRead((f) => svc.from('website_change').insert(row).select(f).single())
   if (error) {
     if (error.code === '23505') return { ok: false, code: 'OPEN_CHANGE', open: await getOpenChange(svc, change.workspaceId, change.siteId).catch(() => null) }
     throw new Error(`website_change insert failed: ${error.message}`)
@@ -400,6 +455,8 @@ export type ChangePatch = Partial<{
   error: string | null
   merged_at: string | null
   live_at: string | null
+  /** 723: a builder change's write (its `written` once done). */
+  staged: StagedWrite
 }>
 
 /**
@@ -407,13 +464,13 @@ export type ChangePatch = Partial<{
  * compare-and-swap): null when another writer moved it first.
  */
 export async function updateChange(svc: Svc, workspaceId: string, changeId: string, patch: ChangePatch, from?: readonly ChangeState[]): Promise<WebsiteChange | null> {
-  let query = svc
-    .from('website_change')
-    .update({ ...patch, ...(patch.error ? { error: patch.error.slice(0, 1000) } : {}), ...(patch.summary ? { summary: patch.summary.slice(0, 1000) } : {}), updated_at: new Date().toISOString() })
-    .eq('id', changeId)
-    .eq('workspace_id', workspaceId)
-  if (from?.length) query = query.in('state', [...from])
-  const { data, error } = await query.select(CHANGE_FIELDS)
+  const values = { ...patch, ...(patch.error ? { error: patch.error.slice(0, 1000) } : {}), ...(patch.summary ? { summary: patch.summary.slice(0, 1000) } : {}), updated_at: new Date().toISOString() }
+  // A failed select fails the whole update (nothing is written), so the retry without 723's column is safe.
+  const { data, error } = await changeRead((f) => {
+    let query = svc.from('website_change').update(values).eq('id', changeId).eq('workspace_id', workspaceId)
+    if (from?.length) query = query.in('state', [...from])
+    return query.select(f)
+  })
   if (error) throw new Error(`website_change update failed: ${error.message}`)
   const row = ((data ?? []) as Row[])[0]
   return row ? toChange(row) : null
@@ -421,7 +478,7 @@ export async function updateChange(svc: Svc, workspaceId: string, changeId: stri
 
 /** The change whose live check carries this nonce hash (the intake's test post), or null. */
 export async function getChangeByNonce(svc: Svc, workspaceId: string, nonceHash: string): Promise<WebsiteChange | null> {
-  const { data, error } = await svc.from('website_change').select(CHANGE_FIELDS).eq('workspace_id', workspaceId).eq('check_nonce_hash', nonceHash).maybeSingle()
+  const { data, error } = await changeRead((f) => svc.from('website_change').select(f).eq('workspace_id', workspaceId).eq('check_nonce_hash', nonceHash).maybeSingle())
   if (error) throw new Error(`website_change read failed: ${error.message}`)
   return data ? toChange(data as Row) : null
 }
@@ -436,4 +493,74 @@ export async function replacedFormLinks(svc: Svc, workspaceId: string, wirings: 
   if (error) throw new Error(`data_form read failed: ${error.message}`)
   const now = new Map(((data ?? []) as Array<{ id: string; key_hash: string | null }>).map((r) => [r.id, r.key_hash]))
   return new Set(wanted.filter((w) => now.get(w.formId) !== w.keyHash).map((w) => w.formId))
+}
+
+export interface NewBuilderSite {
+  workspaceId: string
+  connectedBy: string
+  provider: BuilderProvider
+  /** The builder's own name for the site (a WordPress site's REST root). */
+  providerSiteId: string
+  siteUrl: string
+  /** The login, already encrypted (src/lib/crypto/credentials.ts); null for an OAuth builder (its token is in user_oauth_tokens). */
+  credentialsEncrypted: string | null
+  /** The site's and the login's names, for the owner's words. */
+  name: string
+  user: string
+}
+
+/**
+ * Connect a builder site (723): the same builder site reconnected is updated
+ * in place (its new login, its wirings kept); any other live site is
+ * disconnected first, so the one-live-site index holds. Throws on a failed
+ * write.
+ */
+export async function connectBuilderSite(svc: Svc, site: NewBuilderSite): Promise<WebsiteSite> {
+  const live = await getLiveSite(svc, site.workspaceId)
+  const now = new Date().toISOString()
+  const same = !!live && live.provider === site.provider && live.providerSiteId === site.providerSiteId
+  const inspection: SiteInspection = {
+    framework: 'unknown',
+    host: 'unknown',
+    siteUrl: site.siteUrl,
+    forms: [],
+    truncated: false,
+    builder: { name: site.name.slice(0, 200), user: site.user.slice(0, 100) },
+    ...(same && live?.inspection?.wirings?.length ? { wirings: live.inspection.wirings } : {}),
+  }
+  const fields = { site_url: site.siteUrl, framework: null, inspection, credentials_encrypted: site.credentialsEncrypted, updated_at: now }
+  if (same && live) {
+    // Whoever connected it is who reconnected it only if it is them; otherwise the new login's owner takes it over (they approved on WordPress).
+    const { data, error } = await svc.from('website_site').update({ ...fields, connected_by: site.connectedBy }).eq('id', live.id).eq('workspace_id', site.workspaceId).select(SITE_FIELDS).single()
+    if (error || !data) throw new Error(`website_site update failed: ${error?.message ?? 'no row'}`)
+    return toSite(data as Row)
+  }
+  if (live) {
+    const { error } = await svc.from('website_site').update({ state: 'disconnected', updated_at: now }).eq('id', live.id).eq('workspace_id', site.workspaceId)
+    if (error) throw new Error(`website_site disconnect failed: ${error.message}`)
+  }
+  const { data, error } = await svc
+    .from('website_site')
+    .insert({
+      workspace_id: site.workspaceId,
+      connected_by: site.connectedBy,
+      provider: site.provider,
+      provider_site_id: site.providerSiteId,
+      repo_full_name: null,
+      default_branch: null,
+      state: 'connected',
+      ...fields,
+    })
+    .select(SITE_FIELDS)
+    .single()
+  if (error || !data) throw new Error(`website_site insert failed: ${error?.message ?? 'no row'}`)
+  return toSite(data as Row)
+}
+
+/** A builder site's stored login (723), still encrypted, or null. Server only. Throws on a failed read. */
+export async function siteCredentials(svc: Svc, workspaceId: string, siteId: string): Promise<string | null> {
+  const { data, error } = await svc.from('website_site').select('credentials_encrypted').eq('workspace_id', workspaceId).eq('id', siteId).maybeSingle()
+  if (error) throw new Error(`website_site read failed: ${error.message}`)
+  const v = (data as { credentials_encrypted?: unknown } | null)?.credentials_encrypted
+  return typeof v === 'string' && v ? v : null
 }

@@ -40,6 +40,7 @@ import { findFormById } from '@/lib/forms/store'
 import { activateFormLink, FormWiringRefused, wiredFormOrigins } from './form-target'
 import { dropSiteWiring, getChange, getSite, recordSiteWiring, sameIntake, updateChange } from './store'
 import { mergedEventId, prOpenedEventId, WEBSITE_CHANGE_MERGED, WEBSITE_PR_OPENED, type WebsiteEventData } from './events'
+import type { BuilderDeps } from './builder'
 import { MERGE_WEBSITE_CHANGE_TOOL, type WebsiteApprovalContext, type WebsiteChange, type WebsiteSite, type WiringIntake } from './types'
 
 export { changeForm } from './brief'
@@ -57,6 +58,8 @@ export interface ApprovalDeps {
   /** The kill switch (default src/lib/work/agent-paused.ts isAgentPaused). */
   paused?: (svc: Svc, workspaceId: string) => Promise<boolean>
   now?: () => number
+  /** A builder site's seams (./builder.ts). */
+  builder?: BuilderDeps
 }
 
 const githubOf = (deps: ApprovalDeps, token: string): GithubDeps => deps.github?.(token) ?? { token }
@@ -251,7 +254,7 @@ export async function websiteApprovalPermits(
  */
 export async function mergeWebsiteChange(svc: Svc, args: { userId: string; workspaceId: string; changeId: string; headSha: string }, deps: ApprovalDeps = {}): Promise<Record<string, unknown>> {
   const change = await getChange(svc, args.workspaceId, args.changeId)
-  if (!change || change.state !== 'awaiting_yes' || change.headSha !== args.headSha || !change.prNumber) {
+  if (!change || change.state !== 'awaiting_yes' || change.headSha !== args.headSha || (!change.prNumber && !change.staged)) {
     return { success: false, error: 'That website change is no longer waiting for a yes. Nothing was merged.' }
   }
   const site = await getSite(svc, change.workspaceId, change.siteId)
@@ -260,6 +263,11 @@ export async function mergeWebsiteChange(svc: Svc, args: { userId: string; works
   if (await (deps.paused ?? isAgentPaused)(svc, change.workspaceId)) {
     await updateChange(svc, change.workspaceId, change.id, { state: 'failed', error: 'the agent is paused' }, ['awaiting_yes'])
     return { success: false, code: 'AGENT_PAUSED', error: 'Your Native Intelligence agent is paused, so nothing was merged. Turn it back on, then ask for the change again.' }
+  }
+  // A builder site's change (723): no pull request; the page itself is written (./builder.ts).
+  if (site.provider && site.provider !== 'github') {
+    const { applyBuilderYes } = await import('./builder')
+    return applyBuilderYes(svc, change, site, args.headSha, deps.builder)
   }
   const merging = await updateChange(svc, change.workspaceId, change.id, { state: 'merging' }, ['awaiting_yes'])
   if (!merging) return { success: false, error: 'That website change was already answered. Nothing more was done.' }

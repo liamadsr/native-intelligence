@@ -95,6 +95,7 @@ MAY_BE_EMPTY = {
     "AGE_OUT_ENABLED": "a switch: empty is off",
     "CANVAS_AGENT_ARTIFACTS": "a switch: empty is off (agents cannot make or change canvas artifacts)",
     "RECONCILER_ENABLED": "a switch: empty is off",
+    "WEBSITE_BUILDERS": "empty: no site builder is offered (a business's website is connected from a GitHub repo only)",
     "NI_FORWARD_OLD_DOMAIN": "a switch: empty is off (the forward from dial8.ai; only after the address moves)",
     # Until the app makes calls (../livekit; ../README.md step 23). All three or none.
     "LIVEKIT_URL": "empty: no audio or video calls",
