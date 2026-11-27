@@ -132,6 +132,8 @@ export interface SendInput {
   displayName: string
   ownerFirstName: string
   captureId: string | null
+  /** The series that sent it (727's series_ref); only written when set, so a write works before 727. */
+  seriesRef?: string | null
 }
 
 /**
@@ -163,6 +165,7 @@ export async function scheduleAttendance(svc: SupabaseClient, input: SendInput, 
     join_token_hash: null,
     live_session_id: null,
     twilio_call_sid: null,
+    ...(input.seriesRef ? { series_ref: input.seriesRef } : {}),
   }
   const write = existing
     ? svc.from(MEETING_ATTENDANCE_TABLE).update(fields).eq('id', existing.id).eq('user_id', input.userId).select(ATTENDANCE_COLUMNS).single<Row>()

@@ -48,6 +48,8 @@ export interface SendInput {
   title: string
   dialIn: { number: string; digits: string } | null
   brief: unknown
+  /** The series sending this occurrence (727), when it is one. */
+  seriesRef?: string | null
 }
 
 export interface SendDeps {
@@ -97,6 +99,7 @@ export async function sendAgentToMeeting(svc: SupabaseClient, input: SendInput, 
       displayName: assistantDisplayName(name),
       ownerFirstName: name,
       captureId: null,
+      seriesRef: input.seriesRef ?? null,
     },
     now,
   )

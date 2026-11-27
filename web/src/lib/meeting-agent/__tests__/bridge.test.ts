@@ -31,6 +31,9 @@ function start(over: Record<string, unknown> = {}) {
   const asks: unknown[] = []
   const finish = vi.fn(async () => ({ captureId: 'cap-1' }))
   const hangups: string[] = []
+  const ticks: Array<() => void> = []
+  const stopped: boolean[] = []
+  const replies: Array<{ id: string; createdAt: string; text: string }> = []
   const call = runMeetingCall(
     { sessionId: 'live_m1', attendance, apiKey: 'sk-test' },
     {
@@ -49,15 +52,20 @@ function start(over: Record<string, unknown> = {}) {
       }) as never,
       ask: (async (_svc: unknown, args: unknown) => {
         asks.push(args)
-        return true
+        return { ok: true, conversationId: 'conv-1', askedAt: '2026-11-30T18:10:00.000Z', messageId: 'meeting-ask:x:del_2' }
       }) as never,
       finish: finish as never,
       setTimer: (fn) => timers.push(fn),
+      every: (fn: () => void) => {
+        ticks.push(fn)
+        return () => stopped.push(true)
+      },
+      relay: { replies: async () => replies, record: async () => {} },
       maxMs: 60_000,
       ...over,
     },
   )
-  return { ...s, call, timers, stamps, asks, finish, hangups }
+  return { ...s, call, timers, stamps, asks, finish, hangups, ticks, stopped, replies }
 }
 
 describe('a meeting call', () => {
@@ -136,6 +144,40 @@ describe('a meeting call', () => {
     expect(turn).toHaveBeenCalledTimes(1)
     c.emit({ type: 'session.closed', reason: 'remote_hangup' })
     expect((await c.call).end).toBe('objected')
+  })
+
+  it("reads the person's answer out as theirs while the call is up, then stops looking", async () => {
+    const c = start({ turn: vi.fn(async () => ({ kind: 'check' as const, say: "I'll check with Sam.", question: 'Can we start Monday?' })) })
+    await flush()
+    c.emit({ type: 'session.input_transcript.delta', delta: 'Can we start Monday?', start_ms: 0, end_ms: 900 })
+    c.emit({ type: 'session.delegation.created', offset_ms: 950, delegation: { id: 'del_2' } })
+    await flush()
+    await flush()
+    c.replies.push({ id: 'm1', createdAt: '2026-11-30T18:11:00.000Z', text: 'Yes, Monday works.' })
+    c.ticks[0]()
+    await flush()
+    await flush()
+    expect(c.sent.at(-1)).toMatchObject({ type: 'session.commentary.append', delegation_id: null, content: 'Sam says: Yes, Monday works.' })
+    c.emit({ type: 'session.closed', reason: 'remote_hangup' })
+    await c.call
+    expect(c.stopped).toEqual([true])
+  })
+
+  it('never relays after an objection', async () => {
+    const c = start({ turn: vi.fn(async () => ({ kind: 'check' as const, say: "I'll check with Sam.", question: 'q' })) })
+    await flush()
+    c.emit({ type: 'session.input_transcript.delta', delta: 'A question?', start_ms: 0, end_ms: 900 })
+    c.emit({ type: 'session.delegation.created', offset_ms: 950, delegation: { id: 'del_2' } })
+    await flush()
+    await flush()
+    c.emit({ type: 'session.input_transcript.delta', delta: 'Please stop recording.', start_ms: 1000, end_ms: 1900 })
+    const before = c.sent.length
+    c.replies.push({ id: 'm1', createdAt: '2026-11-30T18:11:00.000Z', text: 'Yes.' })
+    c.ticks[0]()
+    await flush()
+    expect(c.sent.length).toBe(before)
+    c.timers[0]()
+    await c.call
   })
 
   it('names how it ended', () => {
