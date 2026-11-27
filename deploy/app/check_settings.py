@@ -99,6 +99,10 @@ MAY_BE_EMPTY = {
     # Our Shopify app (docs/plans/hosted-site-builders.md): both or none.
     "SHOPIFY_CLIENT_ID": "empty: Shopify stores are not offered (both SHOPIFY_ settings or none)",
     "SHOPIFY_CLIENT_SECRET": "empty: Shopify stores are not offered (both SHOPIFY_ settings or none)",
+    "WEBFLOW_CLIENT_ID": "empty: Webflow sites are not offered (both WEBFLOW_ settings or none)",
+    "WEBFLOW_CLIENT_SECRET": "empty: Webflow sites are not offered (both WEBFLOW_ settings or none)",
+    "WPCOM_CLIENT_ID": "empty: WordPress.com sites are not offered (both WPCOM_ settings or none)",
+    "WPCOM_CLIENT_SECRET": "empty: WordPress.com sites are not offered (both WPCOM_ settings or none)",
     "NI_FORWARD_OLD_DOMAIN": "a switch: empty is off (the forward from dial8.ai; only after the address moves)",
     # Until the app makes calls (../livekit; ../README.md step 23). All three or none.
     "LIVEKIT_URL": "empty: no audio or video calls",

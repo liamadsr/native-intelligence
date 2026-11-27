@@ -35,6 +35,57 @@ export interface WordpressLogin {
   password: string
 }
 
+/**
+ * A WordPress.com site (plan, phase 3): the same wp/v2 routes through
+ * WordPress.com's own API (public-api.wordpress.com/wp/v2/sites/<id>/…), with
+ * the OAuth token its owner approved for that one site.
+ */
+export interface WpcomLogin {
+  /** The site's numeric id (the token answer's blog_id). */
+  wpcomSite: string
+  token: string
+}
+
+export const WPCOM_API = 'https://public-api.wordpress.com'
+
+/** WordPress.com's consent page for one site (the default: one blog, the owner picks it). Pure. */
+export function wpcomAuthorizeLink(args: { clientId: string; redirectUri: string; state: string }): string {
+  const url = new URL(`${WPCOM_API}/oauth2/authorize`)
+  url.searchParams.set('client_id', args.clientId)
+  url.searchParams.set('redirect_uri', args.redirectUri)
+  url.searchParams.set('response_type', 'code')
+  url.searchParams.set('state', args.state)
+  return url.toString()
+}
+
+/** Trade the consent page's code for the site's token, server-side: the token, the site's id and its address. */
+export async function wpcomExchangeCode(
+  args: { clientId: string; clientSecret: string; code: string; redirectUri: string },
+  deps: WordpressDeps = {},
+): Promise<BuilderResult<{ token: string; blogId: string; blogUrl: string }>> {
+  let res: Response
+  try {
+    res = await (deps.fetchImpl ?? fetch)(`${WPCOM_API}/oauth2/token`, {
+      method: 'POST',
+      redirect: 'manual',
+      signal: AbortSignal.timeout(deps.timeoutMs ?? 15_000),
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+      body: new URLSearchParams({ client_id: args.clientId, client_secret: args.clientSecret, redirect_uri: args.redirectUri, code: args.code, grant_type: 'authorization_code' }).toString(),
+    })
+  } catch {
+    return no(0, 'WordPress.com did not answer')
+  }
+  if (!res.ok) return no(res.status, `WordPress.com answered ${res.status}`)
+  try {
+    const body = (await readJson(res)) as { access_token?: unknown; blog_id?: unknown; blog_url?: unknown }
+    const blogId = typeof body?.blog_id === 'number' || typeof body?.blog_id === 'string' ? String(body.blog_id) : ''
+    if (typeof body?.access_token !== 'string' || !/^\d{1,15}$/.test(blogId)) return no(400, 'WordPress.com sent no site token')
+    return { ok: true, value: { token: body.access_token, blogId, blogUrl: str(body.blog_url) } }
+  } catch {
+    return no(res.status, 'WordPress.com did not answer as it does')
+  }
+}
+
 export interface WordpressDeps {
   fetchImpl?: typeof fetch
   timeoutMs?: number
@@ -197,23 +248,46 @@ const isWpKind = (kind: ContentRef['kind']) => kind === 'page' || kind === 'post
 const ID_RE = /^\d{1,12}$/
 
 /** A WordPress site as a {@link BuilderClient}. */
-export function wordpressClient(login: WordpressLogin, deps: WordpressDeps = {}): BuilderClient {
-  const auth = `Basic ${Buffer.from(`${login.user}:${login.password}`).toString('base64')}`
-  const api = (path: string, query?: Record<string, string>) => wordpressUrl(login.apiRoot, path, query)
+export function wordpressClient(login: WordpressLogin | WpcomLogin, deps: WordpressDeps = {}): BuilderClient {
+  const wpcom = 'wpcomSite' in login
+  const auth = wpcom ? `Bearer ${login.token}` : `Basic ${Buffer.from(`${login.user}:${login.password}`).toString('base64')}`
+  // WordPress.com serves the same wp/v2 routes under its own API, per site.
+  const api = (path: string, query?: Record<string, string>) =>
+    wpcom ? wordpressUrl(`${WPCOM_API}/wp/v2/sites/${login.wpcomSite}/`, path.replace(/^wp\/v2\//, ''), query) : wordpressUrl(login.apiRoot, path, query)
+  const wpcomIdentity = async (): Promise<BuilderResult<BuilderIdentity>> => {
+    const got = await call(deps, `${WPCOM_API}/rest/v1.1/sites/${(login as WpcomLogin).wpcomSite}`, { auth })
+    if (!got.ok) return got
+    const site = got.value as { name?: unknown; URL?: unknown; capabilities?: Record<string, unknown> }
+    const caps = site.capabilities && typeof site.capabilities === 'object' ? site.capabilities : {}
+    const home = publicHttpsUrl(str(site.URL))
+    return {
+      ok: true,
+      value: {
+        name: str(site.name).slice(0, 200),
+        siteUrl: home ? home.origin : '',
+        user: 'WordPress.com',
+        canEdit: caps.edit_pages === true && caps.edit_others_pages === true,
+        // Plans without plugins strip a page's script: reported here when the site says so; the write is read back either way.
+        canEmbed: caps.unfiltered_html === true,
+      },
+    }
+  }
   return {
-    provider: 'wordpress',
+    provider: wpcom ? 'wpcom' : 'wordpress',
     kinds: ['page', 'post'],
     keepsRevisions: true,
     looksLikeId: (hint: string) => ID_RE.test(hint.trim()),
 
     async identity(): Promise<BuilderResult<BuilderIdentity>> {
+      if (wpcom) return wpcomIdentity()
+      const login_ = login as WordpressLogin
       const me = await call(deps, api('wp/v2/users/me', { context: 'edit' }), { auth })
       if (!me.ok) return me
       const user = me.value as { name?: unknown; slug?: unknown; capabilities?: Record<string, unknown> }
       const caps = user.capabilities && typeof user.capabilities === 'object' ? user.capabilities : {}
-      const index = await call(deps, login.apiRoot)
+      const index = await call(deps, login_.apiRoot)
       const info = index.ok && index.value && typeof index.value === 'object' ? (index.value as { name?: unknown; home?: unknown; url?: unknown }) : {}
-      const home = publicHttpsUrl(str(info.home) || str(info.url)) ?? publicHttpsUrl(login.apiRoot)
+      const home = publicHttpsUrl(str(info.home) || str(info.url)) ?? publicHttpsUrl(login_.apiRoot)
       return {
         ok: true,
         value: {

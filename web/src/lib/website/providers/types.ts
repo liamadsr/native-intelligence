@@ -17,8 +17,8 @@ export type SiteProvider = (typeof SITE_PROVIDERS)[number]
 /** The builders, as opposed to a GitHub repo. */
 export type BuilderProvider = Exclude<SiteProvider, 'github'>
 
-/** The builders this build can connect (the plan's phase 1 is WordPress, self-hosted; phase 2 Shopify). */
-export const BUILT_BUILDERS: readonly BuilderProvider[] = ['wordpress', 'shopify']
+/** The builders this build can connect (the plan's phase 1 is WordPress, self-hosted; phase 2 Shopify; phase 3 Webflow and WordPress.com). */
+export const BUILT_BUILDERS: readonly BuilderProvider[] = ['wordpress', 'shopify', 'webflow', 'wpcom']
 
 export const PROVIDER_LABEL: Record<SiteProvider, string> = {
   github: 'GitHub',
@@ -35,8 +35,8 @@ export function isSiteProvider(v: unknown): v is SiteProvider {
 
 /** A page (or post) of a builder site, as the agent lists them. */
 export interface ContentRef {
-  /** A WordPress page or post; a Shopify page or product. */
-  kind: 'page' | 'post' | 'product'
+  /** A WordPress page or post; a Shopify page or product; a Webflow CMS item. */
+  kind: 'page' | 'post' | 'product' | 'cms_item'
   id: string
   title: string
   /** The live address, when the builder says. */
@@ -83,6 +83,10 @@ export interface BuilderClient {
   keepsRevisions: boolean
   /** Whether a page hint is one of its ids (WordPress: digits; Shopify: a gid). Pure. */
   looksLikeId(hint: string): boolean
+  /** Why an edited body can't be written (Webflow: it must stay the item's fields), or null. Pure. */
+  validateEdit?(before: string, after: string): string | null
+  /** The title a body carries itself (Webflow: the item's `name` field), when the builder's title lives in the body. Pure. */
+  titleOf?(body: string): string | null
   identity(): Promise<BuilderResult<BuilderIdentity>>
   listContent(opts?: { search?: string | null; limit?: number }): Promise<BuilderResult<ContentRef[]>>
   readContent(ref: Pick<ContentRef, 'kind' | 'id'>): Promise<BuilderResult<ContentSnapshot>>
