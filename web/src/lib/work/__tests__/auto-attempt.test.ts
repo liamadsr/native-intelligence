@@ -6,11 +6,14 @@
  * factory: on by default, inert while either kill switch is thrown.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { makeFakeSupabase, type FakeSupabase, type Row } from './fake-supabase'
 import {
   attemptFireKey,
   attemptWorkProposal,
+  autoAttemptEnvEnabled,
   createWorkProposalAttempter,
   decideAutoAttempt,
   locateQuote,
@@ -150,6 +153,25 @@ describe('decideAutoAttempt — the decision table, in order', () => {
     for (const env of [{}, { AGENT_AUTO_ATTEMPT_ENABLED: '' }, { AGENT_AUTO_ATTEMPT_ENABLED: 'true' }, { AGENT_AUTO_ATTEMPT_ENABLED: '1' }]) {
       expect(await decideAutoAttempt(looseItem(), ctx(world(), { env }))).toMatchObject({ attempt: true })
     }
+  })
+
+  it('the doc and the server check say what the code does: empty is on', () => {
+    // The server's settings check and both .env.examples once said "empty is
+    // off" while the code attempted (Liam, 2026-10-17: agents act by default).
+    const root = join(process.cwd(), '..')
+    const check = readFileSync(join(root, 'deploy/app/check_settings.py'), 'utf8')
+    const line = check.split('\n').find((l) => l.includes('"AGENT_AUTO_ATTEMPT_ENABLED":')) ?? ''
+    expect(line).toContain('empty is on')
+    expect(line).not.toContain('empty is off')
+    for (const file of ['deploy/app/.env.example', 'web/.env.example']) {
+      const lines = readFileSync(join(root, file), 'utf8').split('\n')
+      const at = lines.findIndex((l) => l.startsWith('AGENT_AUTO_ATTEMPT_ENABLED='))
+      expect(at).toBeGreaterThan(0)
+      expect(lines.slice(Math.max(0, at - 3), at).join(' ')).toMatch(/empty is on/i)
+    }
+    expect(autoAttemptEnvEnabled({})).toBe(true)
+    expect(autoAttemptEnvEnabled({ AGENT_AUTO_ATTEMPT_ENABLED: '' })).toBe(true)
+    expect(autoAttemptEnvEnabled({ AGENT_AUTO_ATTEMPT_ENABLED: 'false' })).toBe(false)
   })
 
   it('workspace not in attempt mode → mode_not_attempt (propose and off), nothing read', async () => {

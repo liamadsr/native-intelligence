@@ -47,6 +47,7 @@ import {
   CODING_PRECHECK_PROMPT,
   KNOWLEDGE_BRIEF_PROMPT,
   LOOK_AHEAD_EXTRACT_PROMPT,
+  MEETING_REPLY_PROMPT,
   MEMORY_CAPTURE_PROMPT,
   MEMORY_LEARN_MAIL_TONE_PROMPT,
   NOTE_CONTINUATION_INSTRUCTIONS,
@@ -416,6 +417,22 @@ export const UTILITY_KIND_SPECS: Record<UtilityKind, UtilityKindSpec> = {
     // Answers ran to about 1,800 tokens on DEV (six items, four booking mails): room to finish.
     maxOutputTokens: 3_000,
     timeoutMs: 60_000,
+    privateRouting: true,
+  },
+  // A meeting's hand-off, when the person's agent attends for them (roadmap
+  // #12, src/lib/meeting-agent/meeting-turn.ts): the approved brief and what
+  // the meeting asked, to one short answer, a question for the person, or
+  // nothing. No tools: other people's words never reach a turn that holds the
+  // person's tools. On the Fast surface, and quick: someone in the meeting is
+  // waiting on it. Meeting talk is private, so the privacy filters too.
+  meeting_reply: {
+    surface: 'drafting',
+    feature: 'meeting_agent.reply',
+    requiredParams: [],
+    systemPrompt: () => MEETING_REPLY_PROMPT,
+    maxSteps: STRUCTURED_MAX_STEPS,
+    maxOutputTokens: 600,
+    timeoutMs: 15_000,
     privateRouting: true,
   },
   // The quality layer's reviewer (eve-templates-lessons.md §3b P1;

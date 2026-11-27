@@ -31,6 +31,7 @@ import { keptUpToDateOnCaptureProcessed } from '@/lib/inngest/kept-up-to-date'
 import { agentEventCaptureProcessed, agentEventDigest, agentEventMeetingSoon, agentEventRoute } from '@/lib/inngest/agent-events'
 import { emailAutoArchive } from '@/lib/inngest/email-auto-archive'
 import { lookAheadRun, lookAheadTravel } from '@/lib/inngest/look-ahead'
+import { meetingAgentDial, meetingAgentNotes } from '@/lib/inngest/meeting-agent'
 import { dreamerRun } from '@/lib/inngest/dreamer'
 import { captureReindex } from '@/lib/inngest/capture-reindex'
 import { abandonedCaptureSweep, finalizeAbandonedCapture } from '@/lib/inngest/capture-finalizer'
@@ -58,6 +59,7 @@ import { workRunChildSettled, workRunExecute, workRunResume } from '@/lib/innges
 import { agentMemorySummarize } from '@/lib/inngest/agent-memory-functions'
 import { memoryCapture } from '@/lib/inngest/memory-capture-functions'
 import { workspaceAutonomyOff } from '@/lib/inngest/workspace-autonomy-functions'
+import { autonomyActionRun } from '@/lib/inngest/autonomy-functions'
 import { usageLogRetry } from '@/lib/inngest/billing-functions'
 import { chatUsageOutboxSweep } from '@/lib/inngest/chat-usage-outbox'
 import { mcpTokenKeepalive } from '@/lib/inngest/mcp-token-keepalive'
@@ -147,6 +149,8 @@ export const { GET, POST, PUT } = serve({
     emailAutoArchive,
     lookAheadRun,
     lookAheadTravel,
+    meetingAgentDial,
+    meetingAgentNotes,
     dreamerRun,
     captureReindex,
     abandonedCaptureSweep,
@@ -188,6 +192,7 @@ export const { GET, POST, PUT } = serve({
     agentMemorySummarize,
     memoryCapture,
     workspaceAutonomyOff,
+    autonomyActionRun,
     usageLogRetry,
     chatUsageOutboxSweep,
     mcpTokenKeepalive,
