@@ -8,14 +8,15 @@
  * The state must be ours and for the person signed in here
  * (src/lib/website/builder.ts completeWordpressConnect), so a link made in
  * someone else's workspace can't take this site's login there. The password
- * is never logged, echoed or kept anywhere but encrypted on the site's row;
- * the answer is a plain page with no referrer and no caching, since the
- * address it was asked at holds the password.
+ * is never logged, echoed or kept anywhere but encrypted on the site's row:
+ * the edge's logs redact `password` and `user_login` (deploy/edge/Caddyfile),
+ * and the answer is a 303 to this path without the query (no-store, no
+ * referrer), so the address that held the password leaves the browser too.
  */
 import { requireUser } from '@/lib/api-auth'
 import { getServiceClient } from '@/lib/supabase/service'
 import { appOrigin } from '@/lib/twilio/config'
-import { completeWordpressConnect } from '@/lib/website/builder'
+import { completeWordpressConnect, CONNECT_REFUSALS } from '@/lib/website/builder'
 
 export const dynamic = 'force-dynamic'
 
@@ -33,12 +34,31 @@ function answerPage(status: number, line: string): Response {
   })
 }
 
+/**
+ * After WordPress's redirect: the login is stored, then the browser is sent
+ * (303) to this same path with only a result code, so the address that
+ * carried the password leaves its address bar and its history. The page is
+ * drawn from that code alone.
+ */
+function settle(request: URL, result: string): Response {
+  const to = new URL(request.pathname, appOrigin())
+  to.searchParams.set('result', result)
+  return new Response(null, { status: 303, headers: { Location: to.toString(), 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' } })
+}
+
+const CONNECTED = 'Your WordPress site is connected. Back in Native Intelligence (or by text) you can ask for changes; nothing goes live without your yes.'
+
 export async function GET(request: Request): Promise<Response> {
   const url = new URL(request.url)
   const params = url.searchParams
-  if (params.get('rejected') === '1' || params.get('success') === 'false') {
-    return answerPage(200, 'Nothing was connected: the request was turned down on WordPress. You can ask for a new link any time.')
+  // The page after the redirect: fixed words for a fixed code.
+  const shown = params.get('result')
+  if (shown && !params.has('password')) {
+    if (shown === 'connected') return answerPage(200, CONNECTED)
+    const words = (CONNECT_REFUSALS as Record<string, string>)[shown] ?? CONNECT_REFUSALS.FAILED
+    return answerPage(shown === 'WRONG_PERSON' ? 403 : 400, words)
   }
+  if (params.get('rejected') === '1' || params.get('success') === 'false') return settle(url, 'REJECTED')
   const auth = await requireUser()
   const sessionUserId = auth instanceof Response ? null : auth.user.id
   const result = await completeWordpressConnect(getServiceClient(), {
@@ -49,11 +69,11 @@ export async function GET(request: Request): Promise<Response> {
     password: params.get('password'),
   }).catch((err: unknown) => {
     console.error('[website] wordpress connect failed:', err instanceof Error ? err.name : 'error')
-    return { ok: false as const, code: 'FAILED', error: 'Something went wrong connecting the site. Ask for a new link and try again.' }
+    return { ok: false as const, code: 'FAILED', error: CONNECT_REFUSALS.FAILED }
   })
   if (!result.ok) {
     console.warn(`[website] wordpress connect refused: ${result.code}`)
-    return answerPage(result.code === 'WRONG_PERSON' ? 403 : 400, result.error)
+    return settle(url, result.code)
   }
-  return answerPage(200, 'Your WordPress site is connected. Back in Native Intelligence (or by text) you can ask for changes; nothing goes live without your yes.')
+  return settle(url, 'connected')
 }

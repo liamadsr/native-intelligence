@@ -29,6 +29,10 @@
 				request>uri multi_regexp {
 					regexp "^/e/[^/?]+" "/e/REDACTED"
 					regexp "([?&](apikey|token|access_token|refresh_token|code)=)[^&]*" "${1}REDACTED"
+					# A WordPress site hands back the application password its owner
+					# approved, and the login's name, in the query string
+					# (/api/website/wordpress/callback, docs/plans/hosted-site-builders.md).
+					regexp "([?&](password|user_login)=)[^&]*" "${1}REDACTED"
 					regexp "[A-Za-z0-9_-]{32,}" "REDACTED"
 				}
 			}
@@ -237,6 +241,10 @@
 				# Authorization headers are left out of Caddy's logs anyway.
 				request>uri multi_regexp {
 					regexp "([?&](apikey|token|access_token|refresh_token|code|state|key|secret|signature|sig)=)[^&]*" "${1}REDACTED"
+					# A WordPress application password (24 characters in groups of
+					# four, spaces between) and the login's name, handed back to
+					# /api/website/wordpress/callback: neither rule above catches them.
+					regexp "([?&](password|user_login)=)[^&]*" "${1}REDACTED"
 					regexp "[A-Za-z0-9_-]{32,}" "REDACTED"
 				}
 			}

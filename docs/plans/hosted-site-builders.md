@@ -229,6 +229,16 @@ refuses a moved head), and a stuck write is settled by reading the page back (`r
   permissions, an Embedded Script extension). OAuth tokens go in `user_oauth_tokens`,
   encrypted, as GitHub's do; nothing in the repo.
 
+**Before `WEBSITE_BUILDERS` is switched on, the edge must be reloaded with the Caddyfile
+from this branch.** WordPress hands the application password (and the login's name) back in
+the callback's query string, and the edge access-logs the app's requests and logs whole
+requests on an upstream error: both log filters now redact `password` and `user_login`
+(`deploy/edge/Caddyfile`, tested in `deploy/edge/tests/test_edge.py`). The callback also
+answers with a 303 to its own path without the query, so the address leaves the browser's
+history, and the WordPress client refuses a site whose name resolves to a private, loopback
+or link-local address. The `deploy/edge` change holds the automatic deploys until a person
+has reloaded the edge.
+
 ## 5. Onboarding
 
 `text-setup.ts` offers to connect a WordPress site by text when the builder is on

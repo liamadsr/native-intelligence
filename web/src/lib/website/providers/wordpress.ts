@@ -17,7 +17,8 @@
  *             revision), so either way the owner can step back in WordPress.
  *
  * The site's address is the owner's, so nothing here trusts it: https and a
- * public host name only (./fetch.ts publicHttpsUrl), no redirects followed
+ * public host name only (./fetch.ts publicHttpsUrl) that resolves only to
+ * public addresses (never a private, loopback or link-local one), no redirects followed
  * with the password on (a redirect is an error), a time limit and a size cap.
  * The password never appears in a URL we make, a log line or an error.
  *
@@ -37,6 +38,41 @@ export interface WordpressLogin {
 export interface WordpressDeps {
   fetchImpl?: typeof fetch
   timeoutMs?: number
+  /**
+   * The addresses a host name resolves to. Default: the system resolver, when
+   * the real fetch is used (a test's own fetch owns its network, so nothing is
+   * resolved unless the test passes this).
+   */
+  resolveHost?: (host: string) => Promise<string[]>
+}
+
+/** Whether an IP address is private, loopback, link-local or otherwise not the public internet's. Pure. */
+export function isNonPublicAddress(ip: string): boolean {
+  const v4 = ip.startsWith('::ffff:') ? ip.slice(7) : ip
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(v4)
+  if (m) {
+    const [a, b] = [Number(m[1]), Number(m[2])]
+    return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 198 && (b === 18 || b === 19)) || a >= 224
+  }
+  const v6 = ip.toLowerCase()
+  return v6 === '::' || v6 === '::1' || /^f[cd]/.test(v6) || /^fe[89ab]/.test(v6) || /^ff/.test(v6)
+}
+
+async function systemResolve(host: string): Promise<string[]> {
+  const { lookup } = await import('node:dns/promises')
+  return (await lookup(host, { all: true })).map((a) => a.address)
+}
+
+/** Whether the host resolves only to public addresses (the Basic-auth request goes nowhere else). */
+async function resolvesPublic(deps: WordpressDeps, host: string): Promise<boolean> {
+  const resolve = deps.resolveHost ?? (deps.fetchImpl ? null : systemResolve)
+  if (!resolve) return true
+  try {
+    const addresses = await resolve(host)
+    return addresses.length > 0 && !addresses.some(isNonPublicAddress)
+  } catch {
+    return false
+  }
 }
 
 const MAX_BYTES = 3_000_000
@@ -64,6 +100,8 @@ async function readJson(res: Response): Promise<unknown> {
 async function call(deps: WordpressDeps, url: string, init: { method?: string; auth?: string; body?: unknown } = {}): Promise<BuilderResult<unknown>> {
   const safe = publicHttpsUrl(url)
   if (!safe) return no(0, 'not a public https address')
+  // The name checks out; so must where it points (a private, loopback or link-local address never gets the login).
+  if (!(await resolvesPublic(deps, safe.hostname))) return no(0, 'the site’s address is not on the public internet')
   let res: Response
   try {
     res = await (deps.fetchImpl ?? fetch)(safe.toString(), {

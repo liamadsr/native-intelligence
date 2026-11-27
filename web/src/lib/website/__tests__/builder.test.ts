@@ -464,3 +464,19 @@ describe('a write stuck in merging', () => {
     expect(changeRow()).toMatchObject({ state: 'failed' })
   })
 })
+
+describe('where the login may go', () => {
+  it('tells private, loopback and link-local addresses from public ones', async () => {
+    const { isNonPublicAddress } = await import('../providers/wordpress')
+    for (const ip of ['10.0.0.5', '127.0.0.1', '169.254.169.254', '172.16.1.1', '192.168.1.1', '100.64.0.1', '0.0.0.0', '::1', 'fd00::1', 'fe80::1', '::ffff:10.0.0.1']) expect(isNonPublicAddress(ip), ip).toBe(true)
+    for (const ip of ['93.184.216.34', '8.8.8.8', '172.32.0.1', '2606:4700::1111']) expect(isNonPublicAddress(ip), ip).toBe(false)
+  })
+
+  it('a site name that resolves to a private address is never sent the login', async () => {
+    const { wordpressClient } = await import('../providers/wordpress')
+    const fetchImpl = vi.fn(async () => new Response('{}', { status: 200 }))
+    const client = wordpressClient({ apiRoot: ROOT, user: 'admin', password: 'p' }, { fetchImpl: fetchImpl as unknown as typeof fetch, resolveHost: async () => ['93.184.216.34', '10.0.0.7'] })
+    expect(await client.identity()).toMatchObject({ ok: false, error: expect.stringContaining('not on the public internet') })
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+})

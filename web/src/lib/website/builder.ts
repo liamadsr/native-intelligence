@@ -177,6 +177,25 @@ export async function startBuilderConnect(svc: Svc, who: Who, input: { builder: 
   }
 }
 
+/**
+ * What the callback page says for each refusal (fixed words: the page is
+ * shown again without the query that carried the password, from the code
+ * alone).
+ */
+export const CONNECT_REFUSALS = {
+  BAD_STATE: 'That connect link is no longer good. Ask for a new one.',
+  BUILDER_OFF: 'Connecting a WordPress site isn’t switched on.',
+  WRONG_PERSON: 'Sign in to Native Intelligence as the person who asked for this link, on this device, and open the link again.',
+  NO_PASSWORD: 'WordPress didn’t send a login back. Ask for a new link and press Approve.',
+  OTHER_SITE: 'That approval came from another site than the one asked for. Ask for a new link.',
+  NOT_ALLOWED: 'Only an owner or admin of the workspace connects its website.',
+  LOGIN_REFUSED: 'WordPress refused the new login. Ask for a new link and try again.',
+  CANT_EDIT: 'That WordPress login can’t change published pages. Approve with an administrator or editor login.',
+  FAILED: 'Something went wrong connecting the site. Ask for a new link and try again.',
+  REJECTED: 'Nothing was connected: the request was turned down on WordPress. You can ask for a new link any time.',
+} as const
+export type ConnectRefusal = keyof typeof CONNECT_REFUSALS
+
 export type CompleteResult = { ok: true; site: WebsiteSite } | { ok: false; code: string; error: string }
 
 /**
@@ -190,21 +209,21 @@ export async function completeWordpressConnect(
   input: { state: string | null; sessionUserId: string | null; siteUrl: string | null; userLogin: string | null; password: string | null },
   deps: BuilderDeps = {},
 ): Promise<CompleteResult> {
-  const no = (code: string, error: string): CompleteResult => ({ ok: false, code, error })
+  const no = (code: ConnectRefusal): CompleteResult => ({ ok: false, code, error: CONNECT_REFUSALS[code] })
   const state = verifyConnectState(input.state, (deps.now ?? Date.now)())
-  if (!state) return no('BAD_STATE', 'That connect link is no longer good. Ask for a new one.')
-  if (!enabledBuilders(deps.env).includes('wordpress')) return no('BUILDER_OFF', 'Connecting a WordPress site isn’t switched on.')
+  if (!state) return no('BAD_STATE')
+  if (!enabledBuilders(deps.env).includes('wordpress')) return no('BUILDER_OFF')
   // The person approving must be the one who asked: a link made in someone else's workspace can't take this site's login there.
-  if (!input.sessionUserId || input.sessionUserId !== state.userId) return no('WRONG_PERSON', 'Sign in to Native Intelligence as the person who asked for this link, on this device, and open the link again.')
-  if (!input.userLogin || !input.password) return no('NO_PASSWORD', 'WordPress didn’t send a login back. Ask for a new link and press Approve.')
+  if (!input.sessionUserId || input.sessionUserId !== state.userId) return no('WRONG_PERSON')
+  if (!input.userLogin || !input.password) return no('NO_PASSWORD')
   const reported = input.siteUrl ? publicHttpsUrl(input.siteUrl) : null
-  if (!reported || reported.origin !== new URL(state.apiRoot).origin) return no('OTHER_SITE', 'That approval came from another site than the one asked for. Ask for a new link.')
+  if (!reported || reported.origin !== new URL(state.apiRoot).origin) return no('OTHER_SITE')
   const role = await roleOf(svc, { userId: state.userId, workspaceId: state.workspaceId })
-  if (!MANAGES_SITE.has(role ?? '')) return no('NOT_ALLOWED', 'Only an owner or admin of the workspace connects its website.')
+  if (!MANAGES_SITE.has(role ?? '')) return no('NOT_ALLOWED')
   const client = wordpressClient({ apiRoot: state.apiRoot, user: input.userLogin, password: input.password }, wpDeps(deps))
   const me = await client.identity()
-  if (!me.ok) return no('LOGIN_REFUSED', 'WordPress refused the new login. Ask for a new link and try again.')
-  if (!me.value.canEdit) return no('CANT_EDIT', 'That WordPress login can’t change published pages. Approve with an administrator or editor login.')
+  if (!me.ok) return no('LOGIN_REFUSED')
+  if (!me.value.canEdit) return no('CANT_EDIT')
   const site = await connectBuilderSite(svc, {
     workspaceId: state.workspaceId,
     connectedBy: state.userId,
