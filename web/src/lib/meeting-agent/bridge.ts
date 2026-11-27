@@ -12,13 +12,15 @@
  *     A `check` puts the question to the person (./ask.ts);
  *   - every word is kept for the notes (./notes.ts), and the meeting's words
  *     are read for an objection (./objection.ts): on one, it says goodbye and
- *     leaves, whatever GPT-Live does.
+ *     leaves, whatever GPT-Live does;
+ *   - the person's answer to a check is read out as theirs while the call is
+ *     up (./reply-relay.ts, phase 2).
  *
  * When the call ends, the notes go to the person's capture and its finishing
  * pass runs (./finish.ts).
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { runLiveCall, type LiveCallDeps, type LiveCallSummary } from '@/lib/calls/live-bridge'
+import { runLiveCall, type LiveCallControl, type LiveCallDeps, type LiveCallSummary } from '@/lib/calls/live-bridge'
 import type { CallTurnResult } from '@/lib/calls/call-turn-server'
 import { askOwner } from './ask'
 import { runMeetingTurn, MEETING_BEFORE_MAX_CHARS } from './meeting-turn'
@@ -28,6 +30,7 @@ import { meetingAnnouncement, objectionGoodbye } from './session'
 import { meetingAgentMaxMinutes } from './settings'
 import { stampAttendance, type MeetingAttendance } from './store'
 import { finishMeeting, type MeetingEnd } from './finish'
+import { RELAY_POLL_MS, ReplyRelay, type ReplyRelayDeps } from './reply-relay'
 
 /** How long the goodbye gets to be said before the call is closed (an objection). */
 export const OBJECTION_GOODBYE_MS = 7_000
@@ -44,6 +47,9 @@ export interface MeetingCallDeps {
   stamp?: typeof stampAttendance
   finish?: typeof finishMeeting
   setTimer?: (fn: () => void, ms: number) => void
+  /** The relay's poll: starts a repeating timer, returns its stop. */
+  every?: (fn: () => void, ms: number) => () => void
+  relay?: ReplyRelayDeps
   maxMs?: number
 }
 
@@ -65,6 +71,22 @@ export async function runMeetingCall(
   let objected = false
   let announced = false
   let recentInput = ''
+  let control: LiveCallControl | null = null
+  const relay = new ReplyRelay(deps.supabase, a, deps.relay)
+  const every =
+    deps.every ??
+    ((fn, ms) => {
+      const t = setInterval(fn, ms)
+      t.unref?.()
+      return () => clearInterval(t)
+    })
+  // The person's answers, said as they arrive (only while the call is up and nobody objected).
+  const stopRelay = every(() => {
+    if (!control || objected || !relay.hasOpen()) return
+    void relay.poll().then((lines) => {
+      for (const line of lines) if (control && !objected) control.say(line)
+    })
+  }, RELAY_POLL_MS)
 
   const runTurn: NonNullable<LiveCallDeps['runTurn']> = async ({ delegationId, words }, keep): Promise<CallTurnResult> => {
     if (objected) return { kind: 'quiet', outcome: 'objected' }
@@ -79,7 +101,11 @@ export async function runMeetingCall(
         return { kind: 'reply', text: reply.say, outcome: 'answer', rowId: delegationId }
       case 'check':
         // The meeting hears it at once; the question goes to the person alongside.
-        keep((deps.ask ?? askOwner)(deps.supabase, { attendance: a, delegationId, question: reply.question || words.slice(0, 300) }).then(() => {}))
+        keep(
+          (deps.ask ?? askOwner)(deps.supabase, { attendance: a, delegationId, question: reply.question || words.slice(0, 300) }).then((asked) => {
+            if (asked.ok && asked.conversationId) relay.add({ messageId: asked.messageId, conversationId: asked.conversationId, askedAt: asked.askedAt })
+          }),
+        )
         return { kind: 'notice', text: reply.say, outcome: 'check' }
       case 'objection':
         objected = true
@@ -90,7 +116,8 @@ export async function runMeetingCall(
     }
   }
 
-  const onEvent: NonNullable<LiveCallDeps['onEvent']> = (event, control) => {
+  const onEvent: NonNullable<LiveCallDeps['onEvent']> = (event, ctl) => {
+    control = ctl
     if (!announced) {
       // The first event means the attach held, and the bridge sent the announcement with it.
       announced = true
@@ -108,20 +135,27 @@ export async function runMeetingCall(
     objected = true
     console.info(`[meeting-agent] attendance=${a.id} objection heard: leaving`)
     void (deps.stamp ?? stampAttendance)(deps.supabase, a.id, 'objected_at').catch(() => {})
-    control.say(objectionGoodbye(a.ownerFirstName))
-    setTimer(() => control.close(), OBJECTION_GOODBYE_MS)
+    ctl.say(objectionGoodbye(a.ownerFirstName))
+    setTimer(() => ctl.close(), OBJECTION_GOODBYE_MS)
   }
 
-  const summary = await (deps.live ?? runLiveCall)(
-    { sessionId: args.sessionId, caller: { userId: a.userId, workspaceId: a.workspaceId, via: 'meeting' }, apiKey: args.apiKey, greeting: meetingAnnouncement(a.ownerFirstName) },
-    {
-      ...deps.liveDeps,
-      supabase: deps.supabase,
-      runTurn,
-      onEvent,
-      maxMs: deps.maxMs ?? meetingAgentMaxMinutes() * 60_000,
-    },
-  )
+  let summary: LiveCallSummary
+  try {
+    summary = await (deps.live ?? runLiveCall)(
+      { sessionId: args.sessionId, caller: { userId: a.userId, workspaceId: a.workspaceId, via: 'meeting' }, apiKey: args.apiKey, greeting: meetingAnnouncement(a.ownerFirstName) },
+      {
+        ...deps.liveDeps,
+        supabase: deps.supabase,
+        runTurn,
+        onEvent,
+        maxMs: deps.maxMs ?? meetingAgentMaxMinutes() * 60_000,
+      },
+    )
+  } finally {
+    // Nothing is relayed once the call is over (or never attached).
+    stopRelay()
+    control = null
+  }
   const end = meetingEndOf(summary, objected)
   await (deps.finish ?? finishMeeting)(deps.supabase, { attendance: a, notes, end })
   return { summary, end }

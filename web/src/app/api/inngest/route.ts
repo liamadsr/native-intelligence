@@ -31,7 +31,7 @@ import { keptUpToDateOnCaptureProcessed } from '@/lib/inngest/kept-up-to-date'
 import { agentEventCaptureProcessed, agentEventDigest, agentEventMeetingSoon, agentEventRoute } from '@/lib/inngest/agent-events'
 import { emailAutoArchive } from '@/lib/inngest/email-auto-archive'
 import { lookAheadRun, lookAheadTravel } from '@/lib/inngest/look-ahead'
-import { meetingAgentDial, meetingAgentNotes } from '@/lib/inngest/meeting-agent'
+import { meetingAgentDial, meetingAgentNotes, meetingAgentSeries } from '@/lib/inngest/meeting-agent'
 import { dreamerRun } from '@/lib/inngest/dreamer'
 import { captureReindex } from '@/lib/inngest/capture-reindex'
 import { abandonedCaptureSweep, finalizeAbandonedCapture } from '@/lib/inngest/capture-finalizer'
@@ -151,6 +151,7 @@ export const { GET, POST, PUT } = serve({
     lookAheadTravel,
     meetingAgentDial,
     meetingAgentNotes,
+    meetingAgentSeries,
     dreamerRun,
     captureReindex,
     abandonedCaptureSweep,

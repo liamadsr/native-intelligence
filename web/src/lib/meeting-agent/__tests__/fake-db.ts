@@ -64,7 +64,7 @@ export function fakeDb(seed: Record<string, Row[]> = {}, opts: { failOn?: 'selec
   function from(table: string) {
     tables[table] ??= []
     const filters: Array<(r: Row) => boolean> = []
-    let op: 'select' | 'insert' | 'update' = 'select'
+    let op: 'select' | 'insert' | 'update' | 'delete' = 'select'
     let payload: Row | null = null
     let limit = Infinity
     let order: { col: string; asc: boolean } | null = null
@@ -78,6 +78,10 @@ export function fakeDb(seed: Record<string, Row[]> = {}, opts: { failOn?: 'selec
         return { data: [row], error: null }
       }
       let rows = tables[table].filter((r) => filters.every((f) => f(r)))
+      if (op === 'delete') {
+        tables[table] = tables[table].filter((r) => !rows.includes(r))
+        return { data: rows, error: null }
+      }
       if (op === 'update') {
         rows.forEach((r) => Object.assign(r, payload))
         writes.push({ table, op, values: payload! })
@@ -93,11 +97,13 @@ export function fakeDb(seed: Record<string, Row[]> = {}, opts: { failOn?: 'selec
       select: () => chain,
       insert: (values: Row) => ((op = 'insert'), (payload = values), chain),
       update: (values: Row) => ((op = 'update'), (payload = values), chain),
+      delete: () => ((op = 'delete'), chain),
       eq: (col: string, v: unknown) => (filters.push((r) => same(col, r[col], v)), chain),
       neq: (col: string, v: unknown) => (filters.push((r) => !same(col, r[col], v)), chain),
       is: (col: string, v: unknown) => (filters.push((r) => (r[col] ?? null) === v), chain),
       in: (col: string, vs: unknown[]) => (filters.push((r) => vs.some((v) => same(col, r[col], v))), chain),
       gte: (col: string, v: string) => (filters.push((r) => Date.parse(String(r[col])) >= Date.parse(v)), chain),
+      gt: (col: string, v: string) => (filters.push((r) => Date.parse(String(r[col])) > Date.parse(v)), chain),
       match: (m: Row) => {
         for (const [k, v] of Object.entries(m)) filters.push((r) => same(k, r[k], v))
         return chain

@@ -6,6 +6,7 @@ import { findMeeting } from '@/lib/meeting-agent/lookup'
 import { cancelAttendance, sendAgentToMeeting } from '@/lib/meeting-agent/send'
 import { meetingAgentOn } from '@/lib/meeting-agent/settings'
 import { listAttendances, publicAttendance } from '@/lib/meeting-agent/store'
+import { listSeries, pauseSeries, publicSeries, removeSeries, saveSeries, seriesIdOf, seriesRefsOf } from '@/lib/meeting-agent/series'
 import { normalizeEventId, normalizeStartsAt } from '@/lib/meetings/meeting-goal'
 import { isUuid } from '@/lib/presence/presence'
 
@@ -16,16 +17,24 @@ export const dynamic = 'force-dynamic'
  * (roadmap #12, migration 723). Liam, 11-27: "let's do it". Off (403 with
  * FEATURE_DISABLED) unless MEETING_AGENT is on.
  *
- *   GET     → { attendances }: theirs from a day ago on, soonest first, each
- *           with its status (scheduled, dialling, in_meeting, ended, …) and
- *           the questions it put to them. Never the dial-in PIN.
- *   POST    { calendar_event_id, starts_at, brief, dial_in?: { number, digits } }
- *           → { attendance }: send it. The person's own Send in the app is
- *           the opt-in (the chat's route is its card). The meeting is read
- *           from their calendar (it never attends one they're not on), its
- *           dial-in from the invite unless they gave one.
- *   DELETE  ?id → { outcome: cancelled | pulled_out | over }: call it off, or
- *           pull it out of the meeting.
+ *   GET     ?probe=1 → { on: true } (Settings' nav: whether to show the page).
+ *   GET     → { attendances, series }: theirs from a day ago on, soonest
+ *           first, each with its status (scheduled, dialling, in_meeting,
+ *           ended, …) and the questions it put to them; and the recurring
+ *           meetings they sent it to (727). Never a dial-in PIN.
+ *   POST    { calendar_event_id, starts_at, brief, dial_in?: { number, digits },
+ *           every_occurrence?: true } → { attendance, series? }: send it. The
+ *           person's own Send in the app is the opt-in (the chat's route is
+ *           its card). The meeting is read from their calendar (it never
+ *           attends one they're not on), its dial-in from the invite unless
+ *           they gave one. With every_occurrence, the same brief also covers
+ *           every later occurrence of its series (400 NOT_RECURRING for a
+ *           one-off).
+ *   PATCH   { series_id, paused } → { ok }: pause or turn back on a series.
+ *   DELETE  ?id → { outcome: cancelled | pulled_out | over }: call it off
+ *           ("skip this one" for an occurrence of a series), or pull it out of
+ *           the meeting. ?series_id → { removed }: stop a series (its
+ *           occurrences not yet started are cancelled).
  *
  * Private to the caller: every query fences on them and the current
  * workspace (the service role writes, so the fence is what holds).
@@ -35,13 +44,17 @@ function off() {
   return featureDisabled('Sending your assistant to meetings is not turned on.')
 }
 
-export async function GET() {
+export async function GET(request?: NextRequest) {
   if (!meetingAgentOn()) return off()
   const auth = await requireWorkspace()
   if (auth instanceof Response) return auth
+  // Settings' nav asks only whether the page exists here.
+  if (request?.nextUrl.searchParams.get('probe') === '1') return NextResponse.json({ on: true })
   try {
-    const rows = await listAttendances(getServiceClient(), { workspaceId: auth.workspaceId, userId: auth.user.id, since: new Date(Date.now() - 24 * 60 * 60_000).toISOString() })
-    return NextResponse.json({ attendances: rows.map(publicAttendance) })
+    const scope = { workspaceId: auth.workspaceId, userId: auth.user.id }
+    const [rows, series] = await Promise.all([listAttendances(getServiceClient(), { ...scope, since: new Date(Date.now() - 24 * 60 * 60_000).toISOString() }), listSeries(getServiceClient(), scope)])
+    const refs = await seriesRefsOf(getServiceClient(), { userId: auth.user.id, ids: rows.map((r) => r.id) })
+    return NextResponse.json({ attendances: rows.map((r) => ({ ...publicAttendance(r), seriesRef: refs.get(r.id) ?? null })), series: series.map(publicSeries) })
   } catch (err) {
     return serverError(err instanceof Error ? err.message : 'read failed')
   }
@@ -60,6 +73,9 @@ export async function POST(request: NextRequest) {
   try {
     const found = await findMeeting(auth.user.id, { calendarEventId, startsAt })
     if (!found) return notFound("That meeting isn't on your calendar")
+    const everyOccurrence = body.every_occurrence === true
+    const seriesId = seriesIdOf(found.event)
+    if (everyOccurrence && !seriesId) return apiError("That meeting doesn't repeat, so there are no other occurrences to send your assistant to.", { status: 400, code: 'NOT_RECURRING' })
     const dialIn = given && typeof given.number === 'string' && typeof given.digits === 'string' ? { number: given.number, digits: given.digits } : found.dialIn
     const sent = await sendAgentToMeeting(getServiceClient(), {
       workspaceId: auth.workspaceId,
@@ -75,9 +91,37 @@ export async function POST(request: NextRequest) {
       if (sent.reason === 'error') return serverError(sent.message)
       return apiError(sent.message, { status: sent.reason === 'busy' ? 409 : 400, code: sent.reason.toUpperCase() })
     }
+    if (everyOccurrence && seriesId) {
+      const a = sent.attendance
+      // The brief and dial-in as the send checked them; the person's own dial-in only, never one read from this invite.
+      const series = await saveSeries(getServiceClient(), {
+        workspaceId: auth.workspaceId,
+        userId: auth.user.id,
+        seriesId,
+        title: found.event.title,
+        brief: a.brief,
+        dialIn: given && a.dialInNumber && a.dialInPin ? { number: a.dialInNumber, digits: a.dialInPin } : null,
+      })
+      return NextResponse.json({ attendance: publicAttendance(sent.attendance), series: publicSeries(series) })
+    }
     return NextResponse.json({ attendance: publicAttendance(sent.attendance) })
   } catch (err) {
     return serverError(err instanceof Error ? err.message : 'not sent')
+  }
+}
+
+export async function PATCH(request: NextRequest) {
+  if (!meetingAgentOn()) return off()
+  const auth = await requireWorkspace()
+  if (auth instanceof Response) return auth
+  const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
+  const id = typeof body?.series_id === 'string' ? body.series_id : ''
+  if (!isUuid(id) || typeof body?.paused !== 'boolean') return badRequest('series_id and paused are required')
+  try {
+    const ok = await pauseSeries(getServiceClient(), { workspaceId: auth.workspaceId, userId: auth.user.id, id }, body.paused)
+    return ok ? NextResponse.json({ ok }) : notFound('Not found')
+  } catch (err) {
+    return serverError(err instanceof Error ? err.message : 'not changed')
   }
 }
 
@@ -85,6 +129,16 @@ export async function DELETE(request: NextRequest) {
   if (!meetingAgentOn()) return off()
   const auth = await requireWorkspace()
   if (auth instanceof Response) return auth
+  const seriesId = request.nextUrl.searchParams.get('series_id')
+  if (seriesId !== null) {
+    if (!isUuid(seriesId)) return badRequest('series_id must be an id')
+    try {
+      const removed = await removeSeries(getServiceClient(), { workspaceId: auth.workspaceId, userId: auth.user.id, id: seriesId })
+      return removed ? NextResponse.json({ removed }) : notFound('Not found')
+    } catch (err) {
+      return serverError(err instanceof Error ? err.message : 'not removed')
+    }
+  }
   const id = request.nextUrl.searchParams.get('id') ?? ''
   if (!isUuid(id)) return badRequest('id is required')
   try {

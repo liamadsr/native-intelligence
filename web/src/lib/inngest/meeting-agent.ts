@@ -9,6 +9,11 @@
  *                         stops the sleep; a meeting sent again with a new
  *                         start is a new run, and the old one finds the start
  *                         moved and does nothing.
+ *   meeting-agent-series  every 30 minutes (phase 2, migration 727): sends the
+ *                         agent to each upcoming occurrence of every series
+ *                         the person opted in to, a day and a half ahead
+ *                         (src/lib/meeting-agent/series.ts). Nothing while
+ *                         MEETING_AGENT is off.
  *   meeting-agent-notes   on `meeting-agent/notes.ready` (the call ended with
  *                         words: src/lib/meeting-agent/finish.ts): the end of
  *                         meeting pass a recorded meeting gets, as the person
@@ -19,6 +24,8 @@ import { getServiceClient } from '@/lib/admin'
 import { dialAttendance } from '@/lib/meeting-agent/dial'
 import { MEETING_NOTES_READY_EVENT, type MeetingNotesReadyData } from '@/lib/meeting-agent/finish'
 import { MEETING_CANCELLED_EVENT, MEETING_SCHEDULED_EVENT, type MeetingScheduledData } from '@/lib/meeting-agent/send'
+import { sweepSeries } from '@/lib/meeting-agent/series'
+import { meetingAgentOn } from '@/lib/meeting-agent/settings'
 import { postExtraction, runOwnerBatch } from './capture-finalizer'
 import { inngest } from './client'
 
@@ -56,5 +63,18 @@ export const meetingAgentNotes = inngest.createFunction(
     await step.run('post-extraction', () => postExtraction(getServiceClient(), { ...args, captureProcessed: false }))
     console.info(`[meeting-agent] attendance=${data.attendanceId} capture=${data.captureId} notes finished batch=${batch}`)
     return { batch }
+  },
+)
+
+export const meetingAgentSeries = inngest.createFunction(
+  {
+    id: 'meeting-agent-series',
+    retries: 1,
+    concurrency: [{ limit: 1 }],
+    triggers: [{ cron: '*/30 * * * *' }],
+  },
+  async ({ step }) => {
+    if (!meetingAgentOn()) return { skipped: 'off' }
+    return step.run('sweep', () => sweepSeries(getServiceClient()))
   },
 )
