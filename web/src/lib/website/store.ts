@@ -123,7 +123,7 @@ export function liveWirings(site: Pick<WebsiteSite, 'state' | 'inspection'>): Si
 /** website_change.staged (724), when it has the shape a builder change writes. Pure. */
 function stagedOf(v: unknown): StagedWrite | null {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return null
-  const r = v as Partial<StagedWrite>
+  const r = v as Partial<Omit<StagedWrite, 'provider'>> & { provider?: unknown }
   if (!isSiteProvider(r.provider) || r.provider === 'github' || !r.ref || typeof r.ref.id !== 'string') return null
   if (!r.before || !r.after || typeof r.before.body !== 'string' || typeof r.after.body !== 'string') return null
   if (typeof r.beforeHash !== 'string' || typeof r.afterHash !== 'string') return null

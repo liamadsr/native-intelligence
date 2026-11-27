@@ -269,6 +269,8 @@ export async function mergeWebsiteChange(svc: Svc, args: { userId: string; works
     const { applyBuilderYes } = await import('./builder')
     return applyBuilderYes(svc, change, site, args.headSha, deps.builder)
   }
+  const prNumber = change.prNumber
+  if (!prNumber) return { success: false, error: 'That website change is no longer waiting for a yes. Nothing was merged.' }
   const merging = await updateChange(svc, change.workspaceId, change.id, { state: 'merging' }, ['awaiting_yes'])
   if (!merging) return { success: false, error: 'That website change was already answered. Nothing more was done.' }
   const token = await tokenOf(deps, svc, site.connectedBy)
@@ -277,17 +279,17 @@ export async function mergeWebsiteChange(svc: Svc, args: { userId: string; works
     return { success: false, error: 'GitHub is no longer connected, so nothing was merged. Text them a GitHub link to reconnect it.' }
   }
   const gh = githubOf(deps, token)
-  const pull = await getPull(gh, site.repoFullName, change.prNumber)
+  const pull = await getPull(gh, site.repoFullName, prNumber)
   if (pull.ok && pull.value.draft && !(await markPullReady(gh, pull.value.nodeId))) {
     await updateChange(svc, change.workspaceId, change.id, { state: 'failed', error: 'GitHub would not mark the draft ready' }, ['merging'])
     return { success: false, code: 'FAILED', error: mergeRefusedText('FAILED') }
   }
-  const merged = await mergePull(gh, site.repoFullName, change.prNumber, args.headSha, changeLabel(change, changeForm(change, site)))
+  const merged = await mergePull(gh, site.repoFullName, prNumber, args.headSha, changeLabel(change, changeForm(change, site)))
   if (!merged.ok) {
     if (merged.code === 'HEAD_MOVED') {
       // Shown again: back to preparing, and a fresh preview wait and card for the new head.
       await updateChange(svc, change.workspaceId, change.id, { state: 'preparing', approval_id: null }, ['merging'])
-      const now = await getPull(gh, site.repoFullName, change.prNumber)
+      const now = await getPull(gh, site.repoFullName, prNumber)
       await sendOf(deps)({ name: WEBSITE_PR_OPENED, id: prOpenedEventId(change.id, now.ok ? now.value.headSha : `moved-${Date.now()}`), data: { workspaceId: change.workspaceId, changeId: change.id } }).catch(() => undefined)
     } else {
       await updateChange(svc, change.workspaceId, change.id, { state: 'failed', error: `${merged.code}: ${merged.error}` }, ['merging'])

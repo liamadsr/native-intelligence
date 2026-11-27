@@ -117,8 +117,8 @@ interface ConnectState {
 }
 
 /** The state's key: derived from the OAuth state secret for this one purpose, so no other signed value is a valid one. */
-function stateKey(): Buffer {
-  return createHmac('sha256', oauthStateSecret()).update('website-builder-connect-v1').digest()
+function stateKey(): Uint8Array {
+  return new Uint8Array(createHmac('sha256', oauthStateSecret()).update('website-builder-connect-v1').digest())
 }
 
 export function signConnectState(state: ConnectState): string {
