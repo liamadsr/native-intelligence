@@ -44,6 +44,7 @@ import { markSettledEvents, settledEventIds } from './freshness'
 import type { AgentPausedState } from '@/lib/work/agent-paused'
 import { isStorableTimeZone, pickTimeZone, profileTimeZones, type TimeZoneSource } from './member-time-zone'
 import type { AgentEventKind, AgentEventRow } from './types'
+import { earnedAutonomyGraduating } from '@/lib/autonomy/config'
 
 /** The local hour the digest goes out at (Defaults: 8:00). */
 export const DIGEST_LOCAL_HOUR = 8
@@ -161,6 +162,13 @@ export interface DigestGather {
   sinceIso: string
   /** Every row the digest carries: the lines' rows and the ones folded into them (marked delivered together). */
   carriedIds?: string[]
+  /**
+   * What the agent did on its own since (earned autonomy, docs/plans/earned-autonomy.md
+   * phase 4): each action of a kind the person handed over that ran. Only
+   * while EARNED_AUTONOMY=graduate; a read that fails (726 not applied)
+   * leaves it empty and never fails the digest.
+   */
+  autonomy?: Array<{ at: string; title: string }>
 }
 
 const EVENT_COLUMNS = 'id, kind, facts, occurs_at, expires_at, ref_type, ref_id'
@@ -277,7 +285,60 @@ export async function gatherDigest(
       kind: typeof l.kind === 'string' ? l.kind : null,
     }))
     .filter((l) => !(l.ref_type && l.ref_id && eventRefs.has(`${l.ref_type}:${l.ref_id}`)))
-  return { events, logLines, sinceIso, carriedIds: carried }
+  const autonomy = earnedAutonomyGraduating() ? await ranOnItsOwn(supabase, args, sinceIso) : []
+  return { events, logLines, sinceIso, carriedIds: carried, autonomy }
+}
+
+/** A title for one line: whitespace folded, at most 80 characters. */
+function clipTitle(title: string): string {
+  const t = title.replace(/\s+/g, ' ').trim()
+  if (!t) return 'An action'
+  return t.length > 80 ? `${t.slice(0, 79)}…` : t
+}
+
+/** The most "done on its own" lines the digest names (then "…and N more"). */
+export const DIGEST_MAX_AUTONOMY_LINES = 6
+
+/** The actions that ran on their own since `sinceIso`, newest first. Never throws: a failed read is none. */
+async function ranOnItsOwn(supabase: SupabaseClient, args: { workspaceId: string; userId: string }, sinceIso: string): Promise<Array<{ at: string; title: string }>> {
+  try {
+    const { data, error } = await supabase
+      .from('autonomy_action')
+      .select('title, ran_at, status')
+      .eq('workspace_id', args.workspaceId)
+      .eq('user_id', args.userId)
+      .eq('status', 'ran')
+      .gt('ran_at', sinceIso)
+      .order('ran_at', { ascending: false })
+      .limit(DIGEST_MAX_AUTONOMY_LINES * 5)
+    if (error) return []
+    return ((data as Array<Record<string, unknown>> | null) ?? [])
+      .filter((r) => r.status === 'ran' && typeof r.ran_at === 'string')
+      .map((r) => ({ at: r.ran_at as string, title: clipTitle(typeof r.title === 'string' ? r.title : '') }))
+  } catch {
+    return []
+  }
+}
+
+/**
+ * The digest's "Done on its own" group: one line per action of a kind the
+ * person handed over (Liam, 11-27, decision 1: their yes to "handle this kind
+ * yourself"), newest first, after the other lines and before doc updates.
+ * Empty when there were none (hide empty). Pure.
+ */
+export function autonomyLines(autonomy: ReadonlyArray<{ at: string; title: string }>, timeZone: string): string[] {
+  if (!autonomy.length) return []
+  const fmt = (iso: string) => {
+    try {
+      return new Intl.DateTimeFormat('en-US', { timeZone, hour: 'numeric', minute: '2-digit' }).format(new Date(iso))
+    } catch {
+      return ''
+    }
+  }
+  const sorted = [...autonomy].sort((a, b) => Date.parse(b.at) - Date.parse(a.at))
+  const shown = sorted.slice(0, DIGEST_MAX_AUTONOMY_LINES).map((a) => `- ${fmt(a.at)} ${a.title}`.replace(/^- {2}/, '- '))
+  if (sorted.length > shown.length) shown.push(`- …and ${sorted.length - shown.length} more`)
+  return ['Done on its own (kinds of work you handed over; Settings › Autonomy takes any back):', ...shown]
 }
 
 /** The most doc-update lines the digest names (then "…and N more"). */
@@ -298,8 +359,10 @@ export function docUpdateLines(logLines: readonly AwayLogLine[]): string[] {
 }
 
 /** The digest's body input for what was gathered, or null when there is nothing to say. Pure. */
-export function digestBody(gather: Pick<DigestGather, 'events' | 'logLines' | 'carriedIds'>, args: { date: string; timeZone: string }): HomeTurnDigest | null {
-  if (gather.events.length === 0 && gather.logLines.length === 0) return null
+export function digestBody(gather: Pick<DigestGather, 'events' | 'logLines' | 'carriedIds' | 'autonomy'>, args: { date: string; timeZone: string }): HomeTurnDigest | null {
+  const autonomy = gather.autonomy ?? []
+  if (gather.events.length === 0 && gather.logLines.length === 0 && autonomy.length === 0) return null
+  const ownLines = autonomyLines(autonomy, args.timeZone)
   const docLines = docUpdateLines(gather.logLines)
   const otherLog = gather.logLines.filter((l) => l.kind !== 'doc_updated')
   const { counts, lines } = eventSummaryParts({
@@ -310,8 +373,9 @@ export function digestBody(gather: Pick<DigestGather, 'events' | 'logLines' | 'c
     logLabel: 'log line',
   })
   const docCount = gather.logLines.length - otherLog.length
+  if (autonomy.length > 0) counts.push(`${autonomy.length} done on its own`)
   if (docCount > 0) counts.push(`${docCount} doc update${docCount === 1 ? '' : 's'}`)
-  return { date: args.date, timeZone: args.timeZone, counts, lines: [...lines, ...docLines], eventIds: gather.carriedIds ?? gather.events.map((e) => e.id) }
+  return { date: args.date, timeZone: args.timeZone, counts, lines: [...lines, ...ownLines, ...docLines], eventIds: gather.carriedIds ?? gather.events.map((e) => e.id) }
 }
 
 /** Why the cron sent no digest for a person. */

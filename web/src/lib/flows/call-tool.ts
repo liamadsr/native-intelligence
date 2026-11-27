@@ -241,6 +241,14 @@ export function createCallToolExecutor(deps: CallToolExecutorDeps): CallToolExec
 
       if (decision.policy === 'ask') {
         // The trust authority, for an unattended flow step's outward call: a card.
+        // Earned autonomy (docs/plans/earned-autonomy.md phase 4) leaves this
+        // path CLOSED: a connected app's tool never runs on its own here. Its
+        // annotations are the server's own claim (approval-policy.ts trusts
+        // them only for catalog servers), and a third-party tool's recipients
+        // can sit under any input key, so "reaches no one known to be new"
+        // can't be shown (autonomy/hard-limits.ts fails every mcp__ kind
+        // closed without a verified hint). A loop's native tools graduate
+        // through the gate instead (action-review.ts holdOutward).
         const namespaced = namespacedToolName(server.display_name, config.tool)
         if (decideAction('agent_unattended', 'outward', namespaced, { flowStep: true }) !== 'ask') {
           return failed(`Nothing ran: ${config.tool} needs the person's approval`, { called: called('ask') })
