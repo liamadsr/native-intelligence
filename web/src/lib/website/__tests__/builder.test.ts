@@ -401,9 +401,10 @@ describe('a form on a page', () => {
     })
   }
 
-  it('needs one of their forms and a page; then card → yes → the embed on the page and the form’s new link, bot check kept', async () => {
+  it('needs a page; then card → yes → the embed on the page and the form’s new link, bot check kept', async () => {
     await connected()
-    expect(await startWiring(db, who, {}, startDeps())).toMatchObject({ success: false, code: 'NEEDS_FORM' })
+    // No form named is the business's quote form since phase 5 (its own test below): it still needs a page.
+    expect(await startWiring(db, who, {}, startDeps())).toMatchObject({ success: false, code: 'WHICH_PAGE' })
     seed()
     expect(await startWiring(db, who, { formId: FORM_ID }, startDeps())).toMatchObject({ success: false, code: 'WHICH_PAGE', pages: [expect.objectContaining({ id: '34', title: 'Get a Quote' })] })
     const out = await startWiring(db, who, { formId: FORM_ID, page: 'Get a Quote' }, startDeps())
@@ -444,6 +445,69 @@ describe('a form on a page', () => {
     await connected()
     seed({ access: 'members' })
     expect(await startWiring(db, who, { formId: FORM_ID, page: '34' }, startDeps())).toMatchObject({ success: false, code: 'FORM_NOT_PUBLIC' })
+  })
+})
+
+describe('the quote form on a page (phase 5)', () => {
+  /** swap_quote_intake_key (463), as the database runs it: the live key revoked and the new one in. */
+  function withSwap() {
+    tables.quote_intake_key = [{ id: 'key-old', workspace_id: WS, key_hash: 'old-quote-hash', key_prefix: 'qk_oldold', allowed_origins: [], created_by: OWNER, revoked_at: null }]
+    const base = db
+    db = Object.assign(Object.create(base), {
+      from: base.from,
+      rpc: async (name: string, args: Record<string, unknown>) => {
+        if (name !== 'swap_quote_intake_key') return { data: null, error: { message: `no rpc ${name}` } }
+        const keys = tables.quote_intake_key
+        if (keys.some((k) => k.key_hash === args.p_key_hash && !k.revoked_at)) return { data: null, error: null }
+        for (const k of keys) if (k.workspace_id === args.p_workspace_id && !k.revoked_at) k.revoked_at = 'now'
+        keys.push({ id: `key-${keys.length}`, workspace_id: args.p_workspace_id, key_hash: args.p_key_hash, key_prefix: args.p_key_prefix, allowed_origins: args.p_allowed_origins, created_by: args.p_created_by, revoked_at: null })
+        return { data: null, error: null }
+      },
+    }) as typeof base
+  }
+
+  it('no form named: the quote embed on the page; card says the old quote link stops; yes swaps the live quote key', async () => {
+    await connected()
+    withSwap()
+    const out = await startWiring(db, who, { page: 'Get a Quote' }, startDeps())
+    expect(out).toMatchObject({ success: true, summary: 'Adds your form to the “Get a Quote” page.' })
+    const card = createApproval.mock.calls.at(-1)![0]
+    expect(card.input.quote_requests_to).toContain('Your current quote form link stops working')
+    expect(card.input.adds_entries_to).toBeUndefined()
+    const row = changeRow()
+    expect(row).toMatchObject({ kind: 'wire_form', form_kind: 'quote', intake_origins: [SITE, SITE.replace('https://', 'https://www.')] })
+    expect(toChange(row).wiringIntake).toEqual({ kind: 'quote' })
+    // Nothing live before the yes: the old key still works.
+    expect(tables.quote_intake_key.filter((k) => !k.revoked_at).map((k) => k.key_hash)).toEqual(['old-quote-hash'])
+
+    expect(await yes()).toMatchObject({ success: true, message: expect.stringContaining('quote form shows there') })
+    const body = String(wp.writes[0].body.content)
+    const key = body.match(/data-ni-quote="(qk_[A-Za-z0-9_-]{43})"/)![1]
+    expect(body).toContain('/f/embed.js')
+    const { hashIntakeKey } = await import('@/lib/customers/intake-key')
+    expect(hashIntakeKey(key)).toBe(row.intake_key_hash)
+    expect(tables.quote_intake_key.filter((k) => !k.revoked_at)).toEqual([expect.objectContaining({ key_hash: row.intake_key_hash, allowed_origins: [SITE, SITE.replace('https://', 'https://www.')] })])
+    const site = (await getLiveSite(db, WS))!
+    expect(site.inspection?.wirings).toEqual([expect.objectContaining({ intake: 'quote', formPath: 'page:34' })])
+
+    // Wired again: the quote embed's key is replaced in place.
+    await startWiring(db, who, { page: '34' }, startDeps())
+    await yes()
+    const again = String(wp.writes[1].body.content)
+    expect(again.match(/data-ni-quote=/g)).toHaveLength(1)
+    expect(again).not.toContain(key)
+  })
+
+  it('only an owner or admin puts the quote form on (it replaces the business’s quote link)', async () => {
+    await connected()
+    tables.member[0].role = 'member'
+    expect(await startWiring(db, who, { page: '34' }, startDeps())).toMatchObject({ success: false })
+  })
+
+  it('a login that can’t embed is told to give the quote form’s embed by hand', async () => {
+    await connected()
+    wp = fakeWordpress({ caps: { edit_pages: true, edit_published_pages: true, edit_others_pages: true } })
+    expect(await startWiring(db, who, { page: '34' }, startDeps())).toMatchObject({ success: false, code: 'CANT_EMBED', error: expect.stringContaining('create_quote_form_link') })
   })
 })
 

@@ -112,9 +112,9 @@ export function createWebsiteTools(
         repo: z.string().trim().regex(REPO_FULL_NAME_RE, 'must look like owner/repo').optional().describe('The repository, e.g. "jane/janes-cleaning-site", from list_website_repos. Not for a site on a builder'),
         site_url: z.string().trim().max(200).optional().describe('The live website, e.g. "janescleaning.com", when they told you (required with builder)'),
         builder: z
-          .enum(['wordpress', 'shopify', 'webflow', 'wpcom'])
+          .enum(['wordpress', 'shopify', 'webflow', 'wpcom', 'wix'])
           .optional()
-          .describe('Their site is on a builder, not GitHub: wordpress (their own WordPress), wpcom (WordPress.com), webflow or shopify. Answers a link they open to approve on the site itself. For Shopify, site_url is the store’s .myshopify.com address'),
+          .describe('Their site is on a builder, not GitHub: wordpress (their own WordPress), wpcom (WordPress.com), webflow, shopify or wix (Wix: their form on every page, CMS items and product descriptions only; never a page’s own words). Answers a link they open to approve on the site itself. For Shopify, site_url is the store’s .myshopify.com address'),
       }),
       execute: async ({ repo, site_url, builder }) => {
         if (opts.unattended) return unattended
@@ -132,13 +132,14 @@ export function createWebsiteTools(
       description:
         "Connect the website's quote, booking or contact form to the business, so every request reaches you (and you text the owner): opens a pull request that makes the form also post to the business's own intake, keeping what it does today (an email, a form service). " +
         'Nothing goes live until they approve: when it is ready they get a text with what changed, a preview link if their host makes one, and a code. Only after they said yes to connecting it. ' +
-        'Pass form_id when they want a site form’s entries in one of their tables (make the table and the form first: create_table, create_form).',
+        'Pass form_id when they want a site form’s entries in one of their tables (make the table and the form first: create_table, create_form). ' +
+        'A site on a builder (WordPress, Shopify, Wix…): with no form_id it puts their quote form on the page (on Wix, on every page), every request reaching their quotes; say first that it replaces their current quote form link.',
       inputSchema: z.object({
         form_path: z.string().trim().max(300).optional().describe('The form’s file, when connect_website found several or none and they told you which page; default the best one it found'),
         replace_current: z.boolean().optional().describe('True ONLY when they asked to stop what the form does today (e.g. stop the emails): it then posts only to the business'),
-        form_id: z.string().uuid().optional().describe('One of their forms (list_forms): each entry of the site’s form becomes a row of its table, instead of a quote request'),
+        form_id: z.string().uuid().optional().describe('One of their forms (list_forms): each entry of the site’s form becomes a row of its table, instead of a quote request. On a builder site, none: their quote form'),
         site_form: z.string().trim().max(SITE_FORM_HINT_MAX).optional().describe('Which form on the site, in their words, e.g. "the contact form on /contact"'),
-        page: z.string().trim().max(300).optional().describe('A site on a builder (WordPress): the page the form goes on, its id, address or title. form_id is required there'),
+        page: z.string().trim().max(300).optional().describe('A site on a builder: the page the form goes on, its id, address or title (Wix: none, the form goes on every page)'),
       }),
       execute: async ({ form_path, replace_current, form_id, site_form, page }) => {
         if (opts.unattended) return unattended
@@ -162,7 +163,7 @@ export function createWebsiteTools(
     change_website: tool({
       description:
         "Make a change to the owner's connected website that they asked for, in their words (\"update the hours on the homepage to 8 to 6\", \"add carpet cleaning to services\"): a coding run opens a pull request. " +
-        'A site on a builder (WordPress, WordPress.com, Shopify, Webflow CMS items): first call with page (or none) to read the page’s (or product’s) text, then again with page and edits (the exact text and its replacement); nothing changes before their yes. ' +
+        'A site on a builder (WordPress, WordPress.com, Shopify, Webflow and Wix CMS items, Wix products; a Wix or Webflow page’s own words can’t be changed by any app: say so): first call with page (or none) to read the page’s (or product’s) text, then again with page and edits (the exact text and its replacement); nothing changes before their yes. ' +
         'Nothing goes live until they approve: when it is ready they get a text with what changed, a preview link if their host makes one, and a code. One change at a time. Ask first only when the request is unclear or needs something they haven’t given (a photo, a price).',
       inputSchema: z.object({
         request: z.string().trim().min(1).max(EDIT_REQUEST_MAX).describe('What to change, in their own words, self-contained (the run can’t read this conversation). By text, at most 300 characters: one change at a time; it is quoted back to them whole'),

@@ -19,6 +19,7 @@ export function enabledBuilders(env: Record<string, string | undefined> = proces
     if (!named.includes(b)) return false
     if (b === 'shopify') return shopifyApp(env) !== null
     if (b === 'webflow' || b === 'wpcom') return oauthBuilderApp(b, env) !== null
+    if (b === 'wix') return wixApp(env) !== null
     return true
   })
 }
@@ -43,4 +44,11 @@ export function oauthBuilderApp(provider: 'webflow' | 'wpcom', env: Record<strin
   const clientId = env[`${prefix}_CLIENT_ID`]?.trim()
   const clientSecret = env[`${prefix}_CLIENT_SECRET`]?.trim()
   return clientId && clientSecret ? { clientId, clientSecret } : null
+}
+
+/** Our Wix app (WIX_APP_ID, WIX_APP_SECRET: deploy/app/.env.example), or null when either is empty. */
+export function wixApp(env: Record<string, string | undefined> = process.env): { appId: string; appSecret: string } | null {
+  const appId = env.WIX_APP_ID?.trim()
+  const appSecret = env.WIX_APP_SECRET?.trim()
+  return appId && appSecret ? { appId, appSecret } : null
 }

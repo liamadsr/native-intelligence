@@ -7,7 +7,7 @@ import { appOrigin } from '@/lib/twilio/config'
 import { rotateIntakeKey } from '@/lib/customers/intake-key'
 import { markSiteUnwired, websiteUsesLiveKey } from '@/lib/website/store'
 import { activeBusinessNumber } from '@/lib/customers/numbers'
-import { bookingUrl, intakeUrl, parseProfilePatch, slugFromName } from '@/lib/customers/profile-input'
+import { bookingUrl, intakeUrl, parseProfilePatch, quoteEmbedSnippet, slugFromName } from '@/lib/customers/profile-input'
 import { findOpenSlots, slotLabel } from '@/lib/customers/slots'
 import { getBusinessProfile, getQuote, listBookings, listQuotes, updateQuote, upsertBusinessProfile } from '@/lib/customers/store'
 import { dollarsToCents } from '@/lib/customers/intake'
@@ -219,7 +219,7 @@ export function createBusinessTools(userId: string, _supabase: SupabaseClient, w
 
     create_quote_form_link: tool({
       description:
-        "Make the secret URL the business's website quote form posts to (JSON or form fields: name, email, phone, address, service, items or width/length, price, requested dates, message). Each quote then reaches the CRM and the owner. Any old URL stops working. Only when the person asks.",
+        "Make the secret URL the business's website quote form posts to (JSON or form fields: name, email, phone, address, service, items or width/length, price, requested dates, message), and `embed`, a snippet that draws a ready quote form on any page (a Custom HTML or Embed element). Each quote then reaches the CRM and the owner. Any old URL stops working. Only when the person asks.",
       inputSchema: z.object({
         allowed_origins: z.array(z.string()).max(10).optional().describe('The website origins allowed to post, e.g. ["https://brightweave.com"]; empty lets any site post'),
       }),
@@ -233,6 +233,8 @@ export function createBusinessTools(userId: string, _supabase: SupabaseClient, w
         return {
           success: true,
           url: intakeUrl(appOrigin(), made.key),
+          // The quote form drawn by our embed, for a site the owner (or their web person) pastes into themselves (phase 5, docs/plans/hosted-site-builders.md).
+          embed: quoteEmbedSnippet(appOrigin(), made.key),
           allowed_origins: made.allowedOrigins,
           note: 'Shown once: it is never stored or shown again. Any older URL has stopped working.',
           ...(unwired ? { website: 'Their connected website’s form used the old URL, so it no longer reaches them. Tell them, and offer to reconnect it (wire_website_form).' } : {}),

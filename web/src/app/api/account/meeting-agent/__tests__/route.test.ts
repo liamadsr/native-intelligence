@@ -16,6 +16,11 @@ vi.mock('@/lib/meeting-agent/lookup', () => ({ findMeeting: async () => h.found 
 vi.mock('@/lib/meeting-agent/send', () => ({
   sendAgentToMeeting: async (_s: unknown, input: Record<string, unknown>) => (h.sends.push(input), h.sendResult),
   cancelAttendance: async (_s: unknown, scope: Record<string, unknown>) => (h.cancels.push(scope), 'cancelled'),
+  // The send's checks (send.test.ts pins them): here, a brief with a goal passes.
+  checkSend: async (_s: unknown, input: { brief: { goals?: string[] } }) =>
+    input.brief?.goals?.length
+      ? { ok: true, checked: { number: '+15555550142', brief: { goals: input.brief.goals, may_share: [], ask: [], must_not_agree: [] } } }
+      : { ok: false, reason: 'empty_brief', message: 'Give your assistant at least one goal or one question to ask.' },
 }))
 vi.mock('@/lib/meeting-agent/store', async (orig) => ({ ...(await orig<typeof import('@/lib/meeting-agent/store')>()), listAttendances: async () => h.rows }))
 vi.mock('@/lib/meeting-agent/series', async (orig) => ({
@@ -107,5 +112,20 @@ describe('/api/account/meeting-agent', () => {
     expect(await (await DELETE(req('DELETE', undefined, `?id=${id}`))).json()).toEqual({ outcome: 'cancelled' })
     expect(h.cancels).toEqual([{ workspaceId: 'ws-1', userId: 'user-me', id }])
     expect((await DELETE(req('DELETE', undefined, '?id=nope'))).status).toBe(400)
+  })
+})
+
+describe('/api/account/meeting-agent preview (the brief editor)', () => {
+  it("runs a send's checks and returns its approval card, writing nothing", async () => {
+    h.sendResult = null
+    const res = await POST(req('POST', { calendar_event_id: 'evt_1', starts_at: START, brief: { goals: ['A yes'] }, preview: true }))
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ card: { title: 'Send your assistant to “Pilot review”?', why: expect.stringContaining('Goals: A yes') } })
+    expect(h.sends).toEqual([])
+  })
+  it('a check that fails is the same refusal a send gives', async () => {
+    const res = await POST(req('POST', { calendar_event_id: 'evt_1', starts_at: START, brief: { may_share: ['x'] }, preview: true }))
+    expect(res.status).toBe(400)
+    expect(await res.json()).toMatchObject({ code: 'EMPTY_BRIEF' })
   })
 })

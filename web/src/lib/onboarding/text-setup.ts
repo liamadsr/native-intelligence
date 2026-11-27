@@ -101,14 +101,15 @@ export function renderTextSetupSection(
     ['wpcom', 'WordPress.com'],
     ['webflow', 'Webflow'],
     ['shopify', 'Shopify'],
+    ['wix', 'Wix (their form on every page, and their CMS items and product descriptions; Wix lets no app change a page’s own words, so say so)'],
   ]
   const on = ON.filter(([b]) => opts.builders?.includes(b))
   const offered = on.map(([, words]) => words)
   const shopify = opts.builders?.includes('shopify') === true
   const wordpressAny = opts.builders?.includes('wordpress') === true || opts.builders?.includes('wpcom') === true
-  const later = ['Wix', 'Squarespace', wordpressAny ? null : 'WordPress', opts.builders?.includes('webflow') ? null : 'Webflow', shopify ? null : 'Shopify', 'Framer'].filter(Boolean).join(', ')
+  const later = [opts.builders?.includes('wix') ? null : 'Wix', 'Squarespace', wordpressAny ? null : 'WordPress', opts.builders?.includes('webflow') ? null : 'Webflow', shopify ? null : 'Shopify', 'Framer'].filter(Boolean).join(', ')
   const builderLine = offered.length
-    ? ` A site on ${offered.join(' or ')}: call connect_website with builder "${on.map(([b]) => b).join('" or "')}" and site_url${shopify ? ' (for Shopify, the store’s .myshopify.com address)' : ''}; it answers a link you text them, which they open to sign in to their own site and approve (never ask for a password). Once it connects, wire_website_form with page and one of their forms (create_form first if they have none) puts it on that page, again only on their yes. A site on ${later} or another builder, or they don't know: say you can connect those later and move on.`
+    ? ` A site on ${offered.join(' or ')}: call connect_website with builder "${on.map(([b]) => b).join('" or "')}" and site_url${shopify ? ' (for Shopify, the store’s .myshopify.com address)' : ''}; it answers a link you text them, which they open to sign in to their own site and approve (never ask for a password). Once it connects, wire_website_form with page puts their quote form on that page (on Wix, on every page; or one of their forms with form_id), again only on their yes. A site on ${later} or another builder, or they don't know: say you can connect those later and move on.`
     : ` A site on Wix, Squarespace, WordPress or another builder, or they don't know: say you can connect those later and move on.`
   const who = state.name ?? 'This owner'
   const google = status.google ? `connected (${status.google})` : 'not connected'

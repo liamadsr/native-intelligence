@@ -22,6 +22,7 @@ import type { AttachmentImage } from './attachment-image-preview'
 import { ChatProposalsCard } from './chat-proposals-card'
 import { TeammateReportChip, teammateReportPartData } from './teammate-report-chip'
 import { MeetingGoalComposer } from './meeting-goal-composer'
+import { MeetingAssistantBrief } from './meeting-assistant-brief'
 import { TEAMMATE_REPORT_PART_TYPE } from '@/lib/chat/teammate-report'
 import { ReasoningCard } from './reasoning-card'
 import { ReadAloudButton } from './read-aloud-button'
@@ -830,6 +831,8 @@ function ChatMessageImpl({
                   <TeammateReportChip data={data} metadata={message.metadata} joined={joined} />
                 )}
                 <MeetingGoalComposer metadata={message.metadata} />
+                {/* And "Send my assistant": its brief editor (roadmap #12; nothing unless MEETING_AGENT is on). */}
+                <MeetingAssistantBrief metadata={message.metadata} />
               </Fragment>
             ) : null
           }

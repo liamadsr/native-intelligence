@@ -22,7 +22,7 @@ import { normalizeEventId, normalizeStartsAt } from '@/lib/meetings/meeting-goal
 import { accountUrl, twilioRest } from '@/lib/twilio/rest'
 import { twilioConfig } from '@/lib/twilio/config'
 import { isNanpNumber, normalizeE164 } from '@/lib/twilio/phone'
-import { briefIsEmpty, parseBrief } from './brief'
+import { briefIsEmpty, parseBrief, type MeetingBrief } from './brief'
 import { isDialDigits } from './dial-in'
 import { assistantDisplayName } from './session'
 import { meetingAgentOn } from './settings'
@@ -37,7 +37,8 @@ export interface MeetingScheduledData {
 
 export type SendFailure = 'off' | 'bad_meeting' | 'over' | 'no_dial_in' | 'bad_brief' | 'empty_brief' | 'no_name' | 'busy' | 'error'
 
-export type SendResult = { ok: true; attendance: MeetingAttendance } | { ok: false; reason: SendFailure; message: string }
+export type SendRefusal = { ok: false; reason: SendFailure; message: string }
+export type SendResult = { ok: true; attendance: MeetingAttendance } | SendRefusal
 
 export interface SendInput {
   workspaceId: string
@@ -59,12 +60,28 @@ export interface SendDeps {
   send?: (event: { name: string; data: unknown; id?: string }) => Promise<unknown>
 }
 
-function fail(reason: SendFailure, message: string): SendResult {
+function fail(reason: SendFailure, message: string): SendRefusal {
   return { ok: false, reason, message }
 }
 
-/** Send the agent to one meeting with this brief. */
-export async function sendAgentToMeeting(svc: SupabaseClient, input: SendInput, deps: SendDeps = {}): Promise<SendResult> {
+/** A send that passed every check, ready to write (checkSend). */
+export interface CheckedSend {
+  eventId: string
+  startsAt: string
+  endsAt: string | null
+  number: string
+  digits: string
+  brief: MeetingBrief
+  firstName: string
+}
+
+/**
+ * Every check a send makes, with no write: the setting, the meeting (not
+ * over), a US/CA dial-in with its digits, the brief (within the limits, with
+ * a goal or a question) and the person's name. The prep card's brief editor
+ * runs it for its Review step, so what it shows is what a send would do.
+ */
+export async function checkSend(svc: SupabaseClient, input: SendInput, deps: SendDeps = {}): Promise<{ ok: true; checked: CheckedSend } | SendRefusal> {
   if (!meetingAgentOn(deps.env ?? process.env)) return fail('off', 'Sending your assistant to meetings is not turned on yet.')
   const now = (deps.now ?? (() => new Date()))()
   const eventId = normalizeEventId(input.calendarEventId)
@@ -83,6 +100,15 @@ export async function sendAgentToMeeting(svc: SupabaseClient, input: SendInput, 
   if (briefIsEmpty(parsed.brief)) return fail('empty_brief', 'Give your assistant at least one goal or one question to ask.')
   const name = firstName(await (deps.displayName ?? callerDisplayName)(svc, { userId: input.userId, workspaceId: input.workspaceId }))
   if (!name) return fail('no_name', 'Your assistant needs your name to introduce itself. Add a display name to your profile first.')
+  return { ok: true, checked: { eventId, startsAt, endsAt, number, digits: input.dialIn!.digits, brief: parsed.brief, firstName: name } }
+}
+
+/** Send the agent to one meeting with this brief. */
+export async function sendAgentToMeeting(svc: SupabaseClient, input: SendInput, deps: SendDeps = {}): Promise<SendResult> {
+  const check = await checkSend(svc, input, deps)
+  if (!check.ok) return check
+  const now = (deps.now ?? (() => new Date()))()
+  const { eventId, startsAt, endsAt, number, digits, brief, firstName: name } = check.checked
 
   const written = await scheduleAttendance(
     svc,
@@ -94,8 +120,8 @@ export async function sendAgentToMeeting(svc: SupabaseClient, input: SendInput, 
       endsAt,
       title: input.title.replace(/\s+/g, ' ').trim(),
       dialInNumber: number,
-      dialInPin: input.dialIn!.digits,
-      brief: parsed.brief,
+      dialInPin: digits,
+      brief,
       displayName: assistantDisplayName(name),
       ownerFirstName: name,
       captureId: null,
