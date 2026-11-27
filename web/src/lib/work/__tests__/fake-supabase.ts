@@ -319,6 +319,7 @@ export function makeFakeSupabase(opts: FakeSupabaseOptions = {}): FakeSupabase {
     let op: 'select' | 'insert' | 'update' | 'delete' | 'upsert' = 'select'
     let upsertOpts: { onConflict?: string; ignoreDuplicates?: boolean } = {}
     let insertRow: Row | null = null
+    let upsertRows: Row[] | null = null
     let insertRows: Row[] | null = null
     let patch: Row | null = null
     const orders: Array<{ col: string; asc: boolean }> = []
@@ -421,16 +422,26 @@ export function makeFakeSupabase(opts: FakeSupabaseOptions = {}): FakeSupabase {
         op = 'delete'
         return api
       },
-      upsert: (row: Row, o: { onConflict?: string; ignoreDuplicates?: boolean } = {}) => {
+      // An array upserts each row, in order, as PostgREST's bulk upsert does.
+      upsert: (row: Row | Row[], o: { onConflict?: string; ignoreDuplicates?: boolean } = {}) => {
         op = 'upsert'
         upsertOpts = o
-        seq += 1
-        insertRow = withGenerated(table, {
-          id: `00000000-0000-4000-8000-${String(seq).padStart(12, '0')}`,
-          created_at: new Date(Date.now() + seq).toISOString(),
-          ...(opts.defaults?.[table] ?? {}),
-          ...row,
-        })
+        const make = (r: Row): Row => {
+          seq += 1
+          return withGenerated(table, {
+            id: `00000000-0000-4000-8000-${String(seq).padStart(12, '0')}`,
+            created_at: new Date(Date.now() + seq).toISOString(),
+            ...(opts.defaults?.[table] ?? {}),
+            ...r,
+          })
+        }
+        if (Array.isArray(row)) {
+          upsertRows = row.map(make)
+          insertRow = null
+        } else {
+          upsertRows = null
+          insertRow = make(row)
+        }
         return api
       },
       is: (k: string, v: unknown) => {
@@ -547,21 +558,25 @@ export function makeFakeSupabase(opts: FakeSupabaseOptions = {}): FakeSupabase {
       if (op === 'select' && selected !== null) Object.defineProperty(call, 'columns', { value: selected, enumerable: false })
       calls.push(call)
       if (op === 'upsert') {
-        const row = insertRow as Row
         const failure = insertFailures.get(table)
         if (failure) {
           insertFailures.delete(table)
           return { data: null, error: failure }
         }
         const cols = (upsertOpts.onConflict ?? 'id').split(',').map((c) => c.trim())
-        const existing = rows.find((r) => cols.every((c) => r[c] != null && r[c] === row[c]))
-        if (existing) {
-          if (upsertOpts.ignoreDuplicates) return { data: [], error: null }
-          Object.assign(existing, row, { id: existing.id, created_at: existing.created_at })
-          return { data: [shape(existing)], error: null }
+        const out: Row[] = []
+        for (const row of upsertRows ?? [insertRow as Row]) {
+          const existing = rows.find((r) => cols.every((c) => r[c] != null && r[c] === row[c]))
+          if (existing) {
+            if (upsertOpts.ignoreDuplicates) continue
+            Object.assign(existing, row, { id: existing.id, created_at: existing.created_at })
+            out.push(shape(existing))
+            continue
+          }
+          rows.push(row)
+          out.push(shape(row))
         }
-        rows.push(row)
-        return { data: [shape(row)], error: null }
+        return { data: out, error: null }
       }
       if (op === 'insert' && insertRows) {
         const failure = insertFailures.get(table)

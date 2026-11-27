@@ -139,7 +139,8 @@ describe('AutonomySettingsView', () => {
     await act(async () => killSwitch().click())
     expect(writes()).toEqual([expect.objectContaining({ body: { policy: { mode: 'attempt' } } })])
     expect(toast).toHaveBeenCalledWith('Added 3 role teammates')
-    expect(calls.filter((c) => c.method === 'GET')).toHaveLength(2)
+    // The policy is read twice (once on load, once after the save); the earned-autonomy section reads its own route once.
+    expect(calls.filter((c) => c.method === 'GET' && c.url === AGENT_AUTONOMY_URL)).toHaveLength(2)
   })
 
   it('a stored propose (before 354, or a malformed policy) shows off: the gate attempts nothing on it', async () => {

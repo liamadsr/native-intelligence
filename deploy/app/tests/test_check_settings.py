@@ -77,6 +77,19 @@ class Groups(unittest.TestCase):
         _, blockers, _ = cs.report({"STUDIO_CODE_SCENES": ""}, {})
         self.assertEqual(blockers, [])
 
+    def test_the_first_pass_switch_says_empty_is_on(self):
+        # web/src/lib/work/auto-attempt.ts: attempts are on unless the value is
+        # exactly 'false'. Production keeps it empty, which is ON.
+        self.assertEqual(cs.group("AGENT_AUTO_ATTEMPT_ENABLED"), "may be empty")
+        self.assertIn("empty is on", cs.MAY_BE_EMPTY["AGENT_AUTO_ATTEMPT_ENABLED"])
+        self.assertNotIn("empty is off", cs.MAY_BE_EMPTY["AGENT_AUTO_ATTEMPT_ENABLED"])
+        _, blockers, _ = cs.report({"AGENT_AUTO_ATTEMPT_ENABLED": ""}, {})
+        self.assertEqual(blockers, [])
+
+    def test_earned_autonomy_may_stay_empty(self):
+        self.assertEqual(cs.group("EARNED_AUTONOMY"), "may be empty")
+        self.assertIn("empty is off", cs.MAY_BE_EMPTY["EARNED_AUTONOMY"])
+
     def test_no_name_is_in_two_groups(self):
         self.assertFalse(set(cs.MUST_MATCH) & set(cs.MAY_BE_EMPTY))
         self.assertFalse((set(cs.MUST_MATCH) | set(cs.MAY_BE_EMPTY)) & set(cs.SWITCH))
