@@ -205,6 +205,7 @@ export const API_FAMILIES: Readonly<Record<string, string>> = {
   slack: 'Slack\'s events and interactivity, passed on by the connector service.',
   twilio: 'The text-message service\'s webhooks, signed over the address it called.',
   version: 'Open windows and the desktop app, to notice a new deployment.',
+  website: 'A business\'s own WordPress site handing back the login its owner approved (api/website/wordpress/callback, migration 724): a redirect to the app\'s address the connect link named, with the person\'s session cookie of that domain.',
   webhooks: 'Outside services\' webhooks (mail push, payments, issue trackers, code hosts), signed or registered per address.',
 }
 
