@@ -258,9 +258,7 @@ adds its builder to that sentence.
 3. **Webflow** (CMS items) and **WordPress.com** (OAuth): built, mocked APIs, see §9. Later:
    Webflow's form (a placed element).
 4. **Wix** (built, mocked APIs): see §10. Later: blog posts (their rich-content JSON).
-5. **A quote form embed** (`data-ni-quote`): today a builder can carry one of the business's
-   forms (`form_id`); the quote intake has no drawn form of its own, so a builder site's
-   quote wiring waits for this.
+5. **A quote form embed** (`data-ni-quote`): built, see §11.
 6. **WordPress plugin** (site-wide form, wordpress.org directory).
 
 ## 7. Phase 1: what the owner checks for real
@@ -395,3 +393,33 @@ is the form on every page, CMS items and product descriptions.
   permissions above. Add an Embedded Script extension (end of body, functional) with the code
   in `deploy/app/.env.example` and its one parameter, `formKey`. Copy the App ID and secret
   into the server's `.env`. Reload the edge first, then add `wix`.
+
+## 11. Phase 5: the quote form on every builder
+
+The issue promises quote forms on every builder, and the quote intake had no drawn form of
+its own. Now `public/f/embed.js` draws one from a fixed shape:
+`<div data-ni-quote="qk_…"></div><script async src="<app>/f/embed.js"></script>`. A `qk_` key
+in `data-ni-form` draws it too, for Wix's one-attribute template. It asks name, email, phone,
+address, what they need, the details and when; posts JSON with the honeypot to
+`/api/intake/quotes/<key>`; and needs a phone or an email, as the intake does (a test runs
+what it posts through the intake's own parser).
+
+- **Wiring:** `wire_website_form` on a builder site with no `form_id` puts the quote form
+  there, through each builder's existing form path:
+  - WordPress: a Custom HTML block on the page.
+  - Shopify: the page's body.
+  - Wix: the embedded script's one parameter, on every page.
+  - WordPress.com: when its plan keeps scripts.
+  - Webflow: not possible; the agent gives the snippet by hand.
+
+  It goes through the same card. The card says the current quote link stops working, since
+  one live quote key per workspace is the rule. Undo works the same way.
+- **The yes:** the fresh `qk_` key, written in the page and hashed on the change, becomes the
+  business's live quote key with the site's origins (`swap_quote_intake_key`, 463). The old
+  one is revoked in the same transaction, as the GitHub path's wiring does. Wiring the same
+  page again replaces the key in place.
+- **By hand:** `create_quote_form_link` now also answers `embed`, the snippet, for a site the
+  owner pastes into themselves.
+- **Who:** only an owner or admin, as for the GitHub path's wiring.
+- **Not done:** Wix blog posts. Their text lives in Wix's rich-content nodes and an edit goes
+  through a draft and a publish, so they are not covered by plain text edits; a later step.

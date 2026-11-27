@@ -132,13 +132,14 @@ export function createWebsiteTools(
       description:
         "Connect the website's quote, booking or contact form to the business, so every request reaches you (and you text the owner): opens a pull request that makes the form also post to the business's own intake, keeping what it does today (an email, a form service). " +
         'Nothing goes live until they approve: when it is ready they get a text with what changed, a preview link if their host makes one, and a code. Only after they said yes to connecting it. ' +
-        'Pass form_id when they want a site form’s entries in one of their tables (make the table and the form first: create_table, create_form).',
+        'Pass form_id when they want a site form’s entries in one of their tables (make the table and the form first: create_table, create_form). ' +
+        'A site on a builder (WordPress, Shopify, Wix…): with no form_id it puts their quote form on the page (on Wix, on every page), every request reaching their quotes; say first that it replaces their current quote form link.',
       inputSchema: z.object({
         form_path: z.string().trim().max(300).optional().describe('The form’s file, when connect_website found several or none and they told you which page; default the best one it found'),
         replace_current: z.boolean().optional().describe('True ONLY when they asked to stop what the form does today (e.g. stop the emails): it then posts only to the business'),
-        form_id: z.string().uuid().optional().describe('One of their forms (list_forms): each entry of the site’s form becomes a row of its table, instead of a quote request'),
+        form_id: z.string().uuid().optional().describe('One of their forms (list_forms): each entry of the site’s form becomes a row of its table, instead of a quote request. On a builder site, none: their quote form'),
         site_form: z.string().trim().max(SITE_FORM_HINT_MAX).optional().describe('Which form on the site, in their words, e.g. "the contact form on /contact"'),
-        page: z.string().trim().max(300).optional().describe('A site on a builder: the page the form goes on, its id, address or title (Wix: none, the form goes on every page). form_id is required there'),
+        page: z.string().trim().max(300).optional().describe('A site on a builder: the page the form goes on, its id, address or title (Wix: none, the form goes on every page)'),
       }),
       execute: async ({ form_path, replace_current, form_id, site_form, page }) => {
         if (opts.unattended) return unattended

@@ -253,12 +253,34 @@ describe('the form on every page', () => {
   })
 })
 
+describe('the quote form on every page (phase 5)', () => {
+  it('no form named: the quote form’s qk_ key in the script’s one parameter; yes swaps the live quote key', async () => {
+    await connected()
+    tables.quote_intake_key = [{ id: 'key-old', workspace_id: WS, key_hash: 'old-quote-hash', key_prefix: 'qk_oldold', allowed_origins: [], created_by: OWNER, revoked_at: null }]
+    const base = db
+    db = Object.assign(Object.create(base), {
+      from: base.from,
+      rpc: async (name: string, args: Record<string, unknown>) => {
+        if (name !== 'swap_quote_intake_key') return { data: null, error: { message: `no rpc ${name}` } }
+        for (const k of tables.quote_intake_key) if (!k.revoked_at) k.revoked_at = 'now'
+        tables.quote_intake_key.push({ id: 'key-new', workspace_id: args.p_workspace_id, key_hash: args.p_key_hash, key_prefix: args.p_key_prefix, allowed_origins: args.p_allowed_origins, created_by: args.p_created_by, revoked_at: null })
+        return { data: null, error: null }
+      },
+    }) as typeof base
+    expect(await startWiring(db, who, {}, startDeps())).toMatchObject({ success: true, summary: 'Adds your form to every page of your site.' })
+    expect(await yes()).toMatchObject({ success: true, message: expect.stringContaining('quote form') })
+    expect(wix.script.formKey).toMatch(/^qk_[A-Za-z0-9_-]{43}$/)
+    const { hashIntakeKey } = await import('@/lib/customers/intake-key')
+    expect(tables.quote_intake_key.filter((k) => !k.revoked_at)).toEqual([expect.objectContaining({ key_hash: hashIntakeKey(wix.script.formKey) })])
+  })
+})
+
 describe('the onboarding text', () => {
   it('offers Wix honestly when it is on', () => {
     const text = renderTextSetupSection({ startedAt: '2026-11-27T00:00:00Z', name: 'Sam' } as never, { google: null, company: null } as never, { builders: ['wix'] })
     expect(text).toContain('builder "wix"')
     expect(text).toContain('Wix lets no app change a page’s own words')
-    expect(text).toContain('(on Wix, on every page)')
+    expect(text).toContain('puts their quote form on that page (on Wix, on every page')
     expect(text).toContain('A site on Squarespace, WordPress, Webflow, Shopify, Framer')
   })
 })

@@ -13,6 +13,18 @@
  * makes (how many, how large, what kind by name): the server checks each
  * file again, by its bytes too.
  *
+ * A business's QUOTE form (the quote intake, /api/intake/quotes/qk_...; the
+ * website-by-text flow on a site builder, docs/plans/hosted-site-builders.md
+ * phase 5) is drawn the same way from a fixed shape, no request first:
+ *
+ *   <div data-ni-quote="qk_..."></div>
+ *   <script async src="https://<app>/f/embed.js"></script>
+ *
+ * (a `qk_` key in data-ni-form draws it too, for a builder whose template
+ * carries one attribute). It asks name, email, phone, address, what they
+ * need, the details and when, posts them as JSON with the honeypot, and
+ * needs a phone or an email, as the intake does.
+ *
  * Plain ES2017, no build step, no dependencies. Everything the network sends
  * (labels, options, lines) is set as text, never as HTML. Only a public form
  * can be drawn here: a members or personal-link form answers its own page
@@ -187,8 +199,82 @@
     container.appendChild(el('p', { style: 'margin:0;' }, text))
   }
 
+  /** The quote form's fields, as the intake reads them (src/lib/customers/intake.ts). */
+  var QUOTE_FIELDS = [
+    { name: 'name', label: 'Your name', type: 'text', required: true },
+    { name: 'email', label: 'Email', type: 'email', required: false },
+    { name: 'phone', label: 'Phone', type: 'phone', required: false },
+    { name: 'address', label: 'Address', type: 'text', required: false },
+    { name: 'service', label: 'What do you need?', type: 'text', required: false },
+    { name: 'message', label: 'Details', type: 'text', required: false, long: true },
+    { name: 'requested_dates', label: 'When would suit you?', type: 'text', required: false },
+  ]
+
+  function drawQuote(container, index, key) {
+    container.setAttribute('data-ni-drawn', '')
+    var base = origin + '/api/intake/quotes/' + encodeURIComponent(key)
+    var form = el('form', { style: 'margin:0;' })
+    form.appendChild(el('p', { style: 'margin:0 0 14px;font-weight:600;font-size:1.15em;' }, 'Get a quote'))
+    var prefix = 'ni-quote-' + index
+    var readers = QUOTE_FIELDS.map(function (field, i) {
+      var drawn = drawField(field, i, prefix)
+      form.appendChild(drawn.row)
+      return { name: field.name, read: drawn.read }
+    })
+    var gotcha = el('input', { type: 'text', name: '_gotcha', tabindex: '-1', autocomplete: 'off', 'aria-hidden': 'true', style: 'position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden;' })
+    form.appendChild(gotcha)
+    var error = el('p', { role: 'alert', style: 'margin:0 0 10px;color:#b91c1c;' })
+    error.hidden = true
+    form.appendChild(error)
+    var button = el('button', { type: 'submit', style: 'font:inherit;padding:8px 16px;border-radius:6px;border:1px solid currentColor;background:transparent;color:inherit;cursor:pointer;' }, 'Request a quote')
+    form.appendChild(button)
+    var submissionId = randomId()
+    form.addEventListener('submit', async function (event) {
+      event.preventDefault()
+      error.hidden = true
+      var body = { submission_id: submissionId, _gotcha: gotcha.value }
+      readers.forEach(function (r) {
+        var v = r.read()
+        if (v !== undefined) body[r.name] = v
+      })
+      if (!body.email && !body.phone) {
+        error.textContent = 'Add a phone number or an email, so we can answer.'
+        error.hidden = false
+        return
+      }
+      button.disabled = true
+      try {
+        var res = await fetch(base, { method: 'POST', credentials: 'omit', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+        var data = {}
+        try {
+          data = await res.json()
+        } catch (e) {
+          data = {}
+        }
+        if (!res.ok || !data.ok) {
+          error.textContent = typeof data.error === 'string' ? data.error : FAILED
+          error.hidden = false
+          button.disabled = false
+          return
+        }
+        line(container, THANKS)
+      } catch (e) {
+        error.textContent = FAILED
+        error.hidden = false
+        button.disabled = false
+      }
+    })
+    while (container.firstChild) container.removeChild(container.firstChild)
+    container.appendChild(form)
+  }
+
   async function draw(container, index) {
     var key = container.getAttribute('data-ni-form') || ''
+    var quoteKey = container.getAttribute('data-ni-quote') || (/^qk_/.test(key) ? key : '')
+    if (quoteKey) {
+      if (/^qk_[A-Za-z0-9_-]{43}$/.test(quoteKey)) drawQuote(container, index, quoteKey)
+      return
+    }
     if (!/^fk_[A-Za-z0-9_-]{43}$/.test(key)) return
     container.setAttribute('data-ni-drawn', '')
     var base = origin + '/api/intake/forms/' + encodeURIComponent(key)
@@ -312,7 +398,7 @@
 
   var count = 0
   function start() {
-    var found = document.querySelectorAll('[data-ni-form]:not([data-ni-drawn])')
+    var found = document.querySelectorAll('[data-ni-form]:not([data-ni-drawn]), [data-ni-quote]:not([data-ni-drawn])')
     Array.prototype.forEach.call(found, function (container) { draw(container, count++) })
   }
 

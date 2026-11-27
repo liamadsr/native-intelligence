@@ -18,7 +18,8 @@
  *             revision: undo writes the earlier text back from the change row.
  *   form      site-wide, on every page: the app's Embedded Script (an
  *             extension defined in the app's dashboard, placed at the end of
- *             the body, whose one parameter is the form's key), turned on with
+ *             the body, whose one parameter is the form's key: one of the
+ *             business's forms, or its quote form's qk_ key), turned on with
  *             Embed Script. It reads and writes as the embed's own markup (a
  *             `<div data-ni-form>` and our embed.js), so the flow reads back
  *             what Wix keeps exactly as it does for a page.
@@ -26,6 +27,7 @@
  * Each call answers a result, never throws for Wix's answer. Server only.
  */
 import { embedSnippet } from '@/lib/forms/manage'
+import { quoteEmbedSnippet } from '@/lib/customers/profile-input'
 import type { BuilderClient, BuilderIdentity, BuilderResult, ContentRef, ContentSnapshot } from './types'
 
 export const WIX_API = 'https://www.wixapis.com'
@@ -228,7 +230,9 @@ export function wixClient(login: WixLogin, deps: WixDeps = {}): BuilderClient {
         const got = await call('apps/v1/scripts')
         const key = got.ok ? str((got.value as { properties?: { parameters?: { formKey?: unknown } } })?.properties?.parameters?.formKey) : ''
         if (!got.ok && got.status !== 404) return got
-        return { ok: true, value: { ref: WIX_FORM_REF, title: WIX_FORM_REF.title, body: /^fk_[A-Za-z0-9_-]{43}$/.test(key) ? embedSnippet(login.formOrigin, key) : '', modified: null } }
+        // The template's one attribute carries a form's key or the quote form's (embed.js draws either).
+        const body = /^fk_[A-Za-z0-9_-]{43}$/.test(key) ? embedSnippet(login.formOrigin, key) : /^qk_[A-Za-z0-9_-]{43}$/.test(key) ? quoteEmbedSnippet(login.formOrigin, key) : ''
+        return { ok: true, value: { ref: WIX_FORM_REF, title: WIX_FORM_REF.title, body, modified: null } }
       }
       if (ref.kind === 'product') {
         if (!GUID_RE.test(ref.id)) return no(404, 'not found on the site')
@@ -253,7 +257,7 @@ export function wixClient(login: WixLogin, deps: WixDeps = {}): BuilderClient {
       const done: BuilderResult<{ modified: string | null; revision: string | null }> = { ok: true, value: { modified: null, revision: null } }
       if (ref.kind === 'site_script') {
         // The embed's markup carries the form's key: that key is the script's one parameter (none: the form comes off).
-        const key = /data-ni-form="(fk_[A-Za-z0-9_-]{43})"/.exec(next.body)?.[1] ?? ''
+        const key = /data-ni-(?:form|quote)="((?:fk|qk)_[A-Za-z0-9_-]{43})"/.exec(next.body)?.[1] ?? ''
         const got = await call('apps/v1/scripts', { method: 'POST', body: { properties: { parameters: { formKey: key } } } })
         return got.ok ? done : got
       }

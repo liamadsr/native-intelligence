@@ -48,6 +48,8 @@ import { decryptCredential, encryptCredential } from '@/lib/crypto/credentials'
 import { isDemoWorkspace, DEMO_OFF } from '@/lib/demo/demo-mode'
 import { embedSnippet } from '@/lib/forms/manage'
 import { generateFormKey, hashFormKey } from '@/lib/forms/store'
+import { generateIntakeKey, hashIntakeKey } from '@/lib/customers/intake-key'
+import { quoteEmbedSnippet } from '@/lib/customers/profile-input'
 import { oauthStateSecret } from '@/lib/oauth/state'
 import { createToolApproval, type NewApproval, type NewApprovalResult } from '@/lib/safety/approvals'
 import { appOrigin } from '@/lib/twilio/config'
@@ -63,7 +65,7 @@ import { enabledBuilders } from './providers/enabled'
 import { PROVIDER_LABEL, type BuilderClient, type BuilderProvider, type ContentRef, type ContentSnapshot, type StagedWrite } from './providers/types'
 import { fail, MANAGES_SITE, openChangeWords, roleOf, siteOrigins, type Outcome, type Who } from './start'
 import { connectBuilderSite, dropSiteWiring, getChange, getLiveSite, getOpenChange, getSite, insertChange, recentChanges, recordSiteWiring, siteCredentials, updateChange, updateSite } from './store'
-import { MERGE_WEBSITE_CHANGE_TOOL, type FormCandidate, type WebsiteApprovalContext, type WebsiteChange, type WebsiteSite } from './types'
+import { MERGE_WEBSITE_CHANGE_TOOL, type FormCandidate, type WebsiteApprovalContext, type WebsiteChange, type WebsiteSite, type WiringIntake } from './types'
 
 type Svc = SupabaseClient
 
@@ -664,7 +666,7 @@ async function stageAndAsk(
     after: { title: string; body: string }
     edits: TextEdit[]
     revertsChangeId?: string | null
-    wiring?: { formPath: string; formKind: FormCandidate['kind']; keyHash: string; keyPrefix: string; origins: string[]; formId: string; formName: string; accepts: string[] }
+    wiring?: { formPath: string; formKind: FormCandidate['kind']; keyHash: string; keyPrefix: string; origins: string[]; intake: WiringIntake; formName: string | null; accepts: string[] }
   },
   deps: BuilderDeps,
 ): Promise<Outcome> {
@@ -696,7 +698,7 @@ async function stageAndAsk(
           intakeKeyHash: args.wiring.keyHash,
           intakeKeyPrefix: args.wiring.keyPrefix,
           intakeOrigins: args.wiring.origins,
-          wiringIntake: { kind: 'form' as const, formId: args.wiring.formId },
+          wiringIntake: args.wiring.intake,
         }
       : {}),
   })
@@ -747,38 +749,48 @@ function pageFormKind(title: string): FormCandidate['kind'] {
   return 'other'
 }
 
-const EMBED_ATTR = /data-ni-form="[^"]*"/
+/** An embed's key attribute: a form's (`data-ni-form`, fk_ or, on Wix's one-attribute template, qk_) or the quote form's (`data-ni-quote`). */
+const EMBED_ATTR = /data-ni-(form|quote)="[^"]*"/
 
-/** The form key a page's embed carries, or null. Pure. */
+/** The key a page's embed carries (a form's fk_ or the quote form's qk_), or null. Pure. */
 export function embedKeyOf(body: string): string | null {
-  return /data-ni-form="(fk_[A-Za-z0-9_-]{43})"/.exec(body)?.[1] ?? null
+  return /data-ni-(?:form|quote)="((?:fk|qk)_[A-Za-z0-9_-]{43})"/.exec(body)?.[1] ?? null
 }
 
-/** One of the business's public forms, drawn on a page of a builder site. */
+/**
+ * One of the business's forms, or its quote form (none named: phase 5, the
+ * quote intake drawn by our embed), on a page of a builder site, or on every
+ * page where the builder puts it site-wide (Wix).
+ */
 export async function startBuilderWiring(svc: Svc, who: Who, input: { page: string | null; formId: string | null; editGrants?: boolean }, deps: BuilderDeps = {}): Promise<Outcome> {
   const found = await builderSiteFor(svc, who)
   if (!found.ok) return found.outcome
   const { site } = found
-  if (!input.formId) {
-    return fail(
-      'NEEDS_FORM',
-      'On a site builder the form is drawn by Native Intelligence: it is one of their forms. Make one first if they have none (create_table, then create_form with who_can_submit public and the fields a customer fills in), then call wire_website_form again with form_id and page.',
-    )
+  // Liam, 11-27, on issue #13: quote forms on every builder. No form named: the business's quote form, the quote intake's own.
+  let target: Awaited<ReturnType<typeof formWiringTarget>> | null = null
+  if (input.formId) {
+    target = await formWiringTarget(svc, who, input.formId, { editGrants: input.editGrants !== false, embed: true })
+    if (!target.ok) return fail(target.code, target.error)
+  } else if (!MANAGES_SITE.has((await roleOf(svc, who)) ?? '')) {
+    return fail('NOT_ALLOWED', 'Only an owner or admin of the workspace connects its quote form (it replaces the business’s quote link). Tell them.')
   }
-  const target = await formWiringTarget(svc, who, input.formId, { editGrants: input.editGrants !== false, embed: true })
-  if (!target.ok) return fail(target.code, target.error)
+  const form = target?.ok ? target.target.form : null
+  const what = form ? `the form “${clip(form.name, 80)}”` : 'your quote form'
   const client = await builderClientFor(svc, site, deps)
   if (!client) return LOGIN_GONE(site)
   const me = await client.identity()
   if (!me.ok) return LOGIN_GONE(site)
   if (!me.value.canEmbed) {
+    const snippetWay = form
+      ? 'the form’s embed snippet'
+      : 'the quote form’s embed (create_quote_form_link makes the link and its embed; say first that it replaces the quote link they have)'
     return fail(
       'CANT_EMBED',
       client.provider === 'wordpress'
-        ? 'Their WordPress login can’t put a form on a page (WordPress keeps scripts only for an administrator on a single site). Connect again with an administrator login, or give them the form’s embed snippet to paste into a Custom HTML block.'
+        ? `Their WordPress login can’t put a form on a page (WordPress keeps scripts only for an administrator on a single site). Connect again with an administrator login, or give them ${snippetWay} to paste into a Custom HTML block.`
         : client.provider === 'webflow'
-          ? 'On Webflow I can’t put the form on a page yet (it needs an element placed in the Designer). Give them the form’s embed snippet to paste into an Embed element on the page they want, or the form’s own link.'
-          : `Their ${PROVIDER_LABEL[client.provider]} login can’t put a form on a page (its plan or its login doesn’t allow scripts). Give them the form’s own link, or its embed snippet for their site’s person.`,
+          ? `On Webflow I can’t put the form on a page yet (it needs an element placed in the Designer). Give them ${snippetWay} to paste into an Embed element on the page they want.`
+          : `Their ${PROVIDER_LABEL[client.provider]} site can’t take a form’s script (its plan or its login doesn’t allow it). Give them ${snippetWay} for their site’s person, or ${form ? 'the form’s own link' : 'tell them'}.`,
     )
   }
   // A builder that puts the form on every page (Wix): its one place, no page to pick; a second wiring replaces the form there.
@@ -792,12 +804,16 @@ export async function startBuilderWiring(svc: Svc, who: Who, input: { page: stri
   if (!page.ok) return page.outcome
   const snap = await client.readContent(page.ref)
   if (!snap.ok) return snap.status === 401 || snap.status === 403 ? LOGIN_GONE(site) : fail('SITE_UNAVAILABLE', `The site didn’t answer just now (${snap.error}). Try again in a moment.`)
-  const key = generateFormKey()
-  const snippet = embedSnippet(appOrigin(), key)
+  // A fresh key or link, written into the page; only its SHA-256 is kept, and it goes live at the yes.
+  const key = form ? generateFormKey() : generateIntakeKey()
+  const snippet = form ? embedSnippet(appOrigin(), key) : quoteEmbedSnippet(appOrigin(), key)
+  const attr = form ? 'data-ni-form' : 'data-ni-quote'
   const formPath = `${page.ref.kind}:${page.ref.id}`
-  // This form on this page already (an earlier wiring): its key is replaced in place, not a second form.
-  const rewire = (site.inspection?.wirings ?? []).some((w) => w.intake === 'form' && w.formId === target.target.form.id && w.formPath === formPath) && EMBED_ATTR.test(snap.value.body)
-  const body = siteWide ? client.embedBlock(snippet) : rewire ? snap.value.body.replace(EMBED_ATTR, `data-ni-form="${key}"`) : `${snap.value.body}${client.embedBlock(snippet)}`
+  // The same form (or the quote form) on this page already: its key is replaced in place, never a second one.
+  const existing = new RegExp(`${attr}="[^"]*"`)
+  const rewire =
+    (site.inspection?.wirings ?? []).some((w) => w.formPath === formPath && (form ? w.intake === 'form' && w.formId === form.id : w.intake === 'quote')) && existing.test(snap.value.body)
+  const body = siteWide ? client.embedBlock(snippet) : rewire ? snap.value.body.replace(existing, `${attr}="${key}"`) : `${snap.value.body}${client.embedBlock(snippet)}`
   const origins = siteOrigins(site.siteUrl)
   return stageAndAsk(
     svc,
@@ -805,19 +821,19 @@ export async function startBuilderWiring(svc: Svc, who: Who, input: { page: stri
     site,
     {
       kind: 'wire_form',
-      request: siteWide ? `Add the form “${clip(target.target.form.name, 80)}” to every page of the site.` : `Add the form “${clip(target.target.form.name, 80)}” to the page “${clip(page.ref.title, 80)}”.`,
+      request: siteWide ? `Add ${what} to every page of the site.` : `Add ${what} to the page “${clip(page.ref.title, 80)}”.`,
       snapshot: snap.value,
       after: { title: snap.value.title, body },
       edits: [],
       wiring: {
         formPath,
-        formKind: siteWide ? 'quote' : pageFormKind(page.ref.title),
-        keyHash: hashFormKey(key),
+        formKind: form ? (siteWide ? 'quote' : pageFormKind(page.ref.title)) : 'quote',
+        keyHash: form ? hashFormKey(key) : hashIntakeKey(key),
         keyPrefix: key.slice(0, 9),
         origins,
-        formId: target.target.form.id,
-        formName: target.target.form.name,
-        accepts: wiredFormOrigins(origins, target.target.form.allowedOrigins),
+        intake: form ? { kind: 'form', formId: form.id } : { kind: 'quote' },
+        formName: form?.name ?? null,
+        accepts: form ? wiredFormOrigins(origins, form.allowedOrigins) : origins,
       },
     },
     deps,
@@ -867,7 +883,7 @@ export async function raiseBuilderCard(
   change: WebsiteChange,
   site: WebsiteSite,
   staged: StagedWrite,
-  args: { summary: string; wiring: { formName: string; accepts: string[] } | null },
+  args: { summary: string; wiring: { formName: string | null; accepts: string[] } | null },
   deps: BuilderDeps = {},
 ): Promise<{ ok: boolean; approvalId?: string; error?: string }> {
   const label = change.kind === 'wire_form' ? `Add your form to ${clip(staged.ref.title || 'a page', 60)}` : change.kind === 'revert' ? 'Undo your last website change' : clip(change.request.split('\n')[0] ?? 'A website change', 80)
@@ -897,7 +913,14 @@ export async function raiseBuilderCard(
         ? { replaces: staged.edits.map((e, i) => `${i + 1}. “${plainWords(e.find, 200)}” → “${plainWords(e.replace, 200)}”`).join('\n') }
         : {}),
       ...(outside.length ? { adds_outside_addresses: outside.join(', ') } : {}),
-      ...(args.wiring ? { adds_entries_to: `Your form “${clip(args.wiring.formName, 80)}”: its old link stops working when this goes live.`, accepts_requests_from: args.wiring.accepts.join(', ') || 'any website' } : {}),
+      ...(args.wiring
+        ? {
+            ...(args.wiring.formName
+              ? { adds_entries_to: `Your form “${clip(args.wiring.formName, 80)}”: its old link stops working when this goes live.` }
+              : { quote_requests_to: 'You: each request reaches your quotes and you get a text. Your current quote form link stops working when this goes live (this page’s form replaces it).' }),
+            accepts_requests_from: args.wiring.accepts.join(', ') || 'any website',
+          }
+        : {}),
       yes_does: `${staged.ref.kind === 'site_script' ? `Puts this on every page of your ${builder} site` : `Writes this exact change to the ${staged.ref.kind === 'product' ? 'product' : staged.ref.kind === 'cms_item' ? 'item' : 'page'} on your ${builder} site`}, where it is live at once; ${staged.provider === 'wordpress' || staged.provider === 'wpcom' ? `${builder} keeps the earlier version` : 'I keep the earlier text, so it can be undone'}.`,
     },
     context: { website: context },
@@ -926,7 +949,9 @@ async function finishBuilderWrite(svc: Svc, change: WebsiteChange, site: Website
   )
   if (change.kind === 'wire_form' && change.intakeKeyHash) {
     // The form's link becomes the page's; its bot check stays on (the embed runs it).
-    await activateFormLink(svc, change, { embed: true })
+    // A form's link becomes the page's (its bot check stays on: the embed runs it); the quote form's key becomes the business's live quote key.
+    if (change.wiringIntake?.kind === 'form') await activateFormLink(svc, change, { embed: true })
+    else await (await import('./approval')).activateIntakeKey(svc, change)
     await recordSiteWiring(svc, change)
     await updateSite(svc, change.workspaceId, site.id, { state: 'wired', wired_at: written.at })
   }
@@ -981,7 +1006,9 @@ export async function applyBuilderYes(svc: Svc, change: WebsiteChange, site: Web
     written: true,
     message:
       change.kind === 'wire_form'
-        ? 'It’s on the page now: their form shows there, and every entry lands in its table. Its older link has stopped working. Tell them in a line.'
+        ? change.wiringIntake?.kind === 'form'
+          ? 'It’s on the page now: their form shows there, and every entry lands in its table. Its older link has stopped working. Tell them in a line.'
+          : 'It’s on the site now: their quote form shows there, and every request reaches their quotes (and you text them). Their older quote link has stopped working. Tell them in a line.'
         : change.kind === 'revert'
           ? 'Done: the page is back the way it was. Tell them in a line.'
           : `Done: it’s live on their site now${client.keepsRevisions ? ` (${PROVIDER_LABEL[staged.provider]} keeps the earlier version too)` : ' (undo_website_change puts it back)'}. Tell them in a line.`,

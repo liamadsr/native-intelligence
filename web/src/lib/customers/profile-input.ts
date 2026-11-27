@@ -134,6 +134,16 @@ export function intakeUrl(origin: string, key: string): string {
   return `${origin.replace(/\/$/, '')}/api/intake/quotes/${key}`
 }
 
+/**
+ * The business's quote form, drawn on any page by our embed (public/f/embed.js,
+ * docs/plans/hosted-site-builders.md phase 5): it posts to the quote intake
+ * under `key`. Pure.
+ */
+export function quoteEmbedSnippet(origin: string, key: string): string {
+  const base = origin.replace(/\/$/, '')
+  return `<div data-ni-quote="${key}"></div><script async src="${base}/f/embed.js"></script>`
+}
+
 /** The public booking page's URL for a slug. */
 export function bookingUrl(origin: string, slug: string): string {
   return `${origin.replace(/\/$/, '')}/book/${slug}`
