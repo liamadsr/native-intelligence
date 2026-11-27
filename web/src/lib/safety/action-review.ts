@@ -78,6 +78,9 @@ import type { AlwaysAllowOffer } from '@/lib/mcp-client/always-allow'
 import { decideAction, type CallerClass } from './caller'
 import { actionReviewMode, reviewerBlocks, type ReviewedCaller } from './review-mode'
 import { bareToolName } from '@/lib/mcp/tool-names'
+import { graduationFor, type Graduation } from '@/lib/autonomy/graduate'
+import { autonomousCardWhy, autonomousHeldMessage, scheduleAutonomousAction } from '@/lib/autonomy/actions'
+import { appendHomeMessage } from '@/lib/chat/home-message-writer'
 
 /**
  * The tools whose text-turn hold is the outward gate's own card (see
@@ -656,6 +659,42 @@ async function holdOutward(request: GateRequest & { sideEffect: RiskClass }, hol
   console.info('[outward-gate] held', JSON.stringify({ door: request.door, tool: request.toolName, reason: hold.reason, caller, decision }))
   if (decision !== 'ask') {
     return { success: false, code: 'NEEDS_PERSON', approval_id: null, message: hold.refusal }
+  }
+  // Earned autonomy (docs/plans/earned-autonomy.md, phase 3): a kind the person
+  // handed over runs on its own after its undo window. Liam, 11-27, decision 1:
+  // "The person's yes to 'handle this kind yourself' counts as their final yes
+  // for outward kinds, with the 5-minute undo window before each send", which
+  // amends Liam, 10-26: "nothing reaches another person without the person's
+  // final yes". Only a hold that is already the person's card ('ask'), never
+  // one denied; off unless EARNED_AUTONOMY=graduate. Every no is this card.
+  const graduation: Graduation = await graduationFor(request.approval.supabase, {
+    workspaceId: request.workspaceId,
+    userId: request.userId,
+    tool: request.toolName,
+    input: request.input,
+    context: { ...(request.approval.context ?? {}), ...(hold.context ?? {}) },
+    caller,
+    decision,
+    localAgent: request.localAgent,
+  }).catch(() => ({ run: false as const, reason: 'read_failed' as const }))
+  if (graduation.run) {
+    const ownCard = { title: hold.card.title, why: autonomousCardWhy(hold.card.why) }
+    const output = await withPreparedHold(request, hold, (held) => holdForPerson(held, { reason: hold.reason, decisionId: null, card: ownCard }, { heldMessage: autonomousHeldMessage(request.toolName) }))
+    if (output.approval_id) {
+      const scheduled = await scheduleAutonomousAction(request.approval.supabase, { graduation, approvalId: output.approval_id, workspaceId: request.workspaceId, userId: request.userId, title: hold.card.title })
+      if (!scheduled) {
+        // The card said it goes on its own; it won't. Say so, and it waits for their yes.
+        await appendHomeMessage(request.approval.supabase, {
+          userId: request.userId,
+          workspaceId: request.workspaceId,
+          messageId: `autonomy-unscheduled-${output.approval_id}`,
+          parts: [{ type: 'text', text: `I couldn't set "${hold.card.title}" to go on its own, so its card is waiting for your yes.` }],
+          metadata: { kind: 'autonomy_cancelled' },
+        }).catch(() => {})
+        return { ...output, message: `Nothing ran. ${request.toolName} needs the person's approval: it waits as their card. Do not call it again.` }
+      }
+    }
+    return output
   }
   // A Mac call's card says whose ask it is (C1): Native Intelligence on their Mac, for its job.
   const card = request.localAgent

@@ -91,7 +91,13 @@ MAY_BE_EMPTY = {
     "SLACK_SIGNING_SECRET": "empty: Slack is off: every event and button click from Slack is refused (all four SLACK_ settings or none)",
     "GATEWAY_USAGE_REPORTING": "empty: the admin's AI usage page opens on its log view",
     "GATEWAY_USER_TAGGING": "empty: no per-person tags in the AI Gateway's report",
-    "AGENT_AUTO_ATTEMPT_ENABLED": "a switch: empty is off",
+    # Empty is ON (web/src/lib/work/auto-attempt.ts autoAttemptEnvEnabled):
+    # only exactly 'false' stops agents' first passes. It is the incident kill
+    # switch, not an opt-in (Liam, 2026-10-17: agents act by default).
+    "AGENT_AUTO_ATTEMPT_ENABLED": "empty is on: agents make first passes on drafting work ('false' turns them off everywhere)",
+    # Earned autonomy (docs/plans/earned-autonomy.md): empty | record | graduate.
+    "EARNED_AUTONOMY": "a switch: empty is off (no track record is kept; 'record' keeps it read-only; 'graduate' runs handed-over kinds after a 5-minute undo window)",
+    "EARNED_AUTONOMY_QUIET": "a switch: empty is off (the launch ceiling is tell; only with EARNED_AUTONOMY=graduate)",
     "AGE_OUT_ENABLED": "a switch: empty is off",
     "CANVAS_AGENT_ARTIFACTS": "a switch: empty is off (agents cannot make or change canvas artifacts)",
     "RECONCILER_ENABLED": "a switch: empty is off",
