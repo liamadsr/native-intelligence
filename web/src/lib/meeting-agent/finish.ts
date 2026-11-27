@@ -48,6 +48,8 @@ export async function writeMeetingCapture(svc: SupabaseClient, a: MeetingAttenda
     .eq('scheduled_start', a.startsAt)
     .is('ended_at', null)
     .neq('status', 'archived')
+    // An eval's capture is never the person's own (docs/plans/evals.md §5.2).
+    .neq('is_eval', true)
     .limit(1)
     .maybeSingle<{ id: string; transcript: string | null; metadata: Record<string, unknown> | null }>()
   if (open && !(open.transcript ?? '').trim()) {

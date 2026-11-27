@@ -36,6 +36,10 @@
 --                        to the person, and the moments of the call.
 --   meeting_attendance_due_idx   NEW partial index: the scheduled ones by start.
 --   meeting_attendance_updated_at   NEW trigger: public.update_updated_at() (013).
+--   meeting_attendance_merge_fold   NEW trigger and function: during a
+--                        workspace merge, a moving attendance at a meeting the
+--                        person has one for there takes a -merged- suffix on
+--                        its event id instead of stopping the merge (720's way).
 --   RLS                  owner-only select, insert, update and delete, each
 --                        with public.is_workspace_member (the 356 pattern).
 --                        The server works on the service role, fenced on the
@@ -153,6 +157,39 @@ create policy "meeting_attendance_delete"
   on public.meeting_attendance for delete
   to authenticated
   using (user_id = (select auth.uid()) and public.is_workspace_member(workspace_id));
+
+-- A workspace merge moves every source row to the destination (707's
+-- generic re-stamp). An attendance for a meeting the same person already has
+-- one for there would meet meeting_attendance_meeting_key and stop the merge,
+-- so during a merge (_wsmerge_active) the moving one takes a suffix on its
+-- event id: both stay (the moved one is history, it matches no calendar
+-- event), the destination's at its own key. 280 + 16 characters still fits
+-- the event id's check. 720's agent_note_merge_fold is the same way. Nothing
+-- else changes an attendance's workspace.
+create or replace function public.meeting_attendance_merge_fold()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if new.workspace_id is distinct from old.workspace_id and public._wsmerge_active() then
+    if exists (select 1 from public.meeting_attendance d
+        where d.workspace_id = new.workspace_id and d.user_id = new.user_id and d.calendar_event_id = new.calendar_event_id
+          and d.starts_at = new.starts_at and d.id <> old.id) then
+      new.calendar_event_id := left(new.calendar_event_id, 280) || '-merged-' || left(replace(old.id::text, '-', ''), 8);
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+revoke all on function public.meeting_attendance_merge_fold() from public, anon, authenticated;
+
+drop trigger if exists meeting_attendance_merge_fold on public.meeting_attendance;
+create trigger meeting_attendance_merge_fold
+  before update of workspace_id on public.meeting_attendance
+  for each row execute function public.meeting_attendance_merge_fold();
 
 -- A person reads and writes only their own (the policies above); Supabase's
 -- default grants (truncate, trigger, references…) go. Re-runnable.

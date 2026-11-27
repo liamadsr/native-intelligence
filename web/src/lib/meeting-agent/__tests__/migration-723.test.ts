@@ -63,3 +63,14 @@ describe('migration 723 (text checks of the SQL file)', () => {
     expect(SQL).toContain('NUMBER: 723 is the first free number after main')
   })
 })
+
+describe('migration 723 and the workspace merge', () => {
+  it('a moving attendance that would collide takes a -merged- suffix during a merge, never stops it', () => {
+    expect(SQL).toContain('create or replace function public.meeting_attendance_merge_fold()')
+    expect(SQL).toContain('public._wsmerge_active()')
+    expect(SQL).toContain("new.calendar_event_id := left(new.calendar_event_id, 280) || '-merged-' || left(replace(old.id::text, '-', ''), 8)")
+    expect(SQL).toContain('before update of workspace_id on public.meeting_attendance')
+    // 280 + '-merged-' (8) + 8 stays within the event id's 300.
+    expect(280 + 8 + 8).toBeLessThanOrEqual(300)
+  })
+})

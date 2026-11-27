@@ -279,6 +279,7 @@ const UNIQUE_SETTLED: Record<string, string> = {
   anchor_embedding_pkey: '_wsmerge_knowledge dedupes anchor embeddings',
   demo_workspace_pkey: '_wsmerge_front_door_check refuses a demo workspace on either side (707)',
   meeting_goal_meeting_key: '_wsmerge_singletons drops the source duplicate',
+  meeting_attendance_meeting_key: 'meeting_attendance_merge_fold (723): during a merge the moving attendance at a meeting the person has one for there takes a -merged- suffix on its event id',
   member_user_id_workspace_id_key: '_wsmerge_members folds a person in both',
   outreach_suppression_workspace_email_idx: '_wsmerge_singletons dedupes suppressions',
   uidx_suppression_workspace_email: '_wsmerge_singletons dedupes suppressions',
