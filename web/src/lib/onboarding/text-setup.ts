@@ -95,9 +95,20 @@ export function renderTextSetupSection(
   opts: { builders?: readonly string[] } = {},
 ): string {
   // Liam, 11-27, on issue #13 ("let's do it"): a site on a builder is offered too, once its builder is switched on.
-  const wordpress = opts.builders?.includes('wordpress') === true
-  const builderLine = wordpress
-    ? ` A site on WordPress (their own, not WordPress.com): call connect_website with builder "wordpress" and site_url; it answers a link you text them, which they open to sign in to their own WordPress and press Approve (never ask for their WordPress password). Once it connects, wire_website_form with page and one of their forms (create_form first if they have none) puts it on that page, again only on their yes. A site on Wix, Squarespace, Webflow, Shopify, Framer or another builder, or they don't know: say you can connect those later and move on.`
+  // The builders switched on, in the words and the `builder` values the agent uses.
+  const ON: Array<[string, string]> = [
+    ['wordpress', 'WordPress (their own)'],
+    ['wpcom', 'WordPress.com'],
+    ['webflow', 'Webflow'],
+    ['shopify', 'Shopify'],
+  ]
+  const on = ON.filter(([b]) => opts.builders?.includes(b))
+  const offered = on.map(([, words]) => words)
+  const shopify = opts.builders?.includes('shopify') === true
+  const wordpressAny = opts.builders?.includes('wordpress') === true || opts.builders?.includes('wpcom') === true
+  const later = ['Wix', 'Squarespace', wordpressAny ? null : 'WordPress', opts.builders?.includes('webflow') ? null : 'Webflow', shopify ? null : 'Shopify', 'Framer'].filter(Boolean).join(', ')
+  const builderLine = offered.length
+    ? ` A site on ${offered.join(' or ')}: call connect_website with builder "${on.map(([b]) => b).join('" or "')}" and site_url${shopify ? ' (for Shopify, the store’s .myshopify.com address)' : ''}; it answers a link you text them, which they open to sign in to their own site and approve (never ask for a password). Once it connects, wire_website_form with page and one of their forms (create_form first if they have none) puts it on that page, again only on their yes. A site on ${later} or another builder, or they don't know: say you can connect those later and move on.`
     : ` A site on Wix, Squarespace, WordPress or another builder, or they don't know: say you can connect those later and move on.`
   const who = state.name ?? 'This owner'
   const google = status.google ? `connected (${status.google})` : 'not connected'

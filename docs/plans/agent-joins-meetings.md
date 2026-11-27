@@ -12,6 +12,12 @@ Built differently from the first draft of this plan, in phase 1: the capture is 
 the call ends (no pending capture at send time), and a "check with you" ask is urgent for
 15 minutes (the router waits 2 minutes before it routes anything).
 
+Phase 2 built on the same branch, also behind `MEETING_AGENT`, migration 727:
+- The person's answer to a "check with you" ask is read out in the meeting as theirs ("<Name> says: …"), while the call is up (`reply-relay.ts`). The ask tells them it will be read out.
+- Recurring opt-in: `meeting_attendance_series`. The person approves a brief once with `every_occurrence`, and a sweep every 30 minutes sends each occurrence a day and a half ahead. "Skip this one" cancels that occurrence and it stays skipped. A series can be paused or stopped (`series.ts`).
+- Settings › Meetings: status, asks, cancel / skip / pull out, and the series with pause and stop. The nav item shows only while the setting is on.
+- NOT done: moving the bridge out of the web request. The worker is the same Next server, and an hour-long Inngest step needs checks on real infrastructure first, so it stays an owner and infrastructure item. The brief editor is still the chat card (no form in the meeting prep card yet).
+
 The goal: "Your agent joins a meeting on your behalf, speaks for you, takes the notes, and texts
 you if it needs you."
 

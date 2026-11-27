@@ -7,6 +7,7 @@ import type { ApprovalContext } from '@/lib/safety/approvals'
 import { BRIEF_MAX_CHARS, BRIEF_MAX_ITEMS, briefIsEmpty, parseBrief, ALWAYS_MUST_NOT_AGREE } from '@/lib/meeting-agent/brief'
 import { findMeeting } from '@/lib/meeting-agent/lookup'
 import { sendAgentToMeeting } from '@/lib/meeting-agent/send'
+import { saveSeries, seriesIdOf } from '@/lib/meeting-agent/series'
 import { meetingAgentOn } from '@/lib/meeting-agent/settings'
 import { normalizeEventId, normalizeStartsAt } from '@/lib/meetings/meeting-goal'
 import { maskPhone } from '@/lib/twilio/phone'
@@ -22,6 +23,11 @@ import { maskPhone } from '@/lib/twilio/phone'
  * replays this exact call: approvedCall). It dials in by phone at the start,
  * says who it is and that it takes notes, speaks only from the brief, texts
  * the person when something needs them, and leaves the notes as a capture.
+ *
+ * With every_occurrence (phase 2, migration 727), the same approved brief
+ * covers every later occurrence of a recurring meeting: the card says so, and
+ * each one is listed and can be skipped. Liam's rule (11-27, via the plan):
+ * "The person opts in per meeting, or per recurring meeting, explicitly."
  *
  * The meeting is read from the person's own calendar (find it first with
  * get_calendar_events): it never attends one they're not on. An unattended
@@ -40,11 +46,12 @@ export interface MeetingAgentToolsOptions {
 
 const list = (what: string) => z.array(z.string().max(BRIEF_MAX_CHARS)).max(BRIEF_MAX_ITEMS).optional().describe(`${what} (short lines, at most ${BRIEF_MAX_ITEMS})`)
 
-function cardWhy(args: { title: string; number: string; brief: ReturnType<typeof parseBrief> & { ok: true } }): string {
+function cardWhy(args: { title: string; number: string; brief: ReturnType<typeof parseBrief> & { ok: true }; everyOccurrence: boolean }): string {
   const b = args.brief.brief
   const lines = (title: string, items: readonly string[]) => (items.length ? `${title}: ${items.join('; ')}` : null)
   return [
     `It dials in at the start (${maskPhone(args.number)}), introduces itself as your AI assistant, says it is taking notes, and leaves if anyone objects.`,
+    args.everyOccurrence ? 'It does the same for every later occurrence of this meeting, with this brief, until you stop it. You can skip any one.' : null,
     lines('Goals', b.goals),
     lines('May share', b.may_share),
     lines('Will ask', b.ask),
@@ -69,6 +76,7 @@ export function createMeetingAgentTools(userId: string, _supabase: SupabaseClien
         must_not_agree: list('What the assistant must not agree to (money, dates and decisions are always off limits)'),
         dial_in_number: z.string().optional().describe("Only if the person gave one: the meeting's dial-in phone number"),
         dial_in_digits: z.string().optional().describe('Only with dial_in_number: the meeting ID / PIN digits to key in, with # where the bridge wants it'),
+        every_occurrence: z.boolean().optional().describe('Only when the person asks for every time this recurring meeting happens ("every week", "all my standups"): the same brief covers every later occurrence'),
       }),
       execute: async (input) => {
         if (opts.unattended) return { success: false, error: ATTENDED_ONLY }
@@ -90,6 +98,9 @@ export function createMeetingAgentTools(userId: string, _supabase: SupabaseClien
         const given = input.dial_in_number ? { number: input.dial_in_number, digits: (input.dial_in_digits ?? '').replace(/[^0-9#*]/g, '') } : null
         // A person's own digits wait for the bridge to answer first, as the found ones do.
         const dialIn = given ? { number: given.number, digits: given.digits ? `wwwwww${given.digits}` : '' } : found.dialIn
+        const seriesId = seriesIdOf(found.event)
+        const everyOccurrence = input.every_occurrence === true
+        if (everyOccurrence && !seriesId) return { success: false, code: 'NOT_RECURRING', error: "That meeting doesn't repeat. Send the assistant to it alone." }
         if (!dialIn) {
           return { success: false, code: 'NO_DIAL_IN', error: 'This meeting has no phone dial-in on its invite. Ask the person for the dial-in number and meeting ID (or PIN), then call again with dial_in_number and dial_in_digits.' }
         }
@@ -106,7 +117,10 @@ export function createMeetingAgentTools(userId: string, _supabase: SupabaseClien
             conversationId: opts.conversationId ?? null,
             context: { ...(opts.approvalContext ?? {}) },
             reason: 'meeting_agent_send',
-            card: { title: `Send your assistant to “${found.event.title}”?`, why: cardWhy({ title: found.event.title, number: dialIn.number, brief }) },
+            card: {
+              title: everyOccurrence ? `Send your assistant to every “${found.event.title}”?` : `Send your assistant to “${found.event.title}”?`,
+              why: cardWhy({ title: found.event.title, number: dialIn.number, brief, everyOccurrence }),
+            },
           })
           if (!held.ok) return { success: false, code: held.code, error: held.error }
           return {
@@ -128,11 +142,24 @@ export function createMeetingAgentTools(userId: string, _supabase: SupabaseClien
           brief: brief.brief,
         })
         if (!sent.ok) return { success: false, code: sent.reason.toUpperCase(), error: sent.message }
+        if (everyOccurrence && seriesId) {
+          const a = sent.attendance
+          await saveSeries(getServiceClient(), {
+            workspaceId,
+            userId,
+            seriesId,
+            title: found.event.title,
+            brief: a.brief,
+            // The person's own dial-in rides along for every occurrence; one read from this invite is read again from each.
+            dialIn: given && a.dialInNumber && a.dialInPin ? { number: a.dialInNumber, digits: a.dialInPin } : null,
+          })
+        }
         return {
           success: true,
           attendance_id: sent.attendance.id,
           status: sent.attendance.status,
-          message: `Your assistant will dial in to “${found.event.title}” at its start as “${sent.attendance.displayName}”. You'll get a text if it needs you, and the notes land as a capture.`,
+          every_occurrence: everyOccurrence,
+          message: `Your assistant will dial in to “${found.event.title}” at its start as “${sent.attendance.displayName}”${everyOccurrence ? ', and to every later occurrence with the same brief' : ''}. You'll get a text if it needs you, and the notes land as a capture.`,
         }
       },
     }),

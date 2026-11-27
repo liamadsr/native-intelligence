@@ -7,9 +7,10 @@
  * meeting, and someone in this one is waiting on the answer. Quiet hours
  * still hold for anything but urgent, which this always is.
  *
- * Their reply lands in the same thread, from whatever channel they answer on.
- * Relaying it back into the meeting live is phase 2; in phase 1 the notes
- * record that the question was put to them.
+ * Their reply lands in the same thread, from whatever channel they answer on,
+ * and the bridge reads it out in the meeting as theirs while the call is up
+ * (./reply-relay.ts). The ask says so, so the person knows their reply is
+ * spoken to the room.
  *
  * Never throws: an ask that couldn't be written is logged, and the meeting
  * was already told the assistant will check.
@@ -33,7 +34,7 @@ export const MEETING_ASK_URGENT_MS = 15 * 60_000
 export function meetingAskText(args: { title: string; question: string }): string {
   const title = args.title.replace(/\s+/g, ' ').trim().slice(0, 120) || 'your meeting'
   const question = args.question.replace(/\s+/g, ' ').trim().slice(0, 400)
-  return `From ${title}, where I'm attending for you: ${question || 'something came up that needs you.'} Reply here and I'll keep it in the notes.`
+  return `From ${title}, where I'm attending for you: ${question || 'something came up that needs you.'} Your reply is read out in the meeting as your answer.`
 }
 
 /** The ask's message id: one per hand-off, so a retry writes it once. */
@@ -48,12 +49,15 @@ export interface MeetingAskDeps {
   now?: () => number
 }
 
-/** Put one question to the person. Whether it was written. */
+/** What an ask came to: written (and the thread the person's reply will land in), or not. */
+export type MeetingAskResult = { ok: true; conversationId: string | null; askedAt: string; messageId: string } | { ok: false }
+
+/** Put one question to the person. Never throws. */
 export async function askOwner(
   supabase: SupabaseClient,
   args: { attendance: MeetingAttendance; delegationId: string; question: string },
   deps: MeetingAskDeps = {},
-): Promise<boolean> {
+): Promise<MeetingAskResult> {
   const a = args.attendance
   const now = (deps.now ?? Date.now)()
   const messageId = meetingAskMessageId(a.id, args.delegationId)
@@ -67,15 +71,15 @@ export async function askOwner(
     })
     if (!written.written) {
       console.warn(`[meeting-agent] attendance=${a.id} ask not written: ${written.reason ?? 'unknown'}`)
-      return false
+      return { ok: false }
     }
     await (deps.record ?? recordAsk)(supabase, a.id, { at: new Date(now).toISOString(), question: args.question.slice(0, 400), messageId })
     if (written.conversationId) {
       await (deps.route ?? requestRoute)({ userId: a.userId, workspaceId: a.workspaceId, conversationId: written.conversationId }, messageId)
     }
-    return true
+    return { ok: true, conversationId: written.conversationId ?? null, askedAt: new Date(now).toISOString(), messageId }
   } catch (err) {
     console.warn(`[meeting-agent] attendance=${a.id} ask failed: ${err instanceof Error ? err.message : String(err)}`)
-    return false
+    return { ok: false }
   }
 }

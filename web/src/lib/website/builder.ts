@@ -6,10 +6,13 @@
  *
  * Liam, 11-27, on issue #13: "let's do it": quote forms and website changes
  * by text for sites on WordPress, Wix, Webflow, Framer and Shopify. Phase 1
- * is WordPress, self-hosted (no developer app, no marketplace review).
+ * is WordPress, self-hosted (no developer app, no marketplace review); phase
+ * 2 is Shopify (an app of ours the merchant approves; custom distribution
+ * first, the owner's choice of distribution still open).
  *
  *   connect   {@link startBuilderConnect}: the builder's own connect page
- *             (WordPress: "Authorize Application" on the owner's site), with
+ *             (WordPress: "Authorize Application" on the owner's site;
+ *             Shopify: the store's own consent page for our app), with
  *             a signed state; {@link completeWordpressConnect} (the callback
  *             route) checks the state against the signed-in person, reads
  *             the login's rights, and saves the site with the login
@@ -51,7 +54,10 @@ import { appOrigin } from '@/lib/twilio/config'
 import { clip, mergeCardCopy } from './brief'
 import { activateFormLink, formWiringTarget, wiredFormOrigins } from './form-target'
 import { publicHttpsUrl } from './fetch'
-import { wordpressAuthorizeLink, wordpressClient, wordpressDiscover, type WordpressDeps } from './providers/wordpress'
+import { wordpressAuthorizeLink, wordpressClient, wordpressDiscover, wpcomAuthorizeLink, wpcomExchangeCode, type WordpressDeps } from './providers/wordpress'
+import { pickWebflowSite, webflowAuthorizeLink, webflowClient, webflowExchangeCode, webflowSites } from './providers/webflow'
+import { isShopHost, shopHostOf, shopifyAuthorizeLink, shopifyCallbackValid, shopifyClient, shopifyExchangeCode, SHOPIFY_SCOPES } from './providers/shopify'
+import { oauthBuilderApp, shopifyApp } from './providers/enabled'
 import { enabledBuilders } from './providers/enabled'
 import { PROVIDER_LABEL, type BuilderClient, type BuilderProvider, type ContentRef, type ContentSnapshot, type StagedWrite } from './providers/types'
 import { fail, MANAGES_SITE, openChangeWords, roleOf, siteOrigins, type Outcome, type Who } from './start'
@@ -89,9 +95,28 @@ interface StoredLogin {
 /** The builder client for a connected site, from its stored login; null when it has none or it can't be read. */
 export async function builderClientFor(svc: Svc, site: WebsiteSite, deps: BuilderDeps = {}): Promise<BuilderClient | null> {
   if (deps.client) return deps.client(site)
-  if (site.provider !== 'wordpress' || !site.providerSiteId) return null
+  if (!site.provider || site.provider === 'github' || site.provider === 'wix' || !site.providerSiteId) return null
   const stored = await siteCredentials(svc, site.workspaceId, site.id)
   if (!stored) return null
+  if (site.provider === 'webflow' || site.provider === 'wpcom') {
+    try {
+      const login = JSON.parse(decryptCredential(stored)) as { token?: unknown }
+      if (typeof login.token !== 'string') return null
+      const fd = deps.fetchImpl ? { fetchImpl: deps.fetchImpl } : {}
+      return site.provider === 'webflow' ? webflowClient({ token: login.token, siteId: site.providerSiteId }, fd) : wordpressClient({ wpcomSite: site.providerSiteId, token: login.token }, fd)
+    } catch {
+      return null
+    }
+  }
+  if (site.provider === 'shopify') {
+    try {
+      const login = JSON.parse(decryptCredential(stored)) as { token?: unknown }
+      const shop = site.providerSiteId.replace(/^https:\/\//, '')
+      return typeof login.token === 'string' && isShopHost(shop) ? shopifyClient({ shop, token: login.token }, deps.fetchImpl ? { fetchImpl: deps.fetchImpl } : {}) : null
+    } catch {
+      return null
+    }
+  }
   try {
     const login = JSON.parse(decryptCredential(stored)) as Partial<StoredLogin>
     if (typeof login.user !== 'string' || typeof login.password !== 'string') return null
@@ -137,7 +162,7 @@ export function verifyConnectState(param: string | null | undefined, nowMs = Dat
   if (sig.length !== want.length || !timingSafeEqual(new Uint8Array(sig), new Uint8Array(want))) return null
   try {
     const s = JSON.parse(Buffer.from(body, 'base64url').toString()) as Partial<ConnectState>
-    if (s.v !== 1 || s.provider !== 'wordpress' || typeof s.userId !== 'string' || typeof s.workspaceId !== 'string' || typeof s.apiRoot !== 'string' || typeof s.exp !== 'number') return null
+    if (s.v !== 1 || !(['wordpress', 'shopify', 'webflow', 'wpcom'] as const).includes(s.provider as 'wordpress') || typeof s.userId !== 'string' || typeof s.workspaceId !== 'string' || typeof s.apiRoot !== 'string' || typeof s.exp !== 'number') return null
     if (nowMs > s.exp) return null
     return s as ConnectState
   } catch {
@@ -147,6 +172,13 @@ export function verifyConnectState(param: string | null | undefined, nowMs = Dat
 
 /** The callback WordPress hands the password to. */
 export const WORDPRESS_CALLBACK_PATH = '/api/website/wordpress/callback'
+/** The callback Shopify sends the merchant back to with a code: the app's redirect URL (deploy/app/.env.example). */
+export const SHOPIFY_CALLBACK_PATH = '/api/website/shopify/callback'
+
+/** The Shopify callback's full address: what the app's settings in Shopify must name. */
+export function shopifyRedirectUri(): string {
+  return `${appOrigin().replace(/\/$/, '')}${SHOPIFY_CALLBACK_PATH}`
+}
 
 /**
  * The owner's site is on a builder: its connect link, which they open and
@@ -162,6 +194,8 @@ export async function startBuilderConnect(svc: Svc, who: Who, input: { builder: 
   const live = await getLiveSite(svc, who.workspaceId)
   const found = live ? await getOpenChange(svc, who.workspaceId, live.id) : null
   if (found) return fail('OPEN_CHANGE', `${openChangeWords(found)} The website stays as it is until it is done.`)
+  if (input.builder === 'shopify') return shopifyConnectLink(who, input.siteUrl ?? '', deps)
+  if (input.builder === 'webflow' || input.builder === 'wpcom') return oauthConnectLink(who, input.builder, input.siteUrl, deps)
   const discovered = await wordpressDiscover(input.siteUrl, wpDeps(deps))
   if (!discovered.ok) return fail('NOT_WORDPRESS', discovered.error)
   const now = (deps.now ?? Date.now)()
@@ -184,17 +218,60 @@ export async function startBuilderConnect(svc: Svc, who: Who, input: { builder: 
  */
 export const CONNECT_REFUSALS = {
   BAD_STATE: 'That connect link is no longer good. Ask for a new one.',
-  BUILDER_OFF: 'Connecting a WordPress site isn’t switched on.',
+  BUILDER_OFF: 'Connecting this kind of site isn’t switched on.',
   WRONG_PERSON: 'Sign in to Native Intelligence as the person who asked for this link, on this device, and open the link again.',
-  NO_PASSWORD: 'WordPress didn’t send a login back. Ask for a new link and press Approve.',
+  NO_PASSWORD: 'The site didn’t send a login back. Ask for a new link and approve it.',
   OTHER_SITE: 'That approval came from another site than the one asked for. Ask for a new link.',
   NOT_ALLOWED: 'Only an owner or admin of the workspace connects its website.',
-  LOGIN_REFUSED: 'WordPress refused the new login. Ask for a new link and try again.',
-  CANT_EDIT: 'That WordPress login can’t change published pages. Approve with an administrator or editor login.',
+  LOGIN_REFUSED: 'The site refused the new login. Ask for a new link and try again.',
+  CANT_EDIT: 'That login can’t change published pages. Approve with an administrator or editor login (on Shopify: approve every permission the app asks for).',
   FAILED: 'Something went wrong connecting the site. Ask for a new link and try again.',
-  REJECTED: 'Nothing was connected: the request was turned down on WordPress. You can ask for a new link any time.',
+  REJECTED: 'Nothing was connected: the request was turned down. You can ask for a new link any time.',
 } as const
 export type ConnectRefusal = keyof typeof CONNECT_REFUSALS
+
+/** A Shopify store's consent link (custom distribution: the one store, or Plus organization, the app is distributed to). */
+function shopifyConnectLink(who: Who, typed: string, deps: BuilderDeps): Outcome {
+  const app = shopifyApp(deps.env)
+  const shop = shopHostOf(typed)
+  if (!app) return fail('BUILDER_OFF', 'Connecting a Shopify store isn’t switched on yet. Tell them it is coming.')
+  if (!shop) return fail('NEEDS_SHOP', 'Ask them for their store’s Shopify address, the one ending in .myshopify.com (Shopify admin › Settings › Domains), then call connect_website again with builder shopify and that as site_url.')
+  const now = (deps.now ?? Date.now)()
+  const state = signConnectState({ v: 1, provider: 'shopify', userId: who.userId, workspaceId: who.workspaceId, apiRoot: `https://${shop}`, exp: now + CONNECT_STATE_TTL_MS })
+  return {
+    success: true,
+    builder: 'shopify',
+    connect_link: shopifyAuthorizeLink(shop, { clientId: app.clientId, redirectUri: shopifyRedirectUri(), state }),
+    message:
+      'Send them this link (by text as is). It opens their own Shopify admin: they sign in as the store owner (or a staff member allowed to manage apps) and approve Native Intelligence, which can then read and change their store’s pages and product descriptions. Then come back to Native Intelligence on the same phone or computer they use it on. The link works for 30 minutes.',
+  }
+}
+
+/** Where a builder's OAuth answer comes back: its app's redirect URL (deploy/app/.env.example). */
+export function builderRedirectUri(provider: 'webflow' | 'wpcom'): string {
+  return `${appOrigin().replace(/\/$/, '')}/api/website/${provider}/callback`
+}
+
+/** Webflow's or WordPress.com's consent link: the owner approves our app for their site there. */
+function oauthConnectLink(who: Who, provider: 'webflow' | 'wpcom', siteUrl: string | null, deps: BuilderDeps): Outcome {
+  const app = oauthBuilderApp(provider, deps.env)
+  if (!app) return fail('BUILDER_OFF', `Connecting a ${PROVIDER_LABEL[provider]} site isn’t switched on yet. Tell them it is coming.`)
+  const site = siteUrl ? publicHttpsUrl(siteUrl) : null
+  if (!site) return fail('NO_SITE_URL', 'Ask them for their website’s address, then call connect_website again with builder and site_url.')
+  const now = (deps.now ?? Date.now)()
+  const state = signConnectState({ v: 1, provider, userId: who.userId, workspaceId: who.workspaceId, apiRoot: site.origin, exp: now + CONNECT_STATE_TTL_MS })
+  const redirectUri = builderRedirectUri(provider)
+  const link = provider === 'webflow' ? webflowAuthorizeLink({ clientId: app.clientId, redirectUri, state }) : wpcomAuthorizeLink({ clientId: app.clientId, redirectUri, state })
+  return {
+    success: true,
+    builder: provider,
+    connect_link: link,
+    message:
+      provider === 'webflow'
+        ? 'Send them this link (by text as is). It opens Webflow: they sign in and approve Native Intelligence for their site (only that site), which can then read and change its CMS items (blog posts, services, team and the like; not the fixed text of a page: Webflow doesn’t allow that). Then come back to Native Intelligence on the same phone or computer. The link works for 30 minutes.'
+        : 'Send them this link (by text as is). It opens WordPress.com: they sign in, pick their site and approve Native Intelligence, which can then read and change its pages and posts. Then come back to Native Intelligence on the same phone or computer. The link works for 30 minutes.',
+  }
+}
 
 export type CompleteResult = { ok: true; site: WebsiteSite } | { ok: false; code: string; error: string }
 
@@ -211,7 +288,7 @@ export async function completeWordpressConnect(
 ): Promise<CompleteResult> {
   const no = (code: ConnectRefusal): CompleteResult => ({ ok: false, code, error: CONNECT_REFUSALS[code] })
   const state = verifyConnectState(input.state, (deps.now ?? Date.now)())
-  if (!state) return no('BAD_STATE')
+  if (!state || state.provider !== 'wordpress') return no('BAD_STATE')
   if (!enabledBuilders(deps.env).includes('wordpress')) return no('BUILDER_OFF')
   // The person approving must be the one who asked: a link made in someone else's workspace can't take this site's login there.
   if (!input.sessionUserId || input.sessionUserId !== state.userId) return no('WRONG_PERSON')
@@ -237,27 +314,140 @@ export async function completeWordpressConnect(
   return { ok: true, site }
 }
 
+/**
+ * Shopify sent the merchant back (the callback route): its HMAC must be
+ * Shopify's, the state ours, unexpired, for the signed-in person and the same
+ * store; the code is traded for the store's token server-side, the token's
+ * scopes must cover pages, and the store is saved with the token encrypted.
+ */
+export async function completeShopifyConnect(svc: Svc, input: { params: URLSearchParams; sessionUserId: string | null }, deps: BuilderDeps = {}): Promise<CompleteResult> {
+  const no = (code: ConnectRefusal): CompleteResult => ({ ok: false, code, error: CONNECT_REFUSALS[code] })
+  const app = shopifyApp(deps.env)
+  if (!app || !enabledBuilders(deps.env).includes('shopify')) return no('BUILDER_OFF')
+  if (!shopifyCallbackValid(input.params, app.clientSecret)) return no('BAD_STATE')
+  const state = verifyConnectState(input.params.get('state'), (deps.now ?? Date.now)())
+  if (!state || state.provider !== 'shopify') return no('BAD_STATE')
+  if (!input.sessionUserId || input.sessionUserId !== state.userId) return no('WRONG_PERSON')
+  const shop = input.params.get('shop') ?? ''
+  if (`https://${shop}` !== state.apiRoot) return no('OTHER_SITE')
+  const code = input.params.get('code')
+  if (!code) return no('NO_PASSWORD')
+  const role = await roleOf(svc, { userId: state.userId, workspaceId: state.workspaceId })
+  if (!MANAGES_SITE.has(role ?? '')) return no('NOT_ALLOWED')
+  const traded = await shopifyExchangeCode(shop, { clientId: app.clientId, clientSecret: app.clientSecret, code }, deps.fetchImpl ? { fetchImpl: deps.fetchImpl } : {})
+  if (!traded.ok) return no('LOGIN_REFUSED')
+  const me = await shopifyClient({ shop, token: traded.value.token }, deps.fetchImpl ? { fetchImpl: deps.fetchImpl } : {}).identity()
+  if (!me.ok) return no('LOGIN_REFUSED')
+  if (!me.value.canEdit) return no('CANT_EDIT')
+  const site = await connectBuilderSite(svc, {
+    workspaceId: state.workspaceId,
+    connectedBy: state.userId,
+    provider: 'shopify',
+    providerSiteId: `https://${shop}`,
+    siteUrl: me.value.siteUrl,
+    credentialsEncrypted: encryptCredential(JSON.stringify({ token: traded.value.token })),
+    name: me.value.name,
+    user: shop,
+  })
+  return { ok: true, site }
+}
+
+/** The bare host of an address: no www, lower case. Pure. */
+function bareHost(url: string): string {
+  try {
+    return new URL(url.includes('://') ? url : `https://${url}`).hostname.replace(/^www\./, '').toLowerCase()
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * Webflow or WordPress.com sent the owner back with a code (the callback
+ * route): the state must be ours, for this builder, unexpired, and for the
+ * signed-in person; the code is traded server-side; the site must be the one
+ * asked for (Webflow: among the sites they approved; WordPress.com: the one
+ * site its token is for); the token must change pages (or CMS items). Saved
+ * with the token encrypted.
+ */
+export async function completeOAuthBuilderConnect(
+  svc: Svc,
+  provider: 'webflow' | 'wpcom',
+  input: { params: URLSearchParams; sessionUserId: string | null },
+  deps: BuilderDeps = {},
+): Promise<CompleteResult> {
+  const no = (code: ConnectRefusal): CompleteResult => ({ ok: false, code, error: CONNECT_REFUSALS[code] })
+  const app = oauthBuilderApp(provider, deps.env)
+  if (!app || !enabledBuilders(deps.env).includes(provider)) return no('BUILDER_OFF')
+  const state = verifyConnectState(input.params.get('state'), (deps.now ?? Date.now)())
+  if (!state || state.provider !== provider) return no('BAD_STATE')
+  if (!input.sessionUserId || input.sessionUserId !== state.userId) return no('WRONG_PERSON')
+  const code = input.params.get('code')
+  if (!code) return no('NO_PASSWORD')
+  const role = await roleOf(svc, { userId: state.userId, workspaceId: state.workspaceId })
+  if (!MANAGES_SITE.has(role ?? '')) return no('NOT_ALLOWED')
+  const fd = deps.fetchImpl ? { fetchImpl: deps.fetchImpl } : {}
+  const args = { clientId: app.clientId, clientSecret: app.clientSecret, code, redirectUri: builderRedirectUri(provider) }
+  let providerSiteId: string
+  let token: string
+  if (provider === 'webflow') {
+    const traded = await webflowExchangeCode(args, fd)
+    if (!traded.ok) return no('LOGIN_REFUSED')
+    const sites = await webflowSites(traded.value.token, fd)
+    if (!sites.ok) return no('LOGIN_REFUSED')
+    const site = pickWebflowSite(sites.value, state.apiRoot)
+    if (!site) return no('OTHER_SITE')
+    providerSiteId = site.id
+    token = traded.value.token
+  } else {
+    const traded = await wpcomExchangeCode(args, fd)
+    if (!traded.ok) return no('LOGIN_REFUSED')
+    if (traded.value.blogUrl && bareHost(traded.value.blogUrl) !== bareHost(state.apiRoot)) return no('OTHER_SITE')
+    providerSiteId = traded.value.blogId
+    token = traded.value.token
+  }
+  const client = provider === 'webflow' ? webflowClient({ token, siteId: providerSiteId }, fd) : wordpressClient({ wpcomSite: providerSiteId, token }, fd)
+  const me = await client.identity()
+  if (!me.ok) return no('LOGIN_REFUSED')
+  if (!me.value.canEdit) return no('CANT_EDIT')
+  const site = await connectBuilderSite(svc, {
+    workspaceId: state.workspaceId,
+    connectedBy: state.userId,
+    provider,
+    providerSiteId,
+    siteUrl: me.value.siteUrl || state.apiRoot,
+    credentialsEncrypted: encryptCredential(JSON.stringify({ token })),
+    name: me.value.name,
+    user: me.value.user,
+  })
+  return { ok: true, site }
+}
+
+/** The scopes the Shopify app asks for, for the owner's setup words. */
+export const SHOPIFY_APP_SCOPES = SHOPIFY_SCOPES
+
 // ── Reading the site ─────────────────────────────────────────────────────────
 
 /** The most of a page's text the agent reads back. */
 export const PAGE_TEXT_MAX = 12_000
 
-const LOGIN_GONE = (site: WebsiteSite) =>
-  fail('LOGIN_GONE', `Their ${PROVIDER_LABEL[site.provider ?? 'wordpress']} login stopped working (it was revoked, or the site changed). Connect it again (connect_website with builder and site_url).`)
+const loginGone = (provider: BuilderProvider) =>
+  fail('LOGIN_GONE', `Their ${PROVIDER_LABEL[provider]} login stopped working (it was revoked, or the site changed). Connect it again (connect_website with builder and site_url).`)
+const LOGIN_GONE = (site: WebsiteSite) => loginGone(site.provider && site.provider !== 'github' ? site.provider : 'wordpress')
 
 /** A page named by the agent: its id, its address, or its title. */
 async function resolvePage(client: BuilderClient, hint: string): Promise<{ ok: true; ref: ContentRef } | { ok: false; outcome: Outcome }> {
   const want = hint.trim()
-  if (/^\d{1,12}$/.test(want)) {
-    for (const kind of ['page', 'post'] as const) {
+  if (client.looksLikeId(want)) {
+    for (const kind of client.kinds) {
       const got = await client.readContent({ kind, id: want })
       if (got.ok) return { ok: true, ref: got.value.ref }
+      if (got.status === 401 || got.status === 403) return { ok: false, outcome: loginGone(client.provider) }
     }
     return { ok: false, outcome: fail('NO_SUCH_PAGE', `No page ${want} on the site. Call change_website with no page to list them.`) }
   }
   const asUrl = publicHttpsUrl(want)
   const listed = await client.listContent({ search: asUrl ? null : want, limit: 50 })
-  if (!listed.ok) return { ok: false, outcome: fail('SITE_UNAVAILABLE', `The site didn’t answer just now (${listed.error}). Try again in a moment.`) }
+  if (!listed.ok) return { ok: false, outcome: listed.status === 401 || listed.status === 403 ? loginGone(client.provider) : fail('SITE_UNAVAILABLE', `The site didn’t answer just now (${listed.error}). Try again in a moment.`) }
   const path = (u: string) => {
     try {
       return new URL(u).pathname.replace(/\/+$/, '') || '/'
@@ -305,7 +495,7 @@ export async function builderRead(svc: Svc, who: Who, site: WebsiteSite, input: 
     page: pageLine(got.value.ref),
     title: got.value.title,
     text: body.length > PAGE_TEXT_MAX ? `${body.slice(0, PAGE_TEXT_MAX)}\n…(cut: the page goes on)` : body,
-    ...(isBuilderShell(body) ? { note: 'This page’s words seem to live in a page builder plugin (Elementor, Divi…), not in its WordPress text: a change here may not show. Say so if what they want isn’t in the text.' } : {}),
+    ...(client.provider === 'wordpress' && isBuilderShell(body) ? { note: 'This page’s words seem to live in a page builder plugin (Elementor, Divi…), not in its WordPress text: a change here may not show. Say so if what they want isn’t in the text.' } : {}),
     next: 'Call change_website again with page and edits: each find is text copied exactly from `text` (enough to occur once), each replace is the new text. Words only: no scripts, frames or code.',
   }
 }
@@ -470,13 +660,17 @@ export async function startBuilderEdit(svc: Svc, who: Who, input: { request: str
   if (!page.ok) return page.outcome
   const snap = await client.readContent(page.ref)
   if (!snap.ok) return snap.status === 401 || snap.status === 403 ? LOGIN_GONE(site) : fail('SITE_UNAVAILABLE', `The site didn’t answer just now (${snap.error}). Try again in a moment.`)
+  // A builder whose title lives in the body (a Webflow item's `name` field) changes it there, never as a separate title.
+  if (client.titleOf && input.title?.trim()) return fail('TITLE_IN_TEXT', 'This item’s name is one of its fields: change it with an edit of the text (its "name" line), not with title.')
   const edited = input.edits.length ? applyTextEdits(snap.value.body, input.edits) : { ok: true as const, body: snap.value.body }
   if (!edited.ok) return fail('EDIT_DOESNT_FIT', edited.error)
-  const title = input.title?.trim() ? input.title.trim().slice(0, 200) : snap.value.title
+  const invalid = client.validateEdit?.(snap.value.body, edited.body) ?? null
+  if (invalid) return fail('EDIT_DOESNT_FIT', invalid)
+  const title = client.titleOf ? (client.titleOf(edited.body) ?? snap.value.title) : input.title?.trim() ? input.title.trim().slice(0, 200) : snap.value.title
   if (addsCode(snap.value.body, edited.body) || addsCode(snap.value.title, title)) {
     return fail('NO_CODE', 'A change by text changes words, links and pictures already there, never code (a script, a frame, a form or an event handler). Nothing was started. For a form, use wire_website_form.')
   }
-  const edits = [...input.edits, ...(title !== snap.value.title ? [{ find: snap.value.title, replace: title }] : [])]
+  const edits = [...input.edits, ...(!client.titleOf && title !== snap.value.title ? [{ find: snap.value.title, replace: title }] : [])]
   return stageAndAsk(svc, who, site, { kind: 'edit', request: input.request, snapshot: snap.value, after: { title, body: edited.body }, edits }, deps)
 }
 
@@ -489,6 +683,11 @@ function pageFormKind(title: string): FormCandidate['kind'] {
 }
 
 const EMBED_ATTR = /data-ni-form="[^"]*"/
+
+/** The form key a page's embed carries, or null. Pure. */
+export function embedKeyOf(body: string): string | null {
+  return /data-ni-form="(fk_[A-Za-z0-9_-]{43})"/.exec(body)?.[1] ?? null
+}
 
 /** One of the business's public forms, drawn on a page of a builder site. */
 export async function startBuilderWiring(svc: Svc, who: Who, input: { page: string | null; formId: string | null; editGrants?: boolean }, deps: BuilderDeps = {}): Promise<Outcome> {
@@ -508,7 +707,14 @@ export async function startBuilderWiring(svc: Svc, who: Who, input: { page: stri
   const me = await client.identity()
   if (!me.ok) return LOGIN_GONE(site)
   if (!me.value.canEmbed) {
-    return fail('CANT_EMBED', 'Their WordPress login can’t put a form on a page (WordPress keeps scripts only for an administrator on a single site). Connect again with an administrator login, or give them the form’s embed snippet to paste into a Custom HTML block.')
+    return fail(
+      'CANT_EMBED',
+      client.provider === 'wordpress'
+        ? 'Their WordPress login can’t put a form on a page (WordPress keeps scripts only for an administrator on a single site). Connect again with an administrator login, or give them the form’s embed snippet to paste into a Custom HTML block.'
+        : client.provider === 'webflow'
+          ? 'On Webflow I can’t put the form on a page yet (it needs an element placed in the Designer). Give them the form’s embed snippet to paste into an Embed element on the page they want, or the form’s own link.'
+          : `Their ${PROVIDER_LABEL[client.provider]} login can’t put a form on a page (its plan or its login doesn’t allow scripts). Give them the form’s own link, or its embed snippet for their site’s person.`,
+    )
   }
   if (!input.page) {
     const listed = await client.listContent({ limit: 30 })
@@ -564,7 +770,7 @@ export async function startBuilderUndo(svc: Svc, who: Who, input: { changeId?: s
   const snap = await client.readContent(undone.staged.ref)
   if (!snap.ok) return snap.status === 401 || snap.status === 403 ? LOGIN_GONE(site) : fail('SITE_UNAVAILABLE', `The site didn’t answer just now (${snap.error}). Try again in a moment.`)
   if (contentHash(snap.value.title, snap.value.body) !== undone.staged.afterHash) {
-    return fail('CHANGED_SINCE', `The page “${clip(undone.staged.ref.title, 60)}” was changed again since (in WordPress, or by a later change), so putting the old text back would undo that too. Nothing was started. In WordPress, its Revisions can step it back; or ask for the exact change again.`)
+    return fail('CHANGED_SINCE', `The page “${clip(undone.staged.ref.title, 60)}” was changed again since (on the site itself, or by a later change), so putting the old text back would undo that too. Nothing was started.${client.keepsRevisions ? ` In ${PROVIDER_LABEL[client.provider]}, its Revisions can step it back;` : ''} Or ask for the exact change again.`)
   }
   return stageAndAsk(
     svc,
@@ -625,7 +831,7 @@ export async function raiseBuilderCard(
         : {}),
       ...(outside.length ? { adds_outside_addresses: outside.join(', ') } : {}),
       ...(args.wiring ? { adds_entries_to: `Your form “${clip(args.wiring.formName, 80)}”: its old link stops working when this goes live.`, accepts_requests_from: args.wiring.accepts.join(', ') || 'any website' } : {}),
-      yes_does: `Writes this exact change to the page on your ${builder} site, where it is live at once; ${builder} keeps the earlier version.`,
+      yes_does: `Writes this exact change to the ${staged.ref.kind === 'product' ? 'product' : 'page'} on your ${builder} site, where it is live at once; ${staged.provider === 'wordpress' || staged.provider === 'wpcom' ? `${builder} keeps the earlier version` : 'I keep the earlier text, so it can be undone'}.`,
     },
     context: { website: context },
     reason: 'website_change',
@@ -686,6 +892,15 @@ export async function applyBuilderYes(svc: Svc, change: WebsiteChange, site: Web
   }
   const wrote = await client.writeContent(staged.ref, { title: staged.after.title, body: staged.after.body })
   if (!wrote.ok) return failWith(`write: ${wrote.error}`, `The site refused the change (${wrote.error}), so nothing was written. Tell them.`)
+  // A form drawn on a page: the page must still carry its embed as written (a builder may strip a script). If not, the page is put back.
+  if (change.kind === 'wire_form' && change.intakeKeyPrefix) {
+    const back = await client.readContent(staged.ref)
+    const kept = back.ok && embedKeyOf(back.value.body) !== null && embedKeyOf(back.value.body) === embedKeyOf(staged.after.body) && back.value.body.includes('/f/embed.js')
+    if (!kept) {
+      await client.writeContent(staged.ref, { title: staged.before.title, body: staged.before.body }).catch(() => null)
+      return failWith('the site removed the form’s script', `${PROVIDER_LABEL[staged.provider]} removed the form’s script from the page, so the page was put back as it was and the form’s link didn’t change. Give them the form’s own link instead (or its embed snippet to add in their theme).`, 'EMBED_STRIPPED')
+    }
+  }
   const at = new Date((deps.now ?? Date.now)()).toISOString()
   const done = await getChange(svc, change.workspaceId, change.id)
   try {
@@ -702,7 +917,7 @@ export async function applyBuilderYes(svc: Svc, change: WebsiteChange, site: Web
         ? 'It’s on the page now: their form shows there, and every entry lands in its table. Its older link has stopped working. Tell them in a line.'
         : change.kind === 'revert'
           ? 'Done: the page is back the way it was. Tell them in a line.'
-          : `Done: it’s live on their site now (${PROVIDER_LABEL[staged.provider]} keeps the earlier version too). Tell them in a line.`,
+          : `Done: it’s live on their site now${client.keepsRevisions ? ` (${PROVIDER_LABEL[staged.provider]} keeps the earlier version too)` : ' (undo_website_change puts it back)'}. Tell them in a line.`,
   }
 }
 

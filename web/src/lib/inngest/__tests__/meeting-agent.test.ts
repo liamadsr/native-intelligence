@@ -23,6 +23,8 @@ const dial = vi.hoisted(() => ({ dialAttendance: vi.fn(async () => 'dialling') }
 vi.mock('@/lib/meeting-agent/dial', () => dial)
 const fin = vi.hoisted(() => ({ runOwnerBatch: vi.fn(async () => 'completed'), postExtraction: vi.fn(async () => {}) }))
 vi.mock('../capture-finalizer', () => fin)
+const series = vi.hoisted(() => ({ sweepSeries: vi.fn(async () => ({ series: 1, sent: 1, known: 0, noDialIn: 0, failed: 0 })) }))
+vi.mock('@/lib/meeting-agent/series', () => series)
 
 await import('../meeting-agent')
 const { DIAL_LEAD_MS } = await import('../meeting-agent')
@@ -66,5 +68,19 @@ describe('meeting-agent-notes', () => {
     const step = createStepMock()
     await h.handlers['meeting-agent-notes']({ event: { data: { attendanceId: 'att-1', captureId: 'cap-1', workspaceId: 'ws-1', userId: 'u1' } }, step })
     expect(step.sleep).toHaveBeenCalledWith('let-batch-settle', '11m')
+  })
+})
+
+describe('meeting-agent-series', () => {
+  it('runs every 30 minutes, one at a time, and does nothing while MEETING_AGENT is off', async () => {
+    expect(h.configs['meeting-agent-series'].triggers).toEqual([{ cron: '*/30 * * * *' }])
+    vi.stubEnv('MEETING_AGENT', '')
+    const step = createStepMock()
+    expect(await h.handlers['meeting-agent-series']({ event: { data: {} }, step })).toEqual({ skipped: 'off' })
+    expect(series.sweepSeries).not.toHaveBeenCalled()
+    vi.stubEnv('MEETING_AGENT', 'on')
+    expect(await h.handlers['meeting-agent-series']({ event: { data: {} }, step: createStepMock() })).toMatchObject({ sent: 1 })
+    expect(series.sweepSeries).toHaveBeenCalledWith({ db: true })
+    vi.unstubAllEnvs()
   })
 })

@@ -108,6 +108,8 @@ const settingsViews: Record<string, React.LazyExoticComponent<React.ComponentTyp
   'mcp': lazy(() => import('../settings/mcp/mcp-settings-view').then(m => ({ default: m.McpSettingsView }))),
   'devices': lazy(() => import('../settings/devices/devices-settings-view').then(m => ({ default: m.DevicesSettingsView }))),
   'phone': lazy(() => import('../settings/phone/phone-settings-view').then(m => ({ default: m.PhoneSettingsView }))),
+  // Your AI assistant in meetings (roadmap #12): its own nav item shows only while MEETING_AGENT is on.
+  'meetings': lazy(() => import('../settings/meetings/meeting-assistant-view').then(m => ({ default: m.MeetingAssistantView }))),
   // Teams moved to the primary-nav "Teams" view (views/teams-view.tsx); no
   // longer a settings page.
   'environments': lazy(() => import('../settings/environments/environments-view').then(m => ({ default: m.EnvironmentsView }))),

@@ -180,6 +180,14 @@ describe('a Dismiss in an action\'s undo window is its Undo (phase 3)', () => {
     await settle()
     expect(outcomes()).toEqual([])
   })
+
+  it('a loop step run on its own: the call runs once and the parked run carries on, as after an Accept (phase 4)', async () => {
+    const { card } = await raise()
+    const out = await approveToolCall(db as never, owner, card, { autonomousActionId: 'act-1' })
+    expect(out).toMatchObject({ ok: true, status: 'executed' })
+    expect(mocks.callTool).toHaveBeenCalledTimes(1)
+    expect(mocks.settled).toHaveBeenCalledWith(expect.objectContaining({ door: 'flow_step', flow_run_id: 'run-1' }), 'approved')
+  })
 })
 
 describe('earned autonomy off (EARNED_AUTONOMY empty, the default)', () => {

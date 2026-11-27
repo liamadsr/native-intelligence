@@ -81,6 +81,15 @@ describe('a granted kind at the outward gate', () => {
     expect(run).not.toHaveBeenCalled()
   })
 
+  it('a loop step (an unattended run on its flow step) of a granted kind goes the same way: its card, scheduled', async () => {
+    mocks.graduation.mockResolvedValue(GO)
+    const gated = await gateRiskyCall({ ...base, caller: 'agent_unattended', door: 'skill_run', flowStep: true, defer: () => {} }, run, false)
+    expect(run).not.toHaveBeenCalled()
+    expect(gated).toMatchObject({ held: true, output: { code: 'APPROVAL_REQUIRED', approval_id: 'appr-1' } })
+    expect(mocks.graduation).toHaveBeenCalledWith(supabase, expect.objectContaining({ caller: 'agent_unattended', decision: 'ask' }))
+    expect(mocks.schedule).toHaveBeenCalledWith(supabase, expect.objectContaining({ approvalId: 'appr-1' }))
+  })
+
   it('a schedule that fails: the person hears the card is waiting after all, and the model reads a plain hold', async () => {
     mocks.graduation.mockResolvedValue(GO)
     mocks.schedule.mockResolvedValue(false)

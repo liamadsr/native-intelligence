@@ -226,8 +226,10 @@ refuses a moved head), and a stuck write is settled by reading the page back (`r
   app, the scopes above, Webflow review for a private install URL); `WPCOM_CLIENT_ID` /
   `WPCOM_CLIENT_SECRET` (developer.wordpress.com/apps); `WIX_APP_ID` / `WIX_APP_SECRET`
   (Wix Developers app, unlisted, "Manage Embedded Scripts" and the Data/Blog/Stores
-  permissions, an Embedded Script extension). OAuth tokens go in `user_oauth_tokens`,
-  encrypted, as GitHub's do; nothing in the repo.
+  permissions, an Embedded Script extension). A builder's token belongs to the site, not to
+  a person (a Shopify token is the store's), so it is kept on the site's row in
+  `website_site.credentials_encrypted`, encrypted with the same key as the OAuth tokens
+  (`src/lib/crypto/credentials.ts`); nothing in the repo.
 
 **Before `WEBSITE_BUILDERS` is switched on, the edge must be reloaded with the Caddyfile
 from this branch.** WordPress hands the application password (and the login's name) back in
@@ -251,9 +253,10 @@ adds its builder to that sentence.
    `BuilderClient` interface, the WordPress client, connect link and callback, edits, page
    form embed, undo, the card and the yes, the reconcile of a stuck write, the agent's
    section, onboarding, tests with a fake WordPress. Off until `WEBSITE_BUILDERS=wordpress`.
-2. **Shopify**: OAuth provider, pages and product descriptions, theme app extension for the
-   form; start App Store review.
-3. **Webflow** (CMS items, site/page script with a placed form) and **WordPress.com** (OAuth).
+2. **Shopify** (built, mocked APIs): see §8. Later: the theme app extension for a
+   site-wide form; App Store review if the owner picks a public app.
+3. **Webflow** (CMS items) and **WordPress.com** (OAuth): built, mocked APIs, see §9. Later:
+   Webflow's form (a placed element).
 4. **Wix**: unlisted app, embedded script form, collections/blog/products edits.
 5. **A quote form embed** (`data-ni-quote`): today a builder can carry one of the business's
    forms (`form_id`); the quote intake has no drawn form of its own, so a builder site's
@@ -266,3 +269,93 @@ No real WordPress was called from the container: the tests use a fake one. To tr
 `WEBSITE_BUILDERS=wordpress` on a non-production deploy, have an Administrator login on a
 WordPress 5.6+ site on https, connect it by asking the agent ("my site is on WordPress,
 example.com"), approve on WordPress, then ask for a text change and for a form on a page.
+
+## 8. Phase 2: Shopify
+
+Built against a fake store only; nothing registered (the owner hasn't chosen custom
+distribution or a public app yet). Designed for **custom distribution** first: one store (or
+one Plus organization), no App Store review; a public app changes only who may install it,
+not this code.
+
+- **Connect.** `connect_website` with `builder: "shopify"` and the store's `.myshopify.com`
+  address (or its handle, or an admin link; a custom domain is refused with "ask for the
+  myshopify one"). It answers the store's own consent link
+  (`https://<store>.myshopify.com/admin/oauth/authorize`, the authorization code grant) with
+  our scopes (`read_online_store_pages`, `write_online_store_pages`, `read_products`,
+  `write_products`), the redirect `<NEXT_PUBLIC_APP_URL>/api/website/shopify/callback`, and
+  our signed state (30 minutes). The callback (`src/app/api/website/shopify/callback`) checks
+  Shopify's HMAC over the whole query with the app's secret, the state, that the person
+  signed in is the one who asked, and that the store is the one asked for. It trades the
+  code for the store's offline token server-side, and checks the token's scopes cover pages.
+  The token is stored encrypted on the site's row. Then it answers a 303 to its own path with
+  only a result code. The edge already redacts `code` and `state`; `hmac` is a 64-character
+  run.
+- **Changes.** Online Store pages (`pageUpdate`: body HTML and title) and product
+  descriptions (`productUpdate`: `descriptionHtml` and title), through the same card and yes
+  as WordPress. The yes refuses a page that changed since. Shopify keeps no revision, so the
+  card says "I keep the earlier text, so it can be undone" and undo writes it back.
+  `userErrors`, a throttle and a revoked token come back as plain words. Admin GraphQL
+  `2026-10` (`SHOPIFY_API_VERSION` in `providers/shopify.ts`).
+- **Form.** One of the business's public forms, as our embed in the page's body HTML. Shopify
+  might keep or strip a script in a page's body (**unverified**), so the write is read back.
+  If the embed's script is gone, the page is put back as it was, the form keeps its old link,
+  and the owner is told to use the form's own link. The proper way, a theme app extension
+  (an app embed block the merchant turns on in the theme editor), needs the app deployed with
+  that extension: a later step.
+- **Settings.** `SHOPIFY_CLIENT_ID` and `SHOPIFY_CLIENT_SECRET` (`deploy/app/.env.example`,
+  `check_settings.py`), plus `shopify` in `WEBSITE_BUILDERS`. Named without both, Shopify
+  stays off. No migration (724 already allows `shopify`).
+- **Owner steps.** In the Shopify Dev Dashboard (dev.shopify.com), make an app; pick the
+  distribution (Custom: enter the one store's myshopify domain; Public: App Store review).
+  Set its App URL to the app's address and the allowed redirection URL above, and request
+  the four scopes. Copy its Client ID and secret into the server's `.env`. Reload the edge
+  first (as for WordPress), then add `shopify` to `WEBSITE_BUILDERS`. To try it: ask the
+  agent "my store is on Shopify, <name>.myshopify.com", approve in Shopify admin, then ask
+  for a change to a page and to a product description, say yes, and undo it.
+
+## 9. Phase 3: Webflow and WordPress.com
+
+Built against fakes only; nothing registered.
+
+**Webflow** (`providers/webflow.ts`)
+- **Connect:** `connect_website` with `builder: "webflow"` and the site's address answers
+  Webflow's consent link (`webflow.com/oauth/authorize`, scopes `sites:read cms:read
+  cms:write`, redirect `<NEXT_PUBLIC_APP_URL>/api/website/webflow/callback`, our signed
+  state). The callback trades the code server-side, lists the sites the token reaches, and
+  keeps the one whose custom domain or `webflow.io` address is the one asked for (or the only
+  one approved); another site is refused.
+- **Changes:** CMS items only, since Webflow's API can't write a static page's
+  primary-language text. An item reads as one JSON object of its text fields (not the slug,
+  not numbers or references). An edit replaces text inside it and must leave it valid with
+  the same fields. The item's `name` is its title and changes only there. The yes writes
+  with the item's live update (`PATCH /v2/collections/{id}/items/{item}/live`), which
+  publishes that item and never the whole site. Webflow keeps no revision, so undo writes
+  the earlier fields back. A 429 (60 to 120 a minute by site plan) is said plainly.
+- **Form:** not yet. A page needs a placed element for our form, which a registered script
+  alone doesn't give; the agent offers the embed snippet for an Embed element, or the form's
+  own link.
+- **Owner steps:** create the app in our Webflow Workspace (Workspace settings › Apps &
+  Integrations › Develop › Create an App), with the Data client, the three scopes, and the
+  redirect URI above. Copy its Client ID and secret into `WEBFLOW_CLIENT_ID` and
+  `WEBFLOW_CLIENT_SECRET`, and add `webflow` to `WEBSITE_BUILDERS`. Until Webflow reviews the
+  app (private or Marketplace), only our own Workspace's sites can install it.
+
+**WordPress.com** (`providers/wordpress.ts`, the `WpcomLogin` shape)
+- **Connect:** `builder: "wpcom"` and the site's address answers WordPress.com's consent
+  link (`public-api.wordpress.com/oauth2/authorize`, one site by default: the owner picks
+  it). The callback trades the code server-side (`/oauth2/token`); the answer names the
+  token's one site (`blog_id`, `blog_url`), and a site other than the one asked for is
+  refused.
+- **Changes:** the self-hosted client's own pages and posts, through WordPress.com's wp/v2
+  routes (`/wp/v2/sites/<id>/…`) with the token. Whether every route answers there is
+  **unverified**; the tests use a fake. Revisions are kept, as self-hosted. Rights come from
+  `/rest/v1.1/sites/<id>` (`edit_pages`, `edit_others_pages`).
+- **Form:** only when the site reports `unfiltered_html` (plans with plugins); otherwise the
+  agent says so. The write is read back either way (§8).
+- **Owner steps:** create the app at developer.wordpress.com/apps (type Web, redirect URL
+  `<NEXT_PUBLIC_APP_URL>/api/website/wpcom/callback`). Copy its Client ID and secret into
+  `WPCOM_CLIENT_ID` and `WPCOM_CLIENT_SECRET`, and add `wpcom` to `WEBSITE_BUILDERS`. No
+  review is documented.
+
+No migration (724 already allows both). The tokens are kept encrypted on the site's row, as
+Shopify's are.

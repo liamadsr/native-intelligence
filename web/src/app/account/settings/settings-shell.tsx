@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Bug, CreditCard, Mic, Link2, Building2, User, UserCircle, Tag, Mail, Terminal, Cpu, MessageSquare, MessageSquareText, Server, AudioWaveform, Sparkles, Lightbulb, SpellCheck, Keyboard, SlidersHorizontal, TextQuote, Upload } from 'lucide-react'
+import { ArrowLeft, Bug, CreditCard, Mic, Link2, Building2, User, UserCircle, Tag, Mail, Terminal, Cpu, MessageSquare, MessageSquareText, Server, AudioWaveform, Sparkles, Lightbulb, SpellCheck, Keyboard, SlidersHorizontal, TextQuote, Upload, Headphones } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { navRowClass, navSectionLabelClass } from '@/lib/nav-styles'
 import { useIsDesktop } from '@/components/desktop-titlebar'
@@ -94,6 +94,41 @@ const navSections: NavSection[] = [
   },
 ]
 
+/**
+ * Whether this server lets people send their assistant to meetings
+ * (MEETING_AGENT, roadmap #12): asked once per page load, and anything but a
+ * yes (off, signed out, offline) hides the nav item.
+ */
+let meetingAgentProbe: Promise<boolean> | null = null
+function useMeetingAgentOn() {
+  const [on, setOn] = useState(false)
+  useEffect(() => {
+    let live = true
+    meetingAgentProbe ??= fetch('/api/account/meeting-agent?probe=1')
+      .then((res) => res.ok)
+      .catch(() => false)
+    void meetingAgentProbe.then((yes) => {
+      if (live) setOn(yes)
+    })
+    return () => {
+      live = false
+    }
+  }, [])
+  return on
+}
+
+/** The nav with the meeting assistant's page in Features, when it is on. Pure. */
+export function withMeetingsItem(sections: NavSection[], on: boolean, icon: NavSection['items'][number]['icon']): NavSection[] {
+  if (!on) return sections
+  return sections.map((s) => {
+    if (s.title !== 'Features') return s
+    const at = s.items.findIndex((i) => i.href === '/account/settings/autonomy')
+    const items = [...s.items]
+    items.splice(at < 0 ? items.length : at + 1, 0, { href: '/account/settings/meetings', label: 'Meetings', icon })
+    return { ...s, items }
+  })
+}
+
 function useIsLocalhost() {
   const [local, setLocal] = useState(false)
   useEffect(() => {
@@ -156,10 +191,12 @@ export function SettingsShell({
   const isDesktop = useIsDesktop()
   const sidebarWidth = useSidebarCookieWidth()
   const isLocal = useIsLocalhost()
+  const meetingsOn = useMeetingAgentOn()
+  const baseSections = withMeetingsItem(navSections, meetingsOn, Headphones)
 
   const sections = isLocal
     ? [
-        ...navSections,
+        ...baseSections,
         {
           title: 'Developer',
           items: [
@@ -167,7 +204,7 @@ export function SettingsShell({
           ],
         },
       ]
-    : navSections
+    : baseSections
 
   // Determine active state: overlay uses activeSubPath, standalone uses pathname
   const getIsActive = (href: string) => {

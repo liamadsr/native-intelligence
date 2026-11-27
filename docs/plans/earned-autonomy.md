@@ -285,7 +285,7 @@ The workspace kill switch outranks it.
 | 1 | `AGENT_AUTO_ATTEMPT_ENABLED` doc and check fixed. Migration 725. Outcomes recorded at `approveToolCall` / `denyToolCall` / expiry, behind `EARNED_AUTONOMY=record`. The pure rules and hard limits, with tests. The read-only Settings list. | no |
 | 2 | Offers (the home-thread card, Yes / Not now / Never) and Revoke. The grant is stored and shown, and has no effect yet. | no |
 | 3 | Migration 726. `decideAction` answers `run` for a granted kind under `EARNED_AUTONOMY=graduate`. The undo window, the executor with run-time re-checks, compensating undos, demotion on undo. "What I did on my own today". | **yes**, after the owner's decisions |
-| 4 | Recurring work: flow steps on the same path, the digest block, the loop's run line, quiet offers. | yes |
+| 4 | Recurring work: loop steps through the gate, the digest block. Connected-app `call_tool` steps stay closed. No quiet offers. | yes |
 | 5 | Internal kinds: suggested actions from meetings (`proposed_change`) and Mail's drafts, recorded the same way. | internal only |
 
 ## What's built (phases 1 to 3)
@@ -325,13 +325,23 @@ Where the build differs from the sections above, this list is what the code does
   number they're reached at is known.
 - **Quiet** is behind `EARNED_AUTONOMY_QUIET`, off. While it's off, nothing is offered quiet
   and a stored quiet reads as tell.
-- **Not yet** (phase 4):
-  - compensating undos after a call ran (a sent message can't be unsent; its window was
-    its undo);
-  - the daily digest block;
-  - loop `call_tool` steps on connected apps. They hold through their own path
-    (`flows/call-tool.ts`), and connected-app tools can't graduate yet anyway: the door
-    has no destructive hint, so they fail closed.
+- **Phase 4: recurring work, built.**
+  - A loop's own tool calls (a `run_skill` step's) reach the gate as a flow step. The trust
+    authority answers `ask` for them, so a handed-over kind graduates exactly as in chat.
+  - When the window ends, the runner's accept tells the parked run, which carries on with the
+    call's output as it does after a click.
+  - A loop whose outward steps are all handed-over kinds runs end to end without waiting on
+    the person.
+- **Connected-app `call_tool` steps stay closed** (phase 4, by design). A connected app's
+  tool never runs on its own: its annotations are the server's own claim, and its recipients
+  can sit under any input key, so "reaches no one new" can't be shown. A test pins it.
+- **The daily digest** gets a "Done on its own" group (`agent-events/digest.ts`). It lists
+  each action that ran since the last digest, in the person's zone, counted. It's read only
+  under `graduate`, and a failed read is none.
+- **Not built:**
+  - compensating undos after a call ran (a sent message can't be unsent: its window was its
+    undo);
+  - quiet offers (the owner kept tell as the ceiling, decision 2).
 
 ## Decisions (Liam, 11-27)
 
